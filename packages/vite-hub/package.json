@@ -147,6 +147,11 @@
       "import": "./dist/auth/database.js",
       "default": "./dist/auth/database.js"
     },
+    "./auth/forward": {
+      "types": "./dist/auth/forward.d.ts",
+      "import": "./dist/auth/forward.js",
+      "default": "./dist/auth/forward.js"
+    },
     "./auth/mcp": {
       "types": "./dist/auth/mcp.d.ts",
       "import": "./dist/auth/mcp.js",

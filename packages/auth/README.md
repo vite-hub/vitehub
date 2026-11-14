@@ -183,9 +183,21 @@ export default defineAuth({
 });
 ```
 
-Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from the private `@vite-hub/auth/internal/server` entry. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Its route metadata follows the Definition's `access.routes` order; a route with `authorize: true` and no runtime callback returns `403`. Unmatched requests do not resolve Auth.
+Generated route middleware uses `createAuthAccessHandler(routes, definition?, publicRoutes?)` from the private `@vite-hub/auth/internal/server` entry. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Its route metadata follows the Definition's `access.routes` order; a route with `authorize: true` and no runtime callback returns `403`. Unmatched requests do not resolve Auth.
 
 The Nitro build fails with `AUTH_B0002` when a route rule caches or prerenders a path that `access.routes` guards for `GET` or `HEAD`: `swr`, `cache`, `isr`, `prerender`, or `static`. A cached response is made for one visitor and served to others. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. In development, a route rule update that caches a guarded path logs `AUTH_B0002` as a warning.
+
+`access.public` lists paths that no access route guards, in the same form as `access.routes`. With `routes: ["/**"]`, every other path needs a session, so the app is private by default. Keep `/api/auth/**` public, so people can sign in. A route rule that caches only public paths passes `AUTH_B0002`. Write the list inline: the Vite plugin reads it at build time, and other values fail with `AUTH_C0064`.
+
+```ts
+import { defineAuth } from "@vite-hub/auth";
+
+export default defineAuth({
+  access: { routes: ["/**"], public: ["/", "/login", "/api/auth/**"] },
+});
+```
+
+`access.policy: { allow, recheck }` decides who can sign in and stay signed in. Auth calls `allow({ user, accessToken })` when it creates a session; only `true` lets the person in. It calls `allow` again for a session once `recheck` milliseconds (default 300000) have passed, on the next Better Auth request with the session cookie, which includes every `getSession()` call and guard. A refusal deletes the session and its cookies, and the request continues signed out. A throw fails the request and keeps the session. `accessToken(providerId)` returns the user's provider access token, decrypted, so `allow` can call `isGitHubOrgMember()` or another provider. `verifyMcpRequest()` asks the same policy for the user of an MCP access token. The answers are in memory per process. The policy needs a `database` or `secondaryStorage` adapter (`AUTH_C0066`).
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host. Only `true` grants access. ViteHub sends a `Response` unchanged when it is a Response of this runtime: the native `Response.prototype.status` getter accepts it. Create it with the global `Response`. Every other value gets `403`, including a Response from another Fetch implementation such as the `undici` package, a proxy, and an object shaped like a Response.
 
@@ -293,7 +305,7 @@ For a manual adapter that creates plain Web `Request` objects, use `createAuthHa
 
 App Auth loads Better Auth on demand. Nitro imports the Auth route on its first request. The generated access middleware imports `#vitehub/auth/server` only for a request that an access route matches. Generated app Auth startup code imports `@vite-hub/auth/runtime/server`, which has no Better Auth import. Your own code loads Better Auth when it imports `@vite-hub/auth/server`, so import it in routes, not in plugins or global middleware, to keep it out of the startup.
 
-Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback. The callback returns all the options in one object, and Auth does not merge it with other options. `defineAuth()` rejects the removed `runtime` option with `AUTH_C0039`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
+Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback. The callback returns all the options in one object, and Auth does not merge it with other options. `defineAuth()` rejects the removed `runtime` option with `AUTH_C0039`. `access.routes` must be static route strings or `{ authorize, method, route }` objects, and `access.public` static route strings, so the Vite Integration can register Nitro middleware.
 
 
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
@@ -493,6 +505,25 @@ const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 3
 ```
 
 ## MCP OAuth
+
+`@vite-hub/auth/forward` signs people in through a trusted reverse proxy, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. `forwardAuth({ header, verify })` is a Better Auth plugin. On each Better Auth request with the header, which includes every `getSession()` call and guard, it calls `verify({ value, headers, request })`. Auth never trusts the header by itself: `verify` must prove it, for example by calling the provider with the token, checking a JWT signature, or comparing a secret that only the proxy sends, and return `{ providerId, accountId, email, name, emailVerified, image?, accessToken? }` or `null`. An identity signs in as the Better Auth account `providerId:accountId`, with Better Auth's account linking rules, and the request sees the session at once. The session of the cookie, or a session that the process made for the same identity, is reused. `null` ignores the header. `forwardAuth()` without `header` or `verify` fails with `AUTH_C0067`, and a `verify` result that is not an identity fails the request with `AUTH_R0022`.
+
+```ts
+import { defineAuth } from "@vite-hub/auth";
+import { forwardAuth } from "@vite-hub/auth/forward";
+
+export default defineAuth({
+  plugins: [
+    forwardAuth({
+      header: "x-forwarded-user",
+      verify: ({ value, headers }) =>
+        headers.get("x-proxy-secret") === process.env.PROXY_SECRET
+          ? { providerId: "proxy", accountId: value, email: value, name: value, emailVerified: true }
+          : null,
+    }),
+  ],
+});
+```
 
 `@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
 

@@ -60,8 +60,8 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
+| `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
 | `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub database seed`, which then exits with code 1 |
-| `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
@@ -176,6 +176,14 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
 `migrateOnStart` works only for Postgres and local SQLite files in a production Node server. With `migrateOnStart: true`, the build fails for another host or D1 over HTTP. The server fails to start when a database connects to remote libSQL; when Definitions that share a SQLite file or a Postgres database have one folder name with different SQL, or SQL that differs from an applied folder of that name; or when a migrations table from Drizzle Kit 0.x has a row that matches no migration folder. For shared databases, rename the migration folder or use a separate file or database for each Definition. Otherwise, build with the Node host and a `file:` or Postgres URL, or set `migrateOnStart: false` and run `vitehub database migrate` from the deployment.
+
+### DATABASE_MIGRATION_BACKUP_FAILED
+
+`migrateOnStart: { backup }` could not copy a SQLite file before its pending migrations. `error.why` names the database, the copy path, and the reason, such as a folder that is not writable or a full disk. `error.cause` is the file system or SQLite error. The server applied no migration and stops before it listens. Make the folder writable and free space, or set `backup.dir` to another folder, then start the server again. See [Back up SQLite before migrations](/docs/database/configure#back-up-sqlite-before-migrations).
+
+### DATABASE_MIGRATION_BACKUP_UNSUPPORTED
+
+`migrateOnStart: { backup }` copies only local SQLite files. The build fails for a Postgres database, a `connection.url` with remote libSQL (`libsql:`, `http(s):`, `ws(s):`), or `:memory:`. When the URL comes from the environment, the server fails to start instead. It also fails when `keep` is not a whole number of 1 or more. Use a `file:` URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or your libSQL provider's snapshots.
 
 ### DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED
 

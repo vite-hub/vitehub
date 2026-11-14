@@ -79,6 +79,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./forward": {
+      "types": "./dist/forward.d.ts",
+      "import": "./dist/forward.js",
+      "default": "./dist/forward.js"
+    },
     "./internal/server": {
       "types": "./dist/internal/server.d.ts",
       "import": "./dist/internal/server.js",

@@ -140,6 +140,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
       fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
+    DATABASE_MIGRATION_BACKUP_FAILED: {
+      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
+      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
+    },
+    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
+      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
+    },
     DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
       fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
