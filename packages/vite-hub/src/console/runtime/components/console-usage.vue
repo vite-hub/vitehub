@@ -846,11 +846,10 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
-  margin-inline: auto;
-  max-width: 64rem;
+  max-width: 78rem;
   min-height: 0;
   overflow-y: auto;
-  padding: 1.25rem 1.5rem 3rem;
+  padding: 1.5rem 1.5rem 4rem;
   width: 100%;
 }
 

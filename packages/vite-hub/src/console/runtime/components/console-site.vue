@@ -235,11 +235,11 @@ onBeforeUnmount(() => {
 
     <main class="min-h-0 flex-1 overflow-auto">
       <ConsoleState v-if="error" :error="error" title="Couldn't load site access" :retry="load" />
-      <div v-else-if="loading" class="mx-auto grid w-full max-w-3xl gap-3 p-6" aria-busy="true">
+      <div v-else-if="loading" class="vitehub-console-page grid gap-3" aria-busy="true">
         <USkeleton class="h-5 w-40" />
         <USkeleton v-for="index in 3" :key="index" class="h-14 w-full" />
       </div>
-      <div v-else class="mx-auto grid w-full max-w-3xl gap-8 p-6">
+      <div v-else class="vitehub-console-page grid gap-8">
         <p class="text-pretty text-[13px] text-muted">
           The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
         </p>

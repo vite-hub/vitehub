@@ -34,6 +34,10 @@ Use Better Auth as a reference for composability and UnJS as a reference for hos
 - `docs/`: documentation and the first party website
 - `fixtures/`, `test/consumer/`, `test/output/`: consumer and generated output proof
 
+## Diagnostic codes
+
+Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INCOMPLETE`, and put its key in alphabetical order among the codes of its catalog group, so concurrent pull requests edit different lines. Published numbered codes, such as `AUTH_C0068`, keep their names. Write the `why` and `fix` in the catalog: the docs build writes the code's page. Put more text in `docs/diagnostics/<CODE>.md`. `test/diagnostic-codes.test.ts` checks these rules.
+
 ## Before and after a change
 
 Read the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.

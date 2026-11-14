@@ -1,6 +1,7 @@
 import { installConsoleProjectRoot } from "./project-root.ts"
 import { consoleState } from "../../internal.ts"
 
+import type { ConsoleProjectBuild } from "./project.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
 // The generated Console Nitro plugin imports its setters from this entry. It leaves out the access checks and
@@ -13,6 +14,11 @@ export function installConsoleSections(projectRoot: string, sections: readonly C
   const state = consoleState()
   state.navigationSections = navigationSections ? [...new Set(navigationSections)] : undefined
   return state.sections = [...new Set(sections)]
+}
+
+/** Generated production output installs what its build recorded, so `project.get` names the build that serves it. */
+export function installConsoleBuild(build: ConsoleProjectBuild): ConsoleProjectBuild {
+  return consoleState().build = build
 }
 
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {

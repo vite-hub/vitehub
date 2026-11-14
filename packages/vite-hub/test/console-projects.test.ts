@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
+import { consoleProjectBuildOf, consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
@@ -129,6 +129,31 @@ describe("project.get probe", () => {
     expect(init.credentials).toBe("same-origin")
     expect(init.headers).toEqual({ "content-type": "application/json", [consoleRpcHeader]: "1" })
     expect(operationRpcRequest(init.body)).toEqual({ operation: "project.get", input: {} })
+  })
+
+  it("reads the build of the project, and drops a build without a valid time", async () => {
+    const commit = { author: "Ada", branch: "main", message: "feat: ship", sha: "4f9c2e1" }
+    const built = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, build: { commit: { ...commit, extra: 1 }, time: "2026-11-14T10:00:00.000Z" } } }) })
+    expect(built).toMatchObject({ kind: "ready", info: { build: { commit, time: "2026-11-14T10:00:00.000Z" } } })
+    const broken = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, build: { commit, time: "yesterday" } } }) })
+    expect(broken.kind === "ready" && broken.info).not.toHaveProperty("build")
+    expect(consoleProjectBuildOf({ commit: { message: "no sha" }, time: "2026-11-14T10:00:00.000Z" })).toEqual({ time: "2026-11-14T10:00:00.000Z" })
+  })
+
+  it("keeps the build and the open comments of a connected app from the check of the Console server", async () => {
+    const build = { commit: { sha: "4f9c2e1" }, time: "2026-11-14T10:00:00.000Z" }
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build, comments: { open: 3 } }, linked: true, status: 200 })))
+    const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
+    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, comments: { open: 3 }, status: "connected" })
+  })
+
+  it("reads the open comments of a project, and drops a count that is not a whole number", async () => {
+    const counted = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open: 4 } } }) })
+    expect(counted).toMatchObject({ kind: "ready", info: { comments: { open: 4 } } })
+    for (const open of [-1, 1.5, "4"]) {
+      const broken = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open } } }) })
+      expect(broken.kind === "ready" && broken.info).not.toHaveProperty("comments")
+    }
   })
 
   it("reads a refused signature by its code, and any other 401 as a refused signature", async () => {

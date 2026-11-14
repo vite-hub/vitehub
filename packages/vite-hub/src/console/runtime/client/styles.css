@@ -201,3 +201,20 @@ body {
   line-height: 1.75rem;
   text-wrap: balance;
 }
+
+/*
+ * The content area of a page: 24px of padding and one maximum width, so the pages of the Console start on one edge and
+ * a wide screen does not stretch a table. Pages that need every pixel, such as Database and the Content editor, do
+ * not use it.
+ */
+.vitehub-console-page {
+  max-width: 78rem;
+  padding: 1rem 1rem 4rem;
+  width: 100%;
+}
+
+@media (min-width: 40rem) {
+  .vitehub-console-page {
+    padding: 1.5rem 1.5rem 4rem;
+  }
+}

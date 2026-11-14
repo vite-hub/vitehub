@@ -2,7 +2,7 @@
 import type { Component } from "vue";
 import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, ref, shallowReactive, watch, watchEffect } from "vue";
 
-import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
+import type { ConsoleAccountAppStatus, ConsoleAccountCheck, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
@@ -45,6 +45,8 @@ const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? 
 // Only owners and admins link apps, so only they see the controls for it.
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
+// What each app answered in its check, such as its build and open comments, for the rows of Home.
+const checks = reactive<Record<string, ConsoleAccountCheck>>({});
 const busy = ref(false);
 const unlinking = ref(false);
 const app = useConsoleApp();
@@ -117,7 +119,10 @@ onMounted(() => {
   for (const app of apps.value) {
     status[app.id] = "checking";
     void checkConsoleAccountProject(app.id).then(
-      (result) => { status[app.id] = result.status; },
+      (result) => {
+        status[app.id] = result.status;
+        checks[app.id] = result;
+      },
       () => { status[app.id] = "unreachable"; },
     );
   }
@@ -183,8 +188,8 @@ async function retry(): Promise<void> {
         </UDashboardNavbar>
       </template>
       <template #body>
-        <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
-          <ConsoleAccountHome v-if="page === 'home'" :status="status" />
+        <main id="vitehub-account-main" tabindex="-1" class="vitehub-console-page outline-none">
+          <ConsoleAccountHome v-if="page === 'home'" :status="status" :checks="checks" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
@@ -225,15 +230,6 @@ async function retry(): Promise<void> {
   font-size: 0.5625rem;
   height: 1.125rem;
   width: 1.125rem;
-}
-
-.vitehub-account-shell__page {
-  padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem) 4rem;
-}
-
-/* One reading column, centered in the panel, so a wide screen keeps the page in front of the person. */
-.vitehub-account-shell__page > * {
-  margin-inline: auto;
 }
 
 .vitehub-account-shell__dot {

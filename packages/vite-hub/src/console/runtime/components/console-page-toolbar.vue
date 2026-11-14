@@ -7,24 +7,19 @@
  * slot rests the strip on the row's bottom border, so the tab line and the border are one line. On a phone the `tabs`
  * strip takes its own line under the controls, so it still rests on the border when the controls wrap.
  *
- * A page that centers its content in a column passes the same `width`, so the controls start on the content's edge.
+ * A page whose content uses the page width (`vitehub-console-page`) passes `width="page"`, so the controls start on the
+ * content's edge. Without it, the row takes the full width, as full-width pages such as Database do.
  */
 const props = defineProps<{
-  width?: "4xl" | "5xl" | "6xl";
+  width?: "page";
 }>();
-
-const widths = {
-  "4xl": "max-w-4xl px-4 sm:px-6",
-  "5xl": "max-w-5xl px-4 sm:px-6",
-  "6xl": "max-w-6xl px-4 sm:px-6",
-} as const;
 </script>
 
 <template>
   <div class="flex shrink-0 border-b border-default">
     <div
-      class="mx-auto flex w-full flex-wrap gap-x-3"
-      :class="props.width ? widths[props.width] : 'px-3 sm:px-4'"
+      class="flex w-full flex-wrap gap-x-3"
+      :class="props.width ? 'max-w-[78rem] px-4 sm:px-6' : 'px-3 sm:px-4'"
     >
       <!-- The 1px padding keeps the active tab's line inside the scroller, and the negative margin lays it on the border. -->
       <div v-if="$slots.tabs" class="order-last -mb-px w-full min-w-0 self-end overflow-x-auto pb-px sm:order-none sm:w-auto">

@@ -210,7 +210,7 @@ onBeforeUnmount(() => request?.abort());
           </UTooltip>
         </template>
       </ConsolePageHeader>
-      <ConsolePageToolbar v-if="entries.length" width="4xl">
+      <ConsolePageToolbar v-if="entries.length" width="page">
         <UInput
           v-model="search"
           class="w-full sm:w-64"
@@ -247,7 +247,7 @@ onBeforeUnmount(() => request?.abort());
 
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <ConsoleState v-if="failed" :error="failed" title="Could not load Env declarations" :retry="() => refresh()" />
-        <div v-else-if="loading && !entries.length" class="mx-auto grid w-full max-w-4xl gap-2 p-4 sm:p-6" aria-busy="true">
+        <div v-else-if="loading && !entries.length" class="vitehub-console-page grid gap-2" aria-busy="true">
           <USkeleton class="mb-1 h-4 w-32" />
           <USkeleton v-for="index in 8" :key="index" class="h-10 w-full" />
         </div>
@@ -266,7 +266,7 @@ onBeforeUnmount(() => request?.abort());
           title="No matching variables"
           :description="attentionOnly && !search.trim() ? 'No values match the filters.' : `No variables match “${search.trim() || source}”.`"
         />
-        <main v-else class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
+        <main v-else class="vitehub-console-page grid gap-6">
           <section
             v-for="group in groups"
             :key="group.name ?? '(undisclosed)'"

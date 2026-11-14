@@ -420,7 +420,7 @@ onBeforeUnmount(() => request?.abort());
       </ConsolePageHeader>
 
       <!-- The toolbar shows while the records load, so the list does not move down when it arrives. -->
-      <ConsolePageToolbar v-if="!catalogView && (records.length || (loading && !content))" width="5xl">
+      <ConsolePageToolbar v-if="!catalogView && (records.length || (loading && !content))" width="page">
         <UInput
           v-model="search"
           :disabled="!records.length"
@@ -446,14 +446,14 @@ onBeforeUnmount(() => request?.abort());
       <!-- Mount empty so assistive technology registers the status before its text changes. -->
       <p class="sr-only" role="status">{{ hasMounted && loading && !content ? "Loading…" : "" }}</p>
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div v-if="loading && !content" class="mx-auto grid w-full gap-3 p-4 sm:p-6" :class="catalogView ? 'max-w-3xl' : 'max-w-5xl'" aria-busy="true">
+        <div v-if="loading && !content" class="vitehub-console-page grid gap-3" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
         <template v-else-if="!catalogView">
           <ConsoleState v-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
           <!-- Without rows, the empty state takes the free height above the notice, so it sits in the middle of the pane. -->
-          <main v-else class="mx-auto grid w-full max-w-5xl flex-1 gap-4 p-4 sm:p-6" :class="visibleRecords.length ? 'content-start' : 'grid-rows-[1fr_auto]'">
+          <main v-else class="vitehub-console-page grid flex-1 gap-4" :class="visibleRecords.length ? 'content-start' : 'grid-rows-[1fr_auto]'">
             <UEmpty
               v-if="!records.length"
               variant="naked"
@@ -542,7 +542,7 @@ onBeforeUnmount(() => request?.abort());
           :base="workspaceFilesBase"
           :name="selectedDefinition.name"
         />
-        <main v-else class="mx-auto grid w-full max-w-3xl gap-8 p-4 sm:p-6">
+        <main v-else class="vitehub-console-page grid gap-8">
           <header class="grid gap-3">
             <dl class="flex flex-wrap gap-x-10 gap-y-3">
               <div class="grid min-w-0 gap-1">

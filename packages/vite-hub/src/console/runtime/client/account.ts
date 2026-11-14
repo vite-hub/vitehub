@@ -8,6 +8,9 @@ import { createAuthClient } from "better-auth/client"
 import { organizationClient } from "better-auth/client/plugins"
 
 import { consoleDiagnostic, consoleStatusDiagnosticCode } from "../diagnostics.ts"
+import { consoleProjectBuildOf, consoleProjectCommentsOf } from "./project-link.ts"
+
+import type { ConsoleProjectBuild, ConsoleProjectComments } from "./project-link.ts"
 
 /** A project of the active team, as `GET /api/projects` returns it. The page never sees the private key. */
 export interface ConsoleAccountProject {
@@ -290,6 +293,10 @@ export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
+  /** The build that the connected app runs, from its `project.get` answer. */
+  build?: ConsoleProjectBuild
+  /** The open Comments threads of the connected app, when the app has Comments. */
+  comments?: ConsoleProjectComments
 }
 
 // The codes of an app that has no public key for the link, or another one.
@@ -298,7 +305,12 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 /** Whether the app keeps the public key of the link: the Console server calls the app with a signed request. */
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
-  if (result.linked) return { status: "connected", code: result.status }
+  if (result.linked) {
+    const answer = result.answer instanceof Object ? result.answer : {}
+    const build = consoleProjectBuildOf(Reflect.get(answer, "build"))
+    const comments = consoleProjectCommentsOf(Reflect.get(answer, "comments"))
+    return { status: "connected", code: result.status, ...(build ? { build } : {}), ...(comments ? { comments } : {}) }
+  }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
   // The Console server answers for the app when it cannot reach it, with a `CONSOLE_FORWARD_` code.

@@ -60,7 +60,7 @@ function editorRoute(name: string) {
       title="No singletons"
       description="Define a singleton() in server/content.ts, such as settings.json, to edit it here."
     />
-    <div v-else class="mx-auto grid w-full max-w-5xl gap-2 px-4 py-6 sm:px-6">
+    <div v-else class="vitehub-console-page grid gap-2">
       <UAlert
         v-if="error"
         color="error"
