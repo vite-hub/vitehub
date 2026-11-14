@@ -35,11 +35,12 @@ export interface ConsoleAccountAnswer {
 
 /**
  * The account of a signed-in person: their teams, their roles in the session's team, and its projects. The caller
- * checked the session once. The two reads run at the same time, so the page waits for one database round trip.
+ * checked the session once and passes its user. The two reads run at the same time, so the page waits for one database
+ * round trip.
  */
 export async function readConsoleAccount(
   db: ConsoleDatabase,
-  user: { id: string, name: string, email: string, image?: string | null },
+  user: { id: string, name?: unknown, email?: unknown, image?: unknown },
   sessionTeam: string | undefined,
 ): Promise<ConsoleAccountAnswer> {
   const [memberships, projects] = await Promise.all([
@@ -50,12 +51,14 @@ export async function readConsoleAccount(
       .orderBy(asc(member.createdAt), asc(organization.id)),
     sessionTeam ? listConsoleProjects(db, sessionTeam) : [],
   ])
+  const teams = memberships.map(team => ({ id: String(team.id), name: String(team.name), slug: String(team.slug), role: String(team.role) }))
   // Projects belong to a team, so a person who left the session's team sees none of them.
-  const active = memberships.find(team => team.id === sessionTeam)
+  const active = teams.find(team => team.id === sessionTeam)
+  const email = String(user.email ?? "")
   return {
-    user: { id: user.id, name: user.name, email: user.email, image: user.image ?? null },
-    hasEmail: !isPasskeyEmail(user.email),
-    teams: memberships.map(({ id, name, slug }) => ({ id, name, slug })),
+    user: { id: user.id, name: String(user.name ?? ""), email, image: typeof user.image === "string" ? user.image : null },
+    hasEmail: !isPasskeyEmail(email),
+    teams: teams.map(({ id, name, slug }) => ({ id, name, slug })),
     ...(active ? { teamId: active.id } : {}),
     roles: active ? active.role.split(",").map(role => role.trim()).filter(Boolean) : [],
     projects: active ? projects : [],
