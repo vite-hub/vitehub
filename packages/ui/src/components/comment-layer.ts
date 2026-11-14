@@ -6,7 +6,7 @@ import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
-import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
+import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
 import { CommentPin } from "./comment-pin.ts";
 import type { CommentUpload } from "./comment-panel.ts";
@@ -95,6 +95,12 @@ export const CommentLayer = defineComponent({
      */
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     placement: { default: "pin", type: String as PropType<CommentPlacement> },
+    /**
+     * The size of the thread cards. `"sm"`, the default, is Drop's floating card: 14px text, tight rows, and Edit and
+     * Delete over the name's row. `"md"` is the size of a thread in a panel.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    size: { default: "sm", type: String as PropType<CommentComposerSize> },
   },
   setup(props, { slots }) {
     const { client, subject } = props;
@@ -352,6 +358,7 @@ export const CommentLayer = defineComponent({
         key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
+        size: props.size,
         onClose: () => state.close(),
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
@@ -473,7 +480,7 @@ export const CommentLayer = defineComponent({
                 status: thread.status,
               }),
               hover
-                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, thread }))
+                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, size: props.size, thread }))
                 : null,
             ],
           ),
