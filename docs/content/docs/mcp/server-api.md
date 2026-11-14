@@ -146,7 +146,7 @@ export default defineMcpResource({
   uri: 'ui://lessons/player.html',
   title: 'Lesson player',
   mimeType: 'text/html;profile=mcp-app',
-  _meta: { ui: { csp: { connectDomains: ['https://lessons.example.com'] }, prefersBorder: false } },
+  _meta: { ui: { csp: { connectDomains: ['https://lessons.example.com'], resourceDomains: ['https://lessons.example.com'] }, prefersBorder: false } },
   handler: () => '<!doctype html><div id="player"></div><script type="module" src="https://lessons.example.com/player.js"></script>',
 })
 ```
@@ -167,7 +167,7 @@ export default defineMcpTool({
 ```
 
 - `_meta.ui.resourceUri` tells the client which resource to show for the result. `openai/outputTemplate` is the older ChatGPT name for the same thing.
-- `_meta.ui.csp` lists the origins that the page may load data and files from. The client blocks other origins.
+- `_meta.ui.csp` lists the origins that the page may fetch from (`connectDomains`) and load scripts, styles, and images from (`resourceDomains`). The client blocks other origins.
 - The page reads `structuredContent` of the result. The model reads `content` and `structuredContent`. Put data that only the page needs in the `_meta` of the result.
 
 The server sends every `_meta` as it is. To compute the `_meta` of the contents for each request, return `{ contents: [{ uri, mimeType, text, _meta }] }` from the resource handler. See the [MCP Apps specification](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx) for the `ui` fields and the [OpenAI Apps SDK reference](https://developers.openai.com/apps-sdk/reference) for the `openai/` keys.
