@@ -539,9 +539,13 @@ async function serverState(app) {
   }
 }
 
-/** Runs the vitehub CLI against the app's Console, signed with the test key, and parses its JSON. */
+/**
+ * Runs the vitehub CLI against the app's Console, signed with the test key, and parses its JSON. `vitehub agent
+ * invocations` takes the Console URL (`/_vitehub` on a local origin); the generated operation commands take the app origin.
+ */
 async function vitehub(app, args) {
-  const { stdout } = await run(process.execPath, [cli, ...args, "--url", `${app.origin}/_vitehub`, "--json"], {
+  const url = args[0] === "agent" ? `${app.origin}/_vitehub` : app.origin
+  const { stdout } = await run(process.execPath, [cli, ...args, "--url", url, "--json"], {
     cwd: app.root,
     env: { ...process.env, VITEHUB_CONSOLE_PRIVATE_KEY_CI: consoleKey.privateKey },
     timeout: 60_000,
