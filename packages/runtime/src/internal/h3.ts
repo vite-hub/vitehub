@@ -18,6 +18,15 @@ declare module "h3" {
 
 export type H3RuntimeContextOptions = RuntimeContextOptions
 
+/**
+ * A request event without Standard Context types, such as the event of a `nuxt/server` handler: a web Request and the
+ * response that the host prepares. `installStandardContext()` sets `~standard` on it.
+ */
+export interface HostRequestEvent {
+  readonly req: Request
+  readonly res: { status?: number, readonly headers: Headers }
+}
+
 export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = RequestRuntimeContext<TOptions>
 
 interface PreparedResponseTarget {

@@ -22,6 +22,16 @@ export function envActor(actor: string): EnvActor {
   return mapped
 }
 
+/**
+ * Check the actor of a decision, such as an approval, a revoke, or a new key. The runtime records it,
+ * so it must come from the caller. A JavaScript caller that omits it gets a diagnostic, not a default.
+ */
+export function decisionActor(actor: unknown): string {
+  if (typeof actor !== "string" || !actor) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "missing" })
+  envActor(actor)
+  return actor
+}
+
 /** Resolve the caller. An Agent actor comes only from an Env context that the Agent runtime created. */
 export function callerActor(options: Pick<UseConnectionOptions, "access" | "actor">): string {
   if (options.access) {

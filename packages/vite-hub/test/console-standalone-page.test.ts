@@ -14,9 +14,15 @@ function declarations(css: string): Map<string, string> {
   return new Map(Array.from(css.matchAll(/(--[\w-]+):\s*([^;]+);/g), ([, name, value]) => [name!, value!.trim()]))
 }
 
+// A token that reads a shadcn/ui name, such as `--ui-bg: var(--background)`, takes its value from the same block.
 function block(selector: string): Map<string, string> {
   const start = themeCss.indexOf(`${selector} {`)
-  return declarations(themeCss.slice(start, themeCss.indexOf("}", start)))
+  const tokens = declarations(themeCss.slice(start, themeCss.indexOf("}", start)))
+  const resolve = (value: string): string => {
+    const read = /^var\((--[\w-]+)\)$/.exec(value)?.[1]
+    return read && tokens.has(read) ? resolve(tokens.get(read)!) : value
+  }
+  return new Map(Array.from(tokens, ([name, value]) => [name, resolve(value)]))
 }
 
 // Tailwind writes `oklch(50.5% 0.213 27.518)`; the copy writes `oklch(0.505 0.213 27.518)`.

@@ -309,6 +309,17 @@ describe("Nuxt session and page guard", () => {
     expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
   })
 
+  it("gives createAuthClient() without basePath the same endpoint as the default client", async () => {
+    await configure("/auth", "/app/")
+    vi.stubGlobal("window", {})
+    await plugin.setup({ payload: mocks.payload })
+    await createAuthClient({ plugins: [] }).getSession()
+    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/app/auth", plugins: [] })
+    mocks.createAuthClient.mockClear()
+    await createAuthClient({ basePath: "/custom/auth" }).getSession()
+    expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/custom/auth" })
+  })
+
   it("provides the configured client for browser composables", async () => {
     await configure("/auth", "/app/")
     vi.stubGlobal("window", {})

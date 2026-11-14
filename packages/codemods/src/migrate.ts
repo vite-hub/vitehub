@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs"
-import { cp, lstat, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { basename, join, relative, resolve } from "node:path"
 
 import { intersects, validRange } from "semver"
 
 import { codemods } from "./registry.ts"
-import { applyEdit, editLabel } from "./runner.ts"
+import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { readNuxtConfig } from "./shared/nuxt-config.ts"
 import { CodemodError } from "./types.ts"
@@ -69,26 +69,6 @@ async function readOptional(path: string): Promise<string | undefined> {
   return existsSync(path) ? readFile(path, "utf8") : undefined
 }
 
-async function checkScratchEdit(scratch: string, file: string): Promise<void> {
-  const local = relative(scratch, resolve(scratch, file))
-  if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local)) {
-    throw new CodemodError(`Cannot migrate ${file}: the edit is outside the project.`)
-  }
-  let path = scratch
-  for (const part of local.split(sep)) {
-    path = join(path, part)
-    try {
-      if ((await lstat(path)).isSymbolicLink()) {
-        throw new CodemodError(`Cannot migrate ${file}: it is a symbolic link or is inside a symbolic link. Replace the link with a local file or directory before migrating.`)
-      }
-    }
-    catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return
-      throw error
-    }
-  }
-}
-
 /**
  * Detects every supported module in the project and runs its codemod. The codemods run one after another on a
  * scratch copy, so each one sees the edits of the ones before it. A codemod that fails adds an error and changes
@@ -126,7 +106,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
           nextSteps: planned.nextSteps.map(unscratch),
         }
         // Reject the full batch before writing: copied symlinks can still point at the original files.
-        for (const edit of result.edits) await checkScratchEdit(scratch, edit.path)
+        for (const edit of result.edits) await checkEditPath(scratch, edit.path)
         for (const edit of result.edits) {
           await applyEdit(scratch, edit)
           touched.add(edit.path)
