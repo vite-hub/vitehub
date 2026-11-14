@@ -2044,6 +2044,9 @@ importers:
       '@vite-hub/web-container':
         specifier: workspace:*
         version: link:../web-container
+      get-tsconfig:
+        specifier: ^4.14.3
+        version: 4.14.3
       jiti:
         specifier: catalog:unjs
         version: 2.7.0
