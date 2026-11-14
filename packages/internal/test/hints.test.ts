@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { defineDiagnostics } from "nostics"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { reportViteHubHint, viteHubHintsFile, viteHubHintsPlugin } from "../src/hints.ts"
+import { reportViteHubHint, startViteHubHints, viteHubHintsFile, viteHubHintsPlugin } from "../src/hints.ts"
 
 const diagnostics = defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/demo/diagnostics",
@@ -31,8 +31,8 @@ const read = async (root: string) => JSON.parse(await readFile(join(root, viteHu
 describe("ViteHub hints", () => {
   it("writes an empty report when the run starts, so an earlier run's hints do not stay", async () => {
     const resolved = await config()
-    const plugin = viteHubHintsPlugin() as { configResolved: (config: unknown) => void }
-    plugin.configResolved(resolved)
+    startViteHubHints(resolved)
+    expect(viteHubHintsPlugin().name).toBe("vite-hub/hints")
     expect(await read(resolved.root)).toMatchObject({ version: 1, command: "build", hints: [] })
   })
 
@@ -57,7 +57,22 @@ describe("ViteHub hints", () => {
     const first = await config()
     reportViteHubHint(first, diagnostics.DEMO_B0001())
     const second = { ...first, logger: { warn: vi.fn() } }
-    ;(viteHubHintsPlugin() as { configResolved: (config: unknown) => void }).configResolved(second)
+    ;startViteHubHints(second)
+    expect((await read(first.root)).hints).toEqual([])
+    reportViteHubHint(second, diagnostics.DEMO_B0001())
+    expect(second.logger.warn).toHaveBeenCalledTimes(1)
+  })
+
+  it("starts one run per build: the plugins of one build share it, the next build starts empty", async () => {
+    const first = await config()
+    startViteHubHints(first)
+    reportViteHubHint(first, diagnostics.DEMO_B0001())
+    // A second plugin of the same build keeps the hint.
+    startViteHubHints(first)
+    expect((await read(first.root)).hints).toHaveLength(1)
+    // The next build of the same project, with the problem fixed, writes an empty report and warns again when needed.
+    const second = { ...first, logger: { warn: vi.fn() } }
+    startViteHubHints(second)
     expect((await read(first.root)).hints).toEqual([])
     reportViteHubHint(second, diagnostics.DEMO_B0001())
     expect(second.logger.warn).toHaveBeenCalledTimes(1)

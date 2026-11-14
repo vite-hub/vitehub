@@ -1,4 +1,4 @@
-import { reportViteHubHint } from "@vite-hub/internal/hints"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
@@ -234,6 +234,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       },
     },
     async configResolved(config) {
+      startViteHubHints(config)
       resolved = config
       warnedAboutMemory = false
       rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit

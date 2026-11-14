@@ -45,6 +45,9 @@ type HintsConfig = Pick<ResolvedConfig, "root" | "command" | "logger">
 const runsKey = Symbol.for("vitehub.hints.runs")
 const shared = globalThis as typeof globalThis & { [runsKey]?: Map<string, HintsRun> }
 const runs = shared[runsKey] ??= new Map<string, HintsRun>()
+const startedKey = Symbol.for("vitehub.hints.started")
+const startedShared = globalThis as typeof globalThis & { [startedKey]?: WeakSet<object> }
+const started = startedShared[startedKey] ??= new WeakSet<object>()
 
 function startRun(config: HintsConfig): HintsRun {
   const file = resolve(config.root, viteHubHintsFile)
@@ -81,13 +84,20 @@ export function reportViteHubHint(config: HintsConfig, diagnostic: Diagnostic): 
 
 /**
  * Starts the hints of a build or dev server: writes an empty {@link viteHubHintsFile}, so a run without hints does not
- * leave the hints of an earlier run in place.
+ * leave the hints of an earlier run in place. Every plugin that reports hints calls it from `configResolved`, so a
+ * package used without `vitehub()` starts its own run. The first call for a resolved config starts the run, and the
+ * calls of other plugins of the same build keep it.
  */
+export function startViteHubHints(config: HintsConfig): void {
+  if (started.has(config)) return
+  started.add(config)
+  write(startRun(config))
+}
+
+/** The plugin that `vitehub()` adds, so a build without any hint still writes an empty report. */
 export function viteHubHintsPlugin(): Plugin {
   return {
     name: "vite-hub/hints",
-    configResolved(config) {
-      write(startRun(config))
-    },
+    configResolved: { order: "pre", handler: startViteHubHints },
   }
 }

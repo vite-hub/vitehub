@@ -130,6 +130,11 @@ describe("hubRateLimit", () => {
     const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
     expect(hints).toMatchObject({ version: 1, command: "build", hints: [{ code: "RATE_LIMIT_MEMORY_PER_PROCESS", docs: "https://vitehub.dev/docs/rate-limit/diagnostics/rate_limit_memory_per_process" }] })
     expect(hints.hints[0].fix).toContain("rateLimit.provider")
+
+    // The next standalone build, without the in-memory Rate Limit, starts an empty report.
+    await rm(join(root, "upload.ts"))
+    await configResolved(hubRateLimit({ provider: "memory" }))
+    expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
   })
 
   it("fails configuration for conflicting policies with the same ID", async () => {
