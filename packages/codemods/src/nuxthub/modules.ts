@@ -22,7 +22,7 @@ const hookMessages = new Map<string, string>(Object.entries({
   "hub:db:queries:paths": `NuxtHub's hub:db:queries:paths hook adds SQL that runs after the migrations. ViteHub does not call NuxtHub hooks and has no such queries. ${customMigration}`,
 }))
 
-const scripts = "{ts,mts,js,mjs}"
+const scripts = "{ts,mts,js,mjs,cjs}"
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**"]
 
 /** The app root and the local layers: `layers/*` and relative `extends` paths. */
@@ -54,7 +54,7 @@ async function findHooks(cwd: string, config: NuxtConfigFile): Promise<FollowUp[
     if (!code.includes("hub:db:")) continue
     let program
     try {
-      program = parseProgram(code, { typescript: !/\.m?js$/.test(file) })
+      program = parseProgram(code, { typescript: !/\.[cm]?js$/.test(file) })
     }
     catch {
       followUps.push({ file, message: "This file mentions NuxtHub database hooks, but the codemod could not parse it. Check it by hand." })
@@ -77,7 +77,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Installed dependencies that peer on, or depend on, `@nuxthub/core`. */
-async function findNuxtHubDependents(cwd: string): Promise<FollowUp[]> {
+async function findNuxtHubDependents(cwd: string, dependencyRoot: string): Promise<FollowUp[]> {
   const packageFile = join(cwd, "package.json")
   if (!existsSync(packageFile)) return []
   const code = await readFile(packageFile, "utf8")
@@ -91,7 +91,7 @@ async function findNuxtHubDependents(cwd: string): Promise<FollowUp[]> {
   names.delete(moduleName)
   const followUps: FollowUp[] = []
   for (const name of [...names].sort()) {
-    const installed = join(cwd, "node_modules", name, "package.json")
+    const installed = join(dependencyRoot, "node_modules", name, "package.json")
     if (!existsSync(installed)) continue
     const dependency: unknown = JSON.parse(await readFile(installed, "utf8"))
     if (!isRecord(dependency)) continue
@@ -124,6 +124,6 @@ function findStudioExternalMedia(config: NuxtConfigFile): FollowUp[] {
 }
 
 /** Follow-ups for local modules, layers, and installed packages that use NuxtHub's module APIs. */
-export async function findNuxtHubModuleFollowUps(cwd: string, config: NuxtConfigFile): Promise<FollowUp[]> {
-  return [...await findHooks(cwd, config), ...findStudioExternalMedia(config), ...await findNuxtHubDependents(cwd)]
+export async function findNuxtHubModuleFollowUps(cwd: string, config: NuxtConfigFile, dependencyRoot = cwd): Promise<FollowUp[]> {
+  return [...await findHooks(cwd, config), ...findStudioExternalMedia(config), ...await findNuxtHubDependents(cwd, dependencyRoot)]
 }

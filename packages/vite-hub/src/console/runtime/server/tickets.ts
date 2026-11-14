@@ -189,7 +189,9 @@ async function ticketIdentifier(ticket: string, prefix = identifierPrefix): Prom
 
 /** The origin of the app for a request: `vitehub({ publicUrl })` when set, else the URL of the request. */
 export function appOrigin(request: Request): string {
-  return new URL(resolvePublicUrl({ request }) ?? request.url).origin
+  const origin = resolvePublicUrl({ request })
+  if (!origin) throw consoleRequestError(403, "The request host is not an origin of vitehub({ publicUrl }).", "CONSOLE_ORIGIN_REJECTED")
+  return new URL(origin).origin
 }
 
 /** The app mount of a Console RPC request: its path before `/_vitehub/rpc`. */

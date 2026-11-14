@@ -3,6 +3,7 @@ import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentRef } from "./source-refs.ts"
 
+import type { ContentHandlerOptions } from "./read-gate.ts"
 import type { ContentSourceAllowReason } from "./source-access.ts"
 import type { ContentSourcePull, ContentSourceRefKind } from "./source-refs.ts"
 
@@ -89,9 +90,11 @@ export interface ContentSourcePreviewRoutes {
   /**
    * Serve a request at a preview URL. Other URLs, refs that `allow()` denies, and a runtime without `previews` go to
    * `next` unchanged, so a denied ref gets the same 404 as any missing page. An allowed ref runs `next` with the app path,
-   * and every read of the Source in that request returns the commit of the ref.
+   * and every read of the Source in that request returns the commit of the ref. Unless a Console preview cookie or a
+   * signed token opened the ref, the request first asks `authorize` with `action: "read"`, as `/api/content/**` does,
+   * with the user that `options.user` returns.
    */
-  route(request: Request, next: (request: Request) => Response | Promise<Response>): Promise<Response>
+  route(request: Request, next: (request: Request) => Response | Promise<Response>, options?: ContentHandlerOptions): Promise<Response>
   /**
    * The `/pr/<number>/<path>` links of the pages that a pull request adds or changes, from its GitHub file list. A
    * private pull request, such as one that the CMS opens with `publish: "pr"`, gets links with a signed token from
@@ -319,7 +322,7 @@ function responseCacheControl(own: string | null, policy: string): string {
  * The response of a preview page: `X-Robots-Tag: noindex`, a canonical `Link` header to the production URL, the
  * `Cache-Control` of `previewCacheControl()`, and a same-site redirect kept under the prefix.
  */
-export function previewResponse(response: Response, preview: ContentSourcePreview, reason: ContentSourceAllowReason, requestUrl: string): Response {
+export function previewResponse(response: Response, preview: ContentSourcePreview, reason: ContentSourceAllowReason, requestUrl: string, gated = false): Response {
   let result = response
   try {
     result.headers.set("x-robots-tag", "noindex")
@@ -330,7 +333,8 @@ export function previewResponse(response: Response, preview: ContentSourcePrevie
     result.headers.set("x-robots-tag", "noindex")
   }
   result.headers.append("link", `<${preview.url}>; rel="canonical"`)
-  const policy = result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
+  // An answer that `authorize` allowed depends on the user, like a cookie answer.
+  const policy = gated || result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
   result.headers.set("cache-control", responseCacheControl(result.headers.get("cache-control"), policy))
   const location = result.headers.get("location")
   if (location !== null && result.status >= 300 && result.status < 400) {
@@ -357,9 +361,10 @@ export type ContentPreviewRoutesHostLoader = () => Promise<ContentPreviewRoutesH
  * `/blob/<sha>/<path>`, and `/pr/<number>/<path>`. It wraps Nitro's fetch entry, so the page runs with its production
  * path through route rules, middleware, and every handler, and each read of the `github()` Source returns the commit of
  * the ref. Nitro's cache is bypassed during a preview request, so a cached page never mixes refs. Other requests pass
- * straight through, and the loader runs on the first preview URL only. ViteHub generates it for `server/content.ts`.
+ * straight through, and the loader runs on the first preview URL only. `options.user` gives `authorize` the user of a
+ * preview request. ViteHub generates it for `server/content.ts`.
  */
-export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader): (nitroApp: unknown) => void {
+export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader, options: ContentHandlerOptions = {}): (nitroApp: unknown) => void {
   return (nitroApp) => {
     if (!isRecord(nitroApp) || !(nitroApp.fetch instanceof Function)) return
     let host: ContentPreviewRoutesHost | undefined = content instanceof Function ? undefined : content
@@ -400,7 +405,7 @@ export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHo
           if (response instanceof Response) return response
           // Internal invariant: the fetch entry of Nitro 3 always resolves to a Response.
           throw new TypeError("[vitehub] Nitro's fetch entry did not return a Response.")
-        })
+        }, options)
       })()
     }
   }

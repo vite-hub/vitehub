@@ -10,7 +10,7 @@ import {
   TreeItem,
   TreeItemIndicator,
   TreeItemLabel,
-} from "@vite-hub/kit/tree"
+} from "@ui-sdk/vue/tree"
 import { h, type FunctionalComponent } from "vue"
 
 type Node = { value: string; label: string; children?: Node[] }

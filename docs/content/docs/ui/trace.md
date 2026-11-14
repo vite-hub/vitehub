@@ -361,7 +361,7 @@ Secondary text after the title, such as a count or duration. It does not truncat
 
 ### TraceCollapsible
 
-A line that expands. It is a `Collapsible` from `@vite-hub/kit/collapsible`.
+A line that expands. It is a `Collapsible` from `@ui-sdk/vue/collapsible`.
 
 #### Props
 

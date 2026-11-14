@@ -104,6 +104,32 @@ describe("nuxthub", () => {
     })
   })
 
+  it("keeps the Turso connection that NuxtHub read from env files", async () => {
+    const files = {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+      "server/db/schema.ts": "export const tables = {}\n",
+    }
+    const turso = await app("turso", { ...files, ".env": "TURSO_DATABASE_URL=libsql://app.turso.io\nexport TURSO_AUTH_TOKEN=secret\n" })
+    const urlOnly = await app("turso-url-only", { ...files, ".env.production": "TURSO_DATABASE_URL=libsql://app.turso.io\n" })
+    const definition = async (directory: string) => (await runCodemod("nuxthub", { cwd: directory, dryRun: true })).result.edits.find(edit => edit.path === "server/databases/default/index.ts")?.after
+
+    expect(await definition(turso)).toBe([
+      "import { defineDatabase } from \"vite-hub/database\"",
+      "import * as schema from \"./schema\"",
+      "",
+      "export default defineDatabase({",
+      "  connection: {",
+      "    url: process.env.TURSO_DATABASE_URL || undefined,",
+      "    authToken: process.env.TURSO_AUTH_TOKEN,",
+      "  },",
+      "  schema,",
+      "})",
+      "",
+    ].join("\n"))
+    // NuxtHub switched to Turso only when both variables were set.
+    expect(await definition(urlOnly)).not.toContain("connection")
+  })
+
   it("runs through the migration and deletes the moved schema", async () => {
     const directory = join(scratch, "wizard")
     await rm(directory, { recursive: true, force: true })
@@ -279,5 +305,146 @@ describe("nuxthub", () => {
         "hub.dir set the local data folder. ViteHub keeps local data in .vitehub/data/. Set dataDir under vitehub to keep another folder. The codemod dropped it.",
       ]
     `)
+  })
+
+  describe("database gaps", () => {
+    const nuxtConfig = (db: string) => `export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: ${db} } })\n`
+    const migrate = async (name: string, files: Record<string, string>) => (await runCodemod("nuxthub", { cwd: await app(name, files), dryRun: true })).result
+    const definitionOf = (result: Awaited<ReturnType<typeof migrate>>) => result.edits.find(edit => edit.path === "server/databases/default/index.ts")?.after
+    const messages = (result: Awaited<ReturnType<typeof migrate>>) => result.followUps.map(followUp => followUp.message)
+
+    it("keeps explicit D1 HTTP configuration despite unused Turso templates", async () => {
+      const result = await migrate("d1-turso-template", {
+        "nuxt.config.ts": nuxtConfig("{ driver: 'd1-http', connection: { databaseId: 'production-d1-id' } }"),
+        "server/db/schema.ts": "export {}\n",
+        ".env.example": "TURSO_DATABASE_URL=\nTURSO_AUTH_TOKEN=\n",
+      })
+      expect(definitionOf(result)).toContain('databaseId: "production-d1-id"')
+      expect(definitionOf(result)).toContain("http: true")
+      expect(definitionOf(result)).not.toContain("TURSO_DATABASE_URL")
+      expect(messages(result).join("\n")).toContain("CLOUDFLARE_API_TOKEN")
+    })
+
+    it.each(["layer", "existing", "collision"])("reports resource options when a %s prevents Definition generation", async (reason) => {
+      for (const dialect of ["sqlite", "postgresql"]) {
+        const result = await migrate(`skipped-${reason}-${dialect}`, {
+          "nuxt.config.ts": nuxtConfig(dialect === "sqlite"
+            ? "{ driver: 'd1-http', connection: { databaseId: 'existing-d1-id' } }"
+            : "{ dialect: 'postgresql', connection: { hyperdriveId: 'existing-hyperdrive-id' } }"),
+          [reason === "layer" ? "layers/base/server/db/schema.ts" : "server/db/schema.ts"]: "export {}\n",
+          ...(reason === "existing" ? { "server/databases/default.ts": "export default {}\n" } : {}),
+          ...(reason === "collision" ? { "server/databases/default/schema.ts": "export {}\n" } : {}),
+        })
+        expect(definitionOf(result)).toBeUndefined()
+        const report = messages(result).join("\n")
+        expect(report).toContain(dialect === "sqlite" ? 'databaseId: "existing-d1-id"' : 'cloudflare.hyperdriveId: "existing-hyperdrive-id"')
+        expect(report).toContain(dialect === "sqlite" ? "CLOUDFLARE_API_TOKEN" : "POSTGRES")
+        if (dialect === "sqlite") expect(report).toContain("http: true")
+      }
+    })
+
+    it.each(["sqlite", "postgresql"])("preserves bracket environment references for %s", async (dialect) => {
+      const result = await migrate(`bracket-${dialect}`, {
+        "nuxt.config.ts": nuxtConfig(dialect === "sqlite"
+          ? "{ driver: 'd1-http', connection: { databaseId: process.env['CF-D1-ID'] } }"
+          : "{ dialect: 'postgresql', connection: { hyperdriveId: process.env['CF-HYPERDRIVE-ID'] } }"),
+        "server/db/schema.ts": "export {}\n",
+      })
+      expect(definitionOf(result)).toContain(dialect === "sqlite" ? 'process.env["CF-D1-ID"]' : 'process.env["CF-HYPERDRIVE-ID"]')
+    })
+
+    it("keeps the Postgres URL variables, the PGlite folder, and migrations at start", async () => {
+      const result = await migrate("postgres-url", {
+        "nuxt.config.ts": nuxtConfig("'postgresql'"),
+        "server/db/schema.ts": "export const tables = {}\n",
+      })
+      expect(definitionOf(result)).toBe([
+        "import { defineDatabase } from \"vite-hub/database\"",
+        "import * as schema from \"./schema\"",
+        "",
+        "export default defineDatabase({",
+        "  dialect: \"postgresql\",",
+        "  connection: {",
+        "    url: process.env.POSTGRES_URL || process.env.POSTGRESQL_URL || process.env.DATABASE_URL,",
+        "  },",
+        "  schema,",
+        "})",
+        "",
+      ].join("\n"))
+      expect(messages(result)).toContainEqual(expect.stringContaining("cp -R .data/db/pglite .vitehub/data/database/pglite"))
+      expect(messages(result).join("\n")).not.toContain("sqlite.db")
+      expect(messages(result)).toContainEqual(expect.stringContaining("migrateOnStart: false"))
+    })
+
+    it("moves the Hyperdrive id and the D1 HTTP driver to the Definition", async () => {
+      const hyperdrive = await migrate("postgres-hyperdrive", {
+        "nuxt.config.ts": nuxtConfig("{ dialect: 'postgresql', connection: { hyperdriveId: process.env.HYPERDRIVE_ID }, applyMigrationsDuringBuild: false }"),
+        "server/db/schema.ts": "export const tables = {}\n",
+      })
+      expect(definitionOf(hyperdrive)).toContain("  cloudflare: {\n    hyperdriveId: process.env.HYPERDRIVE_ID,\n  },\n")
+      expect(messages(hyperdrive)).toContainEqual(expect.stringContaining("NuxtHub named the Hyperdrive binding POSTGRES"))
+      expect(messages(hyperdrive).join("\n")).not.toMatch(/hub\.db also set|migrations during the build/)
+
+      const d1Http = await migrate("d1-http", {
+        "nuxt.config.ts": nuxtConfig("{ dialect: 'sqlite', driver: 'd1-http' }"),
+        "server/db/schema.ts": "export const tables = {}\n",
+      })
+      expect(definitionOf(d1Http)).toContain("  cloudflare: {\n    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,\n    http: true,\n  },\n")
+      expect(messages(d1Http)).toContainEqual(expect.stringContaining("NUXT_HUB_CLOUDFLARE_ACCOUNT_ID to CLOUDFLARE_ACCOUNT_ID, NUXT_HUB_CLOUDFLARE_API_TOKEN to CLOUDFLARE_API_TOKEN, NUXT_HUB_CLOUDFLARE_DATABASE_ID to CLOUDFLARE_D1_DATABASE_ID"))
+      expect(messages(d1Http).join("\n")).not.toContain("hub.db also set")
+    })
+
+    it("moves only the top-level schema files of the dialect, as NuxtHub reads them", async () => {
+      const result = await migrate("dialect-folder", {
+        "nuxt.config.ts": nuxtConfig("'postgresql'"),
+        "server/db/schema/users.postgresql.ts": "export const users = 1\n",
+        "server/db/schema/users.sqlite.ts": "export const users = 2\n",
+        "server/db/schema/posts.ts": "import { helper } from './helpers/columns'\nexport const posts = helper\n",
+        "server/db/schema/helpers/columns.ts": "export const helper = 3\n",
+      })
+      expect(result.edits.find(edit => edit.path === "server/databases/default/schema/index.ts")?.after).toBe("export * from './posts'\nexport * from './users.postgresql'\n")
+      expect(result.edits.map(edit => edit.path)).not.toContain("server/databases/default/schema/users.sqlite.ts")
+      expect(result.edits.map(edit => edit.path)).not.toContain("server/databases/default/schema/helpers/columns.ts")
+      expect(result.edits.find(edit => edit.path === "server/databases/default/schema/posts.ts")?.after).toContain("from '../../../db/schema/helpers/columns'")
+      expect(result.followUps).toContainEqual(expect.objectContaining({ file: "server/db/schema/users.sqlite.ts" }))
+    })
+
+    it("lists the schema files of local layers", async () => {
+      const result = await migrate("layers", {
+        "nuxt.config.ts": "export default defineNuxtConfig({ extends: ['./base', '@acme/layer'], modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
+        "server/db/schema.ts": "export const tables = {}\n",
+        "layers/blog/server/db/schema.ts": "export const posts = 1\n",
+        "layers/blog/server/db/schema.postgresql.ts": "export const posts = 2\n",
+        "base/server/db/schema/users.ts": "export const users = 1\n",
+        "layers/empty/nuxt.config.ts": "export default {}\n",
+      })
+      const layers = result.followUps.filter(followUp => followUp.message.startsWith("NuxtHub merged the schema of the layer"))
+      expect(layers.map(followUp => [followUp.file, followUp.message.split(":")[1]?.split(". ")[0]])).toEqual([
+        ["layers/blog/server/db/schema.ts", " layers/blog/server/db/schema.ts"],
+        ["base/server/db/schema/users.ts", " base/server/db/schema/users.ts"],
+      ])
+      expect(layers[0]?.message).toContain("layers/blog/server/databases/default.ts")
+    })
+
+    it("reports where callbacks and the Drizzle casing", async () => {
+      const result = await migrate("query-callbacks", {
+        "nuxt.config.ts": nuxtConfig("{ dialect: 'sqlite', casing: 'snake_case' }"),
+        "server/db/schema.ts": "export const tables = {}\n",
+        "server/api/users.get.ts": [
+          "export default defineEventHandler(async () => {",
+          "  const user = await db.query.users.findFirst({ where: (users, { eq }) => eq(users.id, 1) })",
+          "  const posts = await db.query.posts.findMany({ orderBy: (posts, { desc }) => desc(posts.id) })",
+          "  return db.query.users.findMany({ where: { id: 1 }, with: { posts: { where: function (posts, { eq }) { return eq(posts.id, 1) } } } })",
+          "})",
+          "",
+        ].join("\n"),
+      })
+      expect(result.followUps.filter(followUp => followUp.message.includes("passes a function as where")).map(followUp => [followUp.file, followUp.line])).toEqual([
+        ["server/api/users.get.ts", 2],
+        ["server/api/users.get.ts", 4],
+      ])
+      expect(messages(result)).toContainEqual(expect.stringContaining("snakeCase.table() from drizzle-orm/sqlite-core"))
+      expect(messages(result).join("\n")).not.toContain("hub.db also set")
+    })
   })
 })
