@@ -5,7 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, and WORKFLOW_R0031 to WORKFLOW_R0035.
+// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
@@ -35,6 +35,22 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_CLOUDFLARE_RUN_ID_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Cloudflare does not accept the run id ${JSON.stringify(id)}. A Cloudflare instance id starts with a letter, a digit, or \`_\`, then uses only letters, digits, \`-\`, and \`_\`, up to 100 characters.`,
       fix: "Build the id from allowed characters only, for example `checkout-${orderId}` instead of `checkout:${orderId}`. Hash a long or free-form value first.",
+    },
+    WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED: {
+      why: "DATABASE_URL contains a Postgres URL, but OpenWorkflow no longer selects storage from DATABASE_URL alone. Falling back to a local SQLite file would leave existing Postgres runs behind and stop sharing runs between servers.",
+      fix: "Set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url` to the same Postgres URL, or add a Postgres Default Database. To choose local storage intentionally, set `workflow.sqlite.path` or OPENWORKFLOW_SQLITE_PATH.",
+    },
+    WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING: {
+      why: "OpenWorkflow uses the Postgres Default Database of the app, but that Database has no connection URL outside a request. It connects through PG* environment variables, which OpenWorkflow cannot read.",
+      fix: "Set `connection.url` on the Database Definition, or set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url`.",
+    },
+    WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE: {
+      why: "OpenWorkflow sets up its Postgres schema on a second connection while this server holds the setup lock on the first. The database gave no second connection in 10 seconds, so the setup did not start. A pool with one connection, or a pool that other traffic fills, does this. The server tries again later.",
+      fix: "Raise the pool size to 2 or more. Or set up the schema once through a direct connection, then set `workflow.postgres.runMigrations: false`.",
+    },
+    WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT: {
+      why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
+      fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
     },
     WORKFLOW_R0001: {
       ...dynamicError,
@@ -87,10 +103,6 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0015: {
       ...dynamicError,
       fix: "Deploy the Worker with the output of the current build, and keep the file under `server/workflows/` of every Workflow that still has runs on Cloudflare.",
-    },
-    WORKFLOW_R0016: {
-      ...dynamicError,
-      fix: "Give the inline `createWorkflow()` Workflow and the file under `server/workflows/` different names, or remove one of them.",
     },
     WORKFLOW_R0017: {
       ...dynamicError,
