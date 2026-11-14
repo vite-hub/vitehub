@@ -15,7 +15,7 @@ With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the
 
 | Action | What it does |
 | --- | --- |
-| **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. |
+| **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own. |
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 

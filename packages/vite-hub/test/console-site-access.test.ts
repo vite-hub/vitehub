@@ -84,6 +84,7 @@ afterEach(() => {
 
 describe("Console members", () => {
   it("signs the browser in as the app user with the member's email, with the console role and every page tool role", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
     const url = await link("site.link", { path: "/runs/42" })
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
@@ -109,6 +110,15 @@ describe("Console members", () => {
     expect((await call("site.revoke-session", { id })).value).toEqual({ revoked: true, removedUser: false })
     expect(await signedIn(cookie)).toBeNull()
     expect(app.database.sqlite.prepare("SELECT id FROM user WHERE email = ?").get("grace@example.com")).toBeDefined()
+  })
+
+  it("refuses an app account with the member's email that nobody verified, and gives it no role", async () => {
+    // Anyone can sign up to the app with the member's email. That account must not get the member's roles.
+    const { response, cookie } = await open(await link("site.link"))
+    expect(response.status).toBe(403)
+    expect(await response.text()).toContain("its email is not verified")
+    expect(cookie).toBe("")
+    expect(app.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(app.member.id)).toEqual({ role: "user" })
   })
 
   it("gives a phone link 10 minutes", async () => {
