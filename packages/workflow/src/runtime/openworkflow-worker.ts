@@ -1,4 +1,4 @@
-import { onShutdown } from "@vite-hub/runtime/shutdown"
+import { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 
 import { describeOpenWorkflowStorage, detachOpenWorkflowRuntimes, getOpenWorkflowRuntime, registerOpenWorkflowDefinition, setOpenWorkflowDatabaseUrl, setOpenWorkflowImporter } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
@@ -6,7 +6,7 @@ import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry, loadWorkflowDefin
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkflowError } from "../errors.ts"
 
-import type { ShutdownApp } from "@vite-hub/runtime/shutdown"
+import type { ShutdownApp } from "@vite-hub/runtime/internal/shutdown"
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
