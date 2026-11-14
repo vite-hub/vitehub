@@ -92,8 +92,17 @@ function assertNoPutAccess(options: object) {
   }
 }
 
-function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
-  const response = Response.json({ error }, { status })
+/**
+ * An error response keeps the CORS headers of the `headers` option, so a page on another origin can read its status.
+ * The other headers describe the object, such as `Cache-Control`, and stay off.
+ */
+function blobErrorResponse(request: Request, options: BlobServeResponseOptions, status: 400 | 404 | 405, error: string, allow?: string): Response {
+  const headers = new Headers()
+  for (const [name, value] of new Headers(options.headers)) {
+    if (name.startsWith("access-control-")) headers.set(name, value)
+  }
+  if (allow) headers.set("Allow", allow)
+  const response = Response.json({ error }, { headers, status })
   return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
@@ -304,14 +313,19 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
+      // Like a static file server, answer every other method without reading storage, so a POST to a file URL does
+      // not download the file.
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return blobErrorResponse(request, options, 405, `Blob serve() answers GET and HEAD, not ${request.method}.`, "GET, HEAD")
+      }
       const { edgeCache } = options
       if (edgeCache && (!Number.isSafeInteger(edgeCache.maxAge) || edgeCache.maxAge <= 0)) {
         throw blobErrorDiagnostics.BLOB_R0047({ message: "`edgeCache.maxAge` must be a positive integer." })
       }
       const decodedPath = decodePathname(pathname)
       const issue = pathnameIssue(decodedPath)
-      if (issue) return blobErrorResponse(request, 400, `Invalid Blob pathname: it ${issue}.`)
-      if (isReservedPath(decodedPath)) return blobErrorResponse(request, 404, "Blob not found.")
+      if (issue) return blobErrorResponse(request, options, 400, `Invalid Blob pathname: it ${issue}.`)
+      if (isReservedPath(decodedPath)) return blobErrorResponse(request, options, 404, "Blob not found.")
       const edge = edgeCache && !options.variant && !options.transform
         ? { key: edgeCacheKey(request, store, driver.canonicalPathname?.(decodedPath) ?? decodedPath), maxAge: edgeCache.maxAge }
         : undefined
@@ -319,8 +333,8 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (kept) return keptResponse(kept, options, decodedPath)
       const [error, response] = await serveRequest(request, decodedPath, options)
       if (!error) return edge ? keepInEdgeCache(request, edge.key, response, edge.maxAge) : response
-      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, 404, "Blob not found.")
-      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, 400, error.message)
+      if (error.code === "BLOB_NOT_FOUND") return blobErrorResponse(request, options, 404, "Blob not found.")
+      if (error.code === "BLOB_PATHNAME_TOO_LONG") return blobErrorResponse(request, options, 400, error.message)
       throw error
     },
     store() {
