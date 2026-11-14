@@ -113,6 +113,56 @@ export interface GitHubInstallOptions {
   slots?: GitHubInstallSlots;
 }
 
+/** Repository scripts, pnpmfile hooks and package-manager self-management never run on the host. */
+const pnpmProtectedFlags = ["--ignore-scripts", "--ignore-pnpmfile", "--config.manage-package-manager-versions=false"];
+
+/** Host environment for package managers: no host credentials and no repository-selected Corepack behavior. */
+async function packageManagerEnvironment(target: string): Promise<NodeJS.ProcessEnv> {
+  const home = join(target, ".git", "vitehub-install-home");
+  await mkdir(home, { recursive: true });
+  // Corepack caches CommonJS managers below HOME. The checkout's ESM package
+  // scope must not reinterpret their .js executables as ES modules.
+  await writeFile(join(home, "package.json"), JSON.stringify({ type: "commonjs" }));
+  return { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR, YARN_ENABLE_SCRIPTS: "false", YARN_IGNORE_PATH: "1", COREPACK_ENV_FILE: "0", COREPACK_NPM_REGISTRY: "https://registry.npmjs.org", COREPACK_ENABLE_PROJECT_SPEC: "0", COREPACK_DEFAULT_TO_LATEST: "0", COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
+}
+
+/** Corepack must not execute a PR-supplied URL, devEngines override or yarnPath. Select an official version. */
+async function packageManagerVersion(source: string): Promise<(name: string, fallback: string) => string> {
+  const { packageManager } = v.parse(manifest, await exists(join(source, "package.json")) ? JSON.parse(await readFile(join(source, "package.json"), "utf8")) : {});
+  return (name, fallback) => {
+    if (!packageManager) return fallback;
+    const match = packageManager.match(/^(pnpm|npm|yarn)@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f\d]+)?$/);
+    if (!match || match[1] !== name) throw new Error("packageManager must select an official matching package-manager version.");
+    return match[2]!;
+  };
+}
+
+/**
+ * Regenerate `pnpm-lock.yaml` from the checkout's current manifests and lockfile and return it.
+ * pnpm runs on a private snapshot with validated inputs, the pinned official version and no
+ * repository code. `--lockfile-only` downloads no tarballs, so the frozen install still checks the result.
+ */
+export async function regenerateGitHubPnpmLockfile(target: string, signal?: AbortSignal, options: GitHubInstallOptions = {}): Promise<string> {
+  signal?.throwIfAborted();
+  const release = await (options.slots ?? defaultInstallSlots).acquire(signal);
+  let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
+  try {
+    const env = await packageManagerEnvironment(target);
+    snapshot = await createGitHubInstallSnapshot(target);
+    const source = snapshot.directory;
+    await validateGitHubInstallInputs(source);
+    const lockfile = join(source, "pnpm-lock.yaml");
+    // The host never runs a pnpmfile, and its hooks can change resolutions.
+    if (parseAllDocuments(await readFile(lockfile, "utf8")).some(document => document.has("pnpmfileChecksum"))) throw new Error("The lockfile depends on a pnpmfile, which the host does not run.");
+    const version = await packageManagerVersion(source);
+    await exec("corepack", [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--lockfile-only", ...pnpmProtectedFlags], { cwd: source, env, signal, timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    return await readFile(lockfile, "utf8");
+  } finally {
+    try { await snapshot?.close(); }
+    finally { release(); }
+  }
+}
+
 /** Install frozen dependencies before entering the provider's network sandbox. */
 export async function installGitHubPullRequestWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner, options: GitHubInstallOptions = {}): Promise<void> {
   signal?.throwIfAborted();
@@ -130,12 +180,7 @@ export async function installGitHubPullRequestWorkspace(target: string, signal?:
 async function installWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner): Promise<void> {
   if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return;
   signal?.throwIfAborted();
-  const home = join(target, ".git", "vitehub-install-home");
-  await mkdir(home, { recursive: true });
-  // Corepack caches CommonJS managers below HOME. The checkout's ESM package
-  // scope must not reinterpret their .js executables as ES modules.
-  await writeFile(join(home, "package.json"), JSON.stringify({ type: "commonjs" }));
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR, YARN_ENABLE_SCRIPTS: "false", YARN_IGNORE_PATH: "1", COREPACK_ENV_FILE: "0", COREPACK_NPM_REGISTRY: "https://registry.npmjs.org", COREPACK_ENABLE_PROJECT_SPEC: "0", COREPACK_DEFAULT_TO_LATEST: "0", COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
+  const env = await packageManagerEnvironment(target);
   const record = join(target, ".git", "vitehub-install.json");
   let runMetadata: Record<string, unknown> | void = undefined;
   let command: string | undefined;
@@ -158,15 +203,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     const source = snapshot.directory;
     const inputs: Record<string, string> = {};
     const fingerprint = await validateGitHubInstallInputs(source, undefined, inputs);
-    const { packageManager } = v.parse(manifest, await exists(join(source, "package.json")) ? JSON.parse(await readFile(join(source, "package.json"), "utf8")) : {});
-    // Corepack must not execute a PR-supplied URL, devEngines override or yarnPath.
-    // Select an official package-manager version and disable repository extensions.
-    const version = (name: string, fallback: string) => {
-      if (!packageManager) return fallback;
-      const match = packageManager.match(/^(pnpm|npm|yarn)@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f\d]+)?$/);
-      if (!match || match[1] !== name) throw new Error("packageManager must select an official matching package-manager version.");
-      return match[2]!;
-    };
+    const version = await packageManagerVersion(source);
     if (await exists(join(source, "pnpm-lock.yaml"))) {
       // The frozen graph is already resolved and repository hooks stay off, so the
       // private snapshot drops the checksum of the hook that does not run.
@@ -174,7 +211,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
       const documents = parseAllDocuments(await readFile(lockfile, "utf8"));
       if (documents.map(document => document.delete("pnpmfileChecksum")).some(Boolean)) await writeFile(lockfile, documents.map(String).join(""));
       command = "corepack";
-      args = [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--config.manage-package-manager-versions=false"];
+      args = [`pnpm@${version("pnpm", "10.34.6")}`, "install", "--frozen-lockfile", ...pnpmProtectedFlags];
     }
     else if (await exists(join(source, "package-lock.json")) || await exists(join(source, "npm-shrinkwrap.json"))) {
       const npmVersion = version("npm", "11.6.3");

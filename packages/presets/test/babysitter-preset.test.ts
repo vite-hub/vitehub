@@ -3710,6 +3710,25 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it.each([false, true])("logs host-resolved conflicts and names them in the Sandbox prompt (Sandbox: %s)", async sandbox => {
+    const f = await fixture(false, false, { sandbox, mergeableState: "dirty" });
+    vi.mocked(prepareGitHubRepairBase).mockImplementationOnce(async () => ({
+      conflicted: ["package.json", "pnpm-lock.yaml", "src/a.ts"],
+      resolved: [{ path: "package.json", rule: "package-json" }, { path: "pnpm-lock.yaml", rule: "pnpm-lockfile" }],
+      remaining: ["src/a.ts"],
+    }));
+    try {
+      await f.reconcile();
+      expect(f.events).toHaveBeenCalledWith("babysitter.conflict.prepared", expect.objectContaining({
+        head_sha: f.pr().head.sha, conflicted: 3, resolved: 2, remaining: 1,
+        resolved_files: ["package.json (package-json)", "pnpm-lock.yaml (pnpm-lockfile)"], remaining_files: ["src/a.ts"],
+      }));
+      // Without a Sandbox the provider launch prepares the merge after the prompt; the model reads .git/vitehub-merge.json.
+      if (sandbox) expect(f.passes[0]!.prompt).toContain("<host-resolved-conflicts>\nThe host resolved and staged these merge conflicts mechanically. Review them instead of redoing them:\n- package.json (package-json)\n- pnpm-lock.yaml (pnpm-lockfile)\nStill conflicted: src/a.ts.");
+      else expect(f.passes[0]!.prompt).not.toContain("<host-resolved-conflicts>");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it.each([
     [false, "readBaseCheckEvidence"], [true, "readBaseCheckEvidence"],
     [false, "readBaseCheckLogs"], [true, "readBaseCheckLogs"],
