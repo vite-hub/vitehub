@@ -63,6 +63,19 @@ describe("hubForms without a Database", () => {
     await expect(configure(root, "build")).rejects.toMatchObject({ code: "FORMS_B0002", message: expect.stringContaining("server/forms/contact.ts") })
   })
 
+  it.each([
+    ["store: false, ...{ store: true }", true],
+    ["store: false, [key]: true", true],
+    ["store: false, [key]: false", true],
+    ["...options, store: false", false],
+    ["[key]: true, store: false", false],
+    ["store: false, ['store']: true", true],
+    ["store: false, ['notify']: notify", false],
+  ])("classifies overrides in source order: %s", (members, stores) => {
+    const root = app({ "server/forms/contact.ts": `export default defineForm({ schema, ${members} })` })
+    expect(storingForms(discoverForms(root)).length > 0).toBe(stores)
+  })
+
   it("builds when every form sets store: false", async () => {
     const root = await configure(app({ "server/forms/notify.ts": notifying }), "build")
     expect(readFileSync(join(root, ".vitehub/nitro/forms/handler.mjs"), "utf8")).not.toContain("memory")

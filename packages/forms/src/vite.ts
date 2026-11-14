@@ -4,7 +4,7 @@ import { join, relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
-import { findDefaultExportCall, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { findDefaultExportCall, objectProperties, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
@@ -55,8 +55,9 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
 export function storingForms(forms: readonly DiscoveredForm[]): DiscoveredForm[] {
   return forms.filter((form) => {
     const options = findDefaultExportCall(scanModule(readFileSync(form.file, "utf8"), form.file), ["defineForm"])?.options
-    const store = options && findProperty(options, "store")?.value
-    return !store || staticValue(store) !== false
+    // A spread or dynamic key can replace an earlier explicit store value.
+    const store = options && objectProperties(options).findLast(property => property.key === "store" || property.key === undefined)
+    return store?.key !== "store" || !store.value || staticValue(store.value) !== false
   })
 }
 
