@@ -42,6 +42,8 @@ export interface AgentInvocationsRenderOptions {
   libsql?: boolean
   /** The ViteHub project root of the default journal. Without it, the plugin installs no default journal. */
   projectRoot?: string
+  /** The `file:` Agent State URL that the default journal goes next to. See `agentJournalStateUrl()`. */
+  stateUrl?: string
 }
 
 export interface AgentInvocationsPluginOptions {
@@ -52,6 +54,8 @@ export interface AgentInvocationsPluginOptions {
   host?: string
   /** The D1 binding of the default Database Definition on Cloudflare. A production build stores the default journal there. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
+  /** The `file:` Agent State URL that the default journal goes next to. See `agentJournalStateUrl()`. */
+  stateUrl?: string
 }
 
 const hostsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
@@ -98,6 +102,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
         `projectRoot: ${JSON.stringify(options.projectRoot)}`,
         ...(options.d1Binding ? [`d1: { binding: ${JSON.stringify(options.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }`] : []),
         ...(options.libsql === false ? [] : [`libsql: () => import(${JSON.stringify(agentInvocationsLibsqlModule)})`]),
+        ...(options.stateUrl ? [`stateUrl: ${JSON.stringify(options.stateUrl)}`] : []),
       ]
     : []
   const settings = [
@@ -182,7 +187,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
         libsql = true
         localFileWarning = undefined
       }
-      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot })
+      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
       // The Console plugin reads the app-wide journal while it loads, so this plugin loads first.
       kit.addPlugin(plugin, "start")
