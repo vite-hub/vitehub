@@ -28,6 +28,7 @@ import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPacka
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
@@ -1746,5 +1747,5 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  */
 export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertNoRemovedViteHubOptions(options, "`vitehub()`")
-  return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
+  return withPrintedDiagnostics(withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved)))
 }
