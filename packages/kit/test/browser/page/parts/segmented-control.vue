@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Field, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
 import {
   SegmentedControl,
   SegmentedControlIndicator,
   SegmentedControlItem,
-} from "@vite-hub/kit/segmented-control"
+} from "@ui-sdk/vue/segmented-control"
 </script>
 
 <template>

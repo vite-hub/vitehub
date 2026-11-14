@@ -30,12 +30,13 @@ describe("feature catalog parity with owner resolution", () => {
   it.each(presets)("preserves the %s preset for development Workflow", (preset) => {
     const hosting = resolveDeploymentPlan(preset).nitroPreset
     const support = featureSupport("workflow", "dev", preset)
+    // `vite dev` runs Workflows inline when the host has no inferable provider.
     if (support.level === "explicit") {
-      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.provider/)
+      expect(() => normalizeWorkflowOptions({}, { hosting, inline: true })).toThrow(/workflow.provider/)
       return
     }
     expect(support.level).toBe("native")
-    if (support.level === "native") expect(support.adapter).toBe(normalizeWorkflowOptions({}, { hosting })?.provider)
+    if (support.level === "native") expect(support.adapter).toBe(normalizeWorkflowOptions({}, { hosting, inline: true })?.provider)
   })
 
   it.each(presets)("preserves the %s Deployment Plan for development Queue and Sandbox", (preset) => {

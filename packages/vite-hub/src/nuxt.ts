@@ -34,6 +34,7 @@ import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, has
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
+import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -44,7 +45,7 @@ import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId }
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleOperationContributions, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { BundleVitePlugin, NuxtPageLike } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -846,7 +847,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: ViteHubOpt
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
-  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
+  getModuleDependencies: (nuxt?: unknown) => Promise<Record<string, { optional?: boolean; defaults?: Record<string, unknown>; overrides?: Record<string, unknown> }>>
   getMeta: () => Promise<{
     compatibility: { server: "nitro3" }
     configKey: "vitehub"
@@ -889,6 +890,35 @@ function assertSupportedNuxt(version: string | undefined): void {
   })
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+/** Merges `inline` into `config` one leaf at a time. The inline value wins; arrays and other values are replaced. */
+function mergeOptionLeaves(inline: Record<string, unknown>, config: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...config }
+  for (const [key, value] of Object.entries(inline)) {
+    if (value === undefined) continue
+    const current = merged[key]
+    merged[key] = isPlainObject(value) && isPlainObject(current) ? mergeOptionLeaves(value, current) : value
+  }
+  return merged
+}
+
+/**
+ * Merges the inline options of a `modules` entry into the `vitehub` key of nuxt.config.ts, one leaf at a time, as in
+ * `defineNuxtModule`. A top-level feature switch set to `true` turns the feature on with its defaults, so it keeps the
+ * options object that the other form gives. Deeper `true` values, such as Env values, replace like any other leaf.
+ */
+function mergeNuxtModuleOptions(inline: unknown, config: unknown): Record<string, unknown> {
+  const configured = isPlainObject(config) ? config : {}
+  if (!isPlainObject(inline)) return { ...configured }
+  const features = Object.fromEntries(Object.entries(inline).filter(([key, value]) => !(value === true && isPlainObject(configured[key]))))
+  return mergeOptionLeaves(features, configured)
+}
+
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
@@ -903,10 +933,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   await installViteHubUIRuntime(nuxt)
 
-  const configuredModuleOptions = {
-    ...nuxt.options.vitehub,
-    ...inlineOptions,
-  } as ViteHubNuxtOptions
+  const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
   assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
   const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
   const rootDir = nuxt.options.rootDir || process.cwd()
@@ -1026,6 +1053,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     console: consoleOptions ? "vite-hub/console/server" : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
+    // The `page()` Capability reaches the page through Realtime.
+    realtime: options.realtime ? "vite-hub/realtime/agent" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...ownerModules.emailVite ? { email: "vite-hub/email" } : {},
     ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1136,6 +1165,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           return { providerOutput: describeDeploymentPlanOutput(plan, resolve(nitro?.rootDir ?? rootDir), nitro?.output?.dir) }
         },
       },
+    }] : []),
+    // Nuxt runs the Console in its own Nitro, without the Console Vite plugin. The CLI and `vitehub inspect` read the
+    // Console operations from this plugin, as they read them from the Console Vite plugin in a Vite app.
+    ...(consoleOptions ? [{
+      name: "vite-hub/console-operations",
+      vitehub: { operations: () => consoleOperationContributions(() => consoleSections) },
     }] : []),
     ...(consoleOptions && options.agent ? [consoleInvocationRootPlugin(
       projectRoot,
@@ -1504,7 +1539,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
-  if (isPackageInstalled("@vite-hub/forms") && isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/vue", ["useFormSubmit"])
+  if (isPackageInstalled("@vite-hub/forms") && isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction", "useFormSubmit"])
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
@@ -1581,13 +1616,33 @@ viteHubNuxtModule.getMeta = async () => ({
   name: "vite-hub/nuxt",
 })
 
-viteHubNuxtModule.getModuleDependencies = async () => {
+viteHubNuxtModule.getModuleDependencies = async (nuxt) => {
   // Nuxt asks for the dependencies first on each start of the app, also after a start that failed before Vite closed
   // its plugins. Forget the package checks of an earlier start, so a reload sees the packages installed since then.
   startPackageChecks()
-  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const image = nuxtImageProviderDependency((nuxt as { options?: Parameters<typeof nuxtImageProviderDependency>[0] } | undefined)?.options ?? {})
+  const content = await resolveNuxtContentDatabaseDependencies(nuxt)
+  if (!isPackageInstalled("@nuxt/ui")) return { ...content, ...image }
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  return ui?.viteHubUIIconDependencies ?? {}
+  return { ...ui?.viteHubUIIconDependencies, ...content, ...image }
+}
+
+/**
+ * The Nuxt Content `database` default that the default Database gives, such as Postgres or remote libSQL. Nuxt applies
+ * dependency defaults before it sets up any module, so Content reads it in any module order. A Database with an explicit
+ * `driver` keeps its own Content wiring, and Cloudflare keeps Content on D1.
+ */
+async function resolveNuxtContentDatabaseDependencies(nuxtInstance: unknown) {
+  // SAFETY: Nuxt passes its instance to `getModuleDependencies`; NuxtLike describes only the options read here.
+  const nuxtOptions = (nuxtInstance as NuxtLike | undefined)?.options
+  if (!nuxtOptions || nuxtOptions.dev) return {}
+  const configured = { ...nuxtOptions.vitehub } as ViteHubNuxtOptions
+  if ((configured.host ?? detectHost()) === "cloudflare") return {}
+  const project = { projectRoot: resolveViteHubProjectRoot(nuxtOptions.rootDir || process.cwd()), serverDirs: resolveNuxtServerDirs(nuxtOptions) }
+  const { database } = withConnectionsDatabase(resolveCmsPresetFeatures(withComments(configured as ViteHubOptions), project))
+  if (!database || (database !== true && database.driver !== undefined)) return {}
+  const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt"))
+  return owner?.hubDatabase(database === true ? {} : { ...database }).getModuleDependencies(nuxtInstance) ?? {}
 }
 
 export default viteHubNuxtModule

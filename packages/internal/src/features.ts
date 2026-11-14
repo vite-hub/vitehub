@@ -70,6 +70,11 @@ export interface FeatureImplication {
   feature: FeatureId
   /** Hosts where the implication does not apply. */
   except?: readonly ViteHubHost[]
+  /**
+   * Hosts where the implied feature needs no provider option, because it runs inline in the request process. A
+   * restart loses its work. The feature still needs its option when the app turns it on itself.
+   */
+  inline?: readonly ViteHubHost[]
 }
 
 /** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
@@ -180,7 +185,7 @@ export default defineAgent({
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow" }],
+    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno", "node"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
@@ -304,12 +309,12 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
-      cloudflare: native("d1", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development."),
-      deno: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Deno-native database driver is provided."),
+      cloudflare: native("d1", "D1", "Cloudflare D1 binding, with authenticated HTTP available for development. A PostgreSQL Database Definition connects through Hyperdrive or `connection.url`."),
+      deno: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. No Deno-native database driver is provided."),
       dev: native("sqlite", "SQLite", "Local SQLite through libSQL and Drizzle.", "single-host"),
-      netlify: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Netlify-native database driver is provided."),
-      node: native("sqlite", "SQLite / libSQL", "SQLite or hosted libSQL through the selected Database connection.", "single-host"),
-      vercel: explicit("database.connection", "libSQL / D1", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
+      netlify: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. No Netlify-native database driver is provided."),
+      node: native("sqlite", "SQLite / libSQL / Postgres", "SQLite or hosted libSQL through the selected Database connection, or a PostgreSQL Database Definition.", "single-host"),
+      vercel: explicit("database.connection", "libSQL / D1 / Postgres", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
     },
     id: "database",
     packages: ["@vite-hub/database", "drizzle-orm"],
@@ -354,7 +359,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Cloudflare Workers KV binding."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
-      netlify: explicit("kv.driver", "Upstash", "Configure a remote Upstash store. No Netlify-native KV output is provided."),
+      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
       node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
@@ -423,6 +428,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
     definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
 
 export default defineRealtime({
+  auth: true,
   document: { workspace: "${name}" },
 })
 `),
@@ -490,13 +496,14 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   return { id: payload.id }
 })
 `, { folder: "index", suffix: "workflow" }),
+    developmentOverrides: ["deno"],
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
-      dev: native("vercel", "Vercel Workflow", "The default Node host selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
+      deno: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
+      dev: native("vercel", "Inline", "`vite dev` runs each Workflow inline in the dev server, unless `workflow.provider` or OpenWorkflow storage selects a provider.", "process-local"),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.sqlite.path` or `workflow.postgres.url` to select durable OpenWorkflow.", "process-local"),
+      node: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.sqlite.path` or `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
@@ -557,8 +564,8 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   }))
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
-  // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
+  // Node and Deno select OpenWorkflow when its storage is set and no provider is.
+  if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
@@ -577,6 +584,11 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   if (host !== "dev") return definition.hosts[host]
   if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
+}
+
+/** True when one of the `enabled` features turns `id` on, and `id` then runs inline on `host` without a provider option. */
+export function impliedInline(id: FeatureId, enabled: readonly FeatureId[], host: ViteHubHost): boolean {
+  return enabled.some(source => features[source].implies.some(implication => implication.feature === id && implication.inline?.includes(host)))
 }
 
 /**

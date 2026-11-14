@@ -124,6 +124,12 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     && normalizeHosting(internalOptions.hosting).includes("netlify")
     ? false
     : options
+  let startupBuild = false
+  // `vite dev` and the Workflow that only the Agent turns on run inline when the host has no inferable provider.
+  // A build that turns Workflow on itself must name its provider there.
+  const allowsInline = () => !startupBuild || internalOptions.implicitlyEnabled === true
+  const resolveWorkflow = (workflowOptions: WorkflowOptions | undefined) => normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions.hosting, inline: allowsInline() })
+  const resolveOutputs = (workflowOptions: WorkflowOptions | undefined, hosting = internalOptions.hosting) => resolveWorkflowProviderOutputs(workflowOptions, hosting, allowsInline())
   const scheduleBuildConfigs = new WeakMap<ResolvedConfig, {
     config: ResolvedConfig
     providerOutput: ProviderOutputCatalog | undefined
@@ -211,7 +217,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     if (!config) throw workflowErrorDiagnostics.WORKFLOW_B0001({ message: "[vitehub] Workflow runtime preparation requires resolved Vite config." })
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
-    if (normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions?.hosting ?? "vercel" })?.provider !== "vercel") return
+    if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(config.root)
     const aliases = await providerImportAliases(config)
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
@@ -270,18 +276,17 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   // runtime configuration.
   function buildNeedsStartupRegistry(): boolean {
     if (!internalOptions.hosting) return false
-    const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions.hosting)
+    const outputs = resolveOutputs(workflow)
     return !outputs.cloudflare && !outputs.vercel
   }
 
   let devRootDir: string | undefined
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
-  let startupBuild = false
 
   function resolveDevWorkflow(): ResolvedWorkflowOptions | undefined {
     try {
-      return normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? "vercel" })
+      return resolveWorkflow(workflow)
     }
     catch {
       // The build reports configuration errors. Development keeps the app running without a registry.
@@ -315,8 +320,10 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         // SAFETY: This private fallback field is written before Vite resolves the config.
         const buildConfig = config as typeof config & { __vitehubWorkflowServerDirs?: string[] }
         buildConfig.__vitehubWorkflowServerDirs = serverDirs
-        devWorkflow = resolveDevWorkflow()
         startupBuild = env.command === "build"
+        // A build reports a provider that it cannot use before it starts. Development keeps the app running.
+        if (startupBuild && internalOptions.hosting) resolveWorkflow(workflow)
+        devWorkflow = resolveDevWorkflow()
         if (startupBuild && !internalOptions.hosting) return
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
@@ -441,7 +448,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
     vitehub: {
       durability: () => {
-        const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
+        const options = resolveWorkflow(workflow)
         if (!options) return []
         const input = {
           provider: options.provider,
@@ -453,8 +460,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: ownModule(import.meta.url, "operations") }],
       inspect: () => {
-        const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
-        const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions?.hosting ?? "vercel")
+        const options = resolveWorkflow(workflow)
+        const outputs = resolveOutputs(workflow, internalOptions.hosting ?? "vercel")
         return {
           definitions: options ? [{
             kind: "workflow",
@@ -570,7 +577,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
           vercel: providerRuntimeImportAliases("vercel", generation, buildProviderOutput),
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
-        const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
+        const outputs = resolveOutputs(workflowOptions)
         // Read this build's Nitro output instead of retaining an early provider decision across builds.
         // SAFETY: createNitroConfig installs the named Rollup plugin when Nitro owns the Workflow classes.
         const nitro = Reflect.get(config, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
@@ -617,6 +624,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
               bundleDefines: resolveViteHubBundleDefines(config),
               cloudflareInNitro,
               hosting: internalOptions?.hosting,
+              inline: allowsInline(),
               importBase: internalOptions?.importBase,
               providerImportAliases: retainedImportAliases,
               providerRuntimeImportAliases: retainedRuntimeImportAliases,

@@ -1,7 +1,7 @@
 import { createBlobStorage } from "../storage.ts"
 import { Diagnostic } from "nostics"
 import { blobResult, unknownBlobStoreMessage } from "../errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
+import { createUploadHandler, handleBlobMultipartUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
 import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
 import { resolveRuntimeBlobSecrets, resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
@@ -60,6 +60,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       options: config,
       createMultipartUpload: async (pathname, options) => multipartBucket().createMultipartUpload!(pathname, options),
       resumeMultipartUpload: async (pathname, uploadId) => multipartBucket().resumeMultipartUpload!(pathname, uploadId),
+      copy: async (from, to) => (await activeDriver()).copy!(from, to),
       delete: async pathnames => (await activeDriver()).delete(pathnames),
       get: async pathname => (await activeDriver()).get(pathname),
       getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
@@ -178,6 +179,12 @@ function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): Blob
 function createRuntimeBlobStorage(name = "default"): BlobStorage {
   const storage: BlobStorage = {
     media: createLazyBlobMedia(() => resolveStorageResult("media", name)),
+    async copy(from, to, options) {
+      const [resolutionError, storage] = await resolveStorageResult("copy", name)
+      if (resolutionError) return [resolutionError, undefined]
+      const [error, object] = await storage.copy(from, to, options)
+      return error ? [error, undefined] : [undefined, await withServedBlobUrl(name, object)]
+    },
     async createMultipartUpload(pathname, options) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
@@ -185,7 +192,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    handleUpload: createUploadHandler(() => storage, name),
     async resumeMultipartUpload(pathname, uploadId) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]

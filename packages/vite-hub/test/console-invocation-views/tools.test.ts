@@ -27,7 +27,7 @@ describe("Agent Invocation tool steps", () => {
 
     it("includes failure in a collapsed activity's accessible text", () => {
       const wrapper = show(invocation([event("agent.tool.error", { "tool.name": "Search" })], { status: "failed" }));
-      expect(wrapper.get('[data-status="failed"] .vh-visually-hidden').text()).toBe("Failed");
+      expect(wrapper.get('[data-status="failed"] [data-slot="visually-hidden"]').text()).toBe("Failed");
     });
 
     it("shows Codex steps as the commands and tools the agent ran", async () => {

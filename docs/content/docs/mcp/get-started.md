@@ -25,14 +25,14 @@ Install `@vite-hub/mcp`:
 pnpm add @vite-hub/mcp
 ```
 
-Turn on `mcp` in the ViteHub options:
+Turn on `mcp` in the ViteHub options. The MCP server needs sign-in by default. For this tutorial, `auth: false` turns sign-in off, so that you can connect without an account:
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { mcp: true },
+  vitehub: { mcp: { auth: false } },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ mcp: true }), nitro()],
+  plugins: [vitehub({ mcp: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -55,11 +55,14 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ mcp: true })],
+  plugins: [vitehub({ mcp: { auth: false } })],
 })
 ```
 ::::
 :::
+
+> [!WARNING]
+> With `auth: false`, anyone who knows the URL can call every tool. Before you deploy, remove `auth: false` and [sign MCP clients in](/docs/mcp/configure#sign-in-with-mcp-oauth).
 
 ::
 
@@ -112,7 +115,7 @@ Ask Claude Code to add 2 and 3 with the `my-app` tools. It calls `add` and reads
 
 ## In production
 
-In production, the server answers at `/mcp` of your app, such as `https://app.example.com/mcp`. Anyone who knows the URL can call a public server. When the app has Auth, the server needs an access token. See [Sign in with MCP OAuth](/docs/mcp/configure#sign-in-with-mcp-oauth).
+In production, the server answers at `/mcp` of your app, such as `https://app.example.com/mcp`. With `auth: false`, anyone who knows the URL can call every tool. Remove `auth: false`, set `auth` in the ViteHub options, and add `mcpOAuth()`, so that the server needs an access token. See [Sign in with MCP OAuth](/docs/mcp/configure#sign-in-with-mcp-oauth).
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/mcp/configure"}

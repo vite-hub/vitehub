@@ -153,21 +153,17 @@ async function getUploadUrl(client: FilesInstance, pathname: string): Promise<st
 
 export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   options: TOptions,
-  createAdapter: (options: TOptions, putOptions?: BlobPutOptions) => Adapter | Promise<Adapter>,
+  createAdapter: (options: TOptions) => Adapter | Promise<Adapter>,
   FilesConstructor?: FilesCtor,
 ): BlobDriverAdapter<TOptions> {
   let filesPromise: Promise<FilesInstance> | undefined
 
-  async function createFiles(putOptions?: BlobPutOptions) {
+  async function createFiles() {
     const Files = FilesConstructor ?? await loadFiles()
-    return new Files({ adapter: await (putOptions ? createAdapter(options, putOptions) : createAdapter(options)) }) as FilesInstance
+    return new Files({ adapter: await createAdapter(options) }) as FilesInstance
   }
 
-  async function files(putOptions?: BlobPutOptions) {
-    if (putOptions?.access && options.driver === "vercel-blob" && putOptions.access !== options.access) {
-      return await createFiles(putOptions)
-    }
-
+  async function files() {
     // A failed creation lets the next call try again.
     filesPromise ||= createFiles().catch((error: unknown) => {
       filesPromise = undefined
@@ -176,7 +172,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     return await filesPromise
   }
 
-  return {
+  const driver: BlobDriverAdapter<TOptions> = {
     name: options.driver,
     options,
     async delete(pathnames) {
@@ -317,8 +313,20 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         hasMore: Boolean(result.cursor),
       }
     },
+    // The provider copies the object on its side, with its content type and metadata.
+    async copy(from, to) {
+      try {
+        await (await files()).copy(from, to)
+      }
+      catch (error) {
+        // Providers report a missing source in different ways. Azure wraps the source 404 in `CannotVerifyCopySource`.
+        if (isNotFound(error) || !await driver.head(from)) return null
+        throw error
+      }
+      return await driver.head(to)
+    },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const client = await files(putOptions)
+      const client = await files()
       const uploadOptions = {
         contentLength: putOptions.contentLength,
         contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
@@ -337,4 +345,5 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
+  return driver
 }

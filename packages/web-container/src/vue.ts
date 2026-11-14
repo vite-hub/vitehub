@@ -59,8 +59,14 @@ export interface UseWebContainerOptions {
    * @default "dev"
    */
   start?: WebContainerCommand | false;
-  /** The port that the dev server listens on, such as `3000` for `vite --port 3000`. Other servers do not become the preview. */
+  /**
+   * The port that the dev server listens on, such as `3000` for `vite --port 3000`. The dev server gets it as `PORT`.
+   * Only the server on this port, or on `env.PORT`, becomes the preview. Other servers, such as Nitro workers, do not.
+   * @default 3000
+   */
   port?: number;
+  /** JavaScript that runs first in every HTML page of the preview. See `bootWebContainer({ previewScript })`. */
+  previewScript?: string;
   /** Environment variables for the install and start processes, such as `connectEnv(connect, credentials)`. Read again on each run. */
   env?: MaybeRefOrGetter<Record<string, string> | undefined>;
   /**
@@ -100,8 +106,9 @@ export interface UseWebContainerReturn {
   install: () => Promise<void>;
   /** Stops the dev server, if it runs, and starts it again. */
   restart: () => Promise<void>;
+  /** Writes the files to the container. Rejects when a write fails. The logs show the error too. */
   setFiles: (files: WebContainerFiles, options?: SetFilesOptions) => Promise<void>;
-  /** Puts back the original files. */
+  /** Puts back the original files. Rejects when a write fails. */
   reset: () => Promise<void>;
   teardown: () => void;
 }
@@ -190,12 +197,15 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   let writes: Promise<void> = Promise.resolve();
   let booting: Promise<void> | undefined;
   let devRun: WebContainerRun | undefined;
+  // The port of the running dev server: its `env.PORT`, else `port`, else 3000, the `PORT` that `bootWebContainer()` sets.
+  let devPort: number | undefined;
   let serverActive = false;
   let recovery = Promise.resolve();
   let disposed = false;
 
+  /** Writes `files` to the container. Rejects when a write fails. A later call tries the remaining writes again. */
   function sync(): Promise<void> {
-    writes = writes.then(async () => {
+    const pending = writes.then(async () => {
       const target = fs.value;
       if (!target) return;
       const current = files.value;
@@ -221,10 +231,12 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
         await target.writeFile(path, contents);
         written[path] = contents;
       }
-    }).catch((cause) => {
+    }).catch((cause: unknown) => {
       appendLog(`\r\nCould not write the files: ${toError(cause).message}\r\n`);
+      throw cause;
     });
-    return writes;
+    writes = pending.catch(() => {});
+    return pending;
   }
 
   function pipe(run: WebContainerRun) {
@@ -252,7 +264,9 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
     serverActive = true;
     enter("starting");
     try {
-      const run = await target.run(startCommand, { env: env() });
+      const runEnv = env();
+      devPort = Number(runEnv?.PORT ?? options.port ?? 3000);
+      const run = await target.run(startCommand, { env: runEnv });
       if (disposed) {
         run.kill();
         return;
@@ -313,6 +327,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
           files: written,
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
+          previewScript: options.previewScript,
           onStatus(next) {
             if (disposed) return;
             if (next.stage === "error") {
@@ -332,7 +347,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
         fs.value = target.fs;
         target.on("server-ready", (server) => {
           if (!serverActive || disposed || failure.value) return;
-          if (options.port !== undefined && server.port !== options.port) return;
+          if (server.port !== devPort) return;
           previewUrl.value = server.url;
           enter("ready");
         });
