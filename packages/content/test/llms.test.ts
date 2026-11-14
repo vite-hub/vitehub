@@ -558,6 +558,41 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       expect(page.headers.get("vary")).toBe("Cookie, Accept")
     })
 
+    it("resolves links against nested page URLs, including trailing slashes", async () => {
+      const content = await site({ site: "https://example.com/portal", markdown: { pages: true } })
+      for (const path of ["/guide/start", "/guide/start/"]) {
+        const app: H3 = new H3().use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+        app.get(path, () => html('<main><a href="next">Next</a><img src="images/a.png"><a href="/root">Root</a></main>'))
+        for (const [url, headers] of [[path, { accept: "text/markdown" }], [`${path}.md`, {}]] as const) {
+          const body = await (await app.request(`https://example.com${url}`, { headers })).text()
+          const base = path.endsWith("/") ? "/guide/start/" : "/guide/"
+          expect(body).toContain(`https://example.com${base}next`)
+          expect(body).toContain(`https://example.com${base}images/a.png`)
+          expect(body).toContain("https://example.com/root")
+        }
+      }
+    })
+
+    it.each([false, true])("discards prepared failed-route headers (throws: %s)", async (throws) => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app: H3 = new H3()
+        .use((event) => { event.res.headers.set("x-earlier", "preserved") })
+        .use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+      app.get("/about", () => html("<main>Personal page</main>"))
+      app.all("/**", (event) => {
+        event.res.status = 404
+        event.res.headers.set("content-type", "text/html")
+        event.res.headers.set("cache-control", "public, max-age=600")
+        if (throws) throw Object.assign(new Error("Missing"), { status: 404 })
+        return "Missing"
+      })
+      const response = await app.request("https://example.com/about.md", { headers: { cookie: "session=abc" } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(response.headers.get("cache-control")).toBe("private, no-store")
+      expect(response.headers.get("x-earlier")).toBe("preserved")
+    })
+
     it("does not convert noindex pages, errors, redirects, or other content", async () => {
       const content = await site({ site: "https://example.com", markdown: { prefix: "/raw", pages: true } })
       const app = pages(content)

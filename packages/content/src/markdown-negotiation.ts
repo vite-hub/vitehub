@@ -365,7 +365,7 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
         const html = await page.text()
         const { renderPageMarkdown, robotsMeta } = await import("./markdown-pages.ts")
         const robots = joinRobots(page.headers.get("x-robots-tag"), robotsMeta(html))
-        return await respond(renderPageMarkdown(html, { origin: site }), 200, page.headers, robots)
+        return await respond(renderPageMarkdown(html, { origin: new URL(`${target}${url.search}`, site).href }), 200, page.headers, robots)
       }
       // A redirect, such as to a sign-in page, or an error is the answer for the copy too. A page that is not HTML, or
       // that `X-Robots-Tag` keeps out of indexes, has no copy, and its own URL keeps its answer.
@@ -376,15 +376,26 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
     // A page URL renders the page once. A `.md` URL goes on to the app first, so a route such as `/sitemap.md` answers.
     if (converts && negotiated) return await convert()
     if (!next) return
+    const prepared = new Headers(event.res?.headers)
+    const preparedErrors = new Headers(event.res?.errHeaders)
+    const fallback = async () => {
+      // Discard metadata written by the failed route, retaining earlier middleware headers.
+      for (const [headers, saved] of [[event.res?.headers, prepared], [event.res?.errHeaders, preparedErrors]] as const) {
+        if (!headers) continue
+        for (const name of [...headers.keys()]) headers.delete(name)
+        for (const [name, value] of saved) headers.set(name, value)
+      }
+      return (converts ? await convert() : null) ?? await missing()
+    }
     let result: unknown
     try {
       result = await next()
     }
     catch (error) {
-      if (errorStatus(error) === 404) return (converts ? await convert() : null) ?? await missing()
+      if (errorStatus(error) === 404) return await fallback()
       throw error
     }
-    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return (converts ? await convert() : null) ?? await missing()
+    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return await fallback()
     return result
   }
 }

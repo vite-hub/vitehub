@@ -870,7 +870,7 @@ export default defineContent(${options})
       expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" }),
     )
     // It loads when the server starts, so it imports only the light Markdown entry and loads server/content.ts on demand.
-    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).resolves.toMatch(/^import \{ defineContentMarkdownHandler \} from "vite-hub\/content\/markdown"\n\nexport default defineContentMarkdownHandler\(\(\) => import\(/)
+    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).resolves.toMatch(/^import \{ defineContentMarkdownHandler \} from "vite-hub\/content\/markdown"\nimport \{ serverFetch \} from "nitro"\n\nexport default defineContentMarkdownHandler\(\(\) => import\(/)
     const module: unknown = await import(`${pathToFileURL(join(root, ".vitehub/content/markdown.mjs")).href}?t=${Date.now()}`)
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
