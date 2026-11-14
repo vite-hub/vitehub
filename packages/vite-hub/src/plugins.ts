@@ -1,4 +1,4 @@
-import { defaultDatabaseD1Binding, withAgentJournalBesideState, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -1264,7 +1264,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
   const host = options.host ?? detectHost() ?? "node"
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
-  options = withConnectionsDatabase(withAgentJournalBesideState(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) })))
+  options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(host)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
@@ -1514,6 +1514,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         default: defaultInvocations,
         host: plan.host,
         resolveD1Binding: (root, serverDirs) => defaultDatabaseD1Binding(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
+        stateUrl: agentJournalStateUrl(options),
       }))
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({

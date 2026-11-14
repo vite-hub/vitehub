@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
-import { defaultDatabaseD1Binding, withAgentJournalBesideState, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
+import { defaultDatabaseD1Binding, agentJournalStateUrl, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
@@ -113,23 +113,15 @@ describe("Node storage defaults", () => {
     }
   })
 
-  it("keeps the default Agent journal next to a file Agent State on the node host", async () => {
+  it("passes a file Agent State URL to the default journal on the node host", async () => {
     const state = { driver: "libsql" as const, url: "file:.data/agent-state.db" }
     const { plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
-    expect(plugin).toContain(`default: {"databaseUrl":"file:.data/agent-invocations.sqlite"}`)
-    const journal = (url: string, host: ViteHubOptions["host"] = "node") => {
-      const agent = withAgentJournalBesideState({ host, agent: { providers: { state: { url } } } }).agent
-      return agent && agent !== true ? agent.invocations : undefined
-    }
-    expect(journal("file:///var/lib/app/state.sqlite?mode=rwc")).toEqual({ databaseUrl: "file:///var/lib/app/agent-invocations.sqlite" })
-    expect(journal("file:state.sqlite")).toEqual({ databaseUrl: "file:agent-invocations.sqlite" })
-    expect(journal("file::memory:")).toBeUndefined()
-    expect(journal("libsql://state.example.com")).toBeUndefined()
-    expect(journal("file:.data/agent-state.db", "vercel")).toBeUndefined()
-    const configured = { host: "node" as const, agent: { invocations: { databaseUrl: "libsql://journal.example.com" }, providers: { state } } }
-    expect(withAgentJournalBesideState(configured)).toBe(configured)
-    const off = { host: "node" as const, agent: { invocations: false as const, providers: { state } } }
-    expect(withAgentJournalBesideState(off)).toBe(off)
+    expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
+    const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
+    expect(stateUrl("libsql://state.example.com")).toBeUndefined()
+    expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
+    expect(agentJournalStateUrl({ host: "node", agent: { invocations: { databaseUrl: "libsql://journal.example.com" }, providers: { state } } })).toBeUndefined()
+    expect(agentJournalStateUrl({ host: "node", agent: { invocations: false, providers: { state } } })).toBeUndefined()
   })
 
   it("keeps existing defaults when no directory is supplied", () => {

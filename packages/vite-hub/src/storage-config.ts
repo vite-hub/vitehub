@@ -57,18 +57,16 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
 }
 
 /**
- * On the node host, a default Agent journal without `databaseUrl` goes next to a `file:` Agent State database, so one
- * writable directory holds both. Other hosts and remote State keep the default journal.
+ * The `file:` Agent State URL that the default journal goes next to on the node host, so one writable directory holds
+ * both. Undefined for other hosts, remote or memory State, and a journal with its own `databaseUrl`.
  */
-export function withAgentJournalBesideState(options: ViteHubOptions): ViteHubOptions {
+export function agentJournalStateUrl(options: ViteHubOptions): string | undefined {
   const agent = options.agent
-  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return options
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
   const state = agent.providers?.state
-  if (!state || (state.driver && !["auto", "sqlite", "libsql"].includes(state.driver)) || typeof state.url !== "string") return options
-  const path = /^file:([^?#]*)/i.exec(state.url.trim())?.[1]
-  if (!path || path === ":memory:") return options
-  const databaseUrl = `file:${path.slice(0, path.lastIndexOf("/") + 1)}agent-invocations.sqlite`
-  return { ...options, agent: { ...agent, invocations: { ...agent.invocations, databaseUrl } } }
+  if (!state || (state.driver && !["auto", "sqlite", "libsql"].includes(state.driver)) || typeof state.url !== "string") return
+  const url = state.url.trim()
+  return /^file:/i.test(url) ? url : undefined
 }
 
 /**

@@ -142,7 +142,7 @@ The host must give a persistent, writable filesystem at this path. The option do
 
 To keep an existing storage location, use `agent.providers.state.url`, `agent.invocations.databaseUrl`, or each store's path option. Runtime database URL overrides still win. Changing the directory does not move stored data.
 
-Without `dataDir`, a `file:` URL in `agent.providers.state.url` also moves the default Agent Invocation journal to `agent-invocations.sqlite` in the same directory. For example, `file:.data/agent-state.db` puts the journal at `.data/agent-invocations.sqlite`, so a Docker image needs only one writable volume. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` still selects another file or a libSQL endpoint at runtime.
+Without `dataDir`, a `file:` URL in `agent.providers.state.url` also moves the default Agent Invocation journal to `agent-invocations.sqlite` in the same directory. For example, `file:.data/agent-state.db` puts the journal at `.data/agent-invocations.sqlite`, so a Docker image needs only one writable volume. A relative path resolves from the working directory of the server, as it does for State. When `VITEHUB_AGENT_STATE_URL` replaces the State URL at runtime, the journal follows it. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` still selects another file or a libSQL endpoint.
 
 ## Public URL
 

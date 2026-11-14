@@ -1,4 +1,4 @@
-import { defaultDatabaseD1Binding, withAgentJournalBesideState, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
@@ -939,11 +939,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withAgentJournalBesideState(withDataDir(resolveCmsPresetFeatures(withComments({
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
     ...moduleOptions,
     // `vitehub()` reads `false` as "off" and unset as "development operation RPC only".
     console: moduleOptions.console === false ? false : resolveConsoleOptions(moduleOptions.console),
-  } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))))
+  } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.host)
   // Explicit Database roots are relative to Nuxt's rootDir; automatic discovery uses the ViteHub project root.
@@ -964,7 +964,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!nuxt.options._prepare) assertAgentInvocationsUrl(plan.host, agentJournal?.databaseUrl)
     ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_D1] = { binding: d1Binding }
     const libsql = defaultJournalNeedsLibsql({ build: true, databaseUrl: agentJournal?.databaseUrl, host: plan.host })
-    await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot })
+    await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot, stateUrl: agentJournalStateUrl(options) })
   }
   await writeNuxtAgentJournal(options.database, journalDatabaseRoot)
   const nitro = (nuxt.options.nitro ??= {})
