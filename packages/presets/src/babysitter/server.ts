@@ -247,6 +247,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   let activeModelPasses = 0;
   // Conflict merges and installs that run on the host before their model pass.
   let activeHostPreparations = 0;
+  // Model passes that hold a worker slot. A pass with a model slot may still wait in the worker queue
+  // without using memory, so host capacity samples count only these.
+  let executingModelPasses = 0;
   const modelSlotWaiters = new Set<() => void>();
   const waitingModelOwners = new Set<string>();
   const acquireModelSlot = async (abortSignal: AbortSignal, ownerKey: string) => {
@@ -1648,6 +1651,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         let conflictWork: string | undefined;
         // Gives back the host capacity this pass took for its conflict preparation.
         let releaseHostPreparation = () => {};
+        // Whether this pass is inside runAgent, and whether the worker queue granted it a slot there.
+        // A launch that finishes after runAgent settled must not count.
+        let dispatching = false;
+        let executing = false;
+        const startExecuting = () => {
+          if (dispatching && !executing) { executing = true; executingModelPasses++; }
+        };
         let placementLease: BabysitterPlacementLease | undefined;
         // The PR's kept workspace, and what this pass leaves in it for the next one.
         let workspaceEntry: PullRequestWorkspaceEntry | undefined;
@@ -2064,9 +2074,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           // A conflict merge and install run before the model takes worker capacity, so they pass the same
           // memory and pressure sampling first. A refused PR waits like a model pass that finds no capacity.
           if (options.hostCapacity && (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty")) {
-            const sample = await options.hostCapacity({ active: activeModelPasses + activeHostPreparations, signal: passSignal })
+            const running = executingModelPasses + activeHostPreparations;
+            const sample = await options.hostCapacity({ active: running, signal: passSignal })
               .catch((error: unknown) => ({ concurrency: 0, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` }));
-            if (sample.concurrency <= activeModelPasses + activeHostPreparations) {
+            if (sample.concurrency <= running) {
               modelWorkParked = true;
               outcome = "waiting";
               const reason = sample.reason ?? "waiting for capacity";
@@ -2622,7 +2633,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     return repairEnvironment({ ...(presetOptions.install === false ? {} : { npm_config_verify_deps_before_run: "false" }), ...environment }, join(checkout, ".vitehub-github-auth"), prepared.env);
                   },
                   ...(workerSettings.sandbox ? undefined : { launch: async (context: AgentProviderLaunchContext) => {
+                    // The worker queue has granted this pass its slot. A pass that waited there while its PR changed
+                    // gives the slot back before it spends a merge and an install.
+                    await assertLease();
                     if (context.purpose !== "inspection") {
+                      startExecuting();
                       await prepareRepairWorkspace(context.cwd, hasRuntimeType(context.environment.NODE_OPTIONS, "string") ? context.environment.NODE_OPTIONS : undefined);
                       providerDirectory = context.cwd;
                     }
@@ -2723,6 +2738,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   // provider runtime; setup and admission may have taken time.
                   await assertLease();
                   modelDispatched = true;
+                  dispatching = true;
+                  // A Sandbox pass has no launch callback, so it counts from here, including its wait for a worker slot.
+                  if (workerSettings.sandbox) startExecuting();
                   const [error, result] = await runAgent(
                     agent,
                     {
@@ -2740,6 +2758,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (error) throw error.cause ?? error;
                   return result.output;
                 } finally {
+                  dispatching = false;
+                  if (executing) { executing = false; executingModelPasses--; }
                   releaseModelSlot();
                 }
               }, abortSignal, () => { providerLimited = true; }).catch(async (error: unknown) => {
