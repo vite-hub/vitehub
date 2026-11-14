@@ -31,6 +31,7 @@ import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import { hubKV, kvNitroCacheDriver } from "@vite-hub/kv/vite"
+import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
@@ -2521,6 +2522,32 @@ describe("ViteHub Nuxt integration", () => {
       await rm(rootQueue, { force: true })
       await rm(viteQueue, { force: true })
     }
+  })
+
+  it("validates changed server Rate Limits when only Nitro replays a cached build", async () => {
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = `${root}/server/rate-limit.ts`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    const policy = (enforcement: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { enforcement: "${enforcement}", limit: 25, window: "10s" })\n`
+    onTestFinished(() => rm(definition, { force: true }))
+    mocks.vitehub.mockReturnValue([hubRateLimit({ provider: "memory" })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, env: false, host: "node", rateLimit: true }, nuxt)
+    await writeFile(definition, policy("best-effort"))
+    await runNitroConfigHook(nitroOptions(nuxt))
+    // No Vite hooks run between these builds: only the server policy changes.
+    await writeFile(definition, policy("strict"))
+    await expect(runNitroConfigHook(nitroOptions(nuxt))).rejects.toMatchObject({ code: "RATE_LIMIT_B0006" })
+  })
+
+  it.each(["build", "dev", "prepare"])("validates explicit KV in Nitro replay (%s)", async (mode) => {
+    mocks.vitehub.mockReturnValue([hubRateLimit({ provider: "kv" }), hubKV({ driver: "fs-lite" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(mode === "dev")
+    if (mode === "prepare") Object.assign(nuxt.options, { _prepare: true })
+    await viteHubNuxtModule({ console: false, env: false, host: "node" }, nuxt)
+    const result = runNitroConfigHook(nitroOptions(nuxt))
+    if (mode === "build") await expect(result).rejects.toMatchObject({ code: "RATE_LIMIT_B0005" })
+    else await expect(result).resolves.toBeUndefined()
   })
 
   it("installs only discovered Rate Limit policies for a Rate-Limit-only Console", async () => {

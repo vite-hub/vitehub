@@ -206,6 +206,18 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const inspectionRoot = (): string => projectRoot ?? resolveViteHubProjectRoot(process.cwd(), { projectRoot: rateLimit.projectRoot })
 
   return {
+    api: {
+      // Nitro can rebuild server policies while Nuxt reuses the cached Vite bundle.
+      // The replay boundary calls this only after Database and KV have resolved.
+      validateNitroBuild(config: ResolvedConfig) {
+        resolved = config
+        rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
+        projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
+        provider = resolveProvider(rateLimit, config.command, (config as { nitro?: unknown }).nitro)!
+        collectDeclarations()
+        assertBuildProvider()
+      },
+    },
     name: pluginName,
     // Apply before Nitro's config hook so Nitro captures the composed output
     // regardless of plugin registration order.
