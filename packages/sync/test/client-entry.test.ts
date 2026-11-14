@@ -63,6 +63,36 @@ describe("createSync in the browser", () => {
     expect(server.rows.get(write.key)).toMatchObject({ title: "Milk", listId: "l1", ownerId: "ada" })
   })
 
+  it("stops a destroyed store that still sends on clearSync(), so a late answer does not bring the rows back", async () => {
+    const server = createFakeSyncServer()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let posted = false
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (init?.method === "POST") {
+        posted = true
+        await gate
+      }
+      return server.fetch(input, init)
+    }
+    const list = createSync("todos", { fetch, interval: false, where: { listId: "l2" } })
+    await list.refresh()
+    const write = list.insert({ title: "Ada's" })
+    write.then(undefined, () => undefined)
+    await until(() => posted)
+    list.destroy()
+    await clearSync()
+    server.user = null
+    release()
+    await expect(write).rejects.toMatchObject({ code: "SYNC_CLEARED" })
+    const again = createSync("todos", { fetch, interval: false, where: { listId: "l2" } })
+    stores.push(again)
+    await again.refresh()
+    expect(again.getState().rows).toEqual([])
+  })
+
   it("forgets every row and queued write on clearSync()", async () => {
     const server = createFakeSyncServer()
     server.write({ id: "a", ownerId: "ada", title: "Milk" })

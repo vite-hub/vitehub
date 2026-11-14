@@ -25,6 +25,8 @@ interface SyncStoreOptions {
   storage: SyncStorage
   environment: SyncEnvironment
   interval: number | false
+  /** Called once when a destroyed store stopped, after it sent its writes. */
+  onStop?: () => void
 }
 
 /** A store that `clearSync()` can empty. */
@@ -195,6 +197,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let error: SyncError | null = null
   let live = false
   let state!: SyncState<SyncRow>
+  // `true` once a pull answered, and once a destroyed store stopped.
+  let pulled = false
+  let stopped = false
   // `true` once the first read of the stored copy ended, also when it failed.
   let started = false
 
@@ -354,8 +359,12 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /** `true` while the store has writes that it may send: writes not stored yet, or stored writes of the account. */
-  function hasSendable(): boolean {
-    return local.length > 0 || writes.some(write => isActive(write, meta?.account))
+  /**
+   * Whether a destroyed store still has work. It pulls once first: the stored account can be another one than the
+   * account of the session now, and only a pull tells which writes the session may send.
+   */
+  function hasWork(): boolean {
+    return !pulled || local.length > 0 || writes.some(write => isActive(write, meta?.account))
   }
 
   /** Shows `write` at once. It goes to storage at the end of the tick, with the other writes of the tick. */
@@ -520,6 +529,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
       recover()
       await commit(pullChange(meta, answer.body, writes))
+      pulled = true
       if (!answer.body.more) return true
     }
   }
@@ -606,7 +616,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       // Another tab changed the stored copy since this tab read it.
       if (at === version && queueSignature(queue.meta, queue.writes) !== queueSignature(meta, writes)) await reload()
       // A destroyed store sends its writes, then stops.
-      if (destroyed && !hasSendable()) return
+      if (destroyed && !hasWork()) return
       await applyLivePulls()
       if (!meta || wantPull) {
         wantPull = false
@@ -632,7 +642,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       try {
         await loading
         // A round that failed waits for its backoff timer, also when a write asked for another round meanwhile.
-        while (again && !cancelRetry && !(destroyed && !hasSendable())) {
+        while (again && !cancelRetry && !(destroyed && !hasWork())) {
           again = false
           await environment.lock(`vitehub-sync:${id}`, pass).catch((cause: unknown) => {
             if (cause === cancelled) return
@@ -644,7 +654,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       finally {
         running = undefined
         // A destroyed store stops when its writes are sent, or a failure that is not retried stopped them.
-        if (destroyed && !cancelRetry) stopMessages()
+        if (destroyed && !cancelRetry && !stopped) {
+          stopped = true
+          stopMessages()
+          options.onStop?.()
+        }
       }
     })()
     return running

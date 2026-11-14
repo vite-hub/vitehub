@@ -1073,6 +1073,28 @@ describe("persistence and tabs", () => {
     expect(h.server.requests.length).toBe(requests)
   })
 
+  it("pulls before a destroyed store decides that it has nothing to send, as when another account was cached", async () => {
+    const h = setup()
+    const first = h.open()
+    await first.store.refresh()
+    h.server.offline = true
+    const write = first.store.insert({ title: "Ada's" })
+    write.then(undefined, () => undefined)
+    await until(() => first.store.getState().status === "offline")
+    // Bob signs in, so the stored copy now has Bob's account. Ada's write waits.
+    h.server.user = "bob"
+    h.server.offline = false
+    await first.store.refresh()
+    first.store.destroy()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(h.server.applied).toEqual([])
+    // Ada is back, and the page sends the stored writes with a store that it destroys at once.
+    h.server.user = "ada"
+    h.open().store.destroy()
+    await until(() => h.server.rows.has(write.key))
+    expect(h.server.rows.get(write.key)).toMatchObject({ title: "Ada's", ownerId: "ada" })
+  })
+
   it("shows in an open store the writes that a destroyed store sent", async () => {
     const h = setup()
     const other = h.open()
