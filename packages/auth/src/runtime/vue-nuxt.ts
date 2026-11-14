@@ -5,16 +5,17 @@ import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNu
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
+import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler, useSession } from "../vue.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
 import type { RequestFetch } from "../vue.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
+  isHydrating?: boolean
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
 
@@ -131,8 +132,10 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
       return (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+        const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
+        // A redirect to the page itself would loop, including when only query or hash differs.
+        if (!target || target.split(/[?#]/)[0] === to.path) return
+        return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
     }
     if ("window" in globalThis) {
@@ -187,20 +190,36 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
+    // The server's answer for this page, while the browser hydrates it. `undefined` is unknown.
+    const seed: unknown = "window" in globalThis && !stale ? (useState(stateKey) as { value: unknown }).value : undefined
+    const hydrated: boolean | undefined = seed === undefined ? undefined : Boolean(seed)
+    // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
+    let navigations = 0
+
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
+      const navigation = ++navigations
       const decide = guardOf(to)
       if (!decide) return
+      // Hydration can use this visitor's server answer; later navigations always read again.
+      if (nuxtApp.isHydrating && hydrated !== undefined) return decide(hydrated)
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
       // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
       // the guard see the same answer.
       const session = serverSession?.()
-      const loggedIn = !serverSession
-        ? useUserSession().refresh().then(current => Boolean(current?.session && current?.user))
+      const browserSession = !serverSession ? useSession() : undefined
+      const loggedIn = browserSession
+        // An explicit refetch owns its read instead of sharing a replaced navigation's in-flight read.
+        ? browserSession.value.refetch({}).then(() => Boolean(browserSession.value.data?.session && browserSession.value.data?.user))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
       // Keep the Nuxt app for the navigation after the session read answers.
       const app = tryUseNuxtApp() as NuxtApp | undefined
-      return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
+      return loggedIn.then((value) => {
+        // Only the latest navigation decides. Vue Router cancels a navigation that a newer one replaced, but it still
+        // follows a redirect that the old navigation returns, so an old answer could open a page that is now wrong.
+        if (navigation !== navigations) return
+        return app ? app.runWithContext(() => decide(value)) : decide(value)
+      })
     }, { global: true })
     // `useAuthClient()` finds the shared default client here, also outside a component.
     return { provide: { vitehubAuthClient: authClient } }
