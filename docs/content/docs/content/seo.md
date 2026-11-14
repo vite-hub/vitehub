@@ -258,7 +258,7 @@ The tools read only what readers can see: published collection documents, and th
 
 `name` is the server name that MCP clients show. It defaults to the host name of `site`, or of the request. The server answers `POST` in the stateless JSON form of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, and refuses requests from a browser page on another origin.
 
-`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/development/app-mcp) also answers at `/mcp`, so give one of them another path when you turn on both. In another server, mount `defineContentMcpHandler(content)`.
+`content.pages({ offset, limit })` and `content.page(path)` return the same data from code. ViteHub generates `/mcp` like the sitemap. The [app MCP server](/docs/mcp/configure) also answers at `/mcp`. With both on, the build stops with [`SOURCE_B0010`](/docs/source/diagnostics/source_b0010): give the app MCP server another `route`, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or set `seo: { mcp: false }`. In another server, mount `defineContentMcpHandler(content)`.
 
 ## Markdown for agents
 
@@ -285,8 +285,8 @@ export default defineContent({
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
 
-- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description.
-- `/llms-full.txt` joins the copy of every page, home page first.
+- `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description as a quote, the details, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description. Link titles are escaped, so a `]` in a title does not break the link.
+- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages.
 - `/sitemap.md` lists every page, grouped by the first segment of its URL.
 
 They list the same Markdown pages as the sitemap: published documents with a URL, and the Markdown files of Sources with a `url`, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts and JSON and YAML documents are not listed. A `noindex` page still has its `.md` copy.

@@ -951,7 +951,7 @@ A GitHub Source is a repository declared as Workspace files. One with the same r
 
 A github() Channel with `app` gives its Agent forge access (GitHub repository access) for the PR checkout, the [`git()`](/docs/agents/capabilities/git) and `forge()` Capabilities, and provider Drivers, which get `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
 
-Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
+Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional [installations](/docs/forge/configure#installations)), else `VITEHUB_GITHUB_TOKEN`. The installation of the webhook delivery or `app.installationId` comes first.
 
 Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
