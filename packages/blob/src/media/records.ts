@@ -1,5 +1,5 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
-import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { eventRequest } from "../internal/event-request.ts"
 import { createError } from "h3"
 
 import { ensureBlob } from "../ensure.ts"
@@ -47,7 +47,7 @@ export interface BlobMediaContext {
   driver: BlobDriverAdapter<unknown>
   images: ResolvedBlobImages | undefined
   normalizePathname(pathname: string): string
-  storage: Pick<BlobStorage, "delete" | "list" | "put">
+  storage: Pick<BlobStorage, "copy" | "delete" | "list" | "put">
   store: string
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
@@ -400,11 +400,9 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     return `${mediaCropsPrefix}${owner.slice(0, 32)}/${name}.${hash.slice(0, 12)}${formatExtensions.get(format) ?? ""}`
   }
 
-  async function copyObject(from: string, to: string, object: BlobObject): Promise<BlobObject> {
-    const body = await driver.get(from)
-    if (!body) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${from} was not found in store ${store}.`)
-    const customMetadata = Object.keys(object.customMetadata).length ? { customMetadata: object.customMetadata } : {}
-    return unwrap(await context.storage.put(to, body, { ...(object.contentType ? { contentType: object.contentType } : {}), ...customMetadata }))
+  // The caller checks for a conflict first, so the copy replaces the destination.
+  async function copyObject(from: string, to: string): Promise<BlobObject> {
+    return unwrap(await context.storage.copy(from, to, { overwrite: true }))
   }
 
   async function removeMedia(pathname: string): Promise<void> {
@@ -427,7 +425,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (!overwrite && await driver.head(to)) throw new MediaFailure("BLOB_CONFLICT", `Blob ${to} already exists in store ${store}.`)
     const destination = overwrite ? await readRecord(to) : undefined
     const record = await requireRecord(from)
-    const moved = await copyObject(from, to, object)
+    const moved = await copyObject(from, to)
     let crops: Record<string, MediaCrop> | undefined
     for (const [name, crop] of Object.entries(record.crops ?? {})) {
       crops ||= {}
@@ -549,7 +547,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const formKey = options.formKey ?? "files"
       let form: FormData
       try {
-        form = await getStandardContext(event).req.formData()
+        form = await eventRequest(event).formData()
       }
       catch {
         throw createError({ statusCode: 400, message: "Expected a multipart/form-data request body." })
@@ -668,7 +666,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       for (const object of objects) {
         const destination = `${target}/${object.pathname.slice(source.length + 1)}`
         if (baseName(object.pathname) === mediaFolderMarker) {
-          await copyObject(object.pathname, destination, object)
+          await copyObject(object.pathname, destination)
           unwrap(await context.storage.delete(object.pathname))
           continue
         }

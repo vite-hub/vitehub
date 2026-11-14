@@ -122,6 +122,28 @@ before you write them. In development, the local `fs-lite` store ignores
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 
+NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
+them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before
+the switch, move the keys once with the Redis or Upstash client:
+
+```ts [scripts/move-kv-keys.ts]
+import { Redis } from "@upstash/redis"
+
+const redis = Redis.fromEnv()
+let cursor = "0"
+do {
+  const [next, keys] = await redis.scan(cursor, { count: 1000 })
+  for (const key of keys) {
+    if (!key.startsWith("vitehub:")) await redis.renamenx(key, `vitehub:kv:default:${key}`)
+  }
+  cursor = String(next)
+} while (cursor !== "0")
+```
+
+The script moves every key that does not start with `vitehub:`, so run it only
+on a database that holds only NuxtHub KV keys. `RENAMENX` keeps a key that
+ViteHub already wrote.
+
 ## Move Blob calls
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `delete`, and
@@ -146,7 +168,7 @@ For a custom serving route on Nitro 3, see
 
 `blob.serve()` sends `Cache-Control: private, no-cache` and
 `X-Content-Type-Options: nosniff`. NuxtHub sent neither. The built-in route of
-`blob: { serve: true }` sends `public, max-age=0, s-maxage=0`, or
+`blob: { serve: { access: "public" } }` sends `public, max-age=0, s-maxage=0`, or
 `private, no-cache` with `authorize`. For HTML, SVG, XML,
 and `multipart/*` files it also sends `Content-Security-Policy: sandbox`, so the
 file cannot run script on your origin. To cache files, pass `cacheControl`:
@@ -156,7 +178,7 @@ file cannot run script on your origin. To cache files, pass `cacheControl`:
 +  return blob.serve(event.req, pathname, { cacheControl: "public, max-age=3600" })
 ```
 
-For the built-in route, set `blob: { serve: { headers: { "Cache-Control": "public, max-age=3600" } } }`.
+For the built-in route, set `blob: { serve: { access: "public", headers: { "Cache-Control": "public, max-age=3600" } } }`.
 The sandbox stays on. To serve a page that runs script, read it with
 `blob.get()` in your own route. See
 [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -179,7 +201,8 @@ Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
 `vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
-without your own route, set `blob: { serve: true }`.
+without your own route, set `blob: { serve: { access: "public" } }` for public
+files, or `blob: { serve: { authorize: true } }` to require a session.
 
 ## Move the database
 
@@ -373,8 +396,8 @@ generated SQL alone does not create a baseline.
 
 `vitehub database generate --custom` creates a migration you write by hand. NuxtHub
 applied migrations during `nuxt dev` and `nuxt build`, except at build time for
-D1 binding deployments. ViteHub never applies app migrations during
-development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`.
+D1 binding deployments. ViteHub does not apply app migrations during
+development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`. On Cloudflare, `migrateOnDeploy: true` applies the D1 migrations in the deploy command, before the Worker deploys. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
 
 ### Baseline an existing SQLite database
 
