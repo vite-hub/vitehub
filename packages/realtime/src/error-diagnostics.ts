@@ -29,6 +29,36 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read `error.why` for the server message, and `error.cause` for a network error. Retry when the server is available again.",
     },
 
+    // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
+    REALTIME_ROOM_ABORTED: {
+      why: "The request to the room stopped because its signal aborted.",
+      fix: "Nothing to fix when the caller stopped on purpose, such as a cancelled Agent run. Call again to ask once more.",
+    },
+    REALTIME_ROOM_CROWDED: {
+      why: ({ count }: { count: number }) => `${count} browsers are in the room, and a request goes to one browser only.`,
+      fix: "Give each browser its own room, such as a random id for each tab, so that one browser answers.",
+    },
+    REALTIME_ROOM_ELSEWHERE: {
+      why: "No browser in this instance is in the room. With Redis or Postgres, the browser can be connected to another instance, and requests reach only the browsers of the same instance.",
+      fix: "Route the browser and the caller to the same instance, such as with sticky sessions, or run one Node instance.",
+    },
+    REALTIME_ROOM_EMPTY: {
+      why: "No browser is in the room. The page is closed, or it has not joined yet.",
+      fix: "Open the page again. The request waits a few seconds for a browser to join before it gives up.",
+    },
+    REALTIME_ROOM_REFUSED: {
+      why: ({ reason }: { reason: string }) => `The browser could not answer: ${reason}`,
+      fix: "Read the reason. Add `room.onRequest(handler)` on the page, and keep each answer under 1 MiB.",
+    },
+    REALTIME_ROOM_REQUESTS_OFF: {
+      why: ({ definition }: { definition: string }) => `The Realtime Definition "${definition}" does not take requests.`,
+      fix: "Define it with `defineRealtime({ access: \"public\", document: false, requests: true })`.",
+    },
+    REALTIME_ROOM_TIMEOUT: {
+      why: ({ timeout }: { timeout: number }) => `The browser did not answer in ${timeout / 1000} seconds.`,
+      fix: "Make the page answer sooner, or pass a longer `timeout` to `requestRealtimeRoom()`.",
+    },
+
     // Room errors. The server closes the WebSocket with a close code, so the client sees them in the stream.
     REALTIME_AWARENESS_OWNERSHIP_CONFLICT: {
       why: "A realtime awareness client id belongs to another peer.",

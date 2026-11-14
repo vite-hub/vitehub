@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button } from "@vite-hub/kit/button"
+import { Button } from "@ui-sdk/vue/button"
 import { useLog } from "../log"
 
 const log = useLog()
