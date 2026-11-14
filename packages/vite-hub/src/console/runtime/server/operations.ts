@@ -382,6 +382,16 @@ const invocationsCancel = defineConsoleOperation({
   section: "agents",
 })
 
+const invocationsUndo = defineConsoleOperation({
+  cli: { namespace: "invocations", positional: ["id"] },
+  description: "Ask the person's open page to put back one change an Agent made there. The page restores it only while the field still shows the Agent's value.",
+  input: v.strictObject({ change: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)) }),
+  kind: "write",
+  name: "invocations.undo",
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocation-page-undo.ts"))).undoConsolePageChange(input, context),
+  section: "agents",
+})
+
 const invocationsDelete = defineConsoleOperation({
   cli: { namespace: "invocations", positional: ["id"] },
   description: "Delete one finished Agent Invocation.",
@@ -635,6 +645,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   documentsPreview,
   envGet,
   invocationsCancel,
+  invocationsUndo,
   invocationsCapabilities,
   invocationsDelete,
   invocationsGet,

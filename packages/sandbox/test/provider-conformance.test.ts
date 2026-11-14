@@ -143,6 +143,7 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
 function cloudflareFixture() {
   const machine = new VirtualMachine();
   const stub: CloudflareSandboxStub = {
+    async cancelExec() {},
     async deleteFile(path) {
       machine.files.delete(normalize(path));
       return { success: true };

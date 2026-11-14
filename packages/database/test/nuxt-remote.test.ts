@@ -53,6 +53,8 @@ describe("Nuxt remote Database development", () => {
       const entry = join(root, "query.mjs")
       await writeFile(entry, [
         'import definition from "./server/databases/default.ts"',
+        // The Definition holds options only. Query it with the runtime that the generated registry uses.
+        'import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"',
         ...customRegistry ? [] : ['import { useDatabase } from "@vite-hub/database"'],
         'process.env.CLOUDFLARE_ACCOUNT_ID = "account-id"',
         'process.env.CLOUDFLARE_API_TOKEN = "api-token"',
@@ -60,7 +62,7 @@ describe("Nuxt remote Database development", () => {
         'const requests = []',
         'globalThis.fetch = async (url) => { requests.push(String(url)); return Response.json({ result: [{ results: { rows: [["real note"]] }, success: true }], success: true }) }',
         ...customRegistry ? [] : ['const { db, schema } = useDatabase("default")'],
-        'const direct = await definition.select().from(definition.schema.notes)',
+        'const direct = await createDefinitionRuntime(definition).select().from(definition.schema.notes)',
         customRegistry ? 'const registry = undefined' : 'const registry = await db.select().from(schema.notes)',
         'console.log(JSON.stringify({ direct, registry, requests }))',
       ].join("\n"))
