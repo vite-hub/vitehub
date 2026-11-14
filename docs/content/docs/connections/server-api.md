@@ -16,6 +16,15 @@ icon: i-lucide-code-2
 | `createConnectionsHandler` from `vite-hub/connections` | Management, connect, and callback routes. `connections.management` mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 
+The runtime methods that make a decision are `approve`, `deny`, `authorize`, `complete`, `revoke`, and `setKey`. Each one requires `actor`, such as `user:<id>`, and records it as the manager. There is no default actor. Pass the signed-in user of your app:
+
+```ts fragment
+const runtime = getConnectionsRuntime()
+await runtime.approve({ actor: `user:${session.user.id}`, id })
+```
+
+A missing or empty `actor` fails with `CONNECTIONS_INVALID_ACTOR`. The management routes pass the actor that your `actor` policy returns.
+
 ## Management routes
 
 The routes are `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback`, after the Vite `base` if set.
@@ -40,7 +49,7 @@ The action route takes only `POST`.
 
 ### Origin checks
 
-The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
+The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin, when the request host is the public host. A request host that `publicUrl` does not configure cannot replace the configured origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
 
 Behind a proxy that ends TLS, the server can see `http://` while the browser sends `https://`. Set `vitehub({ publicUrl })` to the public origin. The connect route then builds the OAuth `redirectUri` from it and marks cookies `Secure` for `https://`. Without `publicUrl`, both routes use the request URL, so the server must trust `X-Forwarded-Proto` and `X-Forwarded-Host`.
 

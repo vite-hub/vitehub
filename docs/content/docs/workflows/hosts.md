@@ -8,9 +8,20 @@ icon: i-lucide-cloud-cog
 
 ## Providers
 
+| Host | Provider without `provider` |
+| --- | --- |
+| Cloudflare | Cloudflare |
+| Vercel | Vercel |
+| Netlify | None. Set `provider`. |
+| Node, Docker, Deno, and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
+| `vite dev` on a host without a provider | Inline runs in the dev server |
+
+ViteHub infers Vercel only on Vercel. The Workflow that only `agent` turns on runs inline on Node, Docker, and Deno, and a restart loses its runs. `vitehub durability list` shows the store that the app uses.
+
+
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. |
+| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
 | Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
 | OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker and runtime. | Choose Postgres or SQLite for deployment. Set `postgres.url` or `sqlite.path`, not both. |
 

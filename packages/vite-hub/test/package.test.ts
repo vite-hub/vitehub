@@ -546,9 +546,9 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
     expect(sessionInspector).toContain('<TabsList class="session-inspector__tablist">');
-    expect(sessionInspector).toContain('import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";');
+    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";');
     expect(sessionInspector).toMatch(
-      /<TabsTrigger[\s\S]*?<\/TabsTrigger>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
+      /<TabsTab[\s\S]*?<\/TabsTab>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
     );
     expect(sessionInspector).not.toContain('<template #leading="{ item }">');
     expect(sessionInspector).not.toContain("scrollIntoView");

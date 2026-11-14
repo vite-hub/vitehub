@@ -360,11 +360,9 @@ describe("generated Console access", () => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
       rootDir: "/",
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
     }
     const config: { base: string, nitro: { handlers: Array<{ handler: string, meta?: Record<string, unknown>, middleware?: boolean, route: string }> } } = { base, nitro: { handlers: [] } }

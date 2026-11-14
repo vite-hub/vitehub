@@ -20,7 +20,7 @@ vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   }
 })
 
-const kvCacheDriver = "/kv/dist/runtime/nitro-cache.js"
+const kvCacheDriver = "/kv/dist/runtime/unstorage-driver.js"
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -101,7 +101,8 @@ vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
 }))
-vi.mock("@vite-hub/blob/vite", () => ({
+vi.mock("@vite-hub/blob/vite", async () => ({
+  hasS3BlobEnv: (await vi.importActual<typeof import("../../blob/src/config.ts")>("../../blob/src/config.ts")).hasS3BlobEnv,
   hubBlob: integrationMocks.hubBlob,
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
@@ -123,7 +124,7 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKV: integrationMocks.hubKV,
   hubKVOptionalPeerResolver: integrationMocks.hubKVOptionalPeerResolver,
-  kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
+  kvStorageDriver: "/kv/dist/runtime/unstorage-driver.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
@@ -706,6 +707,7 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
+      "vite-hub/skills",
       "vite-hub/durability/nitro",
       "vite-hub/durability",
       "vite-hub/nitro-cache-bypass",
@@ -769,6 +771,7 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
+      "vite-hub/skills",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
       "vite-hub/nitro-order",
@@ -808,6 +811,7 @@ describe("vitehub", () => {
         email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
+        realtime: false,
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
@@ -2000,6 +2004,20 @@ describe("vitehub", () => {
       expect.objectContaining({ driver }),
       { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
+  })
+
+  it.each(["cloudflare", "netlify", "node", "vercel"] as const)("lets NuxtHub S3 env pick the Blob driver on the %s host", (preset) => {
+    vi.stubEnv("S3_ACCESS_KEY_ID", "test-key")
+    vi.stubEnv("S3_SECRET_ACCESS_KEY", "test-secret")
+    vi.stubEnv("S3_BUCKET", "assets")
+    try {
+      integrationMocks.hubBlob.mockClear()
+      vitehub({ host: preset, blob: true })
+      expect(integrationMocks.hubBlob.mock.lastCall?.[0]).not.toHaveProperty("driver")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it.each([

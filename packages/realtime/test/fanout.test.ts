@@ -3,7 +3,7 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as encoding from "lib0/encoding"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
+import type { RealtimeDocumentDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
 import { messageAwareness } from "../src/protocol.ts"
 import { realtimeRoomKey } from "../src/server.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, paragraphs, presence, settle } from "./harness.ts"
@@ -30,8 +30,8 @@ async function flush(ms = 60): Promise<void> {
   }
 }
 
-function definition(adapter: RealtimeDefinition["document"]): RealtimeDefinition {
-  return { document: adapter, editor: createStubEditor().editor }
+function definition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDocumentDefinition {
+  return { access: "public", document: adapter, editor: createStubEditor().editor }
 }
 
 /** Two server instances of one app that share rooms over an in-memory bus. */
@@ -75,7 +75,7 @@ describe("rooms shared across instances", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const busA = network.bus()
     const a = createTestServer({ ...definition(memory.adapter), persistence: false }, { handler: { bus: () => busA } })
-    const b = createTestServer({ ...definition(memory.adapter), persistence: false, authorize: ({ mode }) => !readOnly || mode === "read" }, { handler: { bus: () => network.bus() } })
+    const b = createTestServer({ authorize: ({ mode }) => !readOnly || mode === "read", document: memory.adapter, editor: createStubEditor().editor, persistence: false }, { handler: { bus: () => network.bus() } })
     await a.connect("page")
     const stale = await b.connect("page")
     await flush()

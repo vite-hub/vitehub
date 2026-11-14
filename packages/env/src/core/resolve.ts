@@ -70,10 +70,17 @@ export function createSourceContext(input: {
     },
     env: input.env,
     git: {
-      branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
-      ref: async () => envValue(input.env, ["GIT_REF_NAME", "GITHUB_REF_NAME"]) ?? await gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      sha: async options => {
+      branch: async () => {
+        const branch = envValue(input.env, ["GIT_BRANCH", "GITHUB_HEAD_REF"])
+        if (branch) return branch
+        // GitHub sets GITHUB_REF_NAME to the tag name on a tag push, so read it only on a branch ref.
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "branch") {
+          const refName = envValue(input.env, ["GITHUB_REF_NAME"])
+          if (refName) return refName
+        }
+        return gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"])
+      },
+      commit: async options => {
         const value = envValue(input.env, ["GIT_SHA", "GITHUB_SHA"])
         if (value) return options?.short ? value.slice(0, 7) : value
         return gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"])
@@ -451,7 +458,8 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
-        if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
+        // An empty variable counts as missing, the same as on the server.
+        if (typeof value !== "undefined" && value !== "") {
           return { label: `env:${name}`, value }
         }
       }
@@ -460,10 +468,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.branch()) }
     case "git-commit":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.commit({ short: source.short })) }
-    case "git-ref":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.ref()) }
-    case "git-sha":
-      return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.sha({ short: source.short })) }
     case "git-tag":
       return { label: source.label, value: await resolveBuiltInSource(source.label, () => context.git.tag()) }
     case "build-timestamp":
