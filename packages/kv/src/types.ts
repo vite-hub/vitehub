@@ -180,12 +180,11 @@ export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAn
 export type KVErrorCode =
   | "KV_INVALID_CURSOR"
   | "KV_INVALID_LIMIT"
+  | "KV_INVALID_OPTION"
   | "KV_INVALID_TTL"
   | "KV_INVALID_WAIT"
   | "KV_KEY_TOO_LONG"
-  | "KV_METADATA_TOO_LARGE"
   | "KV_OPERATION_FAILED"
-  | "KV_TTL_TOO_SHORT"
   | "KV_UNSUPPORTED_OPERATION"
   | "KV_VALUE_TOO_LARGE"
 
@@ -209,8 +208,9 @@ export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined
 /** A read value: the caller's `T` without a `type`, the converted type with one. */
 type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
-export interface KVSetIfAbsentOptions {
-  /** Seconds until the key expires. Without it, the key stays until you delete it. */
+/** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
+export interface KVSetOptions {
+  /** Seconds until the key expires, a positive number. Every driver expires the key. Cloudflare KV keeps it at least 60 seconds. */
   ttl?: number
 }
 
@@ -317,8 +317,11 @@ export interface KVStorage {
    * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
   lock(key: string, options: KVLockOptions): KVLock
-  /** Cloudflare KV stores return `KV_KEY_TOO_LONG`, `KV_VALUE_TOO_LARGE`, `KV_METADATA_TOO_LARGE`, and `KV_TTL_TOO_SHORT` before a write that Cloudflare rejects. */
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
+  /**
+   * Writes a value. `{ ttl }` expires it after that many seconds; without `ttl`, the value stays until you delete or replace it.
+   * Cloudflare KV stores return `KV_KEY_TOO_LONG` and `KV_VALUE_TOO_LARGE` before a write that Cloudflare rejects.
+   */
+  set<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes many keys in one call. `options` works as in `set()` and applies to every entry. When a key is in `entries`
    * more than once, the last entry wins. A `value` of `undefined` deletes the key, as `set()` does. The writes are not
@@ -326,14 +329,14 @@ export interface KVStorage {
    * statement. Other stores write the entries one by one, 16 at a time. A Cloudflare KV store checks every entry against
    * the Workers KV limits before it writes any.
    */
-  setMany<T = unknown>(entries: readonly KVEntry<T>[], options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
+  setMany<T = unknown>(entries: readonly KVEntry<T>[], options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes the value only when the key has no value, in one atomic step.
    * Returns `true` when this call wrote the value and `false` when the key already had one.
    * The drivers in {@link KVDriversWith}`<"setIfAbsent">` support it. Cloudflare KV is eventually consistent and returns
    * `KV_UNSUPPORTED_OPERATION`.
    */
-  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetIfAbsentOptions): Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   /** Selects a named KV store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: KVStoreName, options?: { mode?: "write" }): KVStorage
   store(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage

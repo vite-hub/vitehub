@@ -131,7 +131,7 @@ The loop also checks records with a numeric suffix. If any command fails, keep t
 
 In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel host do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
 
-On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It expires keys as Cloudflare does: `ttl` is at least 60 seconds, and `expirationTtl` or `expiration` apply as given.
+On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits), raises a `ttl` below 60 seconds to 60, and does not support `setIfAbsent()`, like Cloudflare KV.
 
 Set `remote: true` to use the real store in development:
 

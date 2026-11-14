@@ -42,10 +42,11 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
-| `KV_INVALID_TTL` | `increment()`, `lock()`, `setIfAbsent()` | |
+| `KV_INVALID_OPTION` | `set()`, `setMany()`, `setIfAbsent()` | |
+| `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
 | `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
-| `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
+| `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `lock()`, `setIfAbsent()` | |
 | `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
@@ -59,11 +60,8 @@ A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](h
 | --- | --- | --- |
 | Key size, in UTF-8 bytes | 512 bytes | `KV_KEY_TOO_LONG` |
 | Value size, after ViteHub serializes the value | 25 MiB | `KV_VALUE_TOO_LARGE` |
-| `metadata` size, as JSON | 1024 bytes | `KV_METADATA_TOO_LARGE` |
-| `expirationTtl` | At least 60 seconds | `KV_TTL_TOO_SHORT` |
-| `expiration`, as Unix time in seconds | At least 60 seconds in the future | `KV_TTL_TOO_SHORT` |
 
-The `ttl` option of `kv.set()` does not fail: on Cloudflare KV, ViteHub raises a `ttl` below 60 seconds to 60. `expirationTtl` and `expiration` below the minimum return `KV_TTL_TOO_SHORT`. A relative expiration wins over `expiration`, as on Cloudflare.
+Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl` below 60 seconds to 60, also in the local store of `vite dev`, so a short `ttl` does not fail.
 
 `fs-lite`, `deno-kv`, and `upstash` do not check these limits. Upstash [limits requests](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans differ. ViteHub does not know your plan, so a larger request fails with `KV_OPERATION_FAILED`.
 
@@ -77,9 +75,13 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 `kv.list()` needs `limit` as a positive integer.
 
+### KV_INVALID_OPTION
+
+`kv.set()` and `kv.setIfAbsent()` accept only `{ ttl }`. Other options, such as the Cloudflare `expirationTtl`, `expiration`, and `metadata`, return this code, because other drivers cannot honor them. Pass `{ ttl: seconds }` to expire the value.
+
 ### KV_INVALID_TTL
 
-`kv.increment(key, ttl)`, `kv.setIfAbsent()`'s `ttl`, and `kv.lock()`'s `ttl` need positive seconds. Upstash rounds up to whole seconds.
+The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive number of seconds. Upstash rounds up to whole seconds.
 
 ### KV_INVALID_WAIT
 
@@ -89,19 +91,11 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 The key is longer than 512 UTF-8 bytes, the Cloudflare KV limit. ViteHub measures the normalized key, so `a/b` counts as `a:b`. A non-ASCII character takes two to four bytes. Use a shorter key, or a hash of a long identifier.
 
-### KV_METADATA_TOO_LARGE
-
-The `metadata` option of `kv.set()` is larger than 1024 bytes as JSON, the Cloudflare KV limit. Keep small fields in `metadata` and put the rest in the value.
-
 ### KV_OPERATION_FAILED
 
 The provider failed. `error.why` names the operation and the store. `error.cause` has the provider error. A retry can help when the provider is back.
 
 An invalid key also returns this code, before any provider call: an empty key such as `''` or `':'`, or a `.` or `..` segment such as `'a/../b'`. `error.cause.message` is `[unstorage] Invalid key: ""` with the key. Use another key; a retry cannot help.
-
-### KV_TTL_TOO_SHORT
-
-`kv.set()` got an `expirationTtl` below 60 seconds, or an `expiration` less than 60 seconds ahead, the Cloudflare KV minimum. Use 60 or more. `ttl` never returns this code, because ViteHub raises it to 60.
 
 ### KV_UNSUPPORTED_OPERATION
 

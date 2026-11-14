@@ -61,7 +61,7 @@ export default function createCloudflareKVLocalDriver(store: ResolvedCloudflareK
     setItem: async (key, value, options) => (await pick()).setItem?.(key, value, options),
     async setItems(items, options) {
       // Check every entry before any write, as the binding driver does.
-      for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...options, ...item.options })
+      for (const item of items) assertCloudflareKVWrite(item.key, item.value)
       const driver = await pick()
       return (driver.setItems ?? setItemsOneByOne(driver))(items, options)
     },

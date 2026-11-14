@@ -86,7 +86,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
   const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
   driver.setItems = async (items, commonOptions) => {
-    for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...commonOptions, ...item.options })
+    for (const item of items) assertCloudflareKVWrite(item.key, item.value)
     await setItemsOneByOneWithLimits(items, commonOptions)
   }
   // Continuation state is keyed by the cursor that carries it. Consuming the

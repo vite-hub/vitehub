@@ -23,7 +23,7 @@ export type {
   KVLockRunResult,
   KVOptions,
   KVOperation,
-  KVSetIfAbsentOptions,
+  KVSetOptions,
   KVStorage,
   KVStoreConfig,
   KVStoreOptions,

@@ -24,9 +24,13 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`limit` must be a positive integer.",
       fix: "Pass a positive integer, for example `kv.list({ limit: 100 })`.",
     },
+    KV_INVALID_OPTION: {
+      why: ({ operation, option }: { operation: "set" | "setIfAbsent" | "setMany", option: string }) => `kv.${operation}() does not accept the option \`${option}\`. It accepts only \`ttl\`.`,
+      fix: "Pass `{ ttl: seconds }` to expire the value, or no options to keep it. KV has no Cloudflare `expirationTtl`, `expiration`, or `metadata` option.",
+    },
     KV_INVALID_TTL: {
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
-      fix: "Pass the TTL in seconds, for example `kv.increment('attempts', 60)`.",
+      fix: "Pass the TTL in seconds, for example `kv.set('session', value, { ttl: 60 })`.",
     },
     KV_INVALID_WAIT: {
       why: "`wait` must be zero or a positive number of seconds.",
@@ -35,16 +39,6 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_KEY_TOO_LONG: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `The key is ${bytes} bytes in UTF-8. Cloudflare KV accepts keys of at most ${limit} bytes.`,
       fix: "Use a shorter key. To keep a long identifier, store a hash of it as the key.",
-    },
-    KV_METADATA_TOO_LARGE: {
-      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The metadata is ${bytes} bytes as JSON. Cloudflare KV accepts metadata of at most ${limit} bytes.`,
-      fix: "Keep only small fields in `metadata`, and put the other data in the value.",
-    },
-    KV_TTL_TOO_SHORT: {
-      why: ({ minimum, option = "expirationTtl", ttl }: { minimum: number, option?: "expiration" | "expirationTtl", ttl: number }) => option === "expiration"
-        ? `\`expiration\` is ${ttl} seconds from now. Cloudflare KV needs at least ${minimum} seconds.`
-        : `\`expirationTtl\` is ${ttl} seconds. Cloudflare KV needs at least ${minimum} seconds.`,
-      fix: "Pass `expirationTtl: 60` or more, an `expiration` at least 60 seconds in the future, or `ttl`, which ViteHub raises to 60 seconds on Cloudflare KV.",
     },
     KV_VALUE_TOO_LARGE: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `The value is ${bytes} bytes. Cloudflare KV accepts values of at most ${limit} bytes (25 MiB).`,

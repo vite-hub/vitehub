@@ -4,7 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVDriversWith, type KVErrorCode, type KVLockAcquisition, type KVLockErrorCode, type KVLockRunResult, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { kv, type KVDriversWith, type KVErrorCode, type KVLockAcquisition, type KVLockErrorCode, type KVLockRunResult, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
 import { hubKV } from "../src/vite.ts"
 
 describe("types", () => {
@@ -63,9 +63,12 @@ describe("types", () => {
     expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<Result<string[], "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>>()
-    expectTypeOf(kv.setIfAbsent<string>).returns.toEqualTypeOf<Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
-    expectTypeOf(kv.setIfAbsent<string>).parameter(2).toEqualTypeOf<KVSetIfAbsentOptions | undefined>()
-    expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>>()
+    expectTypeOf(kv.setIfAbsent<string>).returns.toEqualTypeOf<Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    expectTypeOf(kv.setIfAbsent<string>).parameter(2).toEqualTypeOf<KVSetOptions | undefined>()
+    expectTypeOf(kv.set<string>).parameter(2).toEqualTypeOf<KVSetOptions | undefined>()
+    expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>>()
+    // @ts-expect-error `set()` accepts only `ttl`, the option that every driver honors.
+    void kv.set("session", "value", { expirationTtl: 60 })
   })
 
   it("narrows kv results by the error element", async () => {
@@ -93,7 +96,7 @@ describe("types", () => {
       void (incrementError.code === "KV_INVALID_CURSOR")
     }
 
-    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
+    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
   })
 
   it("types kv.lock() results and lists the drivers that support it", async () => {
