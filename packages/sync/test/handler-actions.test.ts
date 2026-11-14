@@ -53,6 +53,10 @@ function definition(write?: false) {
         const { title } = v.parse(v.object({ title: v.pipe(v.string(), v.minLength(3, "Write at least 3 letters.")) }), args)
         insert({ teamId: "a", title })
       },
+      locked: ({ insert, refuse }, { id }: { id: string }) => {
+        insert({ id, teamId: "a", title: "never" })
+        refuse("The card is locked.")
+      },
       broken: () => {
         throw new Error("connect ECONNREFUSED 10.0.0.7:5432")
       },
@@ -144,6 +148,7 @@ describe("actions", () => {
         action("m3", "diagnostic"),
         action("m4", "checked", { title: "x" }),
         action("m5", "missing"),
+        action("m6", "locked", { id: "k1" }),
       ],
     })
     expect(body.results).toEqual([
@@ -152,6 +157,7 @@ describe("actions", () => {
       { id: "m3", status: "rejected", error: { code: "SYNC_ACTION_REFUSED", message: "The card is archived." } },
       { id: "m4", status: "rejected", error: { code: "SYNC_ACTION_REFUSED", message: "Write at least 3 letters.", issues: [{ path: "title", message: "Write at least 3 letters." }] } },
       { id: "m5", status: "rejected", error: expect.objectContaining({ code: "SYNC_INVALID" }) },
+      { id: "m6", status: "rejected", error: { code: "SYNC_ACTION_REFUSED", message: "The card is locked." } },
     ])
     expect(log).toHaveBeenCalledTimes(1)
     expect(String(log.mock.calls[0]?.[0])).toContain("\"broken\"")

@@ -504,12 +504,16 @@ function httpStatus(error: unknown): number | undefined {
   return typeof status === "number" ? status : undefined
 }
 
+/** What `refuse()` of an action throws. Its message is meant for the caller. */
+class ActionRefusal extends Error {}
+
 /**
- * The refusal for an error that an action threw. A ViteHub Diagnostic, an HTTP error below 500, and a schema error
+ * The refusal for an error that an action threw. `refuse()` gives its message. A ViteHub Diagnostic, an HTTP error below 500, and a schema error
  * with `issues` (such as from `v.parse()`) are meant for the caller, so their message goes to the browser. Any other
  * error can hold server details: the browser gets "The action failed.", and the server log gets the error.
  */
 function actionRefusal(name: string, error: unknown): Refusal {
+  if (error instanceof ActionRefusal) return { error: syncErrors.SYNC_ACTION_REFUSED({ message: error.message }) }
   const issues = errorIssues(error)
   const status = httpStatus(error)
   const message: unknown = error instanceof Error ? error.message : undefined
@@ -546,6 +550,9 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
     },
     update: (key, patch) => collect({ op: "update", key, patch }),
     delete: key => collect({ op: "delete", key }),
+    refuse: (message) => {
+      throw new ActionRefusal(message)
+    },
   }
   let result: unknown
   try {

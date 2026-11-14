@@ -46,13 +46,18 @@ export interface SyncActionContext<TRow> extends SyncContext {
   insert: (value: Partial<TRow>) => SyncKey
   update: (key: SyncKey, patch: Partial<TRow>) => void
   delete: (key: SyncKey) => void
+  /**
+   * Refuses the action: no write applies, and the browser gets `SYNC_ACTION_REFUSED` with this message, such as
+   * `if (!card) refuse("The card was deleted.")`.
+   */
+  refuse: (message: string) => never
 }
 
 /**
  * A named write that runs on the server, such as `complete` or `rate`. Annotate `args`, so the browser call is typed:
  * `complete: async ({ update }, { id }: { id: string }) => update(id, { done: true })`. `args` come from the browser:
- * check them before you trust them, such as with `v.parse()`. Throw to refuse the action: the browser gets
- * `SYNC_ACTION_REFUSED`. A JSON return value reaches the browser as the result of the call.
+ * check them before you trust them, such as with `v.parse()`. Call `refuse(message)` to refuse the action: the browser
+ * gets `SYNC_ACTION_REFUSED` with the message. A JSON return value reaches the browser as the result of the call.
  */
 export type SyncActionFunction<TRow, TArgs> = (context: SyncActionContext<TRow>, args: TArgs) => unknown
 
