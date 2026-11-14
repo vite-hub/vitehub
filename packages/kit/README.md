@@ -17,7 +17,6 @@ Import each part from its own entry. There is no root entry.
 | Import | Contents |
 | --- | --- |
 | `@vite-hub/kit/tags-input` | `TagsInput` and its parts. See [Components we add](#components-we-add). |
-| `@vite-hub/kit/form` | `Form`. It is moving to `@vite-hub/forms`. |
 | `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
 | `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light and dark |
 | `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every ui-sdk part and every kit part |
@@ -31,7 +30,7 @@ The kit no longer re-exports ui-sdk. `@vite-hub/kit/<name>` was `@ui-sdk/vue/<na
 + import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 ```
 
-`@vite-hub/kit/form`, `@vite-hub/kit/tags-input`, and the styles keep their paths. In Nuxt, add `@ui-sdk/vue/nuxt` to `modules` next to `@vite-hub/kit/nuxt`. See [Nuxt](#nuxt).
+`@vite-hub/kit/tags-input` and the styles keep their paths. Replace `@vite-hub/kit/form` with a native `<form>` and `useFormAction()` from `@vite-hub/forms/vue`; see the [Forms Vue guide](../forms/README.md#vue). In Nuxt, add `@ui-sdk/vue/nuxt` to `modules` next to `@vite-hub/kit/nuxt`. See [Nuxt](#nuxt).
 
 ## Components we add
 
@@ -39,7 +38,6 @@ The kit adds a component only when it owns state, focus, ARIA, or announcements,
 
 | Import | Parts | What it does |
 | --- | --- | --- |
-| `@vite-hub/kit/form` | `Form` | A `<form>` that ties its fields to one submission. `@form-submit` gets the values by name after the browser's validation passes. `v-model:errors` shows errors from your code, such as a server's, in the `Field` of the control with the same `name`, until the person edits that control. Without an `action`, the form stays on the page. It is moving to `@vite-hub/forms`. |
 | `@vite-hub/kit/tags-input` | `TagsInput`, `TagsInputItem`, `TagsInputItemText`, `TagsInputItemDelete`, `TagsInputInput`, `TagsInputClear` | Free text as tags. Enter or the `delimiter` adds a tag. Backspace in an empty input removes the last tag. The arrow keys move a highlight between tags, and Backspace or Delete removes the highlighted tag. With `name`, a form submits each tag. When people pick tags from suggestions, use `Combobox` with `multiple` and `ComboboxChips` instead. |
 
 ```vue
@@ -89,7 +87,7 @@ What to use in ViteHub UI for each Reka UI 2.11 component.
 | DropdownMenu | `@ui-sdk/vue/menu` |
 | Editable | An `<input>` styled as text. Save on `@change`, and put the saved value back on Escape. For names in a list or a grid, `createInlineEdit` from `@ui-sdk/core`. |
 | Field | `@ui-sdk/vue/field` |
-| Form | `@vite-hub/kit/form`. Moving to `@vite-hub/forms`. |
+| Form | A native `<form>` with `useFormAction()` from `@vite-hub/forms/vue` |
 | HoverCard | `@ui-sdk/vue/hover-card` |
 | Label | `@ui-sdk/vue/label` |
 | Listbox | `@ui-sdk/vue/listbox` |

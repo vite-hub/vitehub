@@ -26,7 +26,6 @@ describe("@vite-hub/kit Nuxt module", () => {
       const components: Array<{ export?: string; filePath: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(expect.arrayContaining([
-        expect.objectContaining({ export: "Form", filePath: "@vite-hub/kit/form", pascalName: "UiForm" }),
         expect.objectContaining({ export: "TagsInputItem", filePath: "@vite-hub/kit/tags-input", pascalName: "UiTagsInputItem" }),
       ]));
     } finally {

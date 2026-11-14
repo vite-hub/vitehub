@@ -31,11 +31,6 @@
     "./dist/styles/tokens.css"
   ],
   "exports": {
-    "./form": {
-      "types": "./dist/form.d.ts",
-      "import": "./dist/form.js",
-      "default": "./dist/form.js"
-    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",

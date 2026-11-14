@@ -87,5 +87,6 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
     AUTH_R0020: withFix("Add the named rule to `shared/abilities.ts` with `defineAbilities()`, or use an existing ability name."),
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
+    AUTH_R0022: withFix("Send the request to an origin that `vitehub({ publicUrl })` returns for one of your Agents, or set `baseURL` in the Auth Definition. The request Host cannot choose the Auth origin."),
   },
 })
