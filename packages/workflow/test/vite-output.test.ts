@@ -1420,9 +1420,10 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     await linkNodeModuleEntry(join(playgroundDir, "../../packages/workflow/node_modules/workflow"), join(rootDir, "node_modules", "workflow"))
     const viteConfig = join(rootDir, "vite.config.ts")
+    // The `nitro:main` stub writes the Vercel config, as Nitro does before ViteHub adds the native Workflow functions.
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8"))
       .replace("const baseConfig = {", `const baseConfig = {\n    resolve: { alias: { "@": resolve(import.meta.dirname, ".") } },`)
-      .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {} }],`)
+      .replace(`      plugins: [${playgroundWorkflowPlugin()}],`, `      plugins: [{ name: "email-definition-alias", config: () => ({ resolve: { alias: { "#vitehub/email/definition": resolve(import.meta.dirname, "server/email.ts") } } }) }, ${playgroundWorkflowPlugin()}, { name: "nitro:main", config() {}, async closeBundle() { const { mkdir, writeFile } = await import("node:fs/promises"); await mkdir(resolve(import.meta.dirname, ".vercel/output"), { recursive: true }); await writeFile(resolve(import.meta.dirname, ".vercel/output/config.json"), JSON.stringify({ routes: [{ src: "/(.*)", dest: "/__server" }], version: 3 })) } }],`)
       .replaceAll(playgroundWorkflowPlugin(), playgroundWorkflowPlugin('{ provider: "vercel" }')))
     const generatedWorkflowDir = join(rootDir, "server", "workflows", "monthly-recap")
     await mkdir(generatedWorkflowDir, { recursive: true })
@@ -1457,7 +1458,11 @@ describe("Vite workflow provider outputs", () => {
     const nativeExport = `${getCloudflareWorkflowClassName("monthly-recap")}Native`
     expect(registry).toContain(nativeExport)
     expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
-    expect(await readFile(join(rootDir, ".vercel", "output", "functions", "__workflow.func", "index.mjs"), "utf8")).toContain("workflowId")
+    // Nitro's server function runs the routes, so its startup plugin installs the registry. Workflow writes no server function.
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__workflow.func"))).toBe(false)
+    const startupPlugin = await readFile(join(rootDir, ".vitehub", "nitro", "workflow", "dev-plugin.mjs"), "utf8")
+    expect(startupPlugin).toContain("setWorkflowRuntimeRegistry(registry)")
+    expect(startupPlugin).toContain("setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)
     const combinedFlow = await readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8")
     expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)

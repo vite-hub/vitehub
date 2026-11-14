@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { workflowRuntimeModule } from "./runtime-modules.ts"
 import { dirname, relative, resolve } from "node:path"
 
+import { createImportPath } from "@vite-hub/internal/build/paths"
+
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createWorkflowRegistryContents, workflowPackageName } from "./vite-build.ts"
 
@@ -52,6 +54,41 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
   ].join("\n")
 }
 
+/**
+ * On Vercel, Nitro's server function runs the routes, so its startup plugin installs the Workflow registry of the
+ * Vercel build. `waitUntil` keeps the function alive while an inline run works after the response.
+ */
+export function createWorkflowVercelNitroPluginModule(pluginFile: string, vercel: WorkflowVercelNitroRegistry, workflow: ResolvedWorkflowOptions): string {
+  return [
+    "import { definePlugin } from \"nitro\"",
+    "import { waitUntil } from \"@vercel/functions\"",
+    `import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
+    ...(vercel.native
+      ? [
+          `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(workflowRuntimeModule("vercel-vite"))}`,
+          "import * as workflowApi from \"workflow/api\"",
+          "import * as workflowRuntime from \"workflow/runtime\"",
+        ]
+      : []),
+    `import registry from ${JSON.stringify(createImportPath(pluginFile, vercel.registryFile))}`,
+    "",
+    "export default definePlugin(() => {",
+    ...(vercel.native ? ["  setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)"] : []),
+    `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
+    "  setWorkflowRuntimeRegistry(registry)",
+    "  enterWorkflowRuntimeEvent({ waitUntil })",
+    "})",
+    "",
+  ].join("\n")
+}
+
+/** The Workflow registry that a Nitro build for Vercel installs instead of the development registry. */
+export interface WorkflowVercelNitroRegistry {
+  /** True when a definition has a `native` entry. The plugin then gives the Workflow DevKit modules to the runtime. */
+  native: boolean
+  registryFile: string
+}
+
 async function writeIfChanged(file: string, contents: string): Promise<boolean> {
   const current = await readFile(file, "utf8").catch(() => undefined)
   if (current === contents) return false
@@ -69,6 +106,8 @@ export interface WorkflowDevRegistryFilesOptions {
   pluginPath?: string
   /** Undefined reserves an inert bootstrap until the final build configuration is known. */
   workflow: false | ResolvedWorkflowOptions | undefined
+  /** A Nitro build for Vercel installs this registry. */
+  vercel?: WorkflowVercelNitroRegistry
 }
 
 export interface WorkflowDevRegistryFiles {
@@ -90,7 +129,9 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   const plugin = resolve(directory, devPluginFile)
   const files: Array<[string, string]> = [
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.dev)],
+    [plugin, options.vercel && options.workflow
+      ? createWorkflowVercelNitroPluginModule(plugin, options.vercel, options.workflow)
+      : createWorkflowDevPluginModule(options.workflow, options.dev)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [
