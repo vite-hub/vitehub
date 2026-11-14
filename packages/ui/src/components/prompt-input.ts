@@ -62,6 +62,7 @@ export const PromptInput = defineComponent({
     const preparingFiles = computed(() => pendingFiles.value > 0);
     const canSubmit = computed(() =>
       props.status === "ready" &&
+      !props.readonly &&
       !preparingFiles.value &&
       (props.modelValue.trim().length > 0 || props.files.length > 0),
     );
@@ -205,7 +206,7 @@ export const PromptInput = defineComponent({
                 "aria-label": props.status === "ready" && props.submitLabel ? props.submitLabel : submitLabels[props.status],
                 class: "rounded-full",
                 color: "neutral",
-                disabled: props.status === "ready" && (!canSubmit.value || props.readonly),
+                disabled: props.status === "ready" && !canSubmit.value,
                 icon: icons.value[submitIcons[props.status]],
                 // Stop and Retry stay pressable while attachments convert; only Send waits for them.
                 loading: props.status === "ready" && (preparingFiles.value || props.readonly),
