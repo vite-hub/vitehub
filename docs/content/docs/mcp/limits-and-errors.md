@@ -10,9 +10,10 @@ icon: i-lucide-circle-alert
 
 The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/docs/development/mcp) of the Console uses the same server.
 
-- It speaks the stateless JSON subset of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`.
+- It speaks Streamable HTTP, revisions `2025-11-25` and `2025-06-18`. It answers with JSON, except a tool call that [elicits](/docs/mcp/server-api#ask-the-person-for-values), which gets an event stream.
 - It answers `initialize`, `ping`, `tools/list`, and `tools/call`. With prompts, it also answers `prompts/list` and `prompts/get`. With resources, it also answers `resources/list`, `resources/templates/list`, and `resources/read`. Other methods get JSON-RPC `-32601`.
-- It keeps no session between requests and has no event stream. A request that is not `POST` gets `405`.
+- It keeps no session state between requests. `initialize` gives an `Mcp-Session-Id` only to a client that declares elicitation, so a later tool call knows that the client can answer. There is no `GET` event stream: a request that is not `POST` gets `405`.
+- A tool call that elicits waits in the memory of one server process. It does not work on hosts that can send the answer of the client to another instance, such as Cloudflare Workers or Vercel.
 - It has no resource subscriptions, no list change notifications, and no pagination. A list returns all its entries.
 - An unknown resource URI, or a resource handler that returns `undefined`, gets JSON-RPC `-32002`. Invalid prompt arguments get `-32602`.
 

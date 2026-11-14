@@ -24,5 +24,15 @@ export const mcpErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     // More than one server directory has an `mcp.ts` hooks module.
     MCP_B0004: { ...dynamicError, fix: "Keep one `mcp.ts` with the `defineMcpHooks()` default export, in one server directory." },
+    // A tool calls `elicit()`, but the MCP client did not declare the `elicitation` capability in `initialize`.
+    MCP_ELICITATION_CLIENT_UNSUPPORTED: {
+      why: ({ tool }: { tool: string }) => `The MCP tool ${tool} asks the person for input, but this MCP client cannot ask the person: it did not declare the elicitation capability.`,
+      fix: "Use an MCP client that supports elicitation in form mode. Or catch the error in the tool and take the values as tool arguments.",
+    },
+    // A tool calls `elicit()` in a build for a host where the answer of the client can reach another server instance.
+    MCP_ELICITATION_HOST_UNSUPPORTED: {
+      why: ({ host, tool }: { host: string, tool: string }) => `The MCP tool ${tool} asks the person for input, but the app runs on ${host}. There, the answer of the client can reach another server instance than the waiting tool call.`,
+      fix: "Deploy the MCP server as one Node, Bun, or Deno server process. Or take the values as tool arguments.",
+    },
   },
 })

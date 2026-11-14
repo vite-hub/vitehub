@@ -47,13 +47,28 @@ describe("MCP tool discovery", () => {
 })
 
 describe("hubMcp", () => {
-  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}) {
+  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}, command: "build" | "serve" = "serve") {
     const plugin = hubMcp(options)
     const config: { root: string, nitro?: { handlers?: unknown[] } } = { root, ...host }
     // SAFETY: The config hook is a plain function in this plugin.
-    ;(plugin.config as (config: object) => void)(config)
+    ;(plugin.config as (config: object, env: { command: string, mode: string }) => void)(config, { command, mode: command === "build" ? "production" : "development" })
     return { config, plugin }
   }
+
+  it("names the build host where a tool cannot elicit, and only there", () => {
+    const entry = (nitro: object, command: "build" | "serve") => {
+      const root = app({ "server/mcp/tools/add.ts": tool })
+      configure(root, { auth: false }, { nitro }, command)
+      return readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    }
+    expect(entry({ preset: "cloudflare-module" }, "build")).toContain('elicitationUnsupportedHost: "cloudflare-module"')
+    expect(entry({ preset: "vercel" }, "build")).toContain('elicitationUnsupportedHost: "vercel"')
+    expect(entry({ preset: "node-cluster" }, "build")).toContain('elicitationUnsupportedHost: "node-cluster"')
+    expect(entry({ preset: "node-server" }, "build")).not.toContain("elicitationUnsupportedHost")
+    expect(entry({ preset: "bun" }, "build")).not.toContain("elicitationUnsupportedHost")
+    // The dev server runs in one process, whatever the preset.
+    expect(entry({ preset: "cloudflare-module" }, "serve")).not.toContain("elicitationUnsupportedHost")
+  })
 
   it("checks the access token by default", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
