@@ -105,5 +105,9 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "comments() from @vite-hub/comments/vite is for apps without vitehub(). In this app vitehub() owns the Comments configuration.",
       fix: "Remove comments() from the plugins and set vitehub({ comments: true }), or add server/comments.ts. See https://vitehub.dev/docs/comments/configure#turn-comments-on-in-a-vitehub-app",
     },
+    COMMENTS_B0004: {
+      why: ({ file }: { file: string }) => `The \`database\` option of defineComments() in ${file} is not a string literal. The build reads it without running the file, so Comments would use the default Database.`,
+      fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
+    },
   },
 })

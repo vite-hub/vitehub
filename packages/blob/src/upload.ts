@@ -173,13 +173,14 @@ export async function handleBlobUpload(
   storage: UploadStorage,
   event: BlobUploadEvent,
   options: BlobUploadOptions = {},
+  store = "default",
 ): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
   const request = eventRequest(event)
   if (isJsonRequest(request)) {
     if (!options.direct) {
       throw badRequest("This upload route accepts a multipart/form-data request. Pass `direct: true` to `blob.handleUpload()` to accept direct uploads.")
     }
-    return handleDirectUploadStep(storage, request, options)
+    return handleDirectUploadStep(storage, request, options, store)
   }
   const formKey = options.formKey ?? "files"
   // With one file, the body is the file plus its framing. Without a file count, the total has no bound.
@@ -214,11 +215,12 @@ export async function handleBlobUpload(
 }
 
 /** `handleUpload()` with its overloads. `storage` returns the handle, so a handle can pass itself while it is built. */
-export function createUploadHandler(storage: () => UploadStorage): BlobStorage["handleUpload"] {
+export function createUploadHandler(storage: () => UploadStorage, store: string): BlobStorage["handleUpload"] {
   function handleUpload(event: BlobUploadEvent, options?: BlobUploadOptions & { direct?: false }): Promise<Result<BlobObject[], BlobErrorCode>>
   function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions & { direct: true }): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
+  function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
   function handleUpload(event: BlobUploadEvent, options: BlobUploadOptions = {}): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
-    return handleBlobUpload(storage(), event, options)
+    return handleBlobUpload(storage(), event, options, store)
   }
   return handleUpload
 }
@@ -227,10 +229,11 @@ async function handleDirectUploadStep(
   storage: UploadStorage,
   request: Request,
   options: BlobUploadOptions,
+  store: string,
 ): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>> {
   const body = await readJson(request)
-  if (body.action === "sign") return signDirectUpload(storage, request, body, options)
-  if (body.action === "complete") return completeDirectUpload(storage, request, body, options)
+  if (body.action === "sign") return signDirectUpload(storage, request, body, options, store)
+  if (body.action === "complete") return completeDirectUpload(storage, request, body, options, store)
   throw badRequest("A direct upload request needs `action`: \"sign\" or \"complete\".")
 }
 
@@ -239,6 +242,7 @@ async function signDirectUpload(
   request: Request,
   body: Record<string, unknown>,
   options: BlobUploadOptions,
+  store: string,
 ): Promise<Result<BlobDirectUploadStep, BlobErrorCode>> {
   const { contentType: declaredType, name, size } = body
   if (typeof name !== "string" || typeof declaredType !== "string" || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
@@ -246,7 +250,7 @@ async function signDirectUpload(
   }
   const { access, contentLength, customMetadata, ...put } = options.put ?? {}
   if (access !== undefined || contentLength !== undefined || (customMetadata && Object.keys(customMetadata).length)) {
-    throw blobErrorDiagnostics.BLOB_R0045({ message: "A direct upload cannot set `put.access`, `put.contentLength`, or `put.customMetadata`." })
+    throw blobErrorDiagnostics.BLOB_R0046({ message: "A direct upload cannot set `put.access`, `put.contentLength`, or `put.customMetadata`." })
   }
   if (options.ensure) {
     ensureBlobType(declaredType, options.ensure)
@@ -266,6 +270,7 @@ async function signDirectUpload(
     expires: Math.floor(Date.now() / 1000) + directTicketExpiresIn,
     pathname,
     route: new URL(request.url).pathname,
+    store,
   })
   return [undefined, { action: "sign", pathname, request: signedRequest, ticket }]
 }
@@ -308,10 +313,11 @@ async function completeDirectUpload(
   request: Request,
   body: Record<string, unknown>,
   options: BlobUploadOptions,
+  store: string,
 ): Promise<Result<BlobObject[], BlobErrorCode>> {
   const ticket = typeof body.ticket === "string" ? await openUploadTicket(body.ticket) : undefined
   if (ticket === "expired") throw createError({ statusCode: 403, message: "The direct upload ticket expired. Start the upload again with a new `sign` step." })
-  if (!ticket || ticket.route !== new URL(request.url).pathname) {
+  if (!ticket || ticket.store !== store || ticket.route !== new URL(request.url).pathname) {
     throw createError({ statusCode: 403, message: "The `complete` step needs the `ticket` that the `sign` step of this route returned, unchanged." })
   }
   const [headError, object] = await storage.head(ticket.pathname)

@@ -68,6 +68,28 @@ async function complete(storage: BlobStorage, ticket: string, options: BlobUploa
 }
 
 describe("direct uploads on the fs driver", () => {
+  it.each(["direct", "runtime"])("rejects cross-store tickets through %s handles before touching another store's object", async (mode) => {
+    const stores = {
+      a: { base: join(base, "a"), driver: "fs" as const },
+      b: { base: join(base, "b"), driver: "fs" as const },
+    }
+    setBlobRuntimeConfig({ store: stores.a, stores: { default: stores.a, ...stores } })
+    const a = mode === "runtime" ? blob.store("a") : createBlobStorage(createFsDriver(stores.a), "a")
+    const b = mode === "runtime" ? blob.store("b") : createBlobStorage(createFsDriver(stores.b), "b")
+    ok(await b.put("invoice.txt", "private invoice", { contentType: "text/plain" }))
+    const signed = await sign(a, { contentType: "text/plain", name: "invoice.txt", size: 1 })
+    const onCompleted = vi.fn()
+    const head = vi.spyOn(b, "head")
+    const remove = vi.spyOn(b, "delete")
+    for (const ensure of [undefined, { maxSize: "1B" }]) {
+      await expect(complete(b, signed.ticket, { ensure, onCompleted })).rejects.toMatchObject({ statusCode: 403 })
+    }
+    expect(head).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    expect(onCompleted).not.toHaveBeenCalled()
+    expect(ok(await b.head("invoice.txt"))).toMatchObject({ size: 15 })
+  })
+
   it("signs, takes the PUT on the signed route, and completes with onCompleted", async () => {
     const onCompleted = vi.fn()
     const onBeforeUpload = vi.fn(({ pathname }: { pathname: string }) => ({ pathname: `avatars/${pathname}` }))
@@ -127,7 +149,7 @@ describe("direct uploads on the fs driver", () => {
   })
 
   it("rejects put options that a signed PUT cannot carry", async () => {
-    await expect(sign(blob, { contentType: "text/plain", name: "a.txt", size: 1 }, { put: { customMetadata: { owner: "u1" } } })).rejects.toMatchObject({ code: "BLOB_R0045" })
+    await expect(sign(blob, { contentType: "text/plain", name: "a.txt", size: 1 }, { put: { customMetadata: { owner: "u1" } } })).rejects.toMatchObject({ code: "BLOB_R0046" })
   })
 
   it("runs the hooks for a form too", async () => {

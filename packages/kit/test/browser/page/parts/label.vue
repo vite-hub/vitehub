@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Label } from "@vite-hub/kit/label"
-import { Radio, RadioGroup, RadioIndicator } from "@vite-hub/kit/radio"
+import { Label } from "@ui-sdk/vue/label"
+import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/vue/radio"
 
 const speeds = [
   { value: "standard", label: "Standard" },

@@ -3,7 +3,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDirectUploadStep, BlobErrorCode, BlobMultipartEvent, BlobObject, BlobStorage, BlobUploadEvent } from "../src/types.ts"
+import type { BlobDirectUploadStep, BlobErrorCode, BlobMultipartEvent, BlobObject, BlobStorage, BlobUploadEvent, BlobUploadOptions } from "../src/types.ts"
 
 // The `RequestEvent` of `nuxt/server` (Nuxt 5), copied from `nuxt/schema`. It has no `~standard`.
 interface NuxtServerRequestEvent {
@@ -34,6 +34,9 @@ describe("upload events", () => {
     const request = new Request("http://localhost/api/files")
     expectTypeOf(blob.handleUpload(request)).resolves.toEqualTypeOf<Result<BlobObject[], BlobErrorCode>>()
     expectTypeOf(blob.handleUpload(request, { multiple: false })).resolves.toEqualTypeOf<Result<BlobObject[], BlobErrorCode>>()
+    const options: BlobUploadOptions = { ensure: { maxSize: "8MB" } }
+    expectTypeOf(blob.handleUpload(request, options)).resolves.toEqualTypeOf<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>()
+    expectTypeOf(blob.handleUpload(request, { direct: Boolean(request) })).resolves.toEqualTypeOf<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>()
     expectTypeOf(blob.handleUpload(request, { direct: true })).resolves.toEqualTypeOf<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>()
   })
 })

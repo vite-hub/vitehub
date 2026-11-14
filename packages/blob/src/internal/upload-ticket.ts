@@ -3,9 +3,11 @@ import { blobHmacKey, hex } from "./fs-sign.ts"
 /** The `deriveSecret()` purpose of the key that signs direct upload tickets. */
 export const blobUploadTicketPurpose = "vitehub:blob:direct-upload"
 
-/** What the `complete` step of a direct upload may finish: one pathname, on one route, until `expires`. */
+/** What the `complete` step of a direct upload may finish: one pathname, in one store, on one route, until `expires`. */
 export interface BlobUploadTicket {
   contentType: string
+  /** The selected store name, authenticated before any storage operation. */
+  store: string
   /** Seconds since the epoch. */
   expires: number
   pathname: string
@@ -38,7 +40,7 @@ function fromBase64Url(value: string): string | undefined {
 
 /** Signs a ticket. The client sends it back unchanged to the `complete` step. */
 export async function sealUploadTicket(ticket: BlobUploadTicket): Promise<string> {
-  const body = toBase64Url(JSON.stringify(["v1", ticket.route, ticket.pathname, ticket.contentType, ticket.expires]))
+  const body = toBase64Url(JSON.stringify(["v2", ticket.store, ticket.route, ticket.pathname, ticket.contentType, ticket.expires]))
   return `${body}.${hex(await globalThis.crypto.subtle.sign("HMAC", await key(), encoder.encode(body)))}`
 }
 
@@ -61,9 +63,9 @@ export async function openUploadTicket(value: string, now = Date.now()): Promise
   catch {
     return undefined
   }
-  if (!Array.isArray(parts) || parts[0] !== "v1") return undefined
-  const [, route, pathname, contentType, expires] = parts
-  if (typeof route !== "string" || typeof pathname !== "string" || typeof contentType !== "string" || typeof expires !== "number") return undefined
+  if (!Array.isArray(parts) || parts[0] !== "v2") return undefined
+  const [, store, route, pathname, contentType, expires] = parts
+  if (typeof store !== "string" || typeof route !== "string" || typeof pathname !== "string" || typeof contentType !== "string" || typeof expires !== "number") return undefined
   if (expires * 1000 <= now) return "expired"
-  return { contentType, expires, pathname, route }
+  return { store, contentType, expires, pathname, route }
 }

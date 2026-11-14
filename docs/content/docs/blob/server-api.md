@@ -241,7 +241,6 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 | `contentType` | `string` | Stored MIME type. |
 | `contentLength` | `string` | Expected content length, when the provider supports it. |
 | `customMetadata` | `Record<string, string>` | Provider custom metadata. |
-| `access` | `BlobPutOptions['access']` | `private` or `public`, when the driver supports it. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix, when the driver supports it. |
 | `prefix` | `string` | Path prefix, when the driver supports it. |
 
@@ -374,8 +373,8 @@ For each file, the client sends three requests:
 | `complete` | JSON `{ action: 'complete', ticket }` to the route | Reads the object with `head()`, checks `ensure` again, runs `onCompleted`, and returns `[object]`. |
 
 The server chooses the pathname. The client sends only the file name. The
-`ticket` binds the pathname and the route URL path, so a client cannot
-complete a file that it did not upload, or complete it on another route.
+`ticket` binds the selected store, pathname, and route URL path, so a client cannot
+complete a file in another store or on another route.
 `complete` checks what the store holds, not what the client declared. When
 the stored size or type fails `ensure`, it deletes the object and throws a
 400 error.
@@ -390,7 +389,7 @@ the stored size or type fails `ensure`, it deletes the object and throws a
 The signed `PUT` must start within 10 minutes. The ticket for `complete` is
 valid for 24 hours. Direct uploads need `VITEHUB_SECRET`, which signs the
 ticket. A direct upload cannot set `put.access`, `put.contentLength`, or
-`put.customMetadata`, so they throw `BLOB_R0045`. `put.contentType`,
+`put.customMetadata`, so they throw `BLOB_R0046`. `put.contentType`,
 `put.prefix`, and `put.addRandomSuffix` apply.
 
 | Driver | Direct upload | Notes |

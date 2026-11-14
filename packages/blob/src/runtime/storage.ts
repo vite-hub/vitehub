@@ -192,7 +192,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: createUploadHandler(() => storage),
+    handleUpload: createUploadHandler(() => storage, name),
     async resumeMultipartUpload(pathname, uploadId) {
       const [resolutionError, resolved] = await resolveStorageResult("multipart", name)
       if (resolutionError) return [resolutionError, undefined]
