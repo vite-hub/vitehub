@@ -30,6 +30,7 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - prepublish-contracts
       - consumer-contracts
@@ -306,6 +307,45 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
+  # Typechecks ran only in `verify` at release, so type errors reached main. A
+  # job of its own keeps fast checks fast: each package typecheck builds the
+  # package and its dependencies first. A pull request checks the packages
+  # that the package test selection names. The docs site imports most
+  # packages, so its typecheck runs on every pull request.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The same heap as `vp run typecheck`. vue-tsc checks the docs site in Node.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changed packages
+        id: changed
+        if: ${{ env.FULL_SUITE != 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs typecheck --affected "$BASE_REF" --list)"
+          echo "Changed packages: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs typecheck
+      - name: Typecheck changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
+      - name: Typecheck the docs site
+        run: vp run --filter vitehub-docs --ignore-depends-on typecheck
+
   # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
   # need a real Postgres and Redis. test/service-tests.mjs finds these files by
   # the variable they read, so a new test file needs no change here.
@@ -503,6 +543,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
       - node-22
@@ -711,6 +752,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
       - node-22
