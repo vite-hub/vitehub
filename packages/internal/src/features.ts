@@ -274,7 +274,7 @@ export default defineAgent({
     title: "Connections",
   }),
   console: feature({
-    docs: "/docs/development/console",
+    docs: "/docs/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
     // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.

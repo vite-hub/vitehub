@@ -21,7 +21,7 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 ## Turn Comments on in a ViteHub app
 
-In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/development/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
+In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -192,7 +192,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/console), the CLI, and the [ViteHub MCP](/docs/console/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -230,7 +230,7 @@ export default defineConfig({
 :::
 ::
 
-See [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
+See [Limit a user to some sections](/docs/console/access#what-authorize-returns) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and Content field edits need the full `comments` grant and the Comments policy.
 
@@ -283,7 +283,7 @@ A guest id starts with `guest:`, so it never matches a signed-in person's id. Gu
 
 ### Roles from Site access
 
-[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 
@@ -297,7 +297,7 @@ export const comments = defineComments({
 
 ## Comments in your own UI
 
-The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/development/mcp) never show or change these threads.
+The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/console/mcp) never show or change these threads.
 
 ```ts [server/comments.ts]
 import { defineCommentSubject, defineComments } from 'vite-hub/comments'
@@ -770,13 +770,13 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Comments section of the [Console](/docs/development/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Comments section of the [Console](/docs/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
 ## Fix comments with an Agent
 
-Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
+Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
 

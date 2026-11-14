@@ -1,0 +1,5 @@
+title: Console
+icon: i-vitehub-console
+order: 72.5
+category: Develop and deploy
+related: [auth, agents]

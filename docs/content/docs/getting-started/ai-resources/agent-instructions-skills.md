@@ -63,7 +63,7 @@ Run the command from the project root. The index lists other skills too, so `--s
 
 ### Install from your app
 
-An app with the [Console](/docs/development/console) endpoint also serves the skill at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the app's version. Pass the `/_vitehub` URL of the dev server or the deployed app:
+An app with the [Console](/docs/console) endpoint also serves the skill at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the app's version. Pass the `/_vitehub` URL of the dev server or the deployed app:
 
 ```bash [Terminal]
 npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
@@ -71,7 +71,7 @@ npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-cod
 
 The skill files are static and need no signature, even in production. They hold only the public skill, no app data.
 
-To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
+To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/console/skills).
 
 ## Ask for an outcome
 
@@ -89,7 +89,7 @@ The bundled references teach how parts fit together, not the API reference. They
 
 ## Add live docs lookups
 
-The skill links to raw docs pages, so the agent needs network access. To let it search the docs through tools, [connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server). If your tool cannot install skills, start from [`llms.txt`](https://vitehub.dev/llms.txt) and give the agent one [raw Markdown page](/docs/getting-started/ai-resources/markdown-pages).
+The skill links to raw docs pages, so the agent needs network access. To let it search the docs through tools, [connect the docs MCP server](/docs/console/mcp). If your tool cannot install skills, start from [`llms.txt`](https://vitehub.dev/llms.txt) and give the agent one [raw Markdown page](/docs/getting-started/ai-resources/markdown-pages).
 
 ## Keep instruction sources distinct
 

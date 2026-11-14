@@ -22,7 +22,7 @@ give one page to a chat tool or a coding agent.
 | Open in ChatGPT | Opens ChatGPT with a prompt that references the raw URL. |
 | Open in Claude | Opens Claude with the same prompt. |
 | Copy MCP server URL | Copies `https://vitehub.dev/mcp`. |
-| Add MCP server to Cursor or VS Code | Opens the editor prompt to install the [docs MCP server](/docs/getting-started/ai-resources/mcp-server). |
+| Add MCP server to Cursor or VS Code | Opens the editor prompt to install the [docs MCP server](/docs/console/mcp). |
 
 **Open in ChatGPT** and **Open in Claude** start a new chat with this prompt:
 

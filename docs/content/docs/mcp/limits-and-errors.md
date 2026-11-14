@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Protocol
 
-The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/docs/development/mcp) of the Console uses the same server.
+The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/docs/console/mcp) of the Console uses the same server.
 
 - It speaks the stateless JSON subset of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`.
 - It answers `initialize`, `ping`, `tools/list`, and `tools/call`. With prompts, it also answers `prompts/list` and `prompts/get`. With resources, it also answers `resources/list`, `resources/templates/list`, and `resources/read`. Other methods get JSON-RPC `-32601`.

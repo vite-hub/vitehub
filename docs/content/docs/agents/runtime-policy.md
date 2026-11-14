@@ -43,7 +43,7 @@ you show approval controls in your app.
 ## Inspect what happened
 
 The Invocation ID links a decision, pending approval, tool call, and final
-result. The [Console](/docs/development/console) shows them.
+result. The [Console](/docs/console) shows them.
 [Invocation APIs](/docs/agents/invocations) and
 [runtime events](/docs/reference/runtime-events) show them from code.
 

@@ -216,7 +216,7 @@ describe("Console request diagnostics", () => {
   it("reads the diagnostic fields of an RPC failure", async () => {
     vi.stubGlobal("fetch", operationRpcFetch(vi.fn().mockResolvedValue(Response.json({
       code: "CONSOLE_DEVELOPMENT_ONLY",
-      docs: "https://vitehub.dev/docs/development/console#protect-the-console-route",
+      docs: "https://vitehub.dev/docs/console/access#who-can-call-the-endpoint",
       fix: "Use Console Auth.",
       message: "console: true is development-only.",
       ok: false,
@@ -224,7 +224,7 @@ describe("Console request diagnostics", () => {
     }, { status: 403 }))))
     await expect(requestConsole("/_vitehub/api/sections")).rejects.toMatchObject({
       code: "CONSOLE_DEVELOPMENT_ONLY",
-      docs: "https://vitehub.dev/docs/development/console#protect-the-console-route",
+      docs: "https://vitehub.dev/docs/console/access#who-can-call-the-endpoint",
       fix: "Use Console Auth.",
       message: "console: true is development-only.",
       status: 403,

@@ -20,7 +20,7 @@ the same behavior.
 | --- | --- |
 | `vite-hub` | `vitehub()`, the framework Vite plugin. |
 | `vite-hub` | `detectHost()`: the host `vitehub()` detects when `host` is omitted. Use it for host-specific config. |
-| `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
+| `vite-hub/skills` | Define and serve [Agent Skills](/docs/console/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
@@ -116,7 +116,7 @@ the same behavior.
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
-| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
+| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/console/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |
 | `vite-hub/rate-limit/drivers/memory` | `memoryRateLimitDriver()`: fixed windows in one process, for local runs and tests. |

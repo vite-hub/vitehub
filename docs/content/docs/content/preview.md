@@ -222,7 +222,7 @@ The revisions of the Blob + Database store have no `/blob/<id>` URL. Their ids a
 
 `vitehub content previews comment --pr 12` prints the links as a Markdown comment. With `--post`, it creates one comment on the pull request and updates it on the next run. See [the CLI](/docs/content/cli#pull-request-previews).
 
-ViteHub does not add a workflow for you, and deploys stay local. To comment from CI, add this workflow yourself. It [signs requests to the deployed app](/docs/development/console#sign-console-requests) and posts with the token of the workflow. Run `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: { auth: 'token' }`, and store `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a GitHub Actions secret:
+ViteHub does not add a workflow for you, and deploys stay local. To comment from CI, add this workflow yourself. It [signs requests to the deployed app](/docs/console/signed-requests) and posts with the token of the workflow. Run `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: { auth: 'token' }`, and store `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a GitHub Actions secret:
 
 ```yaml [.github/workflows/content-previews.yml]
 name: Content previews

@@ -24,7 +24,7 @@ const singleFramework: Record<string, string> = {
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
   "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
-  "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
+  "console/access.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
   "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",
   "auth/protect-pages.md nuxt.config.ts": "The page guard reads the meta of Nuxt pages, so the page is about Nuxt apps only.",
   "reference/doctor-rules.md vite.config.ts": "Each example shows the config that one Doctor rule reports.",

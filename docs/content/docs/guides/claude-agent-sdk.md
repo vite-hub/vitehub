@@ -212,7 +212,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 - `agent.status()` checks that Claude Code is installed and signed in, and reads its quota if reported. It sends no prompt. See [Provider status](/docs/agents/provider-status).
 - `vitehub agent invocations list` and `vitehub agent invocations tail <id>` read the Invocation log, also on a deployed app with `--url`. See [the CLI reference](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
-- The [Console](/docs/development/console) shows the trace, tool calls, and usage of each Invocation.
+- The [Console](/docs/console) shows the trace, tool calls, and usage of each Invocation.
 
 ## Where the Claude Agent SDK can run
 

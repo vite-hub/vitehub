@@ -2,7 +2,7 @@ import { isViteHubLoopbackAddress } from "@vite-hub/internal/dev-peer"
 
 import type { ConsoleAccessMode } from "./runtime/server/access.ts"
 
-const guide = "https://vitehub.dev/docs/development/console"
+const guide = "https://vitehub.dev/docs/console/development#share-a-development-server"
 
 /** A startup line of a development server. */
 export interface ConsoleDevAccessNotice {

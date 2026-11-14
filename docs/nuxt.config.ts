@@ -38,7 +38,7 @@ export default defineNuxtConfig({
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
-    mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
+    mcp: { name: "vitehub", guide: "/docs/console/mcp" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",

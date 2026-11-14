@@ -564,7 +564,7 @@ The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A deploy keeps threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people `authorize` lets read. Without `authorize`, a production build admits GitHub users who can push to the repository. Signed-out readers get no toolbar. With no Console and no Auth, but GitHub sign-in set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests Auth users who may read the thread. Without Auth, it suggests people who wrote in threads you can read.
-- **The Console lists the threads.** Open the app in the [Console](/docs/development/console) and select **Comments** to see every thread with its page.
+- **The Console lists the threads.** Open the app in the [Console](/docs/console) and select **Comments** to see every thread with its page.
 
 `comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
 
@@ -596,7 +596,7 @@ export default defineContent({
 })
 ```
 
-Open the app in the [Console](/docs/development/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
+Open the app in the [Console](/docs/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 

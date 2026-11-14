@@ -188,7 +188,7 @@ async function retry(): Promise<void> {
           <UIcon name="i-lucide-settings" class="vitehub-console__section-icon" />
           <span class="truncate">Account settings</span>
         </a>
-        <a class="vitehub-console__section-link" href="https://vitehub.dev/docs/development/console#hosted-console" target="_blank" rel="noopener">
+        <a class="vitehub-console__section-link" href="https://vitehub.dev/docs/console/get-started#link-a-deployed-app" target="_blank" rel="noopener">
           <UIcon name="i-lucide-book-open" class="vitehub-console__section-icon" />
           <span class="flex-1 truncate">Docs</span>
           <UIcon name="i-lucide-arrow-up-right" class="size-3.5 text-muted" aria-hidden="true" />

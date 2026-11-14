@@ -143,7 +143,7 @@ A Channel tells the Agent where a message came from. It does not prove who sent 
 
 ### Invocations and traces
 
-Each run is an [Invocation](/docs/agents/invocations). ViteHub records it as events: text, tool calls, approvals, usage, errors, and the final state. `vitehub agent info` prints the resolved Agent Definition. The [Console](/docs/development/console) shows each run.
+Each run is an [Invocation](/docs/agents/invocations). ViteHub records it as events: text, tool calls, approvals, usage, errors, and the final state. `vitehub agent info` prints the resolved Agent Definition. The [Console](/docs/console) shows each run.
 
 An in-memory trace does not survive a restart. Keep records with [Invocation storage](/docs/agents/invocation-storage) or an [OTLP receiver](/docs/agents/capabilities/otlp). [Evals](/docs/agents/evals) run the same scenarios against an Agent each time and score the result.
 

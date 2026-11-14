@@ -125,7 +125,7 @@ import { cmsCommentsAuthorize } from 'vite-hub/cms/access'
 export const comments = defineComments({ authorize: cmsCommentsAuthorize })
 ```
 
-`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
+`cmsConsoleAuthorize` decides which [Console sections](/docs/console/access#what-authorize-returns) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
