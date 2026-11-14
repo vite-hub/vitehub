@@ -184,6 +184,7 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 | `@vite-hub/realtime/vue` | `useRealtimeTiptap()` for Vue, TipTap, presence, status, and checkpoints. |
 | `@vite-hub/realtime/agent` | `agentRealtime`, the handle that ViteHub passes to the Agent `page()` Capability. Apps do not import it. |
 | `@vite-hub/realtime/client` | `connectRealtimeRoom()` to share presence without an editor, in any framework. |
+| `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module with no imports, for a script that another site loads from your app without a bundler. |
 | `@vite-hub/realtime/server` | `requestRealtimeRoom()` to ask one browser in a room, and `createRealtimeHandler()` for a manual H3 server integration. Normal ViteHub apps use the generated route. |
 | `@vite-hub/realtime/bus` | `useRealtimeBus()` and `closeRealtimeBuses()`, the Postgres and Redis buses that the generated Node handler passes to `createRealtimeHandler({ bus })`. |
 
