@@ -309,7 +309,7 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
-/** The session reader of presence and MCP: the Auth user, else the person signed in with GitHub. */
+/** The session reader of presence and MCP: the Auth user, else `githubLogin`, the person signed in with GitHub. */
 function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], value: string, githubLogin?: true } {
   if (options.auth) return sessionLines(options, imports)
   const route = mountedCommentsRoute(base)
@@ -318,7 +318,7 @@ function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: Com
       `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
       `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
     ],
-    value: "githubLogin.user",
+    value: "undefined",
     githubLogin: true,
   }
 }
@@ -564,7 +564,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value} })`,
+          `export default commentsRealtime(comments, { session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} })`,
           "",
         ].join("\n"))
         return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }

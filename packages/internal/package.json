@@ -258,6 +258,11 @@
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
     },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
+    },
     "./runtime/time-zone": {
       "types": "./dist/runtime/time-zone.d.ts",
       "import": "./dist/runtime/time-zone.js",
