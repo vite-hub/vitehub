@@ -132,7 +132,13 @@ Start the dev server with `pnpm dev` and open the page. Select **Project name**:
 ::tutorial-step{title="Let an Agent work the page"}
 ## Let an Agent work the page
 
-Turn on Agents and Realtime in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:
+Install the Agent, Realtime, and Workflow packages, and `ai` for the model. An Agent runs on Workflow on Node:
+
+```bash [commands/install-agent]
+pnpm add @vite-hub/agent @vite-hub/realtime @vite-hub/workflow ai
+```
+
+Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:
 
 :::tabs{sync="vue-app"}
 ::::tabs-item{label="Nuxt"}
@@ -155,7 +161,7 @@ Turn on Agents and Realtime in `nuxt.config.ts` or `vite.config.ts`. This Node b
 ::::
 :::
 
-Give an Agent the page Capability. A model string goes through Vercel AI Gateway, so install `ai` and set `AI_GATEWAY_API_KEY` in the server environment. Each request can cost money.
+Give an Agent the page Capability. A model string goes through Vercel AI Gateway, so set `AI_GATEWAY_API_KEY` in the server environment. Each request can cost money.
 
 ```ts [server/agents/settings.ts]
 import { defineAgent } from "vite-hub/agent"
