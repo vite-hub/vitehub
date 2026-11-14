@@ -3,7 +3,7 @@ withDefaults(defineProps<{ label?: string }>(), { label: "Opening Console…" })
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-3xl content-start gap-6 px-4 py-8 sm:px-8">
+  <div class="vitehub-console-page grid content-start gap-6">
     <p role="status" class="flex items-center gap-2 text-sm text-muted">
       <UIcon
         name="i-lucide-loader-circle"

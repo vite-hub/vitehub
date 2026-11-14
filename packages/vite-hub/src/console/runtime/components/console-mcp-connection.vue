@@ -155,7 +155,7 @@ async function disconnect(): Promise<void> {
     </ConsolePageHeader>
 
     <section class="shrink-0 border-b border-default" aria-label="Connection">
-      <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 px-4 py-4 sm:px-6">
+      <div class="vitehub-console-page grid grid-cols-1 gap-4">
         <div class="flex min-w-0 items-center gap-3">
           <UAvatar :src="connection.identity?.picture" :alt="account.primary" :text="consoleInitials(account.primary)" size="lg" />
           <div class="min-w-0 flex-1">
@@ -181,7 +181,7 @@ async function disconnect(): Promise<void> {
          scroller makes room for it and overlaps the bottom border: the two are one line. -->
     <div class="shrink-0 border-b border-default">
       <div class="-mb-px overflow-x-auto pb-px">
-        <div class="mx-auto max-w-6xl px-2 sm:px-4">
+        <div class="max-w-[78rem] px-2 sm:px-4">
           <UTabs v-model="activeTab" :items="tabs" :content="false" aria-label="Connection views" class="w-max min-w-full" />
         </div>
       </div>
@@ -198,7 +198,7 @@ async function disconnect(): Promise<void> {
       @failed="emit('changed')"
     />
     <div v-else class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-4 py-5 sm:px-6 [&>*]:max-w-3xl">
+      <div class="vitehub-console-page grid grid-cols-1 gap-6 [&>*]:max-w-3xl">
         <ConsoleSection v-if="connection.server?.instructions" :level="3" title="Instructions">
           <p class="vitehub-mcp-text max-w-[75ch]">{{ connection.server.instructions }}</p>
         </ConsoleSection>

@@ -22,6 +22,8 @@ export interface ConsoleProjectInfo {
   vitehub?: string
   /** The build that serves the project. A development server and an older vite-hub send none. */
   build?: ConsoleProjectBuild
+  /** The open Comments threads, when this access may open Comments. An older vite-hub sends none. */
+  comments?: ConsoleProjectComments
   sections: string[]
   operations: string[]
 }
@@ -43,6 +45,17 @@ export type ConsoleProjectProbe =
   | { kind: "unreachable" }
   | { kind: "missing" }
   | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
+
+/** The Comments of a project in `project.get`: how many threads are open. */
+export interface ConsoleProjectComments {
+  open: number
+}
+
+/** Read the `comments` of a `project.get` answer. A count that is not a whole number is no count. */
+export function consoleProjectCommentsOf(value: unknown): ConsoleProjectComments | undefined {
+  const open: unknown = value instanceof Object ? Reflect.get(value, "open") : undefined
+  return Number.isSafeInteger(open) && Number(open) >= 0 ? { open: Number(open) } : undefined
+}
 
 const field = (record: object, key: string): string | undefined => {
   const value: unknown = Reflect.get(record, key)
@@ -77,6 +90,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
     return { kind: "protocol", ...(Number.isInteger(protocol) ? { protocol: Number(protocol) } : {}), ...(version ? { vitehub: version } : {}) }
   }
   const build = consoleProjectBuildOf(record ? Reflect.get(record, "build") : undefined)
+  const comments = consoleProjectCommentsOf(record ? Reflect.get(record, "comments") : undefined)
   return {
     kind: "ready",
     info: {
@@ -84,6 +98,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
       ...(String(name) === name && name.trim() ? { name: name.trim() } : {}),
       ...(version ? { vitehub: version } : {}),
       ...(build ? { build } : {}),
+      ...(comments ? { comments } : {}),
       operations: strings(record ? Reflect.get(record, "operations") : undefined),
       sections: strings(record ? Reflect.get(record, "sections") : undefined),
     },

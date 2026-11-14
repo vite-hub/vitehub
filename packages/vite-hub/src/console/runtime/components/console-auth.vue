@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
         </ConsolePageHeader>
         <div v-if="impersonating" class="border-b border-warning/25 bg-warning/10">
           <div
-            class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
+            class="flex w-full max-w-[78rem] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
           >
             <div class="flex min-w-0 flex-[1_1_16rem] items-start gap-2">
               <UIcon
@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <ConsolePageToolbar v-if="page === 'users'" width="6xl">
+        <ConsolePageToolbar v-if="page === 'users'" width="page">
           <UInput
             v-model="search"
             @update:model-value="offset = 0"
@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
             Loading {{ labels[page].toLowerCase() }}…
           </p>
           <div v-else class="min-h-0 flex-1 overflow-auto">
-            <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
+            <div class="vitehub-console-page flex flex-col gap-3">
               <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
                 <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md select-none hover:text-highlighted">
                   <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />

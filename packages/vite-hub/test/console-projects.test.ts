@@ -140,11 +140,20 @@ describe("project.get probe", () => {
     expect(consoleProjectBuildOf({ commit: { message: "no sha" }, time: "2026-11-14T10:00:00.000Z" })).toEqual({ time: "2026-11-14T10:00:00.000Z" })
   })
 
-  it("keeps the build of a connected app from the check of the Console server", async () => {
+  it("keeps the build and the open comments of a connected app from the check of the Console server", async () => {
     const build = { commit: { sha: "4f9c2e1" }, time: "2026-11-14T10:00:00.000Z" }
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build }, linked: true, status: 200 })))
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build, comments: { open: 3 } }, linked: true, status: 200 })))
     const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
-    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, status: "connected" })
+    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, comments: { open: 3 }, status: "connected" })
+  })
+
+  it("reads the open comments of a project, and drops a count that is not a whole number", async () => {
+    const counted = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open: 4 } } }) })
+    expect(counted).toMatchObject({ kind: "ready", info: { comments: { open: 4 } } })
+    for (const open of [-1, 1.5, "4"]) {
+      const broken = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open } } }) })
+      expect(broken.kind === "ready" && broken.info).not.toHaveProperty("comments")
+    }
   })
 
   it("reads a refused signature by its code, and any other 401 as a refused signature", async () => {

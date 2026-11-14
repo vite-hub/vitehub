@@ -231,7 +231,7 @@ async function publishAll(): Promise<void> {
   </ConsolePageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-    <div class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
+    <div class="vitehub-console-page grid grid-cols-1 gap-8">
       <ConsoleState v-if="failed" class="py-6" :error="error" title="Couldn't load the dashboard" :retry="() => emit('reload')" />
 
       <!-- Counts: the numbers lead and the labels follow quietly. -->

@@ -2,6 +2,7 @@ import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { consoleState } from "../../internal.ts"
 import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
@@ -37,6 +38,8 @@ export interface ConsoleProject {
   vitehub: string
   /** The production build that serves this answer. */
   build?: ConsoleProjectBuild
+  /** The Comments of the app, when the caller may open the Comments section. */
+  comments?: { open: number }
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -44,7 +47,7 @@ export interface ConsoleProject {
 }
 
 /** Describe the project for one Console access. `console.authorize` limits the sections and the operations. */
-export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
+export async function readConsoleProject(access: ConsoleAccess): Promise<ConsoleProject> {
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
@@ -57,5 +60,22 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations }
+  const comments = sections.includes("comments") ? await countOpenComments() : undefined
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations }
+}
+
+/**
+ * The open threads of the Comments section, from the same reader as its table, so the Console Home shows the count
+ * without one more request per app. A reader that fails gives no count, and the answer still describes the project.
+ */
+async function countOpenComments(): Promise<{ open: number } | undefined> {
+  const reader = consoleState().definitions?.readers?.comments
+  if (!reader) return undefined
+  try {
+    const records = await reader()
+    return { open: records.filter(record => record.cells.status === "Open").length }
+  }
+  catch {
+    return undefined
+  }
 }

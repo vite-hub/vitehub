@@ -4,6 +4,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 
 import packageManifest from "../package.json" with { type: "json" }
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleBuild, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -33,6 +34,7 @@ async function project(): Promise<{ status: number, value?: ConsoleProject }> {
 
 afterEach(() => {
   consoleState().build = undefined
+  consoleState().definitions = undefined
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
   installConsoleSections("/work/app", [])
@@ -60,6 +62,20 @@ describe("project.get", () => {
     const build = { commit: { author: "Ada", branch: "main", message: "feat: ship", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" }, time: "2026-11-14T10:00:00.000Z" }
     installConsoleBuild(build)
     expect((await project()).value?.build).toEqual(build)
+  })
+
+  it("counts the open Comments threads for a caller who may open Comments", async () => {
+    const thread = (id: string, status: string) => ({ cells: { status }, fields: [], id })
+    installConsoleSections("/work/app", ["comments", "kv"])
+    installConsoleDefinitions("/work/app", {}, [], { comments: () => [thread("a", "Open"), thread("b", "Resolved"), thread("c", "Open")] })
+    expect((await project()).value?.comments).toEqual({ open: 2 })
+
+    // A caller without the Comments section gets no count, and a reader that fails gives none.
+    installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
+    expect((await project()).value).not.toHaveProperty("comments")
+    installConsoleAccess({ mode: "open" })
+    installConsoleDefinitions("/work/app", {}, [], { comments: () => { throw new Error("database down") } })
+    expect((await project()).value).not.toHaveProperty("comments")
   })
 
   it("lists only the sections and operations that authorize allows", async () => {

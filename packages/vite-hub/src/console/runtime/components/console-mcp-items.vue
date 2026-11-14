@@ -256,7 +256,7 @@ onBeforeUnmount(() => request?.abort());
       @keydown.meta.enter.prevent="run"
       @keydown.ctrl.enter.prevent="run"
     >
-      <div class="mx-auto grid w-full max-w-4xl gap-6 px-4 py-5 sm:px-6">
+      <div class="vitehub-console-page grid gap-6">
         <header class="grid gap-2">
           <UButton class="-ms-2 w-fit lg:hidden" icon="i-lucide-arrow-left" size="xs" variant="ghost" :label="`All ${nouns[kind]}`" @click="selected = undefined" />
           <div class="flex flex-wrap items-center gap-2">
