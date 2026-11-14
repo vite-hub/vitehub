@@ -127,6 +127,10 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 `connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet. A `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
 
+### DATABASE_URL_VARIABLE_IGNORED
+
+A warning, printed once per database when it opens. The Database Definition has no `connection`, so it uses its local SQLite file, but `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. NuxtHub and `connectDatabase()` read these variables on their own. A Database Definition does not. To use the variable, set `connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }` in the Definition. To keep the local file, unset the variable. See [Keep a Turso or libSQL connection](/docs/getting-started/migrate-from-nuxthub#keep-a-turso-or-libsql-connection).
+
 ### DATABASE_NAME_REQUIRED
 
 `useDatabase()` was called without a name, and the app has several Named Databases and none is named `default`. `error.why` lists the names. Pass one, for example `useDatabase('analytics')`.

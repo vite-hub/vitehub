@@ -65,6 +65,7 @@ describe("Database error types", () => {
       | "DATABASE_SEED_PENDING_MIGRATIONS"
       | "DATABASE_UNKNOWN_OPTION"
       | "DATABASE_UNSUPPORTED_URL"
+      | "DATABASE_URL_VARIABLE_IGNORED"
       | "DATABASE_WRANGLER_BINDING_CONFLICT"
     >()
   })
