@@ -601,7 +601,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: (): string => [
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
-        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
+        // Absolute paths, like the theme below: the app may not depend on either package, and Nuxt can read this
+        // template from outside the app (a custom `buildDir`), where a bare name does not resolve.
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "${stylesheet("tailwindcss")}";`, `@import "${stylesheet("@nuxt/ui")}";`],
         `@import "${scopedTheme?.dst ?? sharedTheme}";`,
         `@import "${join(runtime, "theme/design.css")}";`,
         "",
@@ -898,6 +900,18 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
+}
+
+/** The file a CSS `@import "<name>"` loads: the package's `style` export. */
+function stylesheet(name: string): string {
+  // `@nuxt/ui` does not export its package.json, so walk up from its entry.
+  let root = dirname(fileURLToPath(import.meta.resolve(name)))
+  while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
+    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    root = dirname(root)
+  }
+  const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }
+  return join(root, exports["."].style)
 }
 
 function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {
