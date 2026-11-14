@@ -21,6 +21,7 @@ Retained-history methods need a Store with `history`.
 - `WORKSPACE_R0069`: the Store does not support history, or the Workspace scope is partial.
 - `WORKSPACE_R0070`: a list limit is not an integer from `1` to `100`, or a cursor comes from another ref.
 - `WORKSPACE_R0071`: a ref name is not valid.
+- `WORKSPACE_R0077`: the `database` of the Blob + Database Store is not a Drizzle database, for example a Database Definition.
 - `WORKSPACE_CONFLICT`: `ifHead` is stale. The error has the ref and the expected and actual revision ids.
 - `WORKSPACE_NOT_FOUND`: a revision or workspace identity is gone, or a change commit deletes a missing file.
 
