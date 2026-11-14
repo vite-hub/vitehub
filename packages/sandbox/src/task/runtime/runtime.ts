@@ -157,11 +157,13 @@ async function createSandboxTaskRunner(
     executionAuthority: sandbox.plan.executionAuthority,
     name,
     async run<TPayload = unknown, TResult = unknown>(payload?: TPayload, options: SandboxTaskExecutionOptions = {}): Promise<TResult> {
+      const namedSandboxId = options.sandboxId || provider.sandboxId
       const cloudflareSandboxId = provider.provider === 'cloudflare'
-        ? createCloudflareExecutionSandboxId(name, options.sandboxId || provider.sandboxId)
+        ? createCloudflareExecutionSandboxId(name, namedSandboxId)
         : undefined
-      // A per-run Cloudflare Sandbox, or one the provider asks to close, ends with the run.
-      const closesAfterRun = provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)
+      // A named Cloudflare Sandbox is shared with other runs, so it stays for idle shutdown,
+      // also after a timeout or an abort. Every other Sandbox ends with its run.
+      const closesAfterRun = provider.provider !== 'cloudflare' || !namedSandboxId
       const attempts = provider.provider === 'cloudflare'
         ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
         : 1
@@ -212,7 +214,7 @@ async function createSandboxTaskRunner(
           }
           finally {
             await executionSettled
-            if (options.signal?.aborted || readSandboxTaskErrorMetadata(runError)?.code === 'SANDBOX_TASK_TIMEOUT' || closesAfterRun) {
+            if (closesAfterRun) {
               try {
                 await taskSandbox?.close()
               }
