@@ -6,7 +6,7 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
-} from "@vite-hub/kit/select"
+} from "@ui-sdk/vue/select"
 </script>
 
 <template>

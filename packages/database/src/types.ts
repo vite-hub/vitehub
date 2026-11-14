@@ -65,6 +65,7 @@ export interface DatabaseIntegrationOptions {
     export?: false
     generate?: false
     migrate?: false
+    seed?: false
     up?: false
   }
   /**
