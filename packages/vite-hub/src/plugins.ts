@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 
-import { defaultServerConditions } from "vite"
+import { defaultServerConditions, loadEnv } from "vite"
 
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { hubEnv } from "@vite-hub/env/vite"
@@ -47,6 +47,7 @@ import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, 
 import { cloudflareExportConditions, detectHost, type ViteHubHost } from "./deployment.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
+import { addCloudflareVars, cloudflareServerEnvVars } from "./cloudflare-vars.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { viteHubCachePlugin } from "./cache/vite.ts"
@@ -428,6 +429,12 @@ export interface CloudflareOptions {
    * It never reads the file.
    */
   secretsFile?: string
+  /**
+   * Writes the non-secret Server Env values set at build time to the Worker's `vars` in the generated `wrangler.json`.
+   * ViteHub reads them from the process environment and the `.env` files Vite loads for the build mode. It never
+   * writes a secret, a default, or a var that the Wrangler config already sets.
+   */
+  vars?: boolean
 }
 
 /** `connections` options of `vitehub()`. */
@@ -744,6 +751,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
+  cloudflareVars: () => Record<string, string>,
 ) {
   return (nitro: {
     hooks: {
@@ -776,7 +784,10 @@ function deploymentNitroModule(
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
-      if (plan.host === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
+      if (plan.host === "cloudflare") {
+        await addCloudflareVars(nitro.options.output.serverDir, cloudflareVars())
+        await collapseWranglerConfigFile(nitro.options.output.serverDir)
+      }
       if (plan.output.packaging === "deno-node-modules") {
         if (!serverPackages) throw viteHubErrorDiagnostics.VITE_HUB_B0017({ message: "[vitehub] The Deno server bundle did not report its runtime packages." })
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
@@ -1040,7 +1051,15 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd)
+            const viteRoot = resolve(config.root ?? process.cwd())
+            const cloudflareVars = () => {
+              const envPlugin = deploymentEnvPlugin.current
+              if (plan.host !== "cloudflare" || !options.cloudflare?.vars || !envPlugin) return {}
+              // Read the build environment the way the Env plugin does, so `.env.development` never applies.
+              const buildEnv = { ...loadEnv(environment.mode, envPlugin.api.resolveProjectRoot(viteRoot), ""), ...process.env }
+              return cloudflareServerEnvVars(envPlugin.api.getServerEnvRegistry(), buildEnv)
+            }
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, cloudflareVars)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
