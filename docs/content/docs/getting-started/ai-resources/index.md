@@ -16,7 +16,6 @@ gives it a process, and the MCP server gives it live lookups.
 | Task | Resource | Setup |
 | --- | --- | --- |
 | Build or change a ViteHub application | ViteHub skill | [Add the ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) |
-| Contribute to ViteHub itself | ViteHub Dev skill | `npx skills add https://vitehub.dev --skill vitehub-dev` |
 | Let the agent search and read the docs as it works | Docs MCP server | [Connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server) |
 | Ask a chat tool about one page | Page actions and raw Markdown | [Copy a page for an LLM](/docs/getting-started/ai-resources/markdown-pages) |
 | Give a tool without skills or MCP a documentation map | `llms.txt` indexes | [Load a documentation index](#load-a-documentation-index) |
