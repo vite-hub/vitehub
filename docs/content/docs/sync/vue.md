@@ -77,7 +77,7 @@ catch (error) {
 
 `SyncError` comes from `vite-hub/sync/client`. A write that waits for the network does not throw. It stays in the queue until it is sent.
 
-Writes that you make in one tick go out in one push. When you change a row again before its last update was sent, the two updates become one, and the later value wins. A text field that saves on each key press sends one update, not one per key.
+Writes that you make in one tick go out in one push. When you change a row again before any tab sent its last update, the two updates become one, and the later value wins. A text field that saves on each key press while offline sends one update, not one per key. After a tab sent an update, the next change is a new update, also when the answer did not arrive. So a retry never sends old values again over newer ones.
 
 ## Pending rows
 
@@ -164,6 +164,7 @@ const todos = useSync('todos', {
 - An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
 - When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message of an error with a status below 500, such as the `createError()` above. Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
 - An error in the optimistic function shows in the console. The action still goes to the server.
+- The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
 
 ## Live changes
 
@@ -172,6 +173,7 @@ The rows of other people show within about a second. One tab of the app keeps a 
 - `live` is `true` in the tab that holds the stream. When that tab hides, another tab that shows takes over.
 - While the stream is open, the interval pull runs every 5 minutes at most. The client still pulls when the page shows again and when the network comes back.
 - The server ends a stream after about 25 seconds, and the client opens a new one at once. After a failure, it waits 1 second, doubling to 30 seconds.
+- A stream belongs to the account, scope and table version of the rows when it opens. When they change, such as after a sign-in or after the person left a team, the client ends the stream, drops its changes, and opens a new one.
 - A definition with `live: false` has no stream. The client then pulls as before: on start, when the page shows, every `interval`, and after each write.
 
 ## Accounts and sign-out
@@ -190,6 +192,8 @@ export async function signOutEverywhere() {
 ```
 
 If you forget it, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
+
+Writes that Sync v1 queued have no account. They wait until a pull has the scope that they were made for, which is the same user with the same `where` values, and then go out with that account.
 
 ## Refused writes
 
@@ -233,5 +237,7 @@ stop()
 todos.destroy()
 comments.destroy()
 ```
+
+A write that the store takes before `destroy()` still goes to IndexedDB. Another store of the name, in this tab or another one, sends it, or the next store of the name does. This also holds when a component unmounts in the tick of its write. Its `SyncWrite` stays `queued`.
 
 On the server, `createSync()` makes no request and starts no timer. Its writes and actions throw, since they belong in the browser.
