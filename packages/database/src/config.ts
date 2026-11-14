@@ -33,7 +33,7 @@ import type {
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
-import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTargets, resolveImplicitDefaultDialect } from "./contributions.ts"
+import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTargets, resolveImplicitDefaultDialect, selectMigrationContributions } from "./contributions.ts"
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
@@ -895,7 +895,7 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
  * layer owns the database options. The implicit default Database uses the folder of `server/databases/default.ts`.
  * The Vite forms keep their migrations beside the Definition file.
  */
-function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
+export function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const appServerDir = serverDirs?.[0] ?? resolve(rootDir, "server")
   const serverMigrations = resolve(appServerDir, "databases", definition.name, "migrations")
   if (definition.migrationsDir) return relative(rootDir, definition.migrationsDir)
@@ -1054,7 +1054,8 @@ export function resolveDBViteConfig(
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect]))
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [], dialects)
   // Uses add no tables, but their target must exist and have their dialect, as for tables.
-  resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
+  const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
+  const migrationContributionsByDatabase = selectMigrationContributions(tableContributionsByDatabase, usesByDatabase)
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
@@ -1090,6 +1091,7 @@ export function resolveDBViteConfig(
     }),
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
+    migrationContributionsByDatabase,
     rootDir,
     tableContributionsByDatabase,
   }

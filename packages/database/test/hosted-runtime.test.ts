@@ -56,6 +56,7 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
     generatedDrizzleConfigFilesByDatabase: {},
     generatedSchemaFilesByDatabase: { primary: generatedSchemaFile },
     rootDir,
+    migrationContributionsByDatabase: {},
     tableContributionsByDatabase: {},
   }
 }

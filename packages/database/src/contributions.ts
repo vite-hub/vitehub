@@ -19,6 +19,12 @@ export interface DatabaseContributionFields {
   database?: string
   /** SQL dialect of the tables. When set, the target Database must use this dialect. */
   dialect?: DatabaseDialect
+  /**
+   * Absolute path of a folder of `.sql` migration files for the target Database. `vitehub database generate` adds each
+   * file that is not there yet to the migrations folder of the Database, after its own migrations, in file name order.
+   * A file named `<name>.<dialect>.sql` applies only to a Database of that dialect.
+   */
+  migrations?: string
 }
 
 interface DatabaseTableContributionFields extends DatabaseContributionFields {
@@ -132,12 +138,31 @@ export interface ResolvedDatabaseUse extends CollectedDatabaseUse {
   database: string
 }
 
+/** A table contribution or use with `migrations`, and its target Database. */
+export type ResolvedDatabaseMigrations = (ResolvedDatabaseContribution | ResolvedDatabaseUse) & { migrations: string }
+
+/** The contributions of each Database that have `migrations`, in contribution name order. */
+export function selectMigrationContributions(
+  ...groups: Readonly<Record<string, readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]>>[]
+): Record<string, ResolvedDatabaseMigrations[]> {
+  const byDatabase: Record<string, ResolvedDatabaseMigrations[]> = Object.create(null)
+  for (const group of groups) {
+    for (const [database, contributions] of Object.entries(group)) {
+      for (const contribution of contributions) {
+        if (contribution.migrations !== undefined) (byDatabase[database] ??= []).push({ ...contribution, migrations: contribution.migrations })
+      }
+    }
+  }
+  for (const list of Object.values(byDatabase)) list.sort(byName)
+  return byDatabase
+}
+
 function isDatabaseDialect(value: unknown): value is DatabaseDialect {
   return databaseDialects.some(dialect => dialect === value)
 }
 
 function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseTableContributionFields {
-  const { database, dialect, relations, tables } = entry
+  const { database, dialect, migrations, relations, tables } = entry
   const fields: DatabaseTableContributionFields = {}
   if (tables !== undefined) {
     if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
@@ -159,6 +184,10 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
   if (dialect !== undefined) {
     if (!isDatabaseDialect(dialect)) fail(`\`dialect\` of ${JSON.stringify(entry.name)} must be one of ${databaseDialects.map(name => JSON.stringify(name)).join(", ")}.`)
     fields.dialect = dialect
+  }
+  if (migrations !== undefined) {
+    if (String(migrations) !== migrations || !isAbsolute(migrations)) fail(`\`migrations\` of ${JSON.stringify(entry.name)} must be the absolute path of a folder of \`.sql\` files.`)
+    fields.migrations = String(migrations)
   }
   return fields
 }
@@ -185,13 +214,13 @@ function readDefinitionContribution(entry: Record<string, unknown>, plugin: stri
     throw fail(`Database ${JSON.stringify(name)} needs \`definition\`, the absolute path of its Definition module.`)
   }
   if (reason !== undefined && (String(reason) !== reason || !reason)) throw fail(`\`reason\` of Database ${JSON.stringify(name)} must be a non-empty string.`)
-  if (Object.hasOwn(entry, "database") || Object.hasOwn(entry, "dialect")) {
-    throw fail(`Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with the \`database\` or \`dialect\` of a table contribution. Contribute them as two entries.`)
+  if (Object.hasOwn(entry, "database") || Object.hasOwn(entry, "dialect") || Object.hasOwn(entry, "migrations")) {
+    throw fail(`Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with the \`database\`, \`dialect\`, or \`migrations\` of a table contribution. Contribute them as two entries.`)
   }
   return { definition, name, plugin, ...(reason === undefined ? {} : { reason }) }
 }
 
-const useKeys: ReadonlySet<string> = new Set(["database", "dialect", "name", "reason"])
+const useKeys: ReadonlySet<string> = new Set(["database", "dialect", "migrations", "name", "reason"])
 
 // An entry with only these keys is a use. Any other key, such as a misplaced `module`, makes it a table entry, so the
 // table reader reports the missing `definition`.

@@ -430,13 +430,12 @@ async function runDrizzleKit(
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
-    const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
+    const foldersBefore = feature === "generate" && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
     if (result !== 0) return result
-    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && run.database.cloudflare) {
-      // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
-      const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
-      recordD1MigrationNames(migrationsDir)
+    if (feature === "generate" && migrationsDir) {
+      const { orderGeneratedMigrations } = await import("./internal/contributed-migrations.ts")
+      orderGeneratedMigrations(migrationsDir, foldersBefore)
     }
     if (schemaSnapshot) {
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
@@ -448,6 +447,22 @@ async function runDrizzleKit(
       const folder = (await listMigrationFolders(migrationsDir)).find(name => !foldersBefore.includes(name))
       const snapshot = await writeSchemaSnapshot(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), folder, migrationsDir, projectRoot })
       if (snapshot !== 0) return snapshot
+    }
+    if (feature === "generate" && migrationsDir && run.database) {
+      // Contributed SQL goes after the migrations that Drizzle Kit just wrote, so their order never changes.
+      const contributed = config?.migrationContributionsByDatabase?.[run.database.name] ?? []
+      if (contributed.length) {
+        const { describeContributedMigration, planContributedMigrations, writeContributedMigrations } = await import("./internal/contributed-migrations.ts")
+        const { pending } = planContributedMigrations(migrationsDir, contributed, run.database.dialect)
+        writeContributedMigrations(migrationsDir, pending).forEach((folder, index) => {
+          context.stdout.write(`[vitehub] Database "${run.database!.name}": added the migration ${relative(projectRoot, join(migrationsDir, folder))} from ${describeContributedMigration(pending[index]!)}.\n`)
+        })
+      }
+      if (run.database.dialect === "sqlite" && run.database.cloudflare) {
+        // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
+        const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
+        recordD1MigrationNames(migrationsDir)
+      }
     }
   }
   return 0
