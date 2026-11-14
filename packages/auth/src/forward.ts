@@ -1,6 +1,6 @@
 import { createAuthMiddleware } from "better-auth/api"
-import { applySetCookies, setSessionCookie } from "better-auth/cookies"
-import { handleOAuthUserInfo } from "better-auth/oauth2"
+import { applySetCookies, deleteSessionCookie, setSessionCookie } from "better-auth/cookies"
+import { handleOAuthUserInfo, setTokenUtil } from "better-auth/oauth2"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -55,7 +55,7 @@ const nonEmpty = (value: unknown): value is string => typeof value === "string" 
 function assertIdentity(value: unknown): asserts value is ForwardedIdentity {
   const field = (name: keyof ForwardedIdentity): unknown => value instanceof Object ? Reflect.get(value, name) : undefined
   if (!nonEmpty(field("providerId")) || !nonEmpty(field("accountId")) || !nonEmpty(field("email")) || typeof field("name") !== "string" || typeof field("emailVerified") !== "boolean") {
-    throw authErrorDiagnostics.AUTH_R0022({ message: "`forwardAuth()` verify returned a value that is not an identity. Return `null`, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`." })
+    throw authErrorDiagnostics.AUTH_R0023({ message: "`forwardAuth()` verify returned a value that is not an identity. Return `null`, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`." })
   }
 }
 
@@ -101,12 +101,18 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
             return stored && new Date(stored.session.expiresAt).getTime() > Date.now() ? stored : null
           }
 
+          const refreshToken = async (userId: string) => {
+            if (!identity.accessToken || ctx.context.options.account?.updateAccountOnSignIn === false) return
+            const account = (await internalAdapter.findAccounts(userId))
+              .find(account => account.providerId === identity.providerId && account.accountId === identity.accountId)
+            if (account) await internalAdapter.updateAccount(account.id, { accessToken: await setTokenUtil(identity.accessToken, ctx.context) })
+          }
+
           const cookieToken = await ctx.getSignedCookie(sessionToken.name, ctx.context.secret)
-          const known = sessions.get(key)
-          if (cookieToken && cookieToken === known?.token) return
           if (cookieToken) {
             const current = await live(cookieToken)
             if (current && await owns(current.session.userId)) {
+              await refreshToken(current.session.userId)
               sessions.set(key, { token: cookieToken, userId: current.session.userId, expiresAt: new Date(current.session.expiresAt).getTime() })
               return
             }
@@ -139,9 +145,15 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
                 overrideUserInfo: true,
               })
               // Better Auth refused the sign-in, for example a database hook or an unverified email of an existing user.
-              if (!data) return
+              if (!data) {
+                deleteSessionCookie(ctx)
+                applySetCookies(headers, ctx.responseHeaders?.getSetCookie() ?? [])
+                ctx.context.session = null
+                return { context: { headers } }
+              }
               session = data
             }
+            else await refreshToken(session.session.userId)
 
             const now = Date.now()
             for (const [entry, stored] of sessions) if (stored.expiresAt <= now) sessions.delete(entry)

@@ -7,6 +7,7 @@ export type {
   RealtimeOriginContext,
   RealtimeCheckpoint,
   RealtimeDefinition,
+  RealtimeDefinitionAccess,
   RealtimeDocumentAdapter,
   RealtimeDocumentContext,
   RealtimeDocumentDefinition,

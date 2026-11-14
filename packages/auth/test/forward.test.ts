@@ -97,6 +97,39 @@ describe("forwardAuth()", () => {
     expect(db.session).toHaveLength(1)
   })
 
+  it.each(["expired", "deleted"])("replaces a %s session despite its retained cookie", async (state) => {
+    const { db, definition } = createForwardAuth()
+    const first = await getSession(definition, { [header]: "gho_ada" })
+    const cookie = cookiePairs(first)
+    const original = db.session![0]!.token
+    if (state === "expired") db.session![0]!.expiresAt = new Date(0)
+    else db.session!.splice(0)
+
+    const response = await getSession(definition, { [header]: "gho_ada", cookie })
+    expect(await response.json()).toMatchObject({ user: { email: ada.email } })
+    expect(db.session!.some(session => session.token !== original)).toBe(true)
+  })
+
+  it.each([false, true])("refuses an identity switch with cookie cache %s", async (enabled) => {
+    let refuse = false
+    const { definition } = createForwardAuth(undefined, {
+      session: { cookieCache: { enabled } },
+      databaseHooks: { session: { create: { before: async () => refuse ? false : undefined } } },
+    })
+    const cookie = cookiePairs(await getSession(definition, { [header]: "gho_ada" }))
+    refuse = true
+    expect(await (await getSession(definition, { [header]: "gho_grace", cookie })).json()).toBeNull()
+    expect((await guarded(definition).check({ [header]: "gho_grace", cookie })).status).toBe(401)
+  })
+
+  it.each([false, true])("refreshes credentials during reuse with cookie %s", async (withCookie) => {
+    const { db, definition } = createForwardAuth(({ value }) => ({ ...ada, accessToken: value }))
+    const cookie = cookiePairs(await getSession(definition, { [header]: "old-token" }))
+    await getSession(definition, { [header]: "new-token", ...(withCookie ? { cookie } : {}) })
+    expect(db.account![0]!.accessToken).toBe("new-token")
+    expect(db.session).toHaveLength(1)
+  })
+
   it("signs parallel first requests of one identity in once", async () => {
     const { db, definition } = createForwardAuth(async ({ value }) => tokens[value] ?? null)
 

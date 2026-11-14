@@ -395,8 +395,8 @@ generated SQL alone does not create a baseline.
 
 `vitehub database generate --custom` creates a migration you write by hand. NuxtHub
 applied migrations during `nuxt dev` and `nuxt build`, except at build time for
-D1 binding deployments. ViteHub never applies app migrations during
-development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`.
+D1 binding deployments. ViteHub does not apply app migrations during
+development or builds. Run `pnpm vitehub database migrate` after you pull a new migration. It applies SQLite, libSQL, D1 HTTP, and Postgres migrations. A Node server build applies Postgres migrations when it starts, and SQLite migrations with `migrateOnStart: true`. See [Migrate when the server starts](/docs/database/configure#migrate-when-the-server-starts). Until the Postgres baseline is in place, build with `migrateOnStart: false`. On Cloudflare, `migrateOnDeploy: true` applies the D1 migrations in the deploy command, before the Worker deploys. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
 
 ### Baseline an existing SQLite database
 
