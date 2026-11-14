@@ -447,7 +447,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   function renderViteShippedMigrationsModule() {
     const provider = resolved?.command === "build" ? resolveHostedProvider(resolved) : undefined
     if (provider) return `export default ${JSON.stringify({ allowDataLoss: false, databases: {}, unsupported: `The build targets ${provider}.` })}\n`
-    return renderShippedMigrationsModule(runtimeConfig, { allowDataLoss: resolveMigrateOnStart(resolvedOptions())?.allowDataLoss ?? false })
+    return renderShippedMigrationsModule(runtimeConfig, resolveMigrateOnStart(resolvedOptions()))
   }
 
   // A Node server build applies pending migrations before it handles requests. In Nuxt the Database module installs it.
@@ -529,7 +529,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return
-        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
+        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig, () => viteStringAliases(resolved?.resolve?.alias))
         const provision = [createDatabaseProvisionStep(databaseRoot, db, () => ({ contributions, serverDirs: databaseServerDirs() }))]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },

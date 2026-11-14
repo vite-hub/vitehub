@@ -88,6 +88,7 @@ export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
   agents: "agents",
   skills: "agents",
+  "served-skills": "agents",
   usage: "agents",
   channels: "agents",
   "mcp-client": "agents",

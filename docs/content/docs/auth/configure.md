@@ -34,10 +34,12 @@ export default defineAuth({
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
+| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
+| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in. See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
 
 ### Secret
 
@@ -351,6 +353,62 @@ Set `adminClaim: false` on another Auth Definition to make it ignore the host's 
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
+## Sign in through a trusted proxy
+
+A reverse proxy can sign people in before the request reaches the app, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. The proxy sends the person's identity, or a credential for it, in a request header. `forwardAuth()` turns that header into a Better Auth session.
+
+Anyone who reaches the app without the proxy can send the same header. So Auth trusts the header only when your `verify` function proves it and returns the identity. This example proves the GitHub token that oauth2-proxy forwards with `--pass-access-token`, by asking GitHub who owns it:
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { forwardAuth } from 'vite-hub/auth/forward'
+
+interface GitHubUser {
+  id: number
+  login: string
+  name: string | null
+  email: string | null
+  avatar_url: string
+}
+
+export default defineAuth({
+  plugins: [
+    forwardAuth({
+      header: 'x-auth-request-access-token',
+      verify: async ({ value }) => {
+        const response = await fetch('https://api.github.com/user', {
+          headers: { authorization: `Bearer ${value}`, 'user-agent': 'acme' },
+        })
+        if (!response.ok) return null
+        const user: GitHubUser = await response.json()
+        return {
+          providerId: 'github',
+          accountId: String(user.id),
+          email: user.email ?? `${user.id}+${user.login}@users.noreply.github.com`,
+          emailVerified: user.email !== null,
+          name: user.name ?? user.login,
+          image: user.avatar_url,
+          accessToken: value,
+        }
+      },
+    }),
+  ],
+})
+```
+
+| `verify` | Result |
+| --- | --- |
+| Returns an identity | The request uses a session of that identity. Auth signs it in the first time, as a Better Auth account with `providerId` and `accountId`, and sets the session cookie. |
+| Returns `null` | Auth ignores the header. The request keeps the session of its cookie, or stays signed out. |
+| Throws | The request fails. |
+
+- Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
+- Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
+- The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
+- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
+- When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
+
 ## Sign MCP clients in
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
@@ -443,7 +501,7 @@ export default {
 It reads only the request URL and headers, so a Fetchable route's Request, H3's `event.req` or any value with `url` and `headers` works, and the body stays for the MCP handler. It takes the signing keys from the Auth in the same process, with no call to the authorization server, and checks:
 
 - The signature, against the algorithms of those keys, plus the issuer, the audience, and the expiry with 30 seconds of tolerance.
-- The user, read again by the `sub` claim, so a deleted or banned person loses access while the token is still valid.
+- The user, read again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. With [`access.policy`](/docs/auth/server-api#decide-who-can-stay-signed-in), `allow` must also accept the user.
 - The OAuth client, which must still exist and be enabled.
 - The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
