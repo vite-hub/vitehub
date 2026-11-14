@@ -61,6 +61,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
+| `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub database seed`, which then exits with code 1 |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
@@ -184,11 +185,29 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 `migrateOnStart: { backup }` copies only local SQLite files. The build fails for a Postgres database, a `connection.url` with remote libSQL (`libsql:`, `http(s):`, `ws(s):`), or `:memory:`. When the URL comes from the environment, the server fails to start instead. It also fails when `keep` is not a whole number of 1 or more. Use a `file:` URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or your libSQL provider's snapshots.
 
+### DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED
+
+`migrateOnDeploy` puts `wrangler d1 migrations apply` before `wrangler deploy`, so it works only for a Cloudflare build where each Database has a D1 binding. The build fails for another host, a Database on D1 over HTTP or Postgres, a Nitro deploy command that is not a shell command, or a Nuxt build that learns its Cloudflare preset after the Database module configures Nitro. Build with the Cloudflare host and a D1 binding for each Database, or remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+
 ## Export errors
 
 ### DATABASE_EXPORT_FAILED
 
 `vitehub database export` cannot write the dump. `error.why` has the reason, such as a missing SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. It writes no file on failure. See [Export a database](/docs/database/configure#export-a-database).
+
+## Seed errors
+
+### DATABASE_SEED_NOT_FOUND
+
+`vitehub database seed` found no seed file. `error.why` names the path that ViteHub looks for: `seed.ts` beside the migrations folder, such as `server/databases/default/seed.ts`. Without `--database`, the command fails only when no database has a seed file. See [Seed data](/docs/database/configure#seed-data).
+
+### DATABASE_SEED_PENDING_MIGRATIONS
+
+The database has migrations that it has not applied, so the seed could write to old tables. `error.why` lists them. Run `vitehub database migrate` with the same `--remote` and `--stage` flags, then run the seed again. The command writes nothing.
+
+### DATABASE_SEED_FAILED
+
+`vitehub database seed` cannot run the seed. `error.why` has the reason, such as a remote database without `--remote`, `--remote` for a local database, a seed file that cannot load or has no default export function, or an error that the seed throws, in `error.cause`. The database keeps the rows that the seed wrote before the error. Write them in one `db.transaction()` to keep all or none.
 
 ## Definition errors
 

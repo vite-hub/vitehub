@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest"
 
 import { codemods, formatMigrationReport, runCli, runCodemod, runMigration } from "../src/index.ts"
 import { scratchFolder } from "../src/migrate.ts"
+import { nuxtSafeRuntimeConfig } from "../src/nuxt-safe-runtime-config/index.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const fixtures = join(packageRoot, "test/fixtures")
@@ -86,6 +87,17 @@ describe("migrate", () => {
     expect(await readFile(join(target, "config.ts"), "utf8")).toBe(code)
     expect(migration.steps[0]?.error).toContain("symbolic link")
     expect(migration.edits).toEqual([])
+  })
+
+  it("does not write through a symlinked config when it runs one codemod", async () => {
+    const code = "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n"
+    const target = await app("linked-config-single-target", { "config.ts": code })
+    const directory = await app("linked-config-single", { "package.json": "{}\n" })
+    await symlink(join(target, "config.ts"), join(directory, "nuxt.config.ts"))
+    const name = nuxtSafeRuntimeConfig.name
+    await expect(runCodemod(name, { cwd: directory, dryRun: true })).rejects.toThrow("symbolic link")
+    await expect(runCodemod(name, { cwd: directory })).rejects.toThrow("symbolic link")
+    expect(await readFile(join(target, "config.ts"), "utf8")).toBe(code)
   })
 
   it("does not write through a symlinked parent directory during a dry run", async () => {

@@ -305,7 +305,9 @@ async function backupSqlite({ client, databases, file, pending }: StartMigration
   const { basename, dirname, extname, join, resolve } = process.getBuiltinModule("path")
   const dir = backup.dir ? resolve(backup.dir) : join(dirname(file), "backups")
   const extension = extname(file) || ".db"
-  const stem = basename(file, extname(file))
+  // A shared directory must keep retention independent for files with the same basename.
+  const identity = backup.dir ? `-${process.getBuiltinModule("crypto").createHash("sha256").update(file).digest("hex")}` : ""
+  const stem = `${basename(file, extname(file))}${identity}`
   const time = new Date().toISOString().replaceAll(":", "-").replace(".", "-")
   const target = join(dir, `${stem}-${time}-before-${pending.at(-1)!.migration.name}${extension}`)
   const copy = new RegExp(`^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-before-.+${escapeRegExp(extension)}$`)

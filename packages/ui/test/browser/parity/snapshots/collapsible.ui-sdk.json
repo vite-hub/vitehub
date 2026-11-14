@@ -1,0 +1,143 @@
+{
+  "component": "collapsible",
+  "engine": "ui-sdk",
+  "steps": [
+    {
+      "step": "load",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab to Before",
+      "focus": "button \"Before\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab to the trigger",
+      "focus": "button \"Show details\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Enter opens",
+      "focus": "button \"Show details\" [expanded]",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\" [expanded]",
+        "- paragraph: Trace details",
+        "- button \"Copy trace\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Show details\" aria-controls div \"Trace details Copy trace\""
+      ]
+    },
+    {
+      "step": "Tab into the content",
+      "focus": "button \"Copy trace\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\" [expanded]",
+        "- paragraph: Trace details",
+        "- button \"Copy trace\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Show details\" aria-controls div \"Trace details Copy trace\""
+      ]
+    },
+    {
+      "step": "Shift+Tab to the trigger",
+      "focus": "button \"Show details\" [expanded]",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\" [expanded]",
+        "- paragraph: Trace details",
+        "- button \"Copy trace\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Show details\" aria-controls div \"Trace details Copy trace\""
+      ]
+    },
+    {
+      "step": "Space closes",
+      "focus": "button \"Show details\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab skips the closed content",
+      "focus": "button \"After\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Shift+Tab back to the trigger",
+      "focus": "button \"Show details\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Click opens",
+      "focus": "button \"Show details\" [expanded]",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\" [expanded]",
+        "- paragraph: Trace details",
+        "- button \"Copy trace\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Show details\" aria-controls div \"Trace details Copy trace\""
+      ]
+    },
+    {
+      "step": "Click closes",
+      "focus": "button \"Show details\"",
+      "tree": [
+        "- button \"Before\"",
+        "- button \"Show details\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    }
+  ]
+}

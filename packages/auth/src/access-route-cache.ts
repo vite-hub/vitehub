@@ -47,9 +47,10 @@ function accessRoutePattern(route: string, baseURL: string): string {
  * The check compares patterns, not sample paths. A rule that caches and matches at least one guarded path fails,
  * unless a `false` value of the same rule turns the cache off on all of these paths: the `false` rule must match every
  * guarded path, or every path of the caching rule, and h3 must merge it after the caching rule. A cache that more than
- * one `false` rule turns off together still fails.
+ * one `false` rule turns off together still fails. A rule whose paths are all in one route of `publicRoutes` passes,
+ * because the middleware guards none of them.
  */
-export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAccessRoute[], routeRules: RouteRules, baseURL = "/"): Promise<void> {
+export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAccessRoute[], routeRules: RouteRules, baseURL = "/", publicRoutes: readonly string[] = []): Promise<void> {
   const guards = routes.filter(route => !route.method || cachedMethods.includes(route.method.toUpperCase()))
   if (!guards.length || !Object.keys(routeRules).length) return
   const [{ normalizeRouteRules }, { compareRoutes, routesOverlap }] = await Promise.all([import("h3/rules"), import("rou3")])
@@ -61,6 +62,8 @@ export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAc
     const [, method = "", path = key] = /^([A-Z]+) (\/.*)$/.exec(key) ?? []
     return { key, method, pattern: `${base}${path}`, rules }
   })
+  const exceptions = publicRoutes.map(route => accessRoutePattern(route, baseURL))
+  const isPublic = (entry: RouteRuleEntry) => exceptions.some(pattern => ["equal", "superset"].includes(compareRoutes(pattern, entry.pattern)))
 
   for (const guard of guards) {
     const guarded = accessRoutePattern(guard.route, baseURL)
@@ -77,7 +80,7 @@ export async function assertNoCachedAccessRoutes(routes: readonly ResolvedAuthAc
         }
         for (const entry of applied) {
           const value = entry.rules[name]
-          if (value === undefined || value === false || !routesOverlap(guarded, entry.pattern)) continue
+          if (value === undefined || value === false || !routesOverlap(guarded, entry.pattern) || isPublic(entry)) continue
           if (applied.some(off => turnsOff(entry, off))) continue
           throw authErrorDiagnostics.AUTH_B0002({
             message: `[vitehub] Route rule ${JSON.stringify(entry.key)} sets \`${name}\` on ${method} requests to paths that the \`access.routes\` entry ${JSON.stringify(guard.route)} guards. A cached or prerendered response is made for one visitor and served to others.`,

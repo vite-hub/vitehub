@@ -98,6 +98,91 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
+## Run behind a reverse proxy
+
+A reverse proxy, such as Caddy or nginx, often ends HTTPS and sends plain HTTP
+to Node. The server then sees `http://` request URLs, so callback URLs and
+links that your code builds from the request start with `http://`.
+
+Set `trustProxy: true` to read the first `X-Forwarded-Proto` value. When it is
+`https`, the request URL becomes `https://` before any middleware or route
+runs. Set `sameOriginWrites: true` to refuse browser writes with cookies that
+come from another origin.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    trustProxy: true,
+    sameOriginWrites: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+  ],
+})
+```
+:::
+::
+
+- `trustProxy` never reads `X-Forwarded-Host`. The proxy must send the
+  client's `Host` header to Node. Caddy does this by default. In nginx, set
+  `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-Proto $scheme;`.
+- `sameOriginWrites` answers `403` to a request that is not `GET`, `HEAD`, or
+  `OPTIONS`, has a `Cookie` header, and has `Sec-Fetch-Site: same-site` or
+  `cross-site`, or an `Origin` that is not the app's origin. A sibling
+  subdomain is same-site, so the browser still sends `SameSite=Lax` cookies
+  from it. Requests without cookies, such as API clients with bearer tokens and
+  webhooks, pass.
+- `sameOriginWrites: { exclude: ['/api/forms/contact'] }` lets a route take
+  writes from other sites, such as a [Form](/docs/forms/server-api) with `origins`. A
+  prefix matches the path and the paths below it.
+
+::warning
+Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`.
+Without a proxy, a client can send the header and make the server build
+`https://` URLs for a plain HTTP request.
+::
+
+Both options work on every host. On Cloudflare, Vercel, Netlify, and Deno
+Deploy, the request URL is already `https://`, so `trustProxy` changes nothing
+there.
+
 ## Check health
 
 Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers

@@ -496,7 +496,7 @@ describe("migrateOnStart backup", () => {
   const grace = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (8, 'Grace');", tag: "20231114221323_grace", when: 1_700_000_003_000 }
   const linus = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (9, 'Linus');", tag: "20231114221324_linus", when: 1_700_000_004_000 }
   const startMigration = (entry: { sql: string, tag: string, when: number }) => ({ dataLoss: [], hash: entry.tag, name: entry.tag, statements: entry.sql.split("--> statement-breakpoint"), when: entry.when })
-  const copyName = /^app-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-before-(.+)\.sqlite$/
+  const copyName = /^app-(?:[a-f0-9]{64}-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-before-(.+)\.sqlite$/
 
   /** Runs `migrateOnStart()` on a SQLite file with the migrations `entries`, and returns the log lines. */
   async function start(file: string, entries: Array<{ sql: string, tag: string, when: number }>, backup: { dir?: string, keep: number }) {
@@ -550,6 +550,24 @@ describe("migrateOnStart backup", () => {
     const names = (await readdir(dir)).sort()
     expect(names.filter(name => copyName.test(name)).map(name => name.match(copyName)![1])).toEqual([grace.tag, linus.tag])
     expect(names).toEqual(expect.arrayContaining(["notes.txt", "app-old-2023-11-14T22-13-20-000Z-before-x.sqlite"]))
+  })
+
+  it("retains independent readable copies of same-named files in a shared directory", async () => {
+    const { file: first, root } = await sqliteFile()
+    const second = join(root, "second", "app.sqlite")
+    const dir = join(root, "copies")
+    await mkdir(join(root, "second"))
+    for (const file of [first, second]) {
+      await start(file, [init], { dir, keep: 1 })
+      await start(file, [init, seed], { dir, keep: 1 })
+    }
+    expect(await readdir(dir)).toHaveLength(2)
+    // Prune one file's older copy without removing the other file's restore point.
+    await start(first, [init, seed, grace], { dir, keep: 1 })
+    const copies = await readdir(dir)
+    expect(copies).toHaveLength(2)
+    const ledgers = await Promise.all(copies.map(name => readLedger(`file:${join(dir, name)}`)))
+    expect(ledgers).toEqual(expect.arrayContaining([[init.when], [init.when, seed.when]]))
   })
 
   it("stops the start before any migration when the copy fails", async () => {
