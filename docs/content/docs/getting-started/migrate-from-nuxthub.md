@@ -19,6 +19,7 @@ through [Capabilities](/docs/agents/capabilities).
 | NuxtHub | ViteHub | Notes |
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
+| Nitro storage mount `kv` | Nitro storage mount `kv` | `useStorage('kv')` and modules such as nuxt-og-image use the default store. Named stores mount at `kv-<name>`. See [Use KV from useStorage and Nuxt modules](/docs/kv/server-api#use-kv-from-usestorage-and-nuxt-modules). |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
 | `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | NuxtHub uses Drizzle 0.x, ViteHub uses Drizzle 1.0. Relational queries change. ViteHub supports SQLite, libSQL, Cloudflare D1, and Postgres. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
