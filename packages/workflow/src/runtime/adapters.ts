@@ -294,25 +294,33 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
   }
 }
 
+/**
+ * True when Workflow DevKit runs the `native` entry. `vite dev` does not run the Workflow DevKit transform, so the
+ * dev server runs the normal handler inline, as for every other Workflow there.
+ */
+function runsNatively<TPayload, TResult>(definition: WorkflowDefinition<TPayload, TResult> | undefined): definition is WorkflowDefinition<TPayload, TResult> {
+  return Boolean(definition?.options?.native) && !getWorkflowDevRecorder()
+}
+
 function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   const fallback = inlineAdapter(config)
   return {
     async cancel({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
-      if (!definition?.options?.native) {
+      if (!runsNatively(definition)) {
         return await fallback.cancel({ event: undefined, id, name })
       }
       return await cancelVercelWorkflow(name, definition, id)
     },
     async get({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
-      return definition?.options?.native
+      return runsNatively(definition)
         ? await inspectVercelWorkflowRun(name, definition, id)
         : await fallback.get({ event: undefined, id, name })
     },
     resume: async (token, payload) => await resumeVercelWorkflowSignal(token, payload),
     async run({ definition, event, id, name, options, payload }) {
-      if (!definition.options?.native) {
+      if (!runsNatively(definition)) {
         return await fallback.run({ definition, event, id, name, options, payload })
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
