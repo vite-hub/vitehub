@@ -205,7 +205,7 @@ Most changes are options in `nuxt.config.ts`:
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `llms` | None | `{ details, sections }`. Text under the description of `/llms.txt`, and sections of links before the page sections. |
 | `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
-| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DocsSeoError`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, and a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it. |
+| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DocsSeoError`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it, an indexed page without `og:title`, `og:type`, `og:image`, and `og:url`, a page over 2 MB of HTML, which Googlebot cuts, and links to a redirect page or to `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -262,7 +262,7 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 `::code-tree` shows its code blocks as a project: file tabs beside the open file, or above it in a narrow panel. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
 
-`::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. `section` lists another section, and `exclude="Start"` leaves groups out. Put a plain Markdown list inside it: the site doesn't show it, and agents read it in the Markdown copy.
+`::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. On a panel Overview it lists the pages of the panel. `section` lists another section, `group="Runtime errors"` lists one group, and `exclude="Start"` leaves groups out. `compact` shows one line for each page, without icons: use it for long lists, such as one page per error code, because a Markdown table of a thousand rows is more HTML than crawlers read. Put a plain Markdown list or table inside it: the site doesn't show it, and agents read it in the Markdown copy.
 
 ### Comark plugins
 

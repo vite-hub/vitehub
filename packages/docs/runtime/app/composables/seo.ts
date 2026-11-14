@@ -25,11 +25,12 @@ export function useDocsSeo(input: DocsSeoInput): void {
   // A section's own Overview names the section already.
   const section = input.section && input.section.path !== path ? input.section : null
   const description = input.description ?? site.description ?? undefined
-  useSeoMeta({ title: input.title, ogTitle: input.title, description, ogDescription: description })
+  useSeoMeta({ title: input.title, ogTitle: input.title, description, ogDescription: description, ogType: input.type === "article" ? "article" : "website" })
 
   if (input.image === false) {
     // Null overrides inherited head tags before Unhead removes them from the rendered page.
-    useSeoMeta({ ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
+    // A `summary` card tells share previews and the search check that the page has no image on purpose.
+    useSeoMeta({ twitterCard: "summary", ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
   }
   else if (input.image) {
     const imagePath = input.image.startsWith("/") ? input.image : `/${input.image}`
@@ -47,6 +48,9 @@ export function useDocsSeo(input: DocsSeoInput): void {
       logo: site.logo ? site.logo.src : "",
       host: site.url.replace(/^https?:\/\//, ""),
     })
+  }
+  else {
+    useSeoMeta({ twitterCard: "summary" })
   }
 
   useSchemaOrg([

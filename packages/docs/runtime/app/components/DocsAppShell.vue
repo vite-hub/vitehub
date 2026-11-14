@@ -17,21 +17,26 @@ const { site, appBase } = useDocsConfig()
 const appConfig = useAppConfig()
 const theme = computed(() => resolveDocsTheme(design, appConfig.ui))
 
+// One canonical URL per page: the configured origin, no trailing slash, and no query.
+const canonical = () => `${site.url}${docsAppPath(normalizeDocsPath(route.path), appBase).replace(/\/+$/, "")}`
+
 if (active) {
   useHead({
     // One title pattern for every page: "KV configuration · ViteHub". A title that already names the site stays as written.
     // The check ignores case and punctuation, so "Comark UI" counts as naming `comark-ui`.
     titleTemplate: title => !title ? site.name : words(title).includes(words(site.name)) ? title : `${title} · ${site.name}`,
-    // One canonical URL per page: the configured origin, no trailing slash, and no query.
-    link: site.url ? [{ rel: "canonical", href: () => `${site.url}${docsAppPath(normalizeDocsPath(route.path), appBase).replace(/\/+$/, "")}` }] : [],
+    link: site.url ? [{ rel: "canonical", href: canonical }] : [],
     // In an app with its own `app.vue`, the app's head stays on its pages, and the docs pages add what they need.
     meta: ownsApp ? [] : [{ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" }],
     // The theme's CSS applies below `.vh-docs`. A docs site sets it on every page in its head config.
     htmlAttrs: ownsApp ? {} : { class: "vh-docs" },
   })
 
+  // Open Graph needs `og:url` and `og:type` besides the title and image, or share previews and site audits call it incomplete.
   useSeoMeta({
     ogSiteName: site.name,
+    ogType: "website",
+    ...site.url ? { ogUrl: canonical } : {},
     twitterCard: "summary_large_image",
     robots: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
   })
