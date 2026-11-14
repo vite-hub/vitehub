@@ -1,3 +1,5 @@
+import { jsonReplacer } from "./canonical.ts"
+
 import type { SyncLiveEvent } from "./protocol.ts"
 
 /**
@@ -45,7 +47,7 @@ export interface LiveStream {
 function format(event: SyncLiveEvent): string {
   const { type, ...data } = event
   const id = type === "pull" ? `id: ${event.pull.cursor}\n` : ""
-  return `event: ${type}\n${id}data: ${JSON.stringify(data)}\n\n`
+  return `event: ${type}\n${id}data: ${JSON.stringify(data, jsonReplacer)}\n\n`
 }
 
 /**

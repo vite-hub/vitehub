@@ -1,4 +1,4 @@
-import { sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { numeric, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { defineSync } from "../src/define.ts"
@@ -97,6 +97,19 @@ describe("live", () => {
     expect(pullOf(event.data)).toMatchObject({ reset: true, rows: [{ id: "n1" }] })
     expect(await events.next(2000)).toBe("end")
     expect(performance.now() - started).toBeLessThan(1500)
+  })
+
+  it("sends bigint columns as text, as a normal pull does", async () => {
+    const counters = sqliteTable("counters", { id: text("id").primaryKey(), total: numeric("total", { mode: "bigint" }).notNull() })
+    const definition = defineSync({ table: counters, where: () => ({}) })
+    const app = await createHarness({ name: "counters", definition, ddl: ["CREATE TABLE `counters` (`id` text PRIMARY KEY NOT NULL, `total` numeric NOT NULL)"], live: { interval: 50, seconds: 1 } })
+    await app.db.insert(counters).values({ id: "c1", total: 9007199254740993n })
+    expect((await app.pull(null)).body.rows).toEqual([{ id: "c1", total: "9007199254740993" }])
+    const { response, abort } = await app.live(null)
+    const event = await readEvents(response).next(1000)
+    if (typeof event !== "object") throw new Error(`No event: ${event}`)
+    expect(pullOf(event.data).rows).toEqual([{ id: "c1", total: "9007199254740993" }])
+    abort()
   })
 
   it("refuses before the stream starts", async () => {
