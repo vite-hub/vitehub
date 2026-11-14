@@ -168,7 +168,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
 The other runtime helpers are:
 

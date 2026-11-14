@@ -34,11 +34,20 @@ import type { VercelRun, VercelStep, VercelWorkflowRuntime } from "../src/runtim
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
   const definitions = new Map<string, any>()
-  const connect = vi.fn(async (_url: string, _options?: unknown) => ({
+  // The run that started first with the idempotency key `key`, as the OpenWorkflow backends read it.
+  const findByKey = (name: unknown, key: unknown) => [...runs.values()].find(run => run.workflowName === name && run.idempotencyKey === key)
+  // Other tests replace the backend with one that has no `pg` connection.
+  const connect = vi.fn(async (_url: string, _options?: unknown): Promise<{
+    getWorkflowRun: ReturnType<typeof vi.fn>
+    pg?: (first: unknown, ...values: unknown[]) => unknown
+    stop: ReturnType<typeof vi.fn>
+  }> => ({
     getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
+    pg: (first: unknown, ...values: unknown[]) => typeof first === "string" ? first : Promise.resolve([findByKey(values[3], values[4])].filter(Boolean)),
     stop: vi.fn(),
   }))
   const sqliteConnect = vi.fn((_path: string, _options?: unknown) => ({
+    db: { prepare: () => ({ get: (_namespaceId: unknown, name: unknown, key: unknown) => findByKey(name, key) }) },
     getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
     stop: vi.fn(),
   }))
@@ -1923,6 +1932,7 @@ describe("workflow runtime", () => {
         return {
           BackendSqlite: {
             connect: () => ({
+              db: { prepare: () => ({ get: () => undefined }) },
               getWorkflowRun: async () => { throw cause },
               stop: vi.fn(),
             }),
@@ -1953,6 +1963,7 @@ describe("workflow runtime", () => {
         return {
           BackendSqlite: {
             connect: () => ({
+              db: { prepare: () => ({ get: () => undefined }) },
               getWorkflowRun: async () => ({
                 get workflowName() {
                   throw cause
