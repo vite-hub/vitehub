@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { StarIcon } from "../icons"
-import { Toggle, ToggleIcon } from "@vite-hub/kit/toggle"
+import { Toggle, ToggleIcon } from "@ui-sdk/vue/toggle"
 </script>
 
 <template>

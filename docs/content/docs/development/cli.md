@@ -1197,7 +1197,7 @@ pnpm vitehub agent invocations cancel ainv_0123 --json
 ainv_0123 cancel requested, not enforced by run
 ```
 
-`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Use `--url`, `--server`, or `VITEHUB_DEV_SERVER_URL` when Vite is not on `http://localhost:5173`, and `--timeout` to change the timeout.
+`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Use `--server` or `VITEHUB_DEV_SERVER_URL` when Vite is not on `http://localhost:5173`, and `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
 
 Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the endpoint returns `501`, and the command prints the reason and exits with status 1.
 
@@ -1213,7 +1213,7 @@ Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the
 
 ### Inspect and cancel on a deployed app
 
-Pass the deployed app URL with `--url` to list, show, follow, or cancel Invocations through its [Console](/docs/development/console). The Console must be on, and `cancel` also needs `invoke: true`, like the Console cancel button. The command does not load the project config, so a local config error cannot stop it.
+Pass the app URL with `--url` to list, show, follow, or cancel Invocations through its [Console](/docs/development/console). The Console must be on, and `cancel` also needs `invoke: true`, like the Console cancel button. The command does not load the project config, so a local config error cannot stop it.
 
 ```bash [Terminal]
 export VITEHUB_CONSOLE_PRIVATE_KEY_CI='<private key>'
@@ -1225,7 +1225,9 @@ pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 
 Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [signs](/docs/development/console#sign-console-requests) it with the key in `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, a private key from `vitehub secret console-key`. The command signs as the key `<NAME>`. Set only one.
 
-A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
+`--url` is the app URL, as in every `vitehub` command: `https://app.example.com`, or `http://localhost:3000` for a local production build or a dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
+
+Two old forms still work until the next minor version, and print `AGENT_R1053`: a Console URL, such as `http://localhost:3000/_vitehub`, and a localhost URL with no Console, which the command reads as a local invocation endpoint, or as the dev server for `cancel`. Pass the app URL instead, or `--server` for the dev server.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 
@@ -1399,6 +1401,8 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `No Compatible Vite Development Server found` | The dev server is not running, or `--url` has the wrong port. | Start Vite, then pass the dev server URL. |
 | `CLI_R0005` from an operation command | No dev server wrote `.vitehub/dev-server.json`, and `VITEHUB_DEV_SERVER_URL` is not set. | Start `vite dev` in this project, or pass `--url`. |
 | `INTERNAL_R0025` from an operation command | The server at the URL runs another project. | Start `vite dev` in this project, or pass the right `--url`. |
+| `CLI_R0003: --url is the app URL, not the Console URL` | `--url` has a `/_vitehub` path. | Pass the app URL that the message names. The command adds the Console path. |
+| `AGENT_R1053` from `vitehub agent invocations` | `--url` is a Console URL, or a localhost URL with no Console. This old form stops working in the next minor version. | Pass the app URL, or `--server <url>` for the dev server. |
 | `INTERNAL_R0024` from an operation command | The command could not reach the app, or the app refused the signature. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. |
 | `vitehub schedule run` fails with `SCHEDULE_DEFINITION_NOT_FOUND` | The Definition does not set `manual: true`, is not found, or the Console did not install it because `console.invoke` is off. | Set `manual: true`, and keep `console.invoke` on. |
 | `vitehub schedule run` fails with `SCHEDULE_MANUAL_RUN_DISABLED` | The Definition exists but does not set `manual: true`. | Set `manual: true` in `defineSchedule()`. |

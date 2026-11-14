@@ -12,7 +12,7 @@ import {
   MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
-} from "@vite-hub/kit/menu"
+} from "@ui-sdk/vue/menu"
 </script>
 
 <template>

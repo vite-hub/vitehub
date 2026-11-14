@@ -3,7 +3,7 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@vite-hub/kit/hover-card"
+} from "@ui-sdk/vue/hover-card"
 </script>
 
 <template>
