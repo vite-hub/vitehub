@@ -4,7 +4,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { blobError, blobResult } from "./errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
+import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
@@ -21,7 +21,7 @@ import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { withHostPathnameLimits } from "./internal/host-limits.ts"
-import { assertValidPathname, pathnameIssue } from "./internal/pathname.ts"
+import { assertValidPathname, decodePathname, normalizeBlobPath, pathnameIssue } from "./internal/pathname.ts"
 import { blobSizeToBytes } from "./internal/size.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
@@ -58,17 +58,6 @@ function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
   return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
 }
 
-// Decode the pathname once. A pathname that is not valid percent-encoding stays as it is.
-function decodePathname(pathname: string): string {
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(pathname)
-  }
-  catch {
-    decoded = pathname
-  }
-  return decoded.replace(/^\/+/, "")
-}
 
 // Reject the decoded pathname before a driver, filesystem, or URL can resolve it elsewhere.
 function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
@@ -98,6 +87,13 @@ function isReservedPath(pathname: string): boolean {
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." })
+  }
+}
+
+// `access` was a put() option that only Vercel Blob read. Other drivers dropped it and served the object anyway.
+function assertNoPutAccess(options: object) {
+  if (Object.hasOwn(options, "access")) {
+    throw blobErrorDiagnostics.BLOB_R0045({ message: "`access` is not a Blob put() option. One object cannot be private on its own: the store and `blob.serve` decide who may read it." })
   }
 }
 
@@ -134,27 +130,6 @@ async function readDerived(cache: Blob | null, fingerprint: string): Promise<Blo
   }
 }
 
-function joinPath(...parts: Array<string | undefined>): string {
-  return parts
-    .filter((part): part is string => Boolean(part && part.length > 0))
-    .join("/")
-    .replace(/\/+/g, "/")
-    .replace(/^\/+/, "")
-}
-
-// Expects pathname already normalized via normalizePathname.
-function splitPath(pathname: string) {
-  const segments = pathname.split("/").filter(Boolean)
-  const filename = segments.pop() || ""
-  const dotIndex = filename.lastIndexOf(".")
-
-  return {
-    dir: segments.join("/"),
-    ext: dotIndex > 0 ? filename.slice(dotIndex) : "",
-    name: dotIndex > 0 ? filename.slice(0, dotIndex) : filename,
-  }
-}
-
 // Expects pathname already normalized via normalizePathname.
 function guessContentType(pathname: string): string {
   const filename = pathname.split("/").pop() || ""
@@ -176,17 +151,6 @@ function guessContentType(pathname: string): string {
   return known[extension] || "application/octet-stream"
 }
 
-function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
-  const { dir, ext, name } = splitPath(pathname)
-  const filename = options.addRandomSuffix
-    ? `${name}-${globalThis.crypto.randomUUID().split("-")[0]}${ext}`
-    : `${name}${ext}`
-  const normalized = joinPath(dir, filename)
-  // The prefix and the suffix can change the pathname, so check the final value.
-  return assertValidPathname(options.prefix
-    ? joinPath(options.prefix, normalized)
-    : normalized)
-}
 
 /** Reads one `Range: bytes=` spec. Returns `undefined` for no range, several ranges, or a malformed header. */
 function parseByteRange(header: string | null): BlobDriverByteRange | undefined {
@@ -306,6 +270,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     },
     async createMultipartUpload(pathname, options = {}) {
       if (!driver.createMultipartUpload) throw unsupportedMultipart(driver)
+      assertNoPutAccess(options)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
       const contentType = options.contentType || guessContentType(normalizedPath)
@@ -315,7 +280,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       ))
     },
     handleMultipartUpload: (event, options) => handleBlobMultipartUpload(storage, event, options),
-    handleUpload: (event, options) => handleBlobUpload(storage, event, options),
+    handleUpload: createUploadHandler(() => storage, store),
     async resumeMultipartUpload(pathname, uploadId) {
       if (!driver.resumeMultipartUpload) throw unsupportedMultipart(driver)
       const normalizedPath = normalizePathname(pathname)
@@ -348,6 +313,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       }))
     },
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
+      assertNoPutAccess(options)
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
       const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)

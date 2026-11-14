@@ -63,9 +63,26 @@ describe("Auth access route paths", () => {
     }
   })
 
+  it.each([
+    ["/api/billing//", "/api/billing"],
+    ["/files/a^b", "/files/a%5Eb"],
+    ["/files/a^b/**", "/files/a%5Eb/secret"],
+  ])("guards the registered H3 route %s", async (route, path) => {
+    expect(() => defineAuth({ access: { routes: [route] } })).not.toThrow()
+    const check = vi.fn(async () => new Response("denied", { status: 401 }))
+    const guard = createLazyAuthAccessHandler([{ route }], async () => ({ createAuthAccessHandler: () => check }))
+    const unguarded = new H3().get(route, () => "SECRET")
+    expect(await (await unguarded.request(path)).text()).toBe("SECRET")
+    const app = new H3()
+      .use(async event => await guard(new Request(event.req.url, { method: event.req.method })))
+      .get(route, () => "SECRET")
+    expect((await app.request(path)).status).toBe(401)
+    expect(check).toHaveBeenCalledOnce()
+  })
+
   it("leaves other paths unguarded", () => {
     const match = createAuthAccessRouteMatcher(access)
-    for (const path of ["/api/billings", "/api/billing/x", "/api/administrator", "/API/billing", "/api//billing", "/cafe"]) {
+    for (const path of ["/api/billings", "/api/billing/x", "/api/administrator", "/API/billing", "/api//billing", "/api/billing//", "/cafe"]) {
       expect(match(new Request(`https://app.example${path}`)), path).toEqual([])
     }
   })
@@ -87,14 +104,14 @@ describe("Auth access route paths", () => {
   it.each(["/api/x/../billing", "/api/x/%2e%2e/billing", "/api/x/%2E./billing", "/api/./billing", "/api/%2e/billing", "/api/..", "/api/x/../**", "/api/users/%3Aid", "/api/admin/%2A", "/api/admin/%2a", "/api/%28admin%29"])(
     "rejects a dot segment or encoded pattern syntax in %s",
     async (route) => {
-      expect(() => defineAuth({ access: { routes: [route] } })).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
-      expect(() => defineAuth({ access: { routes: [{ route }] } })).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
+      expect(() => defineAuth({ access: { routes: [route] } })).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
+      expect(() => defineAuth({ access: { routes: [{ route }] } })).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
 
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-route-"))
       try {
         await mkdir(join(rootDir, "server"), { recursive: true })
         await writeFile(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: { routes: [${JSON.stringify(route)}] } })\n`)
-        expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
+        expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
       }
       finally {
         await rm(rootDir, { force: true, recursive: true })
@@ -114,15 +131,15 @@ describe("Auth access route paths", () => {
   it.each(["/api/admin/*", "/api/users/:id", "/api/(admin)", "/api/{admin}", "/api/**/users", "/api/a**", "/**/x", "/api/admin?", "/api\\admin"])(
     "rejects route pattern syntax in %s",
     async (route) => {
-      expect(() => defineAuth({ access: { routes: [route] } })).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
-      expect(() => defineAuth({ access: { routes: [{ route }] } })).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
+      expect(() => defineAuth({ access: { routes: [route] } })).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
+      expect(() => defineAuth({ access: { routes: [{ route }] } })).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
 
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-route-"))
       try {
         await mkdir(join(rootDir, "server"), { recursive: true })
         for (const entry of [JSON.stringify(route), `{ route: ${JSON.stringify(route)} }`]) {
           await writeFile(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: { routes: [${entry}] } })\n`)
-          expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0063" }))
+          expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0068" }))
         }
       }
       finally {

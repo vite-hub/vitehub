@@ -13,14 +13,16 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createProject(routes: string[]): Promise<string> {
+async function createProject(routes: string[], database: string | null = "'memory'", route = true, publicRoutes: string[] = []): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-auth-cached-"))
   tempDirs.push(root)
   await mkdir(join(root, "server"), { recursive: true })
   await writeFile(join(root, "server/auth.ts"), [
     "import { defineAuth } from '@vite-hub/auth'",
     "export default defineAuth({",
-    `  access: { routes: [${routes.join(", ")}] },`,
+    `  access: { routes: [${routes.join(", ")}]${publicRoutes.length ? `, public: [${publicRoutes.join(", ")}]` : ""} },`,
+    ...(route ? [] : ["  route: false,"]),
+    ...(database ? [`  database: ${database},`] : []),
     "})",
     "",
   ].join("\n"))
@@ -65,8 +67,8 @@ async function buildNitro(config: Record<string, unknown>, routeRules: RouteRule
   await runBuildHooks(nitro)
 }
 
-async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string): Promise<void> {
-  const root = await createProject(routes)
+async function buildViteApp(routes: string[], routeRules: RouteRules, baseURL?: string, publicRoutes?: string[]): Promise<void> {
+  const root = await createProject(routes, "'memory'", true, publicRoutes)
   await buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), routeRules, baseURL)
 }
 
@@ -107,6 +109,12 @@ describe("Auth access routes with cache route rules", () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/blog/**": { swr: 60 }, "/": { prerender: true } })).resolves.toBeUndefined()
   })
 
+  it("passes when every cached path is public, and fails when a cached path is not", async () => {
+    await expect(buildViteApp(["'/**'"], { "/": { prerender: true }, "/blog/**": { swr: 60 } }, undefined, ["'/'", "'/blog/**'"])).resolves.toBeUndefined()
+    await expect(buildViteApp(["'/**'"], { "/blog/**": { swr: 60 } }, undefined, ["'/blog'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
+    await expect(buildViteApp(["'/**'"], { "/**": { prerender: true } }, undefined, ["'/'"])).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
   it("passes when the guarded route turns off an inherited cache", async () => {
     await expect(buildViteApp(["'/dashboard/**'"], { "/**": { swr: 60 }, "/dashboard/**": { cache: false } })).resolves.toBeUndefined()
   })
@@ -139,7 +147,20 @@ describe("Auth access routes with cache route rules", () => {
       "GET /admin/**": { swr: 60 },
       "HEAD /admin/**": { cache: false },
     })).resolves.toBeUndefined()
-    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/admin/**', method: 'GET' }"], { "HEAD /admin/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
+  })
+
+  it("checks HEAD overrides after inherited GET cache rules", async () => {
+    const rules: RouteRules = {
+      "/api/billing": { swr: 60 },
+      "GET /api/billing": { cache: false },
+    }
+    // H3 also applies the GET override to HEAD, unless HEAD explicitly re-enables caching.
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], rules)).resolves.toBeUndefined()
+    await expect(buildViteApp(["{ route: '/api/billing', method: 'GET' }"], {
+      ...rules,
+      "HEAD /api/billing": { cache: true },
+    })).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
 
   it("reads the route rules that a later build hook adds", async () => {
@@ -201,4 +222,50 @@ describe("Auth access routes with cache route rules", () => {
     for (const hook of hooks) await hook(nitro)
     await expect(buildNitro(nitro, { "/dashboard/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0002" })
   })
+})
+
+describe("Auth memory store in a build", () => {
+  it("fails the build when the Definition has no database or preset", async () => {
+    const root = await createProject(["'/dashboard/**'"], null)
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), {})).rejects.toMatchObject({
+      code: "AUTH_C0063",
+      fix: expect.stringContaining("database: \"memory\""),
+    })
+  })
+
+  it("keeps the implicit memory store on a development server", async () => {
+    const root = await createProject(["'/dashboard/**'"], null)
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: { dev: true }, projectRoot: root }), {})).resolves.toBeUndefined()
+  })
+
+  it("builds with database: \"memory\"", async () => {
+    const root = await createProject(["'/dashboard/**'"])
+    await expect(buildNitro(createAuthNitroConfig(hubAuth(), { nitro: {}, projectRoot: root }), {})).resolves.toBeUndefined()
+  })
+})
+
+describe("Auth memory store with manually mounted handlers", () => {
+  for (const integration of ["nitro", "vite"] as const) {
+    it.each([
+      { database: null, dev: false, rejects: true },
+      { database: null, dev: true, rejects: false },
+      { database: "'memory'", dev: false, rejects: false },
+    ])(`${integration}: validates storage with $database and dev=$dev`, async ({ database, dev, rejects }) => {
+      const root = await createProject([], database, false)
+      const plugin = hubAuth()
+      let nitro: Record<string, unknown>
+      if (integration === "nitro") {
+        nitro = createAuthNitroConfig(plugin, { nitro: { dev }, projectRoot: root })
+      }
+      else {
+        const config: { root: string, nitro?: Record<string, unknown> } = { root }
+        const hook = plugin.config as (config: { root: string, nitro?: Record<string, unknown> }, env: { command: string }) => unknown
+        hook(config, { command: dev ? "serve" : "build" })
+        nitro = config.nitro ?? {}
+      }
+      const build = buildNitro(nitro, {})
+      if (rejects) await expect(build).rejects.toMatchObject({ code: "AUTH_C0063" })
+      else await expect(build).resolves.toBeUndefined()
+    })
+  }
 })

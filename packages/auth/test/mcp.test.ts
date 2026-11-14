@@ -8,6 +8,7 @@ import { defineAuth } from "../src/index.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
 import { createAuthForRequest } from "../src/internal/server.ts"
 
+import type { AuthAccessPolicy } from "../src/index.ts"
 import type { McpOAuthAuth, McpOAuthOptions } from "../src/mcp.ts"
 
 const app = "https://app.example.com"
@@ -20,7 +21,7 @@ afterEach(() => {
 })
 
 /** A real Better Auth on SQLite with `mcpOAuth()`, as an app's `server/auth.ts` defines it. */
-async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false) {
+async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, policy?: AuthAccessPolicy) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
   const definition = defineAuth(() => ({
@@ -29,6 +30,7 @@ async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false) 
     emailAndPassword: { enabled: true },
     plugins: mcpOAuth({ loginPage: "/oauth", resource, ...options }),
     ...(rateLimit ? { rateLimit: { enabled: true } } : {}),
+    ...(policy ? { access: { policy } } : {}),
     secret: "test-secret-at-least-32-bytes-long",
   }))
   // One instance, as a server keeps it: memory rate limits live in the instance.
@@ -85,6 +87,19 @@ describe("mcpOAuth", () => {
     expect(caller?.scopes).toEqual(expect.arrayContaining(["openid", "offline_access"]))
     const [row] = auth.database.prepare("select applicationType from oauthClient where clientId = ?").all(clientId) as Array<{ applicationType: string }>
     expect(row?.applicationType).toBe("native")
+  })
+
+  it("refuses the token of a person that `access.policy` no longer allows", async () => {
+    let member = true
+    const auth = await setup({}, false, { allow: () => member, recheck: 0 })
+    const { accessToken } = await signInAgent(auth)
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
+
+    member = false
+    const [error] = await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth })
+
+    expect(error).toMatchObject({ code: "AUTH_MCP_TOKEN_INVALID" })
+    expect(error?.message).toContain("access.policy")
   })
 
   it("verifies a request that has only a URL and headers, such as H3's event.req", async () => {

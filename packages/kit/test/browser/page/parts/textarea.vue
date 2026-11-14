@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Field, FieldLabel } from "@vite-hub/kit/field"
-import { Textarea } from "@vite-hub/kit/textarea"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Textarea } from "@ui-sdk/vue/textarea"
 </script>
 
 <template>

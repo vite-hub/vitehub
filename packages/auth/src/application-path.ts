@@ -29,7 +29,7 @@ function authApplicationBaseURL(): string {
 }
 
 /** Characters that H3 percent-encodes in a route, as its `normalizeRoute()` does. */
-const routeEncodeRE = /[^!-~]|["#<>`]/gu
+const routeEncodeRE = /[^!-~]|["#<>^`]/gu
 
 /** Escapes of characters that need no escape in a path. H3 decodes them before it routes a request. */
 const needlessEscapeRE = /%(?:2[146-9A-E]|3[0-9ABD]|4[0-9A-F]|5[0-9ABDF]|6[1-9A-F]|7[0-9ACE])/gi
@@ -68,6 +68,8 @@ export function accessRouteSyntaxError(route: string, label: string): string | u
  */
 export function resolveAccessRoutePath(route: string, baseURL = authApplicationBaseURL()): { path: string, recursive: boolean } {
   const recursive = route.endsWith("/**")
-  const resolved = canonicalAccessPath(prefixApplicationPath(baseURL, recursive ? route.slice(0, -3) : route))
+  // Route registration drops all trailing empty segments; request routing drops only one slash.
+  const literal = (recursive ? route.slice(0, -3) : route).replace(/\/+$/, "") || "/"
+  const resolved = canonicalAccessPath(prefixApplicationPath(baseURL, literal))
   return { path: recursive && resolved === "/" ? "" : resolved, recursive }
 }
