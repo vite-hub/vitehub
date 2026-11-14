@@ -6,7 +6,7 @@ import { createSource, glob } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
-import { docsManifestPages, normalizeDocsBase } from "./navigation.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
@@ -292,17 +292,22 @@ function idOf(file: string): string {
   );
 }
 
-/**
- * The module that the app imports as `#docs/manifest`: each page with only its `DocsAppPage` fields, since every page
- * of the site loads it. The page route returns the other fields of the current page. A `sourceTitle` equal to `title`
- * is left out of the JSON and filled back when the module loads.
- */
-export function docsAppManifestSource(manifest: DocsManifest): string {
-  const page = (full: DocsPage): Omit<DocsAppPage, "sourceTitle"> & { sourceTitle?: string } => ({
+/** The pages of one panel, which the app loads when a reader opens it. */
+export interface DocsAppPanel {
+  /** URL of the panel's Overview, such as `/docs/kv/diagnostics`. */
+  path: string
+  /** Id of the section that holds the panel. */
+  section: string
+  pages: DocsAppPage[]
+}
+
+/** A page with only its `DocsAppPage` fields. */
+function appPage(full: DocsPage): DocsAppPage {
+  return {
     id: full.id,
     path: full.path,
     title: full.title,
-    sourceTitle: full.sourceTitle === full.title ? undefined : full.sourceTitle,
+    sourceTitle: full.sourceTitle,
     description: full.description,
     icon: full.icon,
     layout: full.layout,
@@ -315,17 +320,59 @@ export function docsAppManifestSource(manifest: DocsManifest): string {
     navigation: full.navigation,
     panel: full.panel,
     order: full.order,
-  })
-  const app = {
-    ...manifest,
-    root: manifest.root && page(manifest.root),
-    sections: manifest.sections.map(section => ({ ...section, pages: section.pages.map(page) })),
-    pages: manifest.pages.map(page),
   }
+}
+
+/**
+ * The manifest that every page of the app loads, and the panels it loads on demand. Only a panel's own sidebar lists
+ * the pages inside it, such as the thousands of generated diagnostics pages, so they stay out of the other pages. A
+ * panel's Overview stays, with the number of listed pages inside it. A section with a panel inside another panel keeps
+ * all its pages, since loading one panel would not restore the order of the other's sidebar.
+ */
+export function docsAppManifest(manifest: DocsManifest, options: { panels: boolean }): { manifest: DocsManifest<DocsAppPage>, panels: DocsAppPanel[] } {
+  const panels: DocsAppPanel[] = []
+  const sections = manifest.sections.map((section) => {
+    const overviews = section.pages.filter(page => page.panel)
+    const nested = overviews.some(panel => overviews.some(outer => panel.id.startsWith(`${outer.id}/`)))
+    if (!options.panels || !overviews.length || nested) return { ...section, pages: section.pages.map(appPage) }
+    for (const panel of overviews) {
+      const pages = docsPanelPages(section, panel).filter(page => page.id !== panel.id)
+      if (pages.length) panels.push({ path: panel.path, section: section.id, pages: pages.map(appPage) })
+    }
+    const pages = section.pages.filter(page => page.panel || !docsPanelOf(section, page)).map(page => page.panel
+      ? { ...appPage(page), panelSize: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }
+      : appPage(page))
+    return { ...section, pages }
+  })
+  return {
+    manifest: { ...manifest, root: manifest.root && appPage(manifest.root), sections, pages: manifest.pages.map(appPage) },
+    panels,
+  }
+}
+
+/** JSON of app pages. A `sourceTitle` equal to `title` is left out, and the module fills it back when it loads. */
+function appJson(value: unknown): string {
+  // `JSON.parse` of a string parses much faster than an object literal of the same size.
+  const json = JSON.stringify(value, (_key, field: unknown) => field && typeof field === "object" && "sourceTitle" in field && "title" in field && field.sourceTitle === field.title ? { ...field, sourceTitle: undefined } : field)
+  return JSON.stringify(json)
+}
+
+/** The module that the app imports as `#docs/manifest`. */
+export function docsAppManifestSource(manifest: DocsManifest<DocsAppPage>): string {
   return [
-    `const manifest = JSON.parse(${JSON.stringify(JSON.stringify(app))})`,
+    `const manifest = JSON.parse(${appJson(manifest)})`,
     "for (const page of [manifest.root, ...manifest.sections.flatMap(section => section.pages), ...manifest.pages]) if (page) page.sourceTitle ??= page.title",
     "export default manifest",
+    "",
+  ].join("\n")
+}
+
+/** The module of one panel's pages. */
+export function docsAppPanelSource(panel: DocsAppPanel): string {
+  return [
+    `const pages = JSON.parse(${appJson(panel.pages)})`,
+    "for (const page of pages) page.sourceTitle ??= page.title",
+    "export default pages",
     "",
   ].join("\n")
 }
