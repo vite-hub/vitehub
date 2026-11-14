@@ -1111,11 +1111,9 @@ describe("Agent invocation console", () => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [] },
       basePath: "/api/auth",
-      database: { mode: "default" },
       definition: { handler: "/server/auth.ts", name: "default", source: "server-auth" },
       rootDir: root,
       route: "/api/auth",
-      secondaryStorage: false,
       tables: false,
     }
     try {
@@ -3581,7 +3579,7 @@ describe("Agent invocation console", () => {
 
       const requestless = consoleRuntime.resolve(runtime("console-requestless"))
       await expect(getAgentInvocationsDatabase()).resolves.toBe(database)
-      expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require `vitehub({ publicUrl })` or a request context")
+      expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require a request context or a `vitehub({ publicUrl })` origin")
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { agent: "https://agents.example" } })
       expect(requestless.invocationUrl(invocation)).toBe(
         hostedInvocationUrl("https://agents.example", "agent", invocation.id),

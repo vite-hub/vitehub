@@ -41,9 +41,9 @@ async function fixture(options: { expiresIn?: number } = {}) {
     definitions: { chatgpt: defineConnection({ provider: { ...chatgpt({ appName: "My SIWC app", appVersion: "1.0.0" }), api: `${fake.origin}/v1` }, access: { "agent:assistant": { read: true } } }) },
     store, fetch: fake.fetch,
   })
-  const authorization = await runtime.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
+  const authorization = await runtime.authorize({ actor: "user:owner", name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
   const callback = await fake.callback(authorization.url)
-  await runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id")! })
+  await runtime.complete({ actor: "user:owner", state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id")! })
   const calls: string[] = []
   const agent = defineAgent({
     name: "assistant", runtime: false,

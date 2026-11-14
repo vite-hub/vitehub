@@ -1038,6 +1038,31 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("parks a reviewed head whose only open thread is a held P0 or P1 decline without another pass", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct" }, result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => args.some(arg => arg.includes("reviewThreads"))
+      ? { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: {
+        nodes: [{ id: "PRRT_1", isResolved: false, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      } } } } }), stderr: "" } : await command(args, request));
+    await f.runtime.inbox.setMeta("held-review-threads:acme/app#12", ["PRRT_1"]);
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      for (let retry = 0; retry < 3; retry++) {
+        const retryAt = (await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt;
+        const now = vi.spyOn(Date, "now").mockReturnValue((retryAt ?? Date.now()) + 1);
+        try { await f.reconcile(); } finally { now.mockRestore(); }
+      }
+      expect(f.passes).toHaveLength(1);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait?.retryAt).toBeUndefined();
+      expect(parked.lastResult).toContain("Waiting for a person to resolve a review thread");
+      expect(f.command.mock.calls.some(([args]) => args.includes("PUT"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("preserves an external prerequisite across a repair push and green checks", async () => {
     let ready = false;
     const reason = "Publish the required dependency release before merging.";
@@ -1972,6 +1997,11 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { install: { refreshes: 0 } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true, refreshes: 2 } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    for (const mainRepair of [{}, { workflows: [] }, { workflows: [" "] }, { workflows: ["ci"], repositories: ["app"] }, { workflows: ["ci"], stuckJobMinutes: 0 }, { workflows: ["ci"], stuckJobMinutes: true }, true]) {
+      expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: mainRepair as never } })).toThrow(/mainRepair must be/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepair: { workflows: ["ci"] } } })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX" }));
+    expect(() => defineAgent({ extends: babysitter, options: { mainRepairBranchPrefix: "repair-main-", mainRepair: { workflows: ["ci", "pkg.pr.new"], repositories: ["acme/app"], stuckJobMinutes: false } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: "yes" as unknown as boolean } })).toThrow(/repairStackChildren must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true, merge: false } })).toThrow(/repairStackChildren requires merge: "direct"/);
     expect(() => defineAgent({ extends: babysitter, options: { repairStackChildren: true } })).not.toThrow();

@@ -130,6 +130,7 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `dailyPushBudget` | `false` | Repair pushes per PR in a rolling 24 hours ([Limit pushes per pull request](#limit-pushes-per-pull-request)). `false` turns it off. |
 | `priorityLabels` | `[]` | Labels that put a PR first in the queue, after main repairs, and exempt it from `dailyPassBudget` and `dailyPushBudget`. Matched case-insensitively. |
 | `mainRepairBranchPrefix` | None | Head branch prefix of PRs that repair the base branch, such as `'repair-main-'`. These PRs go first in the queue, and `noProgressBudget` never stops them. |
+| `mainRepair` | `false` | Open a pull request that repairs the default branch when a watched workflow fails on it: `{ workflows, repositories, stuckJobMinutes }`. Needs `mainRepairBranchPrefix` ([Repair a red default branch](#repair-a-red-default-branch)). |
 | `reviewPushBudget` | `3` | Review-driven pushes per PR. Then bot feedback and failed `reviewChecks` start no model pass ([Stop review ping-pong](#stop-review-ping-pong)). `false` turns it off. |
 | `minorReviewRounds` | `false` | Heads in a row whose automated review has no valid finding above P2. Then automated review settles as if `reviewPushBudget` were spent ([Stop review ping-pong](#stop-review-ping-pong)). Needs `reviewPushBudget`. |
 | `reviewConvergencePushes` | `false` | Review-driven pushes after which each pass is asked to fix a recurring class of finding at its root instead of one more case. |
@@ -447,6 +448,29 @@ The queue claims, in order: pull requests whose head branch starts with `mainRep
 
 With `merge: 'direct'`, the host reads the logs of failing GitHub Actions jobs before a model pass. A job fails *the same way on the base* when the same job fails on the base branch tip in the same step, and the pull request's output names no failure that the base's lacks. A missing log proves nothing. When every failing required check fails the same way on the base, or stopped on a runner or network error, the pull request waits without a pass: it looks again every 15 minutes and is retested once the base passes. A runner or network error gets one branch update for a fresh run, once per head and base and at most hourly. A conflict, a person's feedback, a person's open review thread, or a head branch matching `mainRepairBranchPrefix` still starts a pass. A failing optional check still gets the pass that assesses it.
 
+### Repair a red default branch
+
+Pull request checks often run only fast suites, while the full suites run on the default branch. Two pull requests that each pass can then break the default branch together. With `mainRepair`, the host opens a pull request that repairs it:
+
+```ts [server/agents/babysitter/agent.ts] fragment
+export default defineAgent({
+  extends: babysitter,
+  options: {
+    filter: { repository: { allow: ['acme/app'] } },
+    mainRepairBranchPrefix: 'repair-main-',
+    mainRepair: { workflows: ['ci'] },
+  },
+})
+```
+
+Every 10 minutes per repository, and at once when GitHub delivers a failed `workflow_run`, the host reads the GitHub Actions push runs of `workflows` on the default branch:
+
+1. A running job older than `stuckJobMinutes` (default `90`; `false` turns it off) is stuck, and the host force-cancels its run, so later runs can start.
+2. A failed run on the tip is red. When the tip has no finished run, the newest finished run of each workflow counts, if it started after the last repair pull request merged. Cancelled and skipped runs do not count.
+3. When it finds a failure, and no repair pull request is open, the host pushes an empty commit on the tip to the branch `<mainRepairBranchPrefix><short SHA of the red commit>` and opens a pull request with the failed jobs. The queue claims it first.
+
+One repair pull request is open at a time. A red commit gets one repair pull request. If branch creation succeeds but the pull request request fails, the host checks for an existing pull request before retrying with that branch. Closed and merged repair pull requests are never reopened. For a same-repository repair branch targeting the watched default branch, the host explicitly authorizes the worker to repair inherited base failures, including when the initial tree equals the base tree. `repositories` limits the check to some of the served repositories. The `filter` must select pull requests that the GitHub App opens, and the App needs `contents: write`, `pull_requests: write`, and `actions: write` to cancel runs. The journal records each check as `babysitter.main_repair.opened`, `.repair_open`, `.already_attempted`, `.waiting`, `.green`, `.cancelled_stuck`, or `.failed`.
+
 A required check that never reported on a head whose checks finished 10 minutes ago gets a fresh run once per head every six hours: the host updates a branch that is behind its base, or reruns the head's Actions runs.
 
 `bypassInheritedChecks` lets the host merge past such failures. It maps a repository to the required checks it may skip:
@@ -470,11 +494,13 @@ While GitHub still computes mergeability, the host rereads the pull request for 
 A repair for one bot finding often gets new findings. `reviewPushBudget` (default `3`) ends that loop per pull request:
 
 - A push is review-driven when its pass had no merge conflict and no failing check outside `reviewChecks`, judged from the GitHub state the pass claimed, not the model's report. A pass that pushes counts once.
-- After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request.
+- After the budget, bot comments, reviews, and review threads, and failures of `reviewChecks`, no longer wake the pull request. A bot finding whose reviewer labeled it P0 or P1, such as a Codex `P1` badge or a `**P1 · ...**` prefix, still wakes it and needs an assessment before a merge, until the pull request made twice `reviewPushBudget` review-driven pushes.
 - A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head someone else pushed still start a pass.
 - With `merge: 'direct'`, the host merges when required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block it. GitHub branch rules still apply.
 - A running `reviewChecks` run no longer holds a pass or the merge.
 - Otherwise the pull request parks. Its result and GitHub status say why and what resumes it. Health lists it under `queue.parked` with `budget: "review-push-budget"`.
+
+The budget never excuses a valid P0 or P1. `resolveReviewThread` refuses a `declined` outcome whose reason starts with `P0` or `P1`, so the pass fixes the finding or answers it as disproved, pre-existing or duplicate. A pass may still class a reviewer's P0 or P1 lower. Then its declined answer is posted, the thread stays open, and the pull request does not merge until a person resolves the thread or replies in it, or a later pass fixes it. From 2026-11-07 to 11-13, workers declined 40 findings they classed P0 or P1 themselves, most because the budget was spent, and the pull requests merged with those bugs.
 
 The count lasts for the life of the pull request, in its `reviewPushBudget` inbox record `{ count, heads, minorHeads }`, which the inbox summary also returns. `heads` lists heads the worker pushed and heads that had a pass after the budget was spent.
 

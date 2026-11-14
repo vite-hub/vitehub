@@ -3,7 +3,6 @@ import { encodeCloudflareMimeMessage } from "./cloudflare-mime.ts";
 import {
   addresses,
   addressValue,
-  applyPersonalization,
   applyUnsubscribe,
   requiredOption,
   validateAddresses,
@@ -101,18 +100,8 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
       try {
         message = applyUnsubscribe(message, "cloudflare-email");
         validateAttachments("cloudflare-email", message);
-        if (message.stream !== undefined || context.stream !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support stream selection.",
-            ),
-          };
-        }
         const unsupportedOption = (
-          ["tracking", "amp", "dsn", "preheader", "locale", "tags", "metadata"] as const
+          ["tags", "metadata"] as const
         ).find((option) => message[option] !== undefined);
         if (unsupportedOption) {
           return {
@@ -135,22 +124,10 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
             ),
           };
         }
-        if (message.sandbox === true) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support sandbox delivery.",
-            ),
-          };
-        }
         rejectTransportOwnedHeaders(message.headers);
         const unsupportedPayloads = [
           ["scheduledAt", "scheduled delivery"],
-          ["raw", "raw message payloads"],
           ["idempotencyKey", "idempotency keys"],
-          ["template", "template payloads"],
         ] as const;
         for (const [key, description] of unsupportedPayloads) {
           if (message[key] !== undefined) {
@@ -164,25 +141,6 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
             };
           }
         }
-        if (
-          message.react !== undefined ||
-          message.jsx !== undefined ||
-          message.mjml !== undefined ||
-          message.handlebars !== undefined ||
-          message.handlebarsVars !== undefined ||
-          message.liquid !== undefined ||
-          message.liquidVars !== undefined
-        ) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support renderer payloads.",
-            ),
-          };
-        }
-        message = applyPersonalization("cloudflare-email", message);
         validateAddresses("cloudflare-email", message);
         const from = addresses(message.from)[0];
         const to = addresses(message.to);

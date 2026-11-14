@@ -298,7 +298,32 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
+The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
+
 `--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+
+## Sizes
+
+`CommentThread` and `CommentComposer` take `size`. The default, `md`, fits a side panel. `sm` fits a small card that floats over the page:
+
+- The thread text is 14px on a 1.5 line, and the rows are tighter.
+- The name and the time of a message share a baseline.
+- With a mouse, Edit and Delete show over the end of the name's row on hover, so the text uses the full width of the card. A touch screen keeps them in their own column.
+- The reply box is shorter, its buttons are 28px, and a focused box shows its edge without the 3px halo.
+
+A thread passes its size on to its messages, its reply box, and its edit box. For a one-line box for a new comment, use `layout="row"` with `size="sm"`.
+
+::example{name="CommentThreadSizeExample" height=8}
+::
+
+```vue
+<template>
+  <CommentThread :thread :user size="sm" />
+  <CommentComposer layout="row" size="sm" :attachments="false" />
+</template>
+```
+
+`data-size` is on `comment-thread`, `comment-reply`, and `comment-composer`, so a stylesheet can change one size only.
 
 ## Anchors
 
@@ -391,6 +416,7 @@ Handlers may return a promise, and the thread waits for it. The reply box clears
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `navigation` | `"close" \| "back"` | `"close"` | `"back"` shows Back at the start of the header instead of Close. Both emit `close`. |
 | `dismissible` | `boolean` | `true` | A click outside the thread closes it. Turn it off in a panel. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` is a compact thread for a small floating card. See [Sizes](#sizes). |
 | `onReply` | `(body: string, mentions: string[], files: File[]) => void \| Promise<unknown>` | | Sends a reply. |
 | `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | | Saves an edited message. |
 | `onDelete` | `(messageId: string) => void \| Promise<unknown>` | | Deletes a message. Deleting the first message deletes the thread, after a confirmation. |
@@ -431,6 +457,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | `deletable` | `boolean` | | Show Delete when `onDelete` is given. Defaults to `editable`. |
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
 | `confirmDelete` | `boolean` | `false` | Confirm before Delete. Threads set it on the first message. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` sets 14px text and shows Edit and Delete over the end of the name's row. Threads pass on their size. |
 | `people` | `CommentUser[]` | `[]` | People the message may mention, so edits keep their mentions and the body shows chips. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions` while editing. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
@@ -448,7 +475,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 
 ### CommentComposer
 
-The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"`, `data-layout`, and `data-size`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -471,6 +498,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `accept` | `string` | | File types to take, like a file input's `accept`. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
 | `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` is a shorter field with smaller buttons, and its focus edge has no halo. See [Sizes](#sizes). |
 
 #### Events
 

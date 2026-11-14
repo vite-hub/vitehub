@@ -70,6 +70,7 @@ import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
+  auth: true,
   document: {
     kind: 'pages',
     async load({ documentId }) {
@@ -99,7 +100,7 @@ export default defineRealtime({
 | `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
 | `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. An interrupted shared save can reset the room; see below. |
 | `issues` | Validation problems that did not block the save. They show in the room `status` map. |
-| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
+| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. Without it, `history.checkpoint` fails with `REALTIME_CHECKPOINT_UNSUPPORTED` when the server loads the definition. |
 | `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
@@ -151,6 +152,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 import { blobDocument } from 'vite-hub/realtime/server'
 
 export default defineRealtime({
+  auth: true,
   document: blobDocument(blob, { prefix: 'drafts/' }),
 })
 ```
@@ -309,10 +311,13 @@ export default defineRealtime({
 })
 ```
 
+Each definition must say who can use its rooms. Set `auth: true`, `authorize()`, or both. Set `access: 'public'` only for rooms that each person can read and write. A definition without one of them fails with [`REALTIME_MISSING_ACCESS`](/docs/realtime/limits-and-errors#realtime_missing_access) when the first request loads it.
+
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
-| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
+| `access: 'public'` | Lets each person who can reach the app read and write each room, without a user. You cannot use it with `auth` or `authorize`. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Without it, requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `auth: true` and no `identify`, `origins` is an error: the Auth session is a cookie. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
@@ -363,6 +368,19 @@ carets out.
 
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
+When the rooms of a definition only share presence, set `document: false`. Nothing loads or saves, and `authorize()` is asked only for `read`:
+
+```ts [server/realtime/presence.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({
+  auth: true,
+  document: false,
+})
+```
+
+A client that sends a document update to such a room is disconnected. `save()`, `refresh()`, and `history.checkpoint()` requests get HTTP 404, and `refreshRealtimeDocument()` returns `false`. `editor`, `history`, and `persistence` are type errors with `document: false`.
+
 ```ts fragment
 import { connectRealtimeRoom } from 'vite-hub/realtime/client'
 import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
@@ -405,13 +423,12 @@ const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.exam
 export default defineRealtime({
   origins: ({ origin }) => allowedSites.has(origin),
   identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
-  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
-  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
-  persistence: false,
+  authorize: ({ user }) => Boolean(user),
+  document: false,
 })
 ```
 
-The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
+The app's own pages connect as before. `origins` is only asked about other origins.
 
 ## Saves, refresh, and resets
 

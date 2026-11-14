@@ -396,12 +396,12 @@ describe("server authentication provider boundaries", () => {
     expect(origin).toBe("https://example.com")
   })
 
-  it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
+  it("resolves the Definition callback once for an Auth request", async () => {
     const resolve = vi.fn(() => ({
       baseURL: "https://example.com",
       secret: "abcdefghijklmnopqrstuvwxyz0123456789",
     }))
-    const requestDefinition = kind === "definition" ? defineAuth(resolve) : defineAuth({ runtime: resolve })
+    const requestDefinition = defineAuth(resolve)
     const response = new Response("ok")
     providerMocks.handler.mockResolvedValue(response)
 

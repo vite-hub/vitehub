@@ -221,7 +221,7 @@ The OAuth callback is reached by a browser redirect from the provider. It comple
 - The `state` is known and not expired. The store deletes it when the callback reads it, so a `state` works one time only.
 - The access policy accepts the callback request, and returns the same manager that started the flow. A `state` that another manager started returns `403` and is consumed.
 
-`runtime.complete({ actor, code, state })` applies the same manager check. `actor` defaults to `user:local`, as in `runtime.authorize()`.
+`runtime.complete({ actor, code, state })` applies the same manager check. `actor` must be the manager that called `runtime.authorize()`.
 
 ## Generate API catalogs
 
