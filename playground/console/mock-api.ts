@@ -52,6 +52,7 @@ const sections = [
   "databases",
   "email",
   "kv",
+  "cache",
   "rate-limits",
   "sandbox-tasks",
   "workspaces",

@@ -4,6 +4,8 @@ import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import * as v from "valibot";
+import { resolveGitHubMergeConflicts } from "./conflicts.ts";
+import type { GitHubConflictOptions, GitHubConflictResolution } from "./conflicts.ts";
 import { assertGitHubDependenciesCurrent } from "./install.ts";
 
 const exec = promisify(execFile);
@@ -76,7 +78,16 @@ export async function commitGitHubPullRequestWorkspace(
   return await git("rev-parse", "HEAD");
 }
 
-const mergeRecordSchema = v.object({ head: v.string(), base: v.string(), index: v.string() });
+const mergeRecordSchema = v.object({
+  head: v.string(), base: v.string(), index: v.string(),
+  // What the host resolved before the model started. The model reads it from the record.
+  conflicts: v.optional(v.object({
+    conflicted: v.array(v.string()),
+    resolved: v.array(v.object({ path: v.string(), rule: v.picklist(["package-json", "pnpm-lockfile", "markdown-union"]) })),
+    remaining: v.array(v.string()),
+    lockfile: v.optional(v.string()),
+  })),
+});
 const digest = (index: string) => createHash("sha256").update(index).digest("hex");
 function repairGit(target: string, options: { signal?: AbortSignal; identity?: Record<string, string | undefined>; env?: Record<string, string> }) {
   // No shell credentials, ambient Git bindings, global configuration, hooks,
@@ -92,12 +103,15 @@ function repairGit(target: string, options: { signal?: AbortSignal; identity?: R
     GIT_COMMITTER_NAME: options.identity?.GIT_COMMITTER_NAME ?? "ViteHub Agent",
     GIT_COMMITTER_EMAIL: options.identity?.GIT_COMMITTER_EMAIL ?? "agent@vitehub.dev",
   };
-  return async (...args: string[]) => (await exec("git", ["--literal-pathspecs", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "commit.gpgSign=false", ...args], { cwd: target, env, signal: options.signal, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();
-
+  const raw = async (...args: string[]) => (await exec("git", ["--literal-pathspecs", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "commit.gpgSign=false", ...args], { cwd: target, env, signal: options.signal, maxBuffer: 64 * 1024 * 1024 })).stdout;
+  return Object.assign(async (...args: string[]) => (await raw(...args)).trim(), { raw });
 }
 
-/** Prepare an exact-base merge on the host before Git metadata becomes read-only. */
-export async function prepareGitHubRepairBase(target: string, options: { expectedHead: string; base: string; signal?: AbortSignal; fetch?: { url: string; env: Record<string, string> } }): Promise<void> {
+/**
+ * Prepare an exact-base merge on the host before Git metadata becomes read-only. Conflicts that need
+ * no judgment are resolved and staged; the result lists them when the merge conflicted.
+ */
+export async function prepareGitHubRepairBase(target: string, options: { expectedHead: string; base: string; signal?: AbortSignal; fetch?: { url: string; env: Record<string, string> }; conflicts?: Omit<GitHubConflictOptions, "signal"> }): Promise<GitHubConflictResolution | undefined> {
   if (!/^[a-f\d]{40}$/i.test(options.base)) throw new Error("Repair base must be an exact commit SHA.");
   const git = repairGit(target, options);
   if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target) || !(await lstat(join(target, ".git"))).isDirectory()) throw new Error("Base merge requires an independent prepared checkout.");
@@ -112,7 +126,10 @@ export async function prepareGitHubRepairBase(target: string, options: { expecte
     if (!await git("diff", "--name-only", "--diff-filter=U")) throw error;
   }
   const mergeHead = await readFile(join(target, ".git", "MERGE_HEAD"), "utf8").catch(() => undefined);
-  if (!mergeHead) return;
+  if (!mergeHead) return undefined;
   if (mergeHead.trim() !== options.base) throw new Error("Prepared merge selected a different base.");
-  await writeFile(join(target, ".git", "vitehub-merge.json"), JSON.stringify({ head: options.expectedHead, base: options.base, index: digest(await git("ls-files", "--stage", "-z")) }));
+  // Host resolutions are staged before the digest, so commitRepair accepts them as host work.
+  const conflicts = await resolveGitHubMergeConflicts(target, git.raw, { ...options.conflicts, signal: options.signal });
+  await writeFile(join(target, ".git", "vitehub-merge.json"), JSON.stringify({ head: options.expectedHead, base: options.base, index: digest(await git("ls-files", "--stage", "-z")), conflicts }));
+  return conflicts;
 }

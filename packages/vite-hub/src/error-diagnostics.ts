@@ -9,6 +9,14 @@ const dynamicError = {
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
+    CACHE_INVALID_INPUT: {
+      ...dynamicError,
+      fix: "Pass a cache key or a non-empty prefix, and a list limit from 1 to 100. Prefix deletion cannot clear the whole cache.",
+    },
+    CACHE_STORAGE_FAILED: {
+      ...dynamicError,
+      fix: "Check that the cache driver supports the requested storage operation. Vercel Runtime Cache cannot list keys.",
+    },
     VITE_HUB_R0120: dynamicError,
     VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0124: dynamicError,
