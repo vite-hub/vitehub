@@ -225,6 +225,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `accept` limits the file types, such as `image/*`.
 - A new comment needs text unless you set `allowEmpty`. A reply can send files without text.
 - `v-model:files` lets the parent clear the files after a send.
+- In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 

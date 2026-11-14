@@ -19,3 +19,22 @@ it("keeps a long thread in the margin inside the screen, its messages scrolling 
   expect(messages?.[1]).toContain("min-height: 0;");
   expect(messages?.[1]).toContain("max-height: none;");
 });
+
+it("draws a picture in a comment box as Drop does: a 40px square with no name and a round Remove badge on its corner", () => {
+  const picture = '[data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"])';
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const square = new RegExp(`${escape(picture)} \\{([\\s\\S]*?)\\n  \\}\\n`).exec(stylesheet)?.[1];
+  expect(square).toContain("padding: 0;");
+  expect(square).toMatch(/> \[data-slot="attachment-media"\] \{[^}]*width: 2\.5rem;/);
+  expect(square).toMatch(/> \[data-slot="attachment-media"\] \{[^}]*outline: 1px solid color-mix\(in oklab, var\(--vh-highlighted\) 10%, transparent\);/);
+  // The name is hidden on screen only. The image's alt and the button's label still name the file.
+  expect(square).toMatch(/> \[data-slot="attachment-content"\] \{[^}]*clip-path: inset\(50%\);/);
+  expect(square).toMatch(/> \[data-slot="attachment-actions"\] \{[^}]*right: -0\.375rem;[^}]*top: -0\.375rem;/);
+  // The badge is a Nuxt UI button, so its rule is outside the layers to win over Nuxt UI's classes.
+  const badge = new RegExp(`\\n${escape(picture)} \\[data-slot="attachment-actions"\\] > button \\{([^}]*)`).exec(stylesheet)?.[1];
+  expect(badge).toContain("background: var(--vh-highlighted);");
+  expect(badge).toContain("color: var(--vh-inverted);");
+  expect(badge).toContain("border-radius: 9999px;");
+  expect(badge).toContain("width: 1.25rem;");
+  expect(stylesheet.indexOf(`\n${picture} [data-slot="attachment-actions"] > button`)).toBeLessThan(stylesheet.indexOf("@layer components {"));
+});

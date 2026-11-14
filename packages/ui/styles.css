@@ -586,6 +586,27 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+/* A picture's Remove button in a comment box is a 20px round badge in the inverted color, as in Drop. The button is a
+   Nuxt UI button, so this rule stays outside a layer to win over its classes. */
+[data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) [data-slot="attachment-actions"] > button {
+  background: var(--vh-highlighted);
+  border: 0;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  color: var(--vh-inverted);
+  display: grid;
+  height: 1.25rem;
+  min-width: 0;
+  padding: 0;
+  place-items: center;
+  width: 1.25rem;
+
+  & :is(svg, .iconify) {
+    height: 0.75rem;
+    width: 0.75rem;
+  }
+}
+
 /*
  * shadcn/ui agentic parts: Message, Bubble, Marker, Trace, and Attachment.
  * These rules translate the default classes of https://ui.shadcn.com/docs/components/trace and its siblings to Nuxt UI tokens:
@@ -2624,6 +2645,45 @@
   [data-slot="comment-composer"][data-dragging="true"] [data-slot="prompt-input-group"] {
     border-color: var(--vh-primary);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 20%, transparent);
+  }
+
+  /* The files in a comment box wrap, as in Drop, so the Remove badge on a picture's corner is not cut off. */
+  [data-slot="comment-composer"] [data-slot="prompt-input-attachments"] {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    overflow: visible;
+  }
+
+  /* A picture in a comment box is a 40px square, as in Drop: no name, and the Remove button on its top right corner.
+     The name stays for a screen reader. Other files keep their chip with the name. */
+  [data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) {
+    background: none;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    min-width: 0;
+    padding: 0;
+
+    & > [data-slot="attachment-media"] {
+      border-radius: inherit;
+      outline: 1px solid color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
+      outline-offset: -1px;
+      width: 2.5rem;
+    }
+
+    & > [data-slot="attachment-content"] {
+      clip-path: inset(50%);
+      height: 1px;
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+      width: 1px;
+    }
+
+    & > [data-slot="attachment-actions"] {
+      position: absolute;
+      right: -0.375rem;
+      top: -0.375rem;
+    }
   }
 
   [data-slot="comment-reply-attachments"] {
