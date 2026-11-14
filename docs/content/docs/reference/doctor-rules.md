@@ -1112,7 +1112,7 @@ ViteHub reads `server/comments.ts` without running it. A default export selects 
 
 - A default export next to `export const comments`. ViteHub never installs the live API.
 - `defineComments()` exported under another name, with no default export. The entry selects Comment operations.
-- In the live-site form, a `database` option that is not a string literal. ViteHub then uses the default Database.
+- In the live-site form, a `database` option that is not a string literal. The build then fails with `COMMENTS_B0004`.
 
 ```ts [server/comments.ts] fragment
 // Invalid
