@@ -66,6 +66,9 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         await db.write("/a", { meta: meta(2), put: [["k1", { id: "k1", title: "changed" }], ["k3", { id: "k3" }]], delete: ["k2"] })
         await db.write("/b", { meta: meta(9), reset: true, put: [["x", { id: "x" }]] })
         const seqs = await db.write("/a", { add: [{ id: "m1", account: "acc", key: "k1", op: "delete" }, { id: "m2", account: "acc", key: "k3", op: "delete" }] })
+        // An action has a `name` of its own, which the storage keeps.
+        const [actionSeq] = await db.write("/b", { add: [{ id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }] })
+        const action = await db.readQueue("/b")
         await db.write("/a", { update: [{ seq: seqs[0], id: "m1", account: "acc", key: "k1", op: "delete", error: { code: "SYNC_NOT_FOUND", message: "No." } }], remove: [seqs[1]] })
         // An update of a write that is gone does not bring it back.
         await db.write("/a", { update: [{ seq: seqs[1], id: "m2", account: "acc", key: "k3", op: "delete", error: { code: "SYNC_NOT_FOUND", message: "No." } }] })
@@ -76,7 +79,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         const b = await db.read("/b")
         await db.clear()
         const cleared = await db.read("/a")
-        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs }
+        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq }
       })
       assert.equal(result.persisted, true)
       assert.deepEqual(result.a.meta, { scope: { id: "s", values: {} }, key: "id", cursor: 2, account: "acc", version: "v1", defaults: { done: false } })
@@ -86,6 +89,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.queue, { meta: result.a.meta, writes: result.a.writes })
       assert.deepEqual(result.reset, [["k9", { id: "k9" }]])
       assert.deepEqual(result.b, [["x", { id: "x" }]])
+      assert.deepEqual(result.action, [{ seq: result.actionSeq, id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }])
       assert.deepEqual(result.cleared, { meta: undefined, rows: [], writes: [] })
       await page.close()
     })

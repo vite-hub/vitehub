@@ -1,13 +1,14 @@
 // A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
-// [store, key], `meta` by store, and `outbox` in insertion order. Each change is one transaction. A store is a route
+// [store, key], `meta` by store, and `outbox` in insertion order, with the store in `store`. Each change is one transaction. A store is a route
 // plus a subset, such as `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
 import type { SyncKey, SyncRow } from "../protocol.ts"
 import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored } from "./storage.ts"
 
 const databaseName = "vitehub-sync"
 // Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
-// account instead of its scope. The upgrade drops the stored rows and keeps the outbox.
-const format = 2
+// account instead of its scope. Format 3 keeps the store of a write in `store`, since `name` is the name of an action.
+// An upgrade drops the stored rows and keeps the outbox.
+const format = 3
 
 interface MetaRecord extends SyncMeta {
   name: string
@@ -23,7 +24,7 @@ interface RowRecord {
   row: SyncRow
 }
 
-type OutboxRecord = SyncQueuedWrite & { name: string }
+type OutboxRecord = SyncQueuedWrite & { store: string }
 
 function rowsOf(name: string): IDBKeyRange {
   // An array key sorts after every string, so this range holds every key of `name`.
@@ -38,14 +39,19 @@ function done(transaction: IDBTransaction): Promise<void> {
   })
 }
 
-/** Moves a format 1 outbox to format 2. A write keeps the scope id that it was made for as its account. */
+/**
+ * Moves an outbox of format 1 or 2 to format 3. Before, `name` held the store. A write of format 1 keeps the scope id
+ * that it was made for as its account.
+ */
 function upgradeOutbox(outbox: IDBObjectStore): void {
+  if (outbox.indexNames.contains("name")) outbox.deleteIndex("name")
+  outbox.createIndex("store", "store")
   const cursor = outbox.openCursor()
   cursor.onsuccess = () => {
     const current = cursor.result
     if (!current) return
-    const { scope, ...write } = current.value as OutboxRecord & { scope?: string | null }
-    current.update({ ...write, account: write.account ?? scope ?? null })
+    const { name, scope, ...write } = current.value as SyncQueuedWrite & { name: string, scope?: string | null }
+    current.update({ ...write, store: name, account: write.account ?? scope ?? null })
     current.continue()
   }
 }
@@ -58,7 +64,7 @@ function openDatabase(): Promise<IDBDatabase> {
       if (event.oldVersion === 0) {
         database.createObjectStore("rows", { keyPath: ["name", "key"] })
         database.createObjectStore("meta", { keyPath: "name" })
-        database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
+        database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("store", "store")
         return
       }
       const transaction = request.transaction!
@@ -83,7 +89,7 @@ function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
-  return records.map(({ name: _name, ...write }) => write as SyncQueuedWrite)
+  return records.map(({ store: _store, ...write }) => write as SyncQueuedWrite)
 }
 
 /**
@@ -108,7 +114,7 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     const transaction = database.transaction(["rows", "meta", "outbox"], "readonly")
     const meta = transaction.objectStore("meta").get(id)
     const rows = withRows ? transaction.objectStore("rows").getAll(rowsOf(id)) : undefined
-    const outbox = transaction.objectStore("outbox").index("name").getAll(id)
+    const outbox = transaction.objectStore("outbox").index("store").getAll(id)
     await done(transaction)
     const stored = readMeta(meta.result as MetaRecord | undefined)
     const records = stored ? (rows?.result ?? []) as RowRecord[] : []
@@ -162,11 +168,11 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
       for (const write of change.update ?? []) {
         const existing = outbox.get(write.seq)
         existing.onsuccess = () => {
-          if (existing.result) outbox.put({ ...write, name: id } satisfies OutboxRecord)
+          if (existing.result) outbox.put({ ...write, store: id } satisfies OutboxRecord)
         }
       }
       for (const write of change.add ?? []) {
-        const added = outbox.add({ ...write, name: id })
+        const added = outbox.add({ ...write, store: id })
         added.onsuccess = () => seqs.push(added.result as number)
       }
       await done(transaction)
