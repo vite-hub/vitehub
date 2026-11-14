@@ -350,7 +350,7 @@ export async function replayWebhookInbox(
       // An older one belongs to an admission whose settled marker has expired.
       const stored = storedRow
         || (indexed.entry && Date.now() - Date.parse(indexed.entry.receivedAt) < webhookInboxRetentionMs ? indexed.entry : undefined)
-      if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
+      if (!isStoredWebhookInboxEntry(stored)) continue
       const attempts = Math.max(stored.attempts, indexed.attempts)
       const fields = { attempts, deliveryScope: keyPrefix, inboxId: stored.id }
       const owner = await state.get(`${key}:owner`)
@@ -370,6 +370,8 @@ export async function replayWebhookInbox(
         )
         if (!storedRow) await state.set(key, { ...stored, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
       }
+      // A request newer than this process's recovery boundary still has an index entry for the next restart.
+      if (!(Date.parse(stored.receivedAt) < before)) continue
       logWebhookInbox("inbox.replaying", { ...fields, receivedAt: stored.receivedAt })
       try {
         const makeRequest = () => new Request(stored.request.url, {
@@ -406,7 +408,7 @@ export async function replayWebhookInbox(
         logWebhookInbox("inbox.replay.failed", { ...fields, error: errorMessage(error) })
       }
     }
-    // Every request still to replay from the legacy list now has an hourly index entry.
-    await state.delete(legacyIndexKey)
+    // The legacy list is not deleted: a process of the previous version may still append to it during a
+    // rolling deploy. Nothing of this version appends to it, so it expires a day after its last append.
   }
 }

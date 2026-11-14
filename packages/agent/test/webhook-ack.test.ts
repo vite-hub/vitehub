@@ -235,9 +235,30 @@ describe("webhook acknowledgement after store", () => {
     // The route stores attempt 3 before it runs the trigger, so wait for the trigger as well.
     await vi.waitFor(() => expect(invokes).toEqual([9]), { timeout: 4_000 })
     await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]))
-    await vi.waitFor(async () => expect(await state.getList(`${scope}inbox`)).toEqual([]))
     await stop()
     expect(invokes).toEqual([9])
+  })
+
+  it("keeps a legacy request newer than the recovery boundary replayable by a later restart", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    await state.connect()
+    const body = `{"n":11}`
+    // A process of the previous version stored this request after the new process started.
+    const receivedAt = Date.now()
+    await state.appendToList(`${scope}inbox`, {
+      attempts: 1, id: "delivery-legacy-late", receivedAt: new Date(receivedAt).toISOString(), webhookId: "",
+      request: { body, method: "POST", url: "https://example.com/hook",
+        headers: { "content-type": "application/json", "x-github-delivery": "delivery-legacy-late", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` } },
+    })
+    const first = create().resume({ ...routeOptions, recoverInterruptedBefore: receivedAt - 1_000 })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    await first()
+    expect(invokes).toEqual([])
+    const second = create().resume({ ...routeOptions, recoverInterruptedBefore: receivedAt + 1_000 })
+    await vi.waitFor(() => expect(invokes).toEqual([11]), { timeout: 4_000 })
+    await second()
   })
 
   it("keeps the replay index to the retention window while webhooks keep arriving", async () => {
