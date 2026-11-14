@@ -22,7 +22,7 @@ Then install the dependency required by the selected provider:
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state. Without the binding, only `vite dev` runs inline; a Worker fails with `WORKFLOW_R0036`. |
-| Vercel Workflow      | `@vercel/functions`; add `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
+| Vercel Workflow      | `@vercel/functions`; add `workflow@5.2.3` and `@workflow/builders@5.0.6` for native durable definitions ([versions](#make-a-vercel-workflow-durable)) | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
@@ -193,6 +193,8 @@ A plain Vercel definition executes inline and does not survive a function restar
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
+The peer ranges accept any 5.x from these versions. ViteHub tests with 5.2.3 and 5.0.6. Workflow 5.3.0 and later end a run as soon as the workflow function returns, even while a losing `Promise.race` step still runs; see [Upgrade the Vercel Workflow SDK](https://vitehub.dev/docs/workflows/hosts#upgrade-the-vercel-workflow-sdk).
+
 ```ts fragment
 import { defineWorkflow, type WorkflowProviderContext } from "@vite-hub/workflow";
 
@@ -242,7 +244,9 @@ async function transcribe(recordingId: string) {
 }
 ```
 
-`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. Workflow Step retry behavior belongs in the Step's retry options rather than the error.
+`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A thrown error does not change the retry policy.
+
+A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry. ViteHub has no portable sleep: `context.step.sleep(name, duration)` exists on Cloudflare and OpenWorkflow only, a `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`.
 
 ## Production checklist
 

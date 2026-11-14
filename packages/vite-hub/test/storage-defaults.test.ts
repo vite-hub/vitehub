@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
-import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
+import { defaultDatabaseD1Binding, agentJournalStateUrl, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
@@ -111,6 +111,17 @@ describe("Node storage defaults", () => {
         expect(() => vitehub({ host, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
       }
     }
+  })
+
+  it("passes a file Agent State URL to the default journal on the node host", async () => {
+    const state = { driver: "libsql" as const, url: "file:.data/agent-state.db" }
+    const { plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
+    expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
+    const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
+    expect(stateUrl("libsql://state.example.com")).toBeUndefined()
+    expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
+    expect(agentJournalStateUrl({ host: "node", agent: { invocations: { databaseUrl: "libsql://journal.example.com" }, providers: { state } } })).toBeUndefined()
+    expect(agentJournalStateUrl({ host: "node", agent: { invocations: false, providers: { state } } })).toBeUndefined()
   })
 
   it("keeps existing defaults when no directory is supplied", () => {

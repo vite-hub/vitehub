@@ -178,6 +178,7 @@ describe("Console Go to shortcuts", () => {
       "mcp-client": "g p",
       databases: "g d",
       kv: "g k",
+      cache: "g j",
       logs: "g l",
       blob: "g b",
       workspaces: "g w",

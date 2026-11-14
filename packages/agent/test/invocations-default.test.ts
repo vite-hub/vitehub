@@ -47,6 +47,19 @@ describe("default Agent Invocation journal", () => {
     await expect(resolveDefaultAgentInvocationsLocation({ d1, databaseUrl: "file:other.sqlite", env, projectRoot })).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
   })
 
+  it("keeps the journal next to a file Agent State, from the runtime working directory", async () => {
+    const buildRoot = join(tmpdir(), "vitehub-journal-build-root")
+    expect(process.cwd()).not.toBe(buildRoot)
+    const stateUrl = "file:.data/agent-state.db"
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: pathToFileURL(join(process.cwd(), ".data/agent-invocations.sqlite")).href })
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl: "file:///var/lib/app/state.sqlite?mode=rwc" })).resolves.toEqual({ url: "file:///var/lib/app/agent-invocations.sqlite" })
+    await expect(resolveDefaultAgentInvocationsLocation({ env: { VITEHUB_AGENT_STATE_URL: "file:///srv/state.db" }, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: "file:///srv/agent-invocations.sqlite" })
+    const defaultFile = { url: pathToFileURL(join(buildRoot, ".vitehub/data/agent-invocations.sqlite")).href }
+    await expect(resolveDefaultAgentInvocationsLocation({ env: { VITEHUB_AGENT_STATE_URL: "libsql://state.example.com" }, projectRoot: buildRoot, stateUrl })).resolves.toEqual(defaultFile)
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot: buildRoot, stateUrl: "file::memory:" })).resolves.toEqual(defaultFile)
+    await expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "file:data/journal.sqlite", env: {}, projectRoot: buildRoot, stateUrl })).resolves.toEqual({ url: pathToFileURL(join(buildRoot, "data/journal.sqlite")).href })
+  })
+
   it("imports no Node builtin outside the lazy file module, so a Worker without Node compatibility can start", () => {
     for (const file of ["default.ts", "default-core.ts", "default-libsql.ts", "default-location.ts", "d1.ts"]) {
       const source = readFileSync(new URL(`../src/invocations/${file}`, import.meta.url), "utf8")
