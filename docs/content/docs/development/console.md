@@ -274,7 +274,7 @@ The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your 
 
 Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
 
-- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool.
+- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. With `console.authorize`, the member needs the `site` section, and `grants` in the result picks the [page tool roles](#limit-a-user-to-some-sections).
 - A guest gets the `guest` role and the roles you picked. Comments offers `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`, and [checks them](/docs/comments/configure#roles-from-site-access).
 
 A guest user has no password and a placeholder email, `guest-<id>@guests.invalid`. Better Auth runs your `databaseHooks.user.create` for them, so a hook that closes sign-up refuses guests too.
@@ -578,6 +578,7 @@ Every Console call runs `authorize` with the Web `Request` before it reads data:
 | `{ sections: ['content'] }` | Allows only these section ids, with all their actions. An empty list returns `403`. |
 | `{ sections: ['kv:read'] }` | Allows `kv` for reads only. `write` and `destructive` operations return `403`, unless the call only reads (`readOnlyWhen`). |
 | `{ sections: ['blob:media'] }` | Allows Blob operations on the `media` store only. `'blob:media:read'` allows only reads. |
+| `{ sections: ['site'], grants: ['comments-read'] }` | With the `site` section, [Site access](#give-browsers-site-access) signs the person in to the app with only these page tool roles, and the `console` role. Without `grants`, they get every page tool role. |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401`. |
 

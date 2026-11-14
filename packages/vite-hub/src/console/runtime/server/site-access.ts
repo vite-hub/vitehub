@@ -1,7 +1,7 @@
 import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
 import { viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
-import { readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
+import { readConsoleAccessGrants, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
 
@@ -87,9 +87,12 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const name = guest ? record.target.name : record.person.name ?? record.person.email
   if (!name) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
   const api = await auth(request, event)
+  const grants = (record.target.grants ?? "").split(",").filter(Boolean)
+  // A member without `grants` in the ticket gets every page tool role. `console.authorize` can name fewer.
+  const memberGrants = "grants" in record.target ? grants : viteHubPageGrants().map(grant => grant.id)
   const user = await unwrap(api.hostUser(guest
-    ? { name, roles: [guestRole, ...(record.target.grants ?? "").split(",").filter(Boolean)] }
-    : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles: [consoleGrant.id, ...viteHubPageGrants().map(grant => grant.id)] }))
+    ? { name, roles: [guestRole, ...grants] }
+    : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles: [consoleGrant.id, ...memberGrants] }))
   const headers = await unwrap(api.hostSession(user.id, request))
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
@@ -104,10 +107,20 @@ function pagePath(path: string | undefined): string {
   return path
 }
 
-/** `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. */
+/**
+ * `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. The roles
+ * are the `grants` that `console.authorize` returned for this call, or every page tool role.
+ */
 export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean }): Promise<ConsoleTicket> {
   await auth(contextRequest(context), context.event)
-  return await issueConsoleTicket(context, "page.member", { path: pagePath(input.path).slice(1) }, input.qr ? { lifetime: qrLinkLifetime } : {})
+  const grants = readConsoleAccessGrants(context.access)
+  if (grants) {
+    const known = new Set(viteHubPageGrants().map(grant => grant.id))
+    const unknown = grants.filter(grant => !known.has(grant))
+    if (unknown.length) throw consoleRequestError(500, `console.authorize returned grants that no page tool of this app gives: ${unknown.join(", ")}. Read the roles with site.grants.`)
+  }
+  const target = { path: pagePath(input.path).slice(1), ...(grants ? { grants: grants.join(",") } : {}) }
+  return await issueConsoleTicket(context, "page.member", target, input.qr ? { lifetime: qrLinkLifetime } : {})
 }
 
 function readGrants(grants: readonly string[]): string[] {
