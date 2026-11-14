@@ -135,6 +135,7 @@ Available namespaces:
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
+| `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub migrate run` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with the codemods of `@vite-hub/codemods`. `vitehub migrate` runs it on the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
@@ -843,6 +844,23 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 | `--output <file>` | Write this file. Defaults to `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
+
+## Seed a Database
+
+`database seed` runs the seed file of each database, `server/databases/<name>/seed.ts`, with no build. Its default export gets `{ db, schema }`. It writes the local database by default, and refuses a database with pending migrations.
+
+```bash [Terminal]
+pnpm vitehub database seed
+pnpm vitehub database seed --remote --stage staging --database analytics
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Write the remote database. Needed for a database that is not local. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | Seed only this database. |
+
+See [Seed data](/docs/database/configure#seed-data) for the seed file.
 
 ## Browse Database tables
 
