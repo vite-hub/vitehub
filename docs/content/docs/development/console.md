@@ -145,12 +145,16 @@ pnpm vitehub project info --url https://app.example.com
   "protocol": 1,
   "name": "my-app",
   "vitehub": "0.1.0",
+  "build": {
+    "time": "2026-11-14T10:00:00.000Z",
+    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main" }
+  },
   "sections": ["env", "kv"],
   "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
 ```
 
-`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, and the branch. The Console shows it as **Last deploy** on Home and on the app Overview. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
 ## Inspect environment declarations
 

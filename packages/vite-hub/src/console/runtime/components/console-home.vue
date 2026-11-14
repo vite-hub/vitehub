@@ -21,7 +21,9 @@ import {
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import ConsoleState from "./console-state.vue";
@@ -91,6 +93,9 @@ const notEnabledPrimitives = computed(() =>
     : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+// The build that serves the app, from `project.get`. A development server has none.
+const projects = useConsoleProjects();
+const build = computed(() => projects.info.value?.build);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -300,6 +305,22 @@ onBeforeUnmount(() => {
                     />
                   </div>
                 </div>
+              </section>
+
+              <section v-if="build" class="vitehub-console__overview-block" aria-labelledby="console-home-deploy">
+                <h2 id="console-home-deploy" class="vitehub-console__overview-label">Last deploy</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li class="vitehub-console__overview-row">
+                    <UIcon name="i-lucide-git-commit-horizontal" class="vitehub-console__overview-icon" />
+                    <span class="vitehub-console__overview-name font-mono text-xs">{{ build.commit ? build.commit.sha.slice(0, 7) : "No commit" }}</span>
+                    <span class="vitehub-console__overview-description">{{ build.commit?.message }}</span>
+                    <span class="vitehub-console__overview-meta">
+                      <span v-if="build.commit?.author" class="hidden truncate sm:inline">{{ build.commit.author }}</span>
+                      <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
+                      <ConsoleRelativeTime :value="build.time" />
+                    </span>
+                  </li>
+                </ul>
               </section>
 
               <section v-if="agentsEnabled" class="vitehub-console__overview-block" aria-labelledby="console-home-sessions">

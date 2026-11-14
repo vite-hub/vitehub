@@ -4,6 +4,7 @@ import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, 
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
+import type { ConsoleProjectBuild } from "../client/project-link";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { accountAppStatusLabels, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
@@ -39,6 +40,8 @@ const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? 
 // Only owners and admins link apps, so only they see the controls for it.
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
+// The build that each connected app reported in its check, for the Last deploy cell of Home.
+const builds = reactive<Record<string, ConsoleProjectBuild>>({});
 const busy = ref(false);
 const navOpen = ref(false);
 const unlinking = ref(false);
@@ -113,7 +116,10 @@ onMounted(() => {
   for (const app of apps.value) {
     status[app.id] = "checking";
     void checkConsoleAccountProject(app.id).then(
-      (result) => { status[app.id] = result.status; },
+      (result) => {
+        status[app.id] = result.status;
+        if (result.build) builds[app.id] = result.build;
+      },
       () => { status[app.id] = "unreachable"; },
     );
   }
@@ -214,7 +220,7 @@ async function retry(): Promise<void> {
       </template>
       <template #body>
         <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
-          <ConsoleAccountHome v-if="page === 'home'" :status="status" />
+          <ConsoleAccountHome v-if="page === 'home'" :status="status" :builds="builds" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
