@@ -141,11 +141,6 @@
       "import": "./dist/file-input.js",
       "default": "./dist/file-input.js"
     },
-    "./form": {
-      "types": "./dist/form.d.ts",
-      "import": "./dist/form.js",
-      "default": "./dist/form.js"
-    },
     "./gesture": {
       "types": "./dist/gesture.d.ts",
       "import": "./dist/gesture.js",

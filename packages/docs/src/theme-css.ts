@@ -18,9 +18,25 @@ function readTheme(file: string): postcss.Root {
   return css
 }
 
+// The shadcn/ui names that theme.css sets and its Nuxt UI and ViteHub tokens read.
+const shadcnTokens = new Set(["--background", "--foreground", "--muted", "--muted-foreground", "--border", "--primary", "--popover", "--ring", "--radius"])
+
 /** The shared design system on docs pages inside an app, without changing the app's Tailwind font theme or primary. */
 export function docsThemeCss(file: string): string {
   const css = readTheme(file)
+  // The app keeps its own shadcn/ui tokens on docs pages, so each token of the theme takes the theme's value directly.
+  css.walkRules((rule) => {
+    const values = new Map<string, string>()
+    rule.each((node) => {
+      if (node.type === "decl" && shadcnTokens.has(node.prop)) {
+        values.set(node.prop, node.value)
+        node.remove()
+      }
+    })
+    rule.each((node) => {
+      if (node.type === "decl") node.value = node.value.replace(/var\((--[\w-]+)\)/g, (match, name: string) => values.get(name) ?? match)
+    })
+  })
   // @theme would put the font variables on every page. The app already has Tailwind's font utilities, which read
   // these variables; only their values on docs pages need to change.
   css.walkAtRules("theme", (rule) => {
