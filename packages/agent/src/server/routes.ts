@@ -690,7 +690,9 @@ async function matchedWebhookRegistrationRequiresVerification(
   if (registration.secretToken !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
-  return requireConfiguredSecret && registration.secretHeader !== undefined
+  // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
+  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  return requireConfiguredSecret
 }
 
 function parseWebhookPayload(body: string): unknown {

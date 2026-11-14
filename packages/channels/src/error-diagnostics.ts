@@ -39,6 +39,7 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CHANNELS_C0008: dynamicError,
     CHANNELS_C0009: dynamicError,
     CHANNELS_C0010: dynamicError,
+    CHANNELS_C0011: dynamicError,
     CHANNELS_R0002: dynamicError,
     CHANNELS_R0003: dynamicError,
   },
