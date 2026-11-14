@@ -244,7 +244,9 @@ async function transcribe(recordingId: string) {
 }
 ```
 
-`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. Workflow Step retry behavior belongs in the Step's retry options rather than the error.
+`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A thrown error does not change the retry policy.
+
+A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry. ViteHub has no portable sleep: `context.step.sleep(name, duration)` exists on Cloudflare and OpenWorkflow only, a `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`.
 
 ## Production checklist
 
