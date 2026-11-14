@@ -133,9 +133,9 @@ describe("glob() calls in a module", () => {
     const environment = { config: { consumer: "server", command: "build", root, logger: { warn } } }
     const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
     transform.call({ parse, environment }, code, join(root, "server/content.ts"))
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_B0011"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
     const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
-    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_B0011", sources: ["server/content.ts:3:21"] })])
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
   })
 
   it("keeps legacy SSR build state when Nitro config runs afterward", async () => {

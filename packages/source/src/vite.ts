@@ -983,7 +983,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
-          const hint = sourceErrorDiagnostics.SOURCE_B0011()
+          const hint = sourceErrorDiagnostics.SOURCE_GLOB_OPTIONS_NOT_LITERAL()
           if (!environment) {
             this.warn({ message: `[vitehub] ${hint.why}`, pos: call.start })
             continue
