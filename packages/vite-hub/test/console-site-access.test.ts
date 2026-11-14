@@ -196,8 +196,10 @@ describe("the account in the pill", () => {
   }
 
   it("names a Console member, says the Console signed them in, and signs them out of the app only", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
     const nitroApp = pageApp()
-    const { cookie } = await open(await link("site.link"))
+    const { response: opened, cookie } = await open(await link("site.link"))
+    expect(opened.status).toBe(303)
     const { tools, account } = await pageSession(nitroApp, cookie)
     expect(tools.map(tool => tool.id)).toEqual(["console", "comments"])
     expect(account).toEqual({ name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" })

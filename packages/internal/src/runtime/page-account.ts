@@ -222,12 +222,9 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
     if (signOut.item.getAttribute("aria-disabled") === "true") return
     signOut.item.setAttribute("aria-disabled", "true")
     signOut.label.textContent = "Signing out…"
-    try {
-      const response = await fetch(account.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
-      if (!response.ok) throw new Error(`The sign-out answered ${response.status}.`)
-    }
-    catch (error) {
-      console.error("[vitehub] The sign-out failed. The session stays.", error)
+    const response = await fetch(account.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch((error: unknown) => error)
+    if (!(response instanceof Response) || !response.ok) {
+      console.error("[vitehub] The sign-out failed. The session stays.", response instanceof Response ? `The sign-out answered ${response.status}.` : response)
       signOut.item.removeAttribute("aria-disabled")
       signOut.label.textContent = "Could not sign out. Try again"
       return
