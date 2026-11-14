@@ -117,6 +117,8 @@ const bundledInternal: Record<string, string[]> = {
   // Operation definitions are bundled from the private owner into Runtime.
   runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
+  // The bundled internal operation modules import birpc and nostics. Sync imports neither itself.
+  sync: ["birpc", "nostics"],
   "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
