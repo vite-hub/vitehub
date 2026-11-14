@@ -71,9 +71,10 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
   /**
    * Restore source instruction files only before the provider injects its instructions. For the
    * `persistent.work` directory, `reuse` keeps its ignored files when the tracked tree matches the
-   * head, and the result says whether it did.
+   * head, and the result says whether it did. `complete` checks the whole head out into another
+   * directory the caller owns, the way the `persistent.work` directory is prepared.
    */
-  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
+  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
   push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
@@ -530,7 +531,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       operation.signal.throwIfAborted()
-      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string } = {}) => persistent && resolve(target) === resolve(persistent.work)
+      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean } = {}) => options.complete || persistent && resolve(target) === resolve(persistent.work)
         ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
         : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha
