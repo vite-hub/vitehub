@@ -31,7 +31,7 @@ KV inspection calls the store's paginated `list`, `get` and `has`, and Blob insp
 | **Sandbox Tasks**, **Workspaces**, **Workflows**, **Queues** | Definitions and their source. | Nothing. They start no runtime resources. |
 | **Logs** | [Evlog logs](/docs/logs) in Explorer and Stream, with the selected event in the right inspector. | Nothing. `pnpm vitehub logs list --level error --json` reads the same data through `logs.list`. |
 
-None of these use the Agent journal. Workflow and Queue show no run or message history, because ViteHub has no provider-independent contract for it yet. To run Schedules or list their runs, locally or with `--url`, use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules).
+None of these use the Agent journal. Workflow and Queue show no run or message history, because ViteHub has no provider-independent contract for it yet. To run Schedules or list their runs, locally or with `--url`, use [`vitehub schedule`](/docs/cli/jobs#run-and-inspect-schedules).
 
 ## Content and people
 

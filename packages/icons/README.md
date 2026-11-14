@@ -51,7 +51,8 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `docs` | Docs site |
 | `start` | Get started |
 | `guides` | Guides |
-| `development` | Development and the CLI |
+| `development` | Development |
+| `cli` | CLI |
 | `console` | The ViteHub Console |
 | `hosts` | Frameworks and hosts |
 | `web-container` | WebContainer |

@@ -98,7 +98,7 @@ Set `outbox: false` to turn the outbox off. A dev send then goes straight to the
 - The outbox hides header and metadata values with secret names, and credentials in delivery errors.
 - It keeps message bodies as your app rendered them.
 
-Inspect the outbox with the [CLI](/docs/development/cli#inspect-the-email-development-outbox) or in the [Console](/docs/console) **Email** section:
+Inspect the outbox with the [CLI](/docs/cli/env#inspect-the-email-development-outbox) or in the [Console](/docs/console) **Email** section:
 
 ```bash [Terminal]
 pnpm vitehub email outbox list

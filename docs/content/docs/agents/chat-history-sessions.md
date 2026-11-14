@@ -202,7 +202,7 @@ recover rows that it deleted before you enabled this option.
 ## Inspect the result
 
 Send two messages in the same thread or session. Inspect the second
-Invocation with the [CLI](/docs/development/cli). Its input has the earlier
+Invocation with the [CLI](/docs/cli). Its input has the earlier
 messages in the window and the current message. Another thread or session
 starts with no history.
 

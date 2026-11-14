@@ -530,7 +530,7 @@ vitehub agent invocations tail INVOCATION_ID
 
 Without `--url`, the CLI reads `http://localhost:5173/api/invocations`. Use `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
-See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
+See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
 Before a rollout, wait until nothing is pending or running, so the restart interrupts no work:
 

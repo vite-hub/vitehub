@@ -24,7 +24,7 @@ pnpm vitehub project info
 pnpm vitehub kv list
 ```
 
-The Console calls each app from its own server, so it cannot reach a `vite dev` server on your machine. Until you deploy, the [`vitehub` commands](/docs/development/cli) call the dev server's Operations endpoint instead.
+The Console calls each app from its own server, so it cannot reach a `vite dev` server on your machine. Until you deploy, the [`vitehub` commands](/docs/cli) call the dev server's Operations endpoint instead.
 
 ## Link a deployed app
 

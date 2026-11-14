@@ -144,7 +144,7 @@ pnpm vitehub reports list --help
 pnpm vitehub reports list acme --url https://app.example.com --json
 ```
 
-Each input key becomes a flag, except the reserved `url`, `timeout`, `json`, `yes` and `input`, which fail with `INTERNAL_R0020`. Two operations on the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`, so rename one with `cli.namespace` or `cli.command`. See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url` and credentials.
+Each input key becomes a flag, except the reserved `url`, `timeout`, `json`, `yes` and `input`, which fail with `INTERNAL_R0020`. Two operations on the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`, so rename one with `cli.namespace` or `cli.command`. See [Run any operation](/docs/cli/operations#run-any-operation) for `--json`, `--yes`, `--url` and credentials.
 
 A `destructive` operation asks for confirmation, or needs `--yes`. The CLI applies the schema's defaults and transforms first, and if the server still parses a call as destructive that the CLI treated as a read, it fails with `INTERNAL_R0026`; check the call and pass `--yes`.
 
@@ -223,10 +223,10 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 | Package | Operations |
 | --- | --- |
 | `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
-| [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
-| [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
-| [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
-| [Rate Limit](/docs/development/cli#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
+| [Blob](/docs/cli/storage#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
+| [KV](/docs/cli/storage#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
+| [Email](/docs/cli/env#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
+| [Rate Limit](/docs/cli/storage#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
 | [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap`, `content.previews` |
