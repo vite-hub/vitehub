@@ -181,6 +181,25 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
+  await t.test("an area is a soft line, and its thread opens in Drop's small card behind a round face", async () => {
+    await page.keyboard.press("Escape")
+    await page.mouse.move(5, 5)
+    // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
+    await page.waitForFunction(() => {
+      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")
+      const style = getComputedStyle(area)
+      return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
+    }, undefined, { timeout: 5000 })
+    const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
+    const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
+    assert.deepEqual(corners, ["14px", "14px"])
+    await pin.click()
+    const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
+    await thread.waitFor({ timeout: 5000 })
+    assert.equal(await thread.getAttribute("data-size"), "sm")
+    await page.keyboard.press("Escape")
+  })
+
   await t.test("a drag past the end of a short page draws no area that would be cut", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")

@@ -216,16 +216,17 @@ html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 
 /**
  * The areas that threads point at, in their own element at z-index 1 of the page: over its text, under its own
- * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
+ * floating controls, such as a menu button, which a box must not cross. An area is a thin, soft line with no fill, so a
+ * page with many of them stays readable. The area of the open thread shows clearly. A resolved area is dashed and faint.
  */
 export const areaStyles = `
 :host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --ink: #171717; --muted: #737373; }
 :host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
 .area {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;
-  background: color-mix(in oklab, var(--ink) 6%, transparent); transition: background-color 120ms ease-out;
+  position: fixed; box-sizing: border-box; border: 1px solid color-mix(in oklab, var(--ink) 22%, transparent); border-radius: 4px;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
 }
-.area[data-status="active"] { background: color-mix(in oklab, var(--ink) 14%, transparent); }
-.area[data-status="resolved"] { border-style: dashed; border-color: var(--muted); background: none; opacity: .6; }
+.area[data-status="active"] { border-color: color-mix(in oklab, var(--ink) 55%, transparent); background: color-mix(in oklab, var(--ink) 4%, transparent); }
+.area[data-status="resolved"] { border-style: dashed; border-color: color-mix(in oklab, var(--muted) 40%, transparent); }
 @media (prefers-reduced-motion: reduce) { .area { transition: none; } }
 `
