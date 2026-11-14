@@ -85,6 +85,31 @@ export async function gitlab() {
 }
 ```
 
+## Name the build of a page
+
+A preview can say which repository and commit it was built from, so a tool on the page can find the pull request. `@vite-hub/forge/build/node` reads the build at build time, and `@vite-hub/forge/build` writes and reads the `<meta name="vitehub:build">` tag. The second import has no Node code, so a browser script or a Worker can use it.
+
+```ts [modules/build-meta.ts]
+import { defineNuxtModule } from 'nuxt/kit'
+import { buildMetaContent, buildMetaName, readForgeBuild } from '@vite-hub/forge/build/node'
+
+export default defineNuxtModule({
+  async setup(_, nuxt) {
+    const content = buildMetaContent(await readForgeBuild(nuxt.options.rootDir))
+    if (content) nuxt.options.app.head.meta = [...(nuxt.options.app.head.meta ?? []), { name: buildMetaName, content }]
+  },
+})
+```
+
+| Import | Returns |
+| --- | --- |
+| `readForgeBuild(root, env)` | `{ commit, branch, repository, pullRequest }` from the CI or host, else from Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` come first, for builds without CI variables or `.git`, such as a Docker build. From `@vite-hub/forge/build/node`. |
+| `buildMetaContent(build)` | `{"repository":"acme/web","commit":"<sha>"}` for the meta tag, or `undefined` without a repository and a full commit SHA. |
+| `parseBuildMeta(content)`, `buildIdentity(build)` | `{ repository, commit }`, or `undefined` when the value is missing or malformed. |
+| `buildMetaName` | `"vitehub:build"`. |
+
+The tag is a claim from the page. Check it against the Forge before you act on it, for example by finding a deployment of that commit at the page's origin. In GitHub Actions on a `pull_request` event, `GITHUB_SHA` is the test merge commit, not the head of the pull request.
+
 ## Public imports
 
 `useForge()` is the app API. The other exports are the building blocks that ViteHub packages use.

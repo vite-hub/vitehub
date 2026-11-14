@@ -19,6 +19,8 @@ export default defineConfig({
     },
     entry: [
       "src/index.ts",
+      "src/build.ts",
+      "src/build/node.ts",
     ],
   },
 })

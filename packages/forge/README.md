@@ -55,6 +55,10 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 
+## Build identity
+
+`@vite-hub/forge/build/node` exports `readForgeBuild(root, env)`, the commit, branch, repository and pull request of a build, from the CI or host, else Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` come first. `@vite-hub/forge/build` has no Node code and exports `buildMetaName`, `buildMetaContent(build)` and `parseBuildMeta(content)` for the `<meta name="vitehub:build">` tag. The tag is a claim; check it against the Forge. See [Name the build of a page](https://vitehub.dev/docs/forge/server-api#name-the-build-of-a-page).
+
 ## Public imports
 
 `useForge()` is the app API. The other exports are the building blocks that ViteHub packages use.

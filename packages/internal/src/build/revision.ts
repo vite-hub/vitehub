@@ -9,6 +9,7 @@ export interface BuildRevision {
 
 /** CI and host variables that name the commit and branch of a build, in the order they are read. */
 const buildVariables: ReadonlyArray<readonly [commit: string, branch: string]> = [
+  ["VITEHUB_BUILD_COMMIT", "VITEHUB_BUILD_BRANCH"],
   ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"],
   ["WORKERS_CI_COMMIT_SHA", "WORKERS_CI_BRANCH"],
   ["CF_PAGES_COMMIT_SHA", "CF_PAGES_BRANCH"],
