@@ -171,7 +171,7 @@ export interface AutoFormField {
  * The fields of a Valibot object schema, in order, from `formFields()`: a string becomes a text, email, or url input,
  * or a textarea when it is long; a number becomes a number input; a boolean a checkbox; a picklist or enum a select.
  * `v.title()` and `v.description()` set the label and the help text. A field that no form can draw, such as a nested
- * object, throws `FORMS_C0002`.
+ * object, throws `FORMS_FIELD_NOT_DRAWABLE`.
  */
 export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode

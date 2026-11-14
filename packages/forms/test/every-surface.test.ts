@@ -205,16 +205,16 @@ describe("a schema outside the shared subset", () => {
     ["a list", v.object({ tags: v.array(v.string()) })],
     ["a root that is not an object", v.string()],
     ["a nested Zod object", z.object({ address: z.object({ city: z.string() }) })],
-  ])("fails with FORMS_C0002 on every surface: %s", (_label, schema) => {
+  ])("fails with FORMS_FIELD_NOT_DRAWABLE on every surface: %s", (_label, schema) => {
     const form = defineForm({ schema })
-    expect(() => formFields(form)).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
-    expect(() => toElicitation(form, { message: "?" })).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
-    expect(() => toChatModal(form, { callbackId: "x", title: "X" })).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
+    expect(() => formFields(form)).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
+    expect(() => toElicitation(form, { message: "?" })).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
+    expect(() => toChatModal(form, { callbackId: "x", title: "X" })).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
   })
 
-  it("fails with FORMS_C0002 only in MCP for a choice of numbers, which MCP enums cannot hold", () => {
+  it("fails with FORMS_FIELD_NOT_DRAWABLE only in MCP for a choice of numbers, which MCP enums cannot hold", () => {
     const form = defineForm({ schema: v.object({ size: v.picklist([1, 2]) }) })
-    expect(() => toElicitation(form, { message: "?" })).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
+    expect(() => toElicitation(form, { message: "?" })).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
     expect(toChatModal(form, { callbackId: "size", title: "Size" }).children).toHaveLength(1)
   })
 })

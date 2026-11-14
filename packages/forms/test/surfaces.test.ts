@@ -18,9 +18,9 @@ describe("a schema with no JSON Schema", () => {
     expect((await store.list())[0]?.data).toEqual({ name: "Ada" })
   })
 
-  it("throws FORMS_C0002 when a surface draws it", () => {
-    expect(() => formFields(Custom)).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
-    expect(() => toChatModal(Custom, { callbackId: "custom", title: "Custom" })).toThrow(expect.objectContaining({ code: "FORMS_C0002" }))
+  it("throws FORMS_FIELD_NOT_DRAWABLE when a surface draws it", () => {
+    expect(() => formFields(Custom)).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
+    expect(() => toChatModal(Custom, { callbackId: "custom", title: "Custom" })).toThrow(expect.objectContaining({ code: "FORMS_FIELD_NOT_DRAWABLE" }))
   })
 })
 

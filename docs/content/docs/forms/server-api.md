@@ -123,7 +123,7 @@ export async function onFeedbackSubmit(event: { values: Record<string, string> }
 }
 ```
 
-A field that a surface cannot draw throws [`FORMS_C0002`](/docs/forms/limits-and-errors#forms_c0002) when you draw it: a nested object, a list, a union of types, or a root that is not an object. An MCP elicitation also refuses a choice of numbers, because MCP choices are text.
+A field that a surface cannot draw throws [`FORMS_FIELD_NOT_DRAWABLE`](/docs/forms/diagnostics/forms_field_not_drawable) when you draw it: a nested object, a list, a union of types, or a root that is not an object. An MCP elicitation also refuses a choice of numbers, because MCP choices are text.
 
 ## `guardRequest()`
 
