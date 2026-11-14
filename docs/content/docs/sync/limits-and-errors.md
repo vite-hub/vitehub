@@ -13,7 +13,7 @@ icon: i-lucide-circle-alert
 | Writes in one push | 100. The client sends a longer queue in parts. |
 | Changes in one pull | 500. The client pulls again until it has all. |
 | Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
-| Live stream | The server checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A write in the same server process wakes the stream at once. The browser opens a new one at once. |
+| Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A write in the same server process wakes the stream at once. The browser opens a new one at once. |
 | Live streams per browser | One per synced table or subset, in a tab that shows. |
 | Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. Every 5 minutes at most while the live stream is open. |
 | Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |
@@ -28,7 +28,7 @@ icon: i-lucide-circle-alert
 - **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
 - **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
 - **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions.
-- **Moves that the writer cannot see.** A move reaches the old scope when the moved column is in the `where` of the caller that writes it, such as `teamId`, or when server code passes the row in `recordSyncChanges({ moved })`. If your `where` uses other columns for other callers, record those moves from server code.
+- **Moves that the writer cannot see.** A move reaches the old scope when the moved column is in the `where` of the caller that writes it, such as `teamId`, when it is in `subsets`, or when server code passes the row in `recordSyncChanges({ moved })`. If your `where` uses other columns for other callers, such as `ownerId` for people and `{}` for admins, add those columns to `subsets`.
 - **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
 - **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
 - **An app shell offline.** Sync keeps data. Loading the page itself offline needs a service worker, which Sync does not add.
@@ -80,7 +80,7 @@ A write set a `where` column to a value that `where` does not allow, such as `ow
 
 ### SYNC_ACTION_REFUSED
 
-An action threw, so none of its writes applied. The message is the message of the error when it is a ViteHub error, an error with an HTTP status below 500, or a schema error with `issues`. Else it is "The action failed.", and the server log has the error. The optimistic change of the action goes away. Change the arguments, then `retry()` the failure, or `dismiss()` it.
+An action called `refuse(message)` or threw, so none of its writes applied. After `refuse(message)`, the message is `message`. After a thrown error, the message is the message of the error when it is a ViteHub error, an error with an HTTP status below 500, or a schema error with `issues`. Else it is "The action failed.", and the server log has the error. The optimistic change of the action goes away. Change the arguments, then `retry()` the failure, or `dismiss()` it.
 
 ### SYNC_TOO_MANY_MUTATIONS
 
@@ -88,7 +88,7 @@ A push had more than 100 writes. The client splits its queue, so only your own r
 
 ### SYNC_BAD_REQUEST
 
-The request is not a valid pull or push, its subset is not single column values, or it asks for a live stream of a definition with `live: false`. The writes of a refused push go to `failures`, since sending them again gives the same answer. After a live request gets this code, the client stops the live stream and only pulls.
+The request is not a valid pull or push, its subset is not single column values, its subset uses a column that is not in `subsets` or `where`, or it asks for a live stream of a definition with `live: false`. For a subset column, add it to `subsets` in `server/sync/<name>.ts`. The writes of a refused push go to `failures`, since sending them again gives the same answer. After a live request gets this code, the client stops the live stream and only pulls.
 
 ### SYNC_NETWORK
 

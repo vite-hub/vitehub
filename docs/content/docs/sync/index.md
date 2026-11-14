@@ -58,10 +58,10 @@ icon: i-lucide-refresh-cw
 | Order | One push at a time, with the writes in the order you made them. Two updates of one row apply in that order. |
 | Scope | `where` returns the rows that the caller may see, such as `{ ownerId: user.id }` or the caller's teams, `{ teamId: ['design', 'web'] }`. The server filters reads with it, writes its values into inserts, and refuses writes outside it. |
 | Moved rows | A row that is deleted or moves to another team leaves the devices of the old team, and reaches only the new team. |
-| Subsets | `useSync('comments', { where: { issueId } })` syncs a part of the rows, with its own local copy. A second visit shows it from the device. |
-| Actions | Named writes with server logic, such as `cards.actions.rate({ id, stars })`, on the same queue and change log as row writes. |
+| Subsets | `useSync('comments', { where: { issueId } })` syncs a part of the rows, with its own local copy, on the columns that `subsets` lists. A second visit shows it from the device. |
+| Actions | Named writes with server logic, such as `cards.actions.rate({ id, stars })`, on the same queue and change log as row writes. `refuse(message)` stops one. |
 | Live | One tab keeps a live stream open, so other people's changes show within about a second. |
-| Account guard | Each write keeps the account that made it. After a sign-in as another person, old writes wait until their account signs in again. |
+| Account guard | Each write keeps the account that made it. After a sign-in as another person, old writes wait until their account signs in again. An app with its own sign-in returns the user id from `account`. |
 | Once only | Each write has an id. When an answer is lost and the client sends the write again, the server does not apply it twice. |
 | Fresh rows | The client pulls on start, when the page shows again, when the network comes back, and after each write, besides the live stream. Other tabs see a change at once. When the table changes, the browser drops its stored rows and keeps its queued writes. |
 | Inspection | `vitehub sync list` and `vitehub sync changes <name>`, and the `sync.list` and `sync.changes` operations. |

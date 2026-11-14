@@ -172,6 +172,8 @@ export default defineSync({
 })
 ```
 
+If your app has its own sign-in instead of Auth, also return the person's user id from `account`, such as `account: async ({ request }) => (await getSession(request))?.userId ?? null`. Then joining a team does not hold back the writes that wait.
+
 A new todo must say its team: `todos.insert({ title, teamId: 'design' })`. A todo of another team is refused with `SYNC_OUT_OF_SCOPE`. When a person moves a todo to another team with `todos.update(id, { teamId: 'web' })`, it leaves the devices of the old team and shows on the devices of the new team. See [Server API](/docs/sync/server-api#where).
 
 ::
