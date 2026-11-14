@@ -169,7 +169,7 @@ async function link(): Promise<void> {
             <tr v-for="row in shownRows" :key="row.app.id">
               <td>
                 <!-- The link covers the row, and the actions sit above it. -->
-                <a :href="accountProjectPath(row.app.id)" class="vitehub-apps__open" @click="openApp($event, row.app.id)">
+                <a :href="accountProjectPath(row.app.id)" class="vitehub-apps__open" data-focus-inset @click="openApp($event, row.app.id)">
                   <ConsoleAppLogo :app="row.identity" class="vitehub-apps__logo" />
                   <span class="grid min-w-0">
                     <span class="truncate font-medium text-highlighted">{{ row.identity.name }}</span>
@@ -495,16 +495,6 @@ a.vitehub-account-list__row:hover {
   content: "";
   inset: 0;
   position: absolute;
-}
-
-.vitehub-apps__open:focus-visible {
-  outline: none;
-}
-
-.vitehub-apps__open:focus-visible::after {
-  border-radius: 0.375rem;
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
 }
 
 .vitehub-apps .vitehub-apps__logo {
