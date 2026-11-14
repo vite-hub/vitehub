@@ -38,8 +38,10 @@ describe("live", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store")
     expect(response.headers.get("x-accel-buffering")).toBe("no")
     const events = readEvents(response)
-    // Nothing changed since the cursor of the client, so the stream sends nothing when it opens.
+    // Nothing changed since the cursor of the client, so the stream sends no event when it opens. It sends a comment
+    // at once, because Node sends the headers only with the first chunk of the body.
     expect(await events.next(100)).toBe("timeout")
+    expect(events.comments).toEqual([": open"])
 
     const started = performance.now()
     await app.push(bob, { ...as(writer), mutations: [{ id: "m1", op: "insert", value: { id: "n1", teamId: "a", body: "Hello" } }] })

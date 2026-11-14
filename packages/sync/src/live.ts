@@ -77,6 +77,9 @@ export function liveResponse(stream: LiveStream): Response {
         }
       }
       const unlisten = listen(stream.key, stream.name, wake)
+      // Node sends the status and the headers with the first chunk of the body. Without this comment, a stream with
+      // nothing to send has no answer until the first ping, and the client waits 15 seconds to know that it is live.
+      send(": open\n\n")
       const ping = setInterval(() => send(": ping\n\n"), pingInterval)
       function finish() {
         if (closed) return

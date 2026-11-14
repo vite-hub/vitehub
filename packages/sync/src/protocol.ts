@@ -140,7 +140,8 @@ export interface SyncPushResponse {
  *   anything changed, then one after each change that the caller can see. A pull with `reset: true` replaces the rows.
  * - `error`: the server refused the caller, such as after a sign-out. The stream ends.
  *
- * The server sends a comment line (`: ping`) every 15 seconds, so proxies keep the connection open.
+ * The server sends a comment line (`: open`) when the stream opens, so the headers reach the client at once, and
+ * `: ping` every 15 seconds, so proxies keep the connection open.
  */
 export type SyncLiveEvent =
   | { type: "pull", pull: SyncPullResponse }
