@@ -283,7 +283,8 @@ function parseControlledCurlArgs(words: string[]): ParsedControlledCurl {
     }
   }
   catch (error) {
-    return [error instanceof Error ? error : shellErrorDiagnostics.SHELL_R0006({ message: String(error) }), undefined]
+    // Internal invariant: the parser throws only Error values, so the fallback never runs.
+    return [error instanceof Error ? error : new Error(String(error)), undefined]
   }
 
   if (!url) return parseFailure("Controlled curl requires a URL.")
