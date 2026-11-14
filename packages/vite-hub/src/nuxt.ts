@@ -44,7 +44,7 @@ import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId }
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleOperationContributions, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { BundleVitePlugin, NuxtPageLike } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -1162,6 +1162,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           return { providerOutput: describeDeploymentPlanOutput(plan, resolve(nitro?.rootDir ?? rootDir), nitro?.output?.dir) }
         },
       },
+    }] : []),
+    // Nuxt runs the Console in its own Nitro, without the Console Vite plugin. The CLI and `vitehub inspect` read the
+    // Console operations from this plugin, as they read them from the Console Vite plugin in a Vite app.
+    ...(consoleOptions ? [{
+      name: "vite-hub/console-operations",
+      vitehub: { operations: () => consoleOperationContributions(() => consoleSections) },
     }] : []),
     ...(consoleOptions && options.agent ? [consoleInvocationRootPlugin(
       projectRoot,
