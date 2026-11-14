@@ -521,7 +521,7 @@ if (completeError) throw completeError
 
 | Driver | Upload state | Notes |
 | --- | --- | --- |
-| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
+| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag while it copies the parts into the final file one after another, so it does not hold the whole file in memory. `abort()` deletes the parts. |
 | `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
 | `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
 
