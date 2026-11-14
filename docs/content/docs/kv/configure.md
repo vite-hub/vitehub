@@ -223,3 +223,4 @@ export default defineConfig({
 - Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds. Redis, the `database` driver, Upstash, Deno KV, and `fs-lite` expire them on time. Nitro checks the age on each read, so it never serves an expired entry as fresh.
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.
+- The Console Cache section and `vitehub cache` list, read, and invalidate the entries. See [Read and invalidate the cache](/docs/development/cli#read-and-invalidate-the-cache).
