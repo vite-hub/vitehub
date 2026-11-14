@@ -722,6 +722,11 @@ function resolveNuxtContentDatabaseForBuild(
 ) {
   if (nuxtOptions.dev || !hasNuxtContentModule(nuxtOptions.modules)) return
   if (resolveHost({ nitro: nuxtOptions.nitro }) === "cloudflare") return
+  // Nuxt merges tuple options separately from dependency defaults in nuxt.options.content.
+  if (nuxtOptions.modules?.some(module => Array.isArray(module)
+    && module[0] === "@nuxt/content"
+    && isRecord(module[1])
+    && module[1].database !== undefined)) return
   const content = resolveNuxtContentDatabase(resolveDBViteConfig(options, root, { provisionRoot, serverDirs }))
   const configured = isRecord(nuxtOptions.content) ? nuxtOptions.content.database : undefined
   // The module dependency default may already have set this same value.

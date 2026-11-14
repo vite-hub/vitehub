@@ -10,7 +10,7 @@ afterAll(async () => await rm(tmp, { force: true, recursive: true }))
 
 let fixtureId = 0
 
-async function createApp(definition: string, options: { content?: Record<string, unknown>, dev?: boolean, preset?: string } = {}) {
+async function createApp(definition: string, options: { content?: Record<string, unknown>, dev?: boolean, preset?: string, modules?: unknown[], runtimeDatabase?: Record<string, unknown> } = {}) {
   const rootDir = join(tmp, `app-${fixtureId++}`)
   await mkdir(join(rootDir, "server/databases"), { recursive: true })
   await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
@@ -22,7 +22,7 @@ async function createApp(definition: string, options: { content?: Record<string,
     },
     options: {
       dev: options.dev ?? false,
-      modules: ["@nuxt/content"],
+      modules: options.modules ?? ["@nuxt/content"],
       rootDir,
       vite: {},
       ...(options.content ? { content: options.content } : {}),
@@ -32,7 +32,10 @@ async function createApp(definition: string, options: { content?: Record<string,
   const module = hubDatabase()
   const dependencies = module.getModuleDependencies(nuxt)
   await module(undefined, nuxt)
-  const nitroConfig: Record<string, unknown> = options.preset ? { preset: options.preset } : {}
+  const nitroConfig: Record<string, unknown> = {
+    ...(options.preset ? { preset: options.preset } : {}),
+    ...(options.runtimeDatabase ? { runtimeConfig: { content: { database: options.runtimeDatabase } } } : {}),
+  }
   for (const callback of hooks["nitro:config"] ?? []) await callback(nitroConfig)
   return { dependencies, nitroConfig, options: nuxt.options, rootDir }
 }
@@ -90,6 +93,21 @@ describe("Nuxt Content database from the default Database Definition", () => {
     const { nitroConfig, options } = await createApp("{ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} }", { content })
     expect(options.content).toEqual({ database: { type: "sqlite", filename: "content.sqlite" } })
     expect(runtimeContentDatabase(nitroConfig)).toBeUndefined()
+  })
+
+  it.each(["before", "after"])("keeps an explicit tuple database when Content is %s ViteHub", async (order) => {
+    const database = { type: "postgresql", url: "postgres://content-host/content" }
+    const contentModule = ["@nuxt/content", { database }]
+    const modules = order === "before" ? [contentModule, "vite-hub/nuxt"] : ["vite-hub/nuxt", contentModule]
+    const { dependencies, nitroConfig, options, rootDir } = await createApp("{ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} }", {
+      modules,
+      runtimeDatabase: database,
+    })
+    expect(dependencies).toEqual({})
+    expect(options.content).toBeUndefined()
+    expect(runtimeContentDatabase(nitroConfig)).toEqual(database)
+    expect(nitroConfig.plugins ?? []).toEqual([])
+    await expect(readFile(join(rootDir, ".vitehub/nitro/database/content-database.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("does not map Postgres on Cloudflare, where Content keeps one client across requests", async () => {
