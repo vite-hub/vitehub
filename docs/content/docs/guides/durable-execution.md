@@ -195,11 +195,11 @@ import { startWorkflow } from 'vite-hub/workflow'
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return startWorkflow('checkout', order, { id: `checkout:${order.orderId}` })
+  return startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
 })
 ```
 
-Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency key, so a double click does not start a second checkout. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
+Cloudflare uses the id as the instance id, and OpenWorkflow as its idempotency key, so a double click does not start a second checkout. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and ViteHub fails the start with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
 
 ## Inspect the run
 

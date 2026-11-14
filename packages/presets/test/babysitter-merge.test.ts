@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
@@ -386,6 +386,30 @@ describe("Babysitter approved-if-outside merge gate", () => {
     s.pr = { ...s.pr!, user: undefined, author: { login: "outsider" }, authorAssociation: "NONE" };
     s.reviews.a = { author: { login: "maintainer" }, authorAssociation: "OWNER", state: "APPROVED", commit: { oid: head }, submittedAt: "2026-11-12T10:00:00Z" };
     expect(await ready(s)).toBe(true);
+  });
+
+  it("merges a trusted bot's PR without an approval, and holds a user of the same name", async () => {
+    const trusted = resolveBabysitterMerge({ strategy: "direct", trustedAuthors: ["Renovate[bot]", "octocat"] });
+    if (trusted.mode !== "direct" || !trusted.ready) throw new Error("expected a direct merge with a ready gate");
+    const gate = (user: Record<string, string>) => {
+      const s = outside("CONTRIBUTOR");
+      s.pr = { ...s.pr!, user };
+      return trusted.ready!({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+    };
+    expect(await gate({ login: "renovate[bot]", type: "Bot" })).toBe(true);
+    expect(await gate({ login: "renovate", __typename: "Bot" })).toBe(true);
+    expect(await gate({ login: "OctoCat", type: "User" })).toBe(true);
+    expect(await gate({ login: "renovate", type: "User" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "octocat[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "dependabot[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await ready(outside("NONE"))).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("rejects trustedAuthors that are not logins or that come with a ready callback", () => {
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [" "] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: "renovate[bot]" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", ready: () => true, trustedAuthors: ["renovate[bot]"] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
   });
 
   it("keeps the callback form and rejects other ready values", () => {
