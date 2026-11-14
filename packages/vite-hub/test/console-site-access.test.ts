@@ -201,7 +201,9 @@ async function vitehub(args: string[], target: "deployed" | "dev" = "deployed") 
 
 describe("the vitehub site commands", () => {
   it("list the browsers and sign one out", async () => {
-    const { cookie } = await open(await link("site.link"))
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
+    const { response: opened, cookie } = await open(await link("site.link"))
+    expect(opened.status).toBe(303)
     const sessions = await vitehub(["site", "sessions"])
     expect(sessions).toMatchObject({ code: 0, stderr: "" })
     const [header, ...rows] = sessions.stdout.trimEnd().split("\n")
