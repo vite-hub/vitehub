@@ -382,8 +382,8 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
   /**
    * Answer a `GET` or `HEAD` request for one object. The `Response` has the final status and headers: `200`, `206` or
-   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, and `404` for a missing object or a
-   * reserved ViteHub path. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
+   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, `404` for a missing object or a
+   * reserved ViteHub path, and `405` with `Allow: GET, HEAD` for another method. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
    * an H3 handler, pass `event.req`.
    */
   serve(request: Request, pathname: string, options?: BlobServeResponseOptions): Promise<Response>

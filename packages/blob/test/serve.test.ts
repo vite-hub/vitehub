@@ -394,6 +394,16 @@ describe("Blob response transforms", () => {
     expect(await response.json()).toEqual({ error: "Blob not found." })
   })
 
+  it.each(["POST", "PUT", "DELETE", "OPTIONS"])("answers %s with 405 and does not read the object", async (method) => {
+    const head = vi.spyOn(driver, "head")
+    const response = await storage.serve(request({ range: "bytes=0-3" }, method), "private/original", { headers: { "X-Frame-Options": "DENY" } })
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, HEAD")
+    expect(response.headers.has("x-frame-options")).toBe(false)
+    expect(await response.json()).toEqual({ error: `Blob serve() answers GET and HEAD, not ${method}.` })
+    expect(head).not.toHaveBeenCalled()
+  })
+
   it("does not serve a cached derivative after the source is deleted", async () => {
     const first = await storage.serve(request(), "private/original", options)
     await first.body?.cancel()
