@@ -92,8 +92,8 @@ function assertNoPutAccess(options: object) {
   }
 }
 
-function blobErrorResponse(request: Request, status: 400 | 404, error: string): Response {
-  const response = Response.json({ error }, { status })
+function blobErrorResponse(request: Request, status: 400 | 404 | 405, error: string, headers?: Record<string, string>): Response {
+  const response = Response.json({ error }, { headers, status })
   return request.method === "HEAD" ? new Response(null, { headers: response.headers, status }) : response
 }
 
@@ -304,6 +304,11 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
     },
     async serve(request, pathname, options = {}) {
+      // Like a static file server, answer every other method without reading storage, so a POST to a file URL does
+      // not download the file.
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return blobErrorResponse(request, 405, `Blob serve() answers GET and HEAD, not ${request.method}.`, { Allow: "GET, HEAD" })
+      }
       const { edgeCache } = options
       if (edgeCache && (!Number.isSafeInteger(edgeCache.maxAge) || edgeCache.maxAge <= 0)) {
         throw blobErrorDiagnostics.BLOB_R0047({ message: "`edgeCache.maxAge` must be a positive integer." })
