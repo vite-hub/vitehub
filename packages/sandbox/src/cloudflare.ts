@@ -205,18 +205,29 @@ function createCloudflareSession(
   }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
     const execId = crypto.randomUUID();
-    const result = await abortable(
-      request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
-        cwd: options.workingDirectory ?? "/workspace",
-        env: { ...baseEnv, ...options.env },
-        id: execId,
-        timeout,
-      })),
-      options.abortSignal,
-      // Stop only this command. The Sandbox and its other processes keep running.
-      () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
-    );
-    return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    const executions: Array<ReturnType<CloudflareSandboxStub["exec"]>> = [];
+    try {
+      const result = await abortable(
+        request("exec", { idempotent, timeout }, async () => {
+          const execution = stub.exec(options.command, {
+            cwd: options.workingDirectory ?? "/workspace",
+            env: { ...baseEnv, ...options.env },
+            id: execId,
+            timeout,
+          });
+          executions.push(execution);
+          return await execution;
+        }),
+        options.abortSignal,
+        // Stop only this command. The Sandbox and its other processes keep running.
+        () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
+      );
+      return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    } finally {
+      // Neither a kill signal nor a transport deadline acknowledges process exit.
+      // Keep invocation files and the same-ID queue until every remote exec settles.
+      await Promise.allSettled(executions);
+    }
   };
   return {
     defaultWorkingDirectory: "/workspace",
@@ -469,18 +480,18 @@ async function abortable<T>(
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-      if (abort) void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined).then(() => reject(signal.reason));
+      else reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        if (!signal.aborted) resolve(value);
       },
       (error) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        if (!signal.aborted) reject(error);
       },
     );
   });

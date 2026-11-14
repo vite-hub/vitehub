@@ -12,7 +12,7 @@ vi.mock("#vitehub-sandbox-task-provider-loader", async () => {
  * A Task handler is the source text of its module: `hang` runs until it is cancelled or times out,
  * `gate` writes a file in HOME, then waits for `release()` and checks that the file is still there.
  */
-function fakeContainer() {
+function fakeContainer(cancellationGate?: Promise<void>) {
   const files = new Map<string, string>()
   const directories = new Set<string>(["/"])
   const pendingHandlers = new Map<string, () => void>()
@@ -57,6 +57,7 @@ function fakeContainer() {
   const stub: CloudflareSandboxStub & { configure(): Promise<void> } = {
     async configure() {},
     async cancelExec(id) {
+      await cancellationGate
       pendingHandlers.get(id)?.()
       pendingHandlers.delete(id)
     },
@@ -123,7 +124,7 @@ async function isolate(namespace: unknown, config: Record<string, unknown>) {
   const { runWithActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
   setSandboxTaskRuntimeConfig({ provider: "cloudflare", ...config })
   setSandboxTaskRuntimeRegistry({ echo: task("echo"), gate: task("gate"), slow: task("hang", 50) })
-  return async (name: string, options?: { sandboxId?: string }) => {
+  return async (name: string, options?: { sandboxId?: string; signal?: AbortSignal }) => {
     const runner = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveSandboxTaskRunner(name))
     return await runner.run(undefined, options)
   }
@@ -134,6 +135,32 @@ afterEach(() => {
 })
 
 describe("Cloudflare Sandbox Task lifecycle on a shared Sandbox", () => {
+  it("waits for delayed command termination before reusing a named Sandbox", async () => {
+    let finishCancellation!: () => void
+    const cancellationGate = new Promise<void>(resolve => finishCancellation = resolve)
+    const container = fakeContainer(cancellationGate)
+    const run = await isolate(container.namespace, { sandboxId: "shared" })
+    const controller = new AbortController()
+    const running = run("gate", { signal: controller.signal })
+    await container.gateStarted
+    controller.abort()
+    await expect(running).rejects.toBe(controller.signal.reason)
+
+    const next = run("gate")
+    // Give the next run enough turns to reach its handler if the queue was released.
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(container.state.handlers).toBe(1)
+    expect([...container.files.keys()].some(path => path.endsWith("entry.mjs"))).toBe(true)
+
+    // A cancellation RPC returning is not an exit acknowledgement either.
+    finishCancellation()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(container.state.handlers).toBe(1)
+    container.release()
+    await expect(next).resolves.toEqual({ homeKept: true })
+    expect(container.state.destroyed).toBe(0)
+  })
+
   it("keeps a named Sandbox and its files when a run times out", async () => {
     const container = fakeContainer()
     const run = await isolate(container.namespace, { sandboxId: "shared" })
