@@ -98,6 +98,8 @@ export default defineConfig({
       "src/server/registry.ts",
       "src/server/workspace.ts",
       "src/test.ts",
+      "src/ui.ts",
+      "src/ui/vue.ts",
       "src/vue.ts",
       "src/vite.ts",
     ],

@@ -185,6 +185,16 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "import": "./dist/ui.js",
+      "default": "./dist/ui.js"
+    },
+    "./ui/vue": {
+      "types": "./dist/ui/vue.d.ts",
+      "import": "./dist/ui/vue.js",
+      "default": "./dist/ui/vue.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -268,7 +278,11 @@
     "evlog": "^2.32.0",
     "posthog-node": "^5.56.2",
     "@t3tools/provider-runtime": "catalog:",
-    "forges": "catalog:"
+    "forges": "catalog:",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
+    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@vite-hub/forms": "workspace:*"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -295,7 +309,12 @@
     "vue": "catalog:vue-compat",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
-    "@vite-hub/connections": "workspace:*"
+    "@vite-hub/connections": "workspace:*",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
+    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@vite-hub/forms": "workspace:*",
+    "zod": "^4.3.6"
   },
   "peerDependenciesMeta": {
     "@agntn/web": {
@@ -353,6 +372,21 @@
       "optional": true
     },
     "@vite-hub/connections": {
+      "optional": true
+    },
+    "@json-render/core": {
+      "optional": true
+    },
+    "@json-render/vue": {
+      "optional": true
+    },
+    "@ui-sdk/vue": {
+      "optional": true
+    },
+    "@vite-hub/forms": {
+      "optional": true
+    },
+    "zod": {
       "optional": true
     }
   },
