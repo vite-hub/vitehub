@@ -1244,7 +1244,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0365: {
       ...dynamicError,
-      fix: "Install the package that the message names, such as pnpm add @chat-adapter/discord. For @vite-hub/kv, also set kv in vitehub().",
+      fix: "Run pnpm add with the package that the message names. For @vite-hub/kv, also set kv in vitehub().",
     },
     AGENT_R0366: {
       ...dynamicError,
