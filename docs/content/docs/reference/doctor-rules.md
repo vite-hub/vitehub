@@ -598,7 +598,7 @@ Doctor runs each package's discovery. It skips a kind with no Definition files, 
 
 **Default-export each discovered Definition.** Rule `vitehub/definition-default-export`.
 
-ViteHub discovers every source file in a Definition folder, such as `server/queues/`, `server/workflows/`, `server/schedules/`, `server/agents/`, or `server/connections/`. A file without a default export still becomes a Definition, and fails when used. The rule also checks the numbered step files of a folder Workflow, which calls their default export.
+ViteHub discovers every source file in a Definition folder, such as `server/queues/`, `server/workflows/`, `server/schedules/`, `server/agents/`, or `server/connections/`, except test, spec, and declaration files. A file without a default export still becomes a Definition, and fails when used. The rule also checks the numbered step files of a folder Workflow, which calls their default export.
 
 ```ts [server/queues/utils.ts]
 // Invalid: ViteHub discovers this helper as the `utils` Queue.

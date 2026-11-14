@@ -427,7 +427,7 @@ describe("vitehub", () => {
           expect.objectContaining({ route: "/_vitehub/rpc" }),
         ]),
       })
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")).resolves.toContain(
         `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows"])`,
       )
     }
@@ -477,7 +477,7 @@ describe("vitehub", () => {
         await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
         await callHook(inactive.configResolved, [inactiveConfig])
 
-        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
         expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
@@ -495,7 +495,7 @@ describe("vitehub", () => {
       })
       await callHook(named.configResolved, [namedConfig])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('"kv"')
       expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
@@ -520,12 +520,37 @@ describe("vitehub", () => {
       config[VITEHUB_FEATURES] = { blob: { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } } }
       await callHook(plugin.configResolved, [config])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('installConsoleBlob(')
       expect(generated).toContain('["archive","media"]')
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("installs the Cache section and its operations only when cache is set", async () => {
+    for (const cache of [true, false]) {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-console-cache-"))
+      try {
+        const plugins = vitehub({ cache, comments: false, console: { auth: false }, host: "node" })
+        const plugin = dependencyPluginByName(plugins, "vite-hub/console")
+        const config: Record<string, unknown> = { root, plugins }
+        await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+        await callHook(plugin.configResolved, [config])
+        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+        if (cache) {
+          expect(generated).toMatch(/cacheOperations: vitehubConsoleOperations\d+ \}/)
+          expect(generated).toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+        else {
+          expect(generated).not.toContain("cacheOperations")
+          expect(generated).not.toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
     }
   })
 
@@ -545,7 +570,7 @@ describe("vitehub", () => {
       const config = { root, [VITEHUB_FEATURES]: { database: { connection: { url: "file::memory:" } } } }
       await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
       await callHook(plugin.configResolved, [config])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
