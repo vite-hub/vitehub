@@ -335,6 +335,7 @@ onMounted(() => {
       // A second person joins someone else's page id, and counts the calls that reach them.
       intrude: id => {
         const room = connectRealtimeRoom("agent-pages", id)
+        window.pageTest.leave = () => room.destroy()
         room.onRequest(body => {
           heard.push(body)
           return []
@@ -642,18 +643,27 @@ for (const item of cases) {
 
     // 6. Grace heard none of Ada's calls, and her own run cannot reach Ada's page by its id.
     assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 0)
-    const intruded = await grace.page.evaluate(async ({ id, text }) => {
-      const response = await fetch("/api/_vitehub/agents/settings/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-vitehub-page": id },
-        body: JSON.stringify({ messages: [{ id: "grace-1", role: "user", parts: [{ type: "text", text }] }] }),
-      })
-      return { status: response.status, body: await response.text() }
-    }, { id: pageId, text: prompts.read })
-    assert.equal(intruded.status, 200, intruded.body.slice(0, 2000))
-    const snapshotOutput = intruded.body.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6))).find(event => event.type === "tool-output-available")
-    assert.equal(snapshotOutput?.output?.code, "REALTIME_ROOM_EMPTY", intruded.body.slice(0, 2000))
-    assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 0)
+    const graceRun = async (n) => {
+      const intruded = await grace.page.evaluate(async ({ id, n, text }) => {
+        const response = await fetch("/api/_vitehub/agents/settings/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-vitehub-page": id },
+          body: JSON.stringify({ messages: [{ id: `grace-${n}`, role: "user", parts: [{ type: "text", text }] }] }),
+        })
+        return { status: response.status, body: await response.text() }
+      }, { id: pageId, n, text: prompts.read })
+      assert.equal(intruded.status, 200, intruded.body.slice(0, 2000))
+      const output = intruded.body.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6))).find(event => event.type === "tool-output-available")?.output
+      return { body: intruded.body.slice(0, 2000), output }
+    }
+    // While Grace's tab sits in the room she joined with Ada's id, her run reaches that room, her own, never Ada's page.
+    const ownRoom = await graceRun(1)
+    assert.ok(Array.isArray(ownRoom.output) && !ownRoom.output.some(component => component.label === "Project name"), ownRoom.body)
+    assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 1)
+    // Once she leaves it, the page id leads nowhere for her.
+    await grace.page.evaluate(() => window.pageTest.leave())
+    const empty = await graceRun(2)
+    assert.equal(empty.output?.code, "REALTIME_ROOM_EMPTY", empty.body)
 
     assert.deepEqual([...ada.errors, ...grace.errors], [])
   })
