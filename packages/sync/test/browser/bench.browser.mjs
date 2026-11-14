@@ -49,7 +49,10 @@ test("the Sync bench: 10,000 rows in Vue", { timeout: 600_000 }, async (t) => {
     await page.reload()
     await page.waitForFunction(() => window.bench)
     const paint = await page.evaluate(() => window.bench.paint())
-    for (const [step, value] of Object.entries({ ...run, ...paint })) (samples[step] ??= []).push(value)
+    await page.reload()
+    await page.waitForFunction(() => window.bench)
+    const live = await page.evaluate(() => window.bench.live?.() ?? {})
+    for (const [step, value] of Object.entries({ ...run, ...paint, ...live })) (samples[step] ??= []).push(value)
     await context.close()
   }
   const result = Object.fromEntries(Object.entries(samples).map(([step, values]) => [step, Math.round(median(values) * 10) / 10]))

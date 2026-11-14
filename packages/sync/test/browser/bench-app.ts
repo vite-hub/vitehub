@@ -12,6 +12,8 @@ import type { SyncRow } from "../../src/protocol.ts"
 interface Row { id: string, ownerId: string, title: string }
 
 const server = createFakeSyncServer()
+// The steps of `run()` pull with `refresh()`, so they compare with clients that have no live stream. `live()` streams.
+server.live = false
 let rowRenders = 0
 
 const Item = defineComponent({
@@ -129,6 +131,29 @@ async function run(rounds = 15): Promise<Record<string, number>> {
   }
 }
 
+/** After a reload: streams, and measures a change on the server until the DOM shows it. Only clients with `live`. */
+async function live(rounds = 15): Promise<Record<string, number>> {
+  await clearSync()
+  server.live = true
+  for (let index = 0; index < count; index++) server.write({ id: keyOf(index), ownerId: "ada", title: `Task ${index}` } satisfies SyncRow)
+  const list = mount()
+  await until(() => list.children.length === count)
+  const state = todos as unknown as { live?: boolean }
+  if (state.live === undefined) return {}
+  await until(() => state.live === true)
+  const times: number[] = []
+  for (let round = 0; round < rounds; round++) {
+    const index = (round * 389 + 11) % count
+    const title = `Live ${round}`
+    const start = performance.now()
+    server.write({ id: keyOf(index), ownerId: "ada", title })
+    await until(() => titleOf(list, index) === title)
+    times.push(performance.now() - start)
+  }
+  await clearSync()
+  return { "server change to DOM over the live stream (ms)": median(times) }
+}
+
 /** After a reload: mounts with the server offline and measures the first paint of the stored rows. */
 async function paint(): Promise<Record<string, number>> {
   server.offline = true
@@ -143,8 +168,8 @@ async function paint(): Promise<Record<string, number>> {
 
 declare global {
   interface Window {
-    bench: { run: typeof run, paint: typeof paint }
+    bench: { run: typeof run, paint: typeof paint, live: typeof live }
   }
 }
 
-window.bench = { run, paint }
+window.bench = { run, paint, live }
