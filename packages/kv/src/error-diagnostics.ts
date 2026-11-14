@@ -28,6 +28,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
       fix: "Pass the TTL in seconds, for example `kv.increment('attempts', 60)`.",
     },
+    KV_INVALID_WAIT: {
+      why: "`wait` must be zero or a positive number of seconds.",
+      fix: "Pass the wait in seconds, for example `kv.lock('jobs:report', { ttl: 60, wait: 5 })`, or omit `wait` to return at once.",
+    },
     KV_KEY_TOO_LONG: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `The key is ${bytes} bytes in UTF-8. Cloudflare KV accepts keys of at most ${limit} bytes.`,
       fix: "Use a shorter key. To keep a long identifier, store a hash of it as the key.",
@@ -53,10 +57,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_UNSUPPORTED_OPERATION: {
       why: ({ operation, store }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
         ? `kv.setIfAbsent() needs an atomic write, and the "${store}" store cannot give one. Cloudflare KV is eventually consistent, so two requests can both see a missing key.`
-        : `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
+        : operation === "lock"
+          ? `kv.lock() needs \`setIfAbsent()\` with a TTL and \`deleteIfEquals()\`, and the "${store}" store does not support both.`
+          : `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
       fix: ({ operation }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
         ? "On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object. Otherwise use the `redis`, `database`, `upstash`, `deno-kv`, or `fs-lite` driver for this store."
-        : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
+        : operation === "lock"
+          ? "Use the `redis`, `database`, or `upstash` driver for this store. On Cloudflare, use a Durable Object or a D1 row as the lock."
+          : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
     },
 
     // Config errors. KV throws them because the code or the deployment must change.
@@ -95,6 +103,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
         ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare host."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
+    },
+    KV_INVALID_BATCH: {
+      why: ({ operation }: { operation: "getMany" | "setMany" }) => operation === "getMany"
+        ? "`kv.getMany()` needs an array of keys."
+        : "`kv.setMany()` needs an array of `{ key, value }` entries.",
+      fix: ({ operation }: { operation: "getMany" | "setMany" }) => operation === "getMany"
+        ? "Pass an array, for example `kv.getMany(['a', 'b'])`."
+        : "Pass an array, for example `kv.setMany([{ key: 'a', value: 1 }])`.",
     },
     KV_INVALID_STORE_MODE: {
       why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
@@ -138,6 +154,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
 /** Codes that a KV operation throws because the code or the deployment must change. */
 export const kvConfigErrorCodes: ReadonlySet<string> = new Set([
   "KV_DATABASE_UNAVAILABLE",
+  "KV_INVALID_BATCH",
   "KV_DENO_KV_UNAVAILABLE",
   "KV_DISABLED",
   "KV_MISSING_ENV",

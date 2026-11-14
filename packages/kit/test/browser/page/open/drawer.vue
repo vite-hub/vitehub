@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button } from "@vite-hub/kit/button"
+import { Button } from "@ui-sdk/vue/button"
 import { MinusIcon, PlusIcon } from "../icons"
 import {
   Drawer,
@@ -9,7 +9,7 @@ import {
   DrawerDescription,
   DrawerTitle,
   DrawerTrigger,
-} from "@vite-hub/kit/drawer"
+} from "@ui-sdk/vue/drawer"
 import { ref } from "vue"
 const goal = { initial: 350, min: 200, max: 400, step: 10 }
 

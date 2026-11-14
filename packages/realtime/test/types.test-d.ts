@@ -4,7 +4,8 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
 
-import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeRequestEvent, RealtimeRoomRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import { requestRealtimeRoom } from "../src/server.ts"
 import type { RealtimeCaretUser } from "../src/vue.ts"
 import { defineRealtime } from "../src/index.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
@@ -38,6 +39,21 @@ describe("realtime client result types", () => {
   })
 })
 
+describe("room request result types", () => {
+  it("types the codes that requestRealtimeRoom() returns", () => {
+    expectTypeOf<RealtimeRoomRequestErrorCode>().toEqualTypeOf<
+      | "REALTIME_ROOM_ABORTED"
+      | "REALTIME_ROOM_CROWDED"
+      | "REALTIME_ROOM_ELSEWHERE"
+      | "REALTIME_ROOM_EMPTY"
+      | "REALTIME_ROOM_REFUSED"
+      | "REALTIME_ROOM_REQUESTS_OFF"
+      | "REALTIME_ROOM_TIMEOUT"
+    >()
+    expectTypeOf(requestRealtimeRoom).returns.resolves.toEqualTypeOf<Result<unknown, RealtimeRoomRequestErrorCode>>()
+  })
+})
+
 describe("realtime caret types", () => {
   it("infers the person in the caret options", () => {
     type Carets = NonNullable<Parameters<typeof useRealtimeTiptap>[2]>["carets"]
@@ -66,8 +82,23 @@ describe("realtime definition types", () => {
   it("leaves document options out of a definition without a document", () => {
     defineRealtime({ auth: true, document: false })
     // @ts-expect-error A room without a document never saves.
-    defineRealtime({ document: false, persistence: false })
+    defineRealtime({ auth: true, document: false, persistence: false })
     // @ts-expect-error A room without a document has no history.
-    defineRealtime({ document: false, history: { checkpoint: true } })
+    defineRealtime({ auth: true, document: false, history: { checkpoint: true } })
+  })
+
+  it("requires one access rule", () => {
+    defineRealtime({ auth: true, document: { workspace: "docs" } })
+    defineRealtime({ authorize: ({ mode }) => mode === "read", document: { workspace: "docs" } })
+    defineRealtime({ auth: true, authorize: ({ user }) => user?.id === "ana", document: false })
+    defineRealtime({ access: "public", document: { workspace: "docs" }, identify: () => null })
+    // @ts-expect-error A definition must say who can read and write its rooms.
+    defineRealtime({ document: { workspace: "docs" } })
+    // @ts-expect-error identify() alone lets anonymous users in, so it is not an access rule.
+    defineRealtime({ document: false, identify: () => null })
+    // @ts-expect-error Public rooms have no other access rule.
+    defineRealtime({ access: "public", auth: true, document: false })
+    // @ts-expect-error Public rooms have no other access rule.
+    defineRealtime({ access: "public", authorize: () => true, document: false })
   })
 })

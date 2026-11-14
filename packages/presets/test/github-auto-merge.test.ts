@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
+import { createGitHubPullRequestOperations, reviewerLabeledSevere, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
 
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
@@ -558,6 +558,53 @@ describe("host-owned repair operations", () => {
     expect(f.mutations()).toHaveLength(1)
   })
 
+  it("refuses to decline a P0 or P1 finding", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    for (const reason of ["P1: the review push budget is spent.", "**P0**: out of scope."]) {
+      await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })).rejects.toMatchObject({ code: "PRESETS_REVIEW_SEVERE_DECLINED" })
+    }
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("posts a downgraded decline of a reviewer's P0 or P1 and leaves the thread open until a person replies", async () => {
+    const f = await fixture()
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Verify ownership before granting admin**"
+    f.state.threadComments = [{ ...reviewComment, body: codex, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    // A retry posts nothing new and keeps holding.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    // Any other outcome resolves it.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("resolves a downgraded decline once a person replied in the thread", async () => {
+    const f = await fixture()
+    f.state.threadComments = [
+      { ...reviewComment, body: "**P1 · Class: lost MAIL_KEY.**", author: { login: "pullfrog", __typename: "Bot" } },
+      { ...reviewComment, databaseId: 504, body: "Fine as P2, ship it.", author: { login: "maintainer", __typename: "User" } },
+    ]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: the maintainer accepted it." })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each([
+    ["**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Title", true],
+    ["**P0 · Class: data loss.**", true],
+    ["P1: broken contract", true],
+    ["**P2 · Class: alias.**", false],
+    ["**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Title", false],
+    ["P10 is a page size", false],
+    ["This breaks the P1 path.", false],
+  ])("reads a reviewer's severity label from %j", (body, severe) => {
+    expect(reviewerLabeledSevere(body)).toBe(severe)
+  })
+
   it("requires a reason for every outcome except fixed", async () => {
     const f = await fixture()
     f.state.threadComments = [reviewComment]
@@ -692,7 +739,16 @@ describe("base CI evidence on a moving base", () => {
     const f = await fixture({ expectedBaseOid: assigned })
     Object.assign(f.pullRequest, { baseRefOid: moved })
     expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
-    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...${moved}`)).toBe(true)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...main`)).toBe(true)
+  })
+
+  it("reads the assigned base when the PR's recorded base is older than it", async () => {
+    // A conflicted PR keeps an old baseRefOid, while a conflict repair is assigned the live branch tip.
+    const f = await fixture({ expectedBaseOid: moved })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    f.state.compare = { status: "identical", behind_by: 0 }
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(moved)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${moved}...main`)).toBe(true)
   })
 
   it("refuses when the base no longer contains the assigned commit", async () => {

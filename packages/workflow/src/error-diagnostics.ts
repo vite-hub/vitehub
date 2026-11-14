@@ -27,6 +27,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_C0017: dynamicError,
     WORKFLOW_C0018: dynamicError,
     WORKFLOW_C0019: dynamicError,
+    WORKFLOW_C0020: {
+      ...dynamicError,
+      fix: "Set `workflow: { provider: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
+    },
     WORKFLOW_R0001: dynamicError,
     WORKFLOW_R0002: dynamicError,
     WORKFLOW_R0003: dynamicError,

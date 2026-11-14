@@ -2,13 +2,16 @@ import packageJson from "../../package.json" with { type: "json" }
 import { detectNuxtModule } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { editConfig, moduleName, readHub } from "./config.ts"
-import { moveSchema } from "./database.ts"
+import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
+import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
+import { findRedisKVSource } from "./kv-env.ts"
 import { rewriteSources } from "./sources.ts"
+import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
 import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from "./wrangler.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
+import type { Dialect, HubDatabaseOptions } from "./config.ts"
 import type { SchemaMove } from "./database.ts"
 
 /** The lowest Drizzle ORM and Kit that `@vite-hub/database` accepts. */
@@ -22,17 +25,28 @@ function runner(installCommand: string): string {
   return "npx"
 }
 
-function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv: boolean, blob: boolean, cloudflare: boolean, kvBinding: string }): FollowUp[] {
+type DatabasePlan = HubDatabaseOptions & { dialect: Dialect }
+
+function dataFollowUps(run: string, input: { database?: DatabasePlan, d1: boolean, kv: boolean, blob: boolean, cloudflare: boolean, kvBinding: string }): FollowUp[] {
   const followUps: FollowUp[] = []
   if (input.database) {
+    const postgres = input.database.dialect === "postgresql"
     followUps.push(
-      { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
+      postgres
+        ? { message: "Back up the existing database and stop the app. For local PGlite, copy NuxtHub's .data/db/pglite folder to ViteHub's default location with `mkdir -p .vitehub/data/database && cp -R .data/db/pglite .vitehub/data/database/pglite`." }
+        : { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
       { message: `Create the migration baseline with \`${run} vitehub database generate --name baseline\`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.` },
       { message: "Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline folder's migration.sql, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep the folder name and snapshot.json." },
       input.d1
         ? { message: `Run \`${run} nuxt build\`, then record the baseline on D1 with \`${run} wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json\`. Check first with \`migrations list\` that only the baseline is pending. For the local SQLite copy, run \`${run} vitehub database migrate\`.` }
         : { message: `Record the baseline with \`${run} vitehub database migrate\`. Run it a second time to check that it applies nothing.` },
     )
+    // NuxtHub applied migrations during the build, except on D1. ViteHub never migrates during the build.
+    if (input.database.migrationsDuringBuild && !input.d1) {
+      followUps.push(postgres
+        ? { message: `NuxtHub applied migrations during the build. ViteHub applies Postgres migrations when a Node server starts, with database.migrateOnStart. Until the baseline is in place, set vitehub: { database: { migrateOnStart: false } }. On other hosts, run \`${run} vitehub database migrate\` before each deploy. See https://vitehub.dev/docs/database/configure#migrate-when-the-server-starts.` }
+        : { message: `NuxtHub applied migrations during the build. ViteHub does not migrate SQLite on its own. Run \`${run} vitehub database migrate\` before each deploy, or set vitehub: { database: { migrateOnStart: true } } for a Node server. See https://vitehub.dev/docs/database/configure#migrate-when-the-server-starts.` })
+    }
   }
   if (input.kv) {
     const base = input.cloudflare ? `.vitehub/data/kv-cloudflare/${input.kvBinding}` : ".vitehub/data/kv"
@@ -46,9 +60,9 @@ function dataFollowUps(run: string, input: { database: boolean, d1: boolean, kv:
   return followUps
 }
 
-async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
+async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
-  const plan = readHub(config)
+  const plan = readHub(config, await findRedisKVSource(cwd, config.fileName, config.code))
   const { features } = plan
   const wranglerFile = findWranglerFile(cwd)
   const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile, plan.bindings))
@@ -56,7 +70,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare, plan.bindings, configResult.written)
 
   let schema: SchemaMove | undefined
-  if (features.database) schema = await moveSchema(cwd, features.database)
+  const database: DatabasePlan | undefined = features.database ? { dialect: features.database, ...readDatabaseOptions(config, features.database) } : undefined
+  if (database) schema = await moveSchema(cwd, database.dialect, database)
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
   const sources = await rewriteSources({ cwd, features, schema, skip })
 
@@ -66,6 +81,10 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     atLeast: features.database ? { "drizzle-orm": drizzleMinimum, "drizzle-kit": drizzleMinimum } : undefined,
   })
   const run = runner(packageResult.installCommand)
+
+  const databaseCodeFollowUps = database
+    ? [...casingFollowUp(database, database.dialect), ...await findLayerSchemas(cwd, config, database.dialect)]
+    : []
 
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: configResult.code }]
   if (packageResult.edit) edits.push(packageResult.edit)
@@ -83,7 +102,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...sources.followUps, ...dataFollowUps(run, { database: Boolean(features.database), d1: wrangler.d1, kv: features.kv, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,

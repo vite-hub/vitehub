@@ -152,40 +152,50 @@ interface CliPostgresClient extends PostgresMigrationClient {
   end: () => Promise<unknown>
 }
 
-/**
- * Opens a Postgres client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. It
- * uses node-postgres for `driver: "node-postgres"`, else postgres.js, and loads it from the project.
- */
-function connectPostgres(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv, driver?: string): CliPostgresClient {
-  const name = driver === "node-postgres" ? "pg" : "postgres"
-  let driverModule: unknown
+/** Loads a Postgres driver from the project. The app installs it, so load it from there, like Drizzle Kit does. */
+function requireProjectDriver(name: "pg" | "postgres", projectRoot: string): unknown {
   try {
-    // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
-    driverModule = createRequire(join(projectRoot, "package.json"))(name)
+    return createRequire(join(projectRoot, "package.json"))(name)
   }
   catch (error) {
     throw new Error(`Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`, { cause: error })
   }
-  const server = {
+}
+
+/** The server options of the PG* variables. A URL takes precedence over them. */
+function readPostgresServerOptions(env: NodeJS.ProcessEnv) {
+  return {
     database: env.PGDATABASE,
     host: env.PGHOST,
     password: env.PGPASSWORD,
     port: env.PGPORT ? Number(env.PGPORT) : undefined,
     user: env.PGUSERNAME ?? env.PGUSER,
   }
-  if (name === "pg") {
-    const { Pool } = driverModule as typeof import("pg")
-    const pool = new Pool({ ...server, ...target.url ? { connectionString: target.url } : {}, connectionTimeoutMillis: 10_000, max: 1 })
+}
+
+/** Opens a postgres.js client for the CLI with `connection.url` or the PG* variables, like the generated Kit config. */
+export function connectPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv): postgres.Sql {
+  const connect = requireProjectDriver("postgres", projectRoot) as typeof postgres
+  const options = { ...readPostgresServerOptions(env), connect_timeout: 10, max: 1, onnotice: () => {} }
+  return target.url ? connect(target.url, options) : connect(options)
+}
+
+/**
+ * Opens a Postgres client for migrations with `connection.url` or the PG* variables, like the generated Kit config. It
+ * uses node-postgres for `driver: "node-postgres"`, else postgres.js, and loads it from the project.
+ */
+function connectMigrationPostgres(target: { url?: string }, projectRoot: string, env: NodeJS.ProcessEnv, driver?: string): CliPostgresClient {
+  if (driver === "node-postgres") {
+    const { Pool } = requireProjectDriver("pg", projectRoot) as typeof import("pg")
+    const pool = new Pool({ ...readPostgresServerOptions(env), ...target.url ? { connectionString: target.url } : {}, connectionTimeoutMillis: 10_000, max: 1 })
     return { ...toPostgresMigrationClient(pool), end: () => pool.end() }
   }
-  const connect = driverModule as typeof postgres
-  const options = { ...server, connect_timeout: 10, max: 1, onnotice: () => {} }
-  const sql = target.url ? connect(target.url, options) : connect(options)
+  const sql = connectPostgres(target, projectRoot, env)
   return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
 }
 
 async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, options: MigrationPlanOptions, driver?: string): Promise<LedgerRow[]> {
-  const sql = connectPostgres(target, options.projectRoot, options.env, driver)
+  const sql = connectMigrationPostgres(target, options.projectRoot, options.env, driver)
   try {
     const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
     if (!table?.name) return []
@@ -304,7 +314,7 @@ export async function migratePostgresDatabases(
       const target = resolveTarget(database, options)
       // Internal invariant: the CLI passes only Definitions filtered by their Postgres dialect.
       if (target?.kind !== "postgres") throw new Error(`The database "${database.name}" is not a Postgres database.`)
-      const client = connectPostgres(target, options.projectRoot, options.env, database.driver)
+      const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
       return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
     })

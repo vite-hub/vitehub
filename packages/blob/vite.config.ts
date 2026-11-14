@@ -77,6 +77,7 @@ export default defineConfig({
       "src/index.ts",
       "src/internal/vercel-blob.ts",
       "src/media.ts",
+      "src/nuxt-image.ts",
       "src/operations.ts",
       "src/vite.ts",
       "src/runtime/signed.ts",

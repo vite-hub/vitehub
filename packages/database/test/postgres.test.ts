@@ -100,7 +100,7 @@ describe("Postgres Database Definitions", () => {
   it("returns a plain Postgres Definition", () => {
     const definition = defineDatabase({
       cloudflare: { hyperdriveId: "hyperdrive-id" },
-      connection: { url: "postgres://localhost/app" },
+      connection: { replicas: ["postgres://replica/app", process.env.VITEHUB_UNSET_REPLICA_URL], url: "postgres://localhost/app" },
       dialect: "postgresql",
       name: "app",
       schema: { notes },
@@ -108,7 +108,7 @@ describe("Postgres Database Definitions", () => {
 
     expect(definition).toEqual({
       cloudflare: { hyperdriveId: "hyperdrive-id" },
-      connection: { url: "postgres://localhost/app" },
+      connection: { replicas: ["postgres://replica/app", undefined], url: "postgres://localhost/app" },
       dialect: "postgresql",
       name: "app",
       relations: defineRelations({ notes }),
@@ -340,6 +340,25 @@ describe("Postgres build configuration", () => {
     expect((await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir }))[0]?.fields).toContainEqual({ label: "Driver", value: "node-postgres. Queries use a `pg` Pool." })
   })
 
+  it("lists the number of read replicas in Definition inspection, without their URLs", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
+      "  dialect: 'postgresql',",
+      "  connection: { url: process.env.DATABASE_URL, replicas: [process.env.DATABASE_REPLICA_1, 'postgres://user:secret@replica/app'] },",
+    ])
+    await writePostgresDefinition(rootDir, "server/databases/analytics.ts", [
+      "  name: 'analytics',",
+      "  dialect: 'postgresql',",
+      "  connection: { replicas: process.env.REPLICAS?.split(',') },",
+    ])
+
+    const definitions = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
+    const replicas = (name: string) => definitions.find(definition => definition.name === name)?.fields.find(field => field.label === "Read replicas")?.value
+    expect(replicas("default")).toBe("2 URLs in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
+    expect(replicas("analytics")).toBe("Set in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
+    expect(JSON.stringify(definitions)).not.toContain("secret")
+  })
+
   it("writes hosted runtime modules that create Postgres clients without the SQLite runtime", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", [
@@ -473,6 +492,90 @@ describe("Postgres runtime", () => {
     expect(clientOf(db)).toMatchObject({ url: "postgres://definition/app" })
     runWithActiveCloudflareEnv({ APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" }, HYPERDRIVE: { connectionString: "postgres://other/app" } }, () => {
       expect(clientOf(db)).toMatchObject({ url: "postgres://hyperdrive/app" })
+    })
+  })
+
+  describe("read replicas", () => {
+    it("opens one client per replica URL, and `db.$replica` reads from one of them", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-b/app")
+      try {
+        const db = createPostgresDatabase({
+          ...definition,
+          connection: { replicas: ["postgres://replica-a/app", "", undefined, { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_REPLICA_URL" } }], url: "postgres://primary/app" },
+        }, { binding: "HYPERDRIVE" })
+
+        expect(clientOf(db)).toMatchObject({ url: "postgres://primary/app" })
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica-a/app", "postgres://replica-b/app"])
+        const replicaUrls = new Set<unknown>()
+        for (let read = 0; read < 50; read++) replicaUrls.add(Reflect.get(clientOf(db.$replica), "url"))
+        expect(replicaUrls).toEqual(new Set(["postgres://replica-a/app", "postgres://replica-b/app"]))
+        // Writes and other queries stay on the primary.
+        expect(Reflect.get(db.select() as object, "url")).toBe("postgres://primary/app")
+        expect(driver.clients).toHaveLength(3)
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it("replaces the pools and ends every client when a replica URL changes", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-1/app")
+      try {
+        const db = createPostgresDatabase({
+          ...definition,
+          connection: { replicas: [{ kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_REPLICA_URL" } }], url: "postgres://primary/app" },
+        }, { binding: "HYPERDRIVE" })
+        expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://replica-1/app" })
+        expect(driver.clients).toHaveLength(2)
+
+        vi.stubEnv("VITEHUB_TEST_REPLICA_URL", "postgres://replica-2/app")
+        expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://replica-2/app" })
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica-1/app", "postgres://primary/app", "postgres://replica-2/app"])
+        expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+        expect(driver.clients[1]!.end).toHaveBeenCalledOnce()
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it("opens replica clients per Cloudflare request without Hyperdrive", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { replicas: ["postgres://replica/app"], url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+
+      runWithActiveCloudflareEnv({}, () => {
+        expect(clientOf(db.$replica)).toMatchObject({ options: { max: 5 }, url: "postgres://replica/app" })
+      })
+      expect(driver.clients.map(client => client.url)).toEqual(["postgres://primary/app", "postgres://replica/app"])
+    })
+
+    it("skips the replicas under Hyperdrive, warns once, and `db.$replica` is the database", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { replicas: ["postgres://replica/app"], url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      try {
+        const env = { HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
+        runWithActiveCloudflareEnv(env, () => {
+          expect(clientOf(db.$replica)).toMatchObject({ url: "postgres://hyperdrive/app" })
+          expect(clientOf(db.$replica)).toBe(clientOf(db))
+        })
+        runWithActiveCloudflareEnv(env, () => clientOf(db))
+        expect(driver.clients.map(client => client.url)).toEqual(["postgres://hyperdrive/app", "postgres://hyperdrive/app"])
+        expect(warn.mock.calls).toEqual([["[vitehub] Database \"default\" uses the Hyperdrive binding \"HYPERDRIVE\", which has one origin, so it ignores `connection.replicas`. `db.$replica` queries the Hyperdrive origin."]])
+      }
+      finally {
+        warn.mockRestore()
+      }
+    })
+
+    it("gives `db.$replica` as the database itself without replicas", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, connection: { url: "postgres://primary/app" } }, { binding: "HYPERDRIVE" })
+
+      expect(clientOf(db.$replica)).toBe(clientOf(db))
+      expect(driver.clients).toHaveLength(1)
     })
   })
 

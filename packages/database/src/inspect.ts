@@ -6,7 +6,7 @@ import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
 import { resolveConfigValue } from "./config-value.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionDriver, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionDriver, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readDatabaseDefinitionReplicas, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 import { localPgliteDir } from "./runtime/local-path.ts"
 
@@ -59,6 +59,14 @@ function describePostgresDevelopment(handler: string, name: string): string {
     : `PGlite in \`${localPgliteDir(name)}\` when there is no \`connection.url\` and no PG* variable.`
 }
 
+/** The read replicas of a Postgres Definition, without their URLs. */
+function describeReplicas(handler: string): ViteHubDefinitionField[] {
+  const replicas = readDatabaseDefinitionReplicas(handler)
+  if (!replicas) return []
+  const count = replicas === true ? "Set" : `${replicas} ${replicas === 1 ? "URL" : "URLs"}`
+  return [{ label: "Read replicas", value: `${count} in \`connection.replicas\`. \`db.$replica\` reads from one of them. A Hyperdrive binding and PGlite ignore them.` }]
+}
+
 // The implicit default Database exists for the contributions that need it, so name them.
 function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
   const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
@@ -98,6 +106,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
       ...(dialects[definition.name] === "postgresql" && readDatabaseDefinitionDriver(definition.handler) === "node-postgres")
         ? [{ label: "Driver", value: "node-postgres. Queries use a `pg` Pool." }]
         : [],
+      ...(dialects[definition.name] === "postgresql" ? describeReplicas(definition.handler) : []),
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
       ...(dialects[definition.name] !== "postgresql" && (readDatabaseDefinitionRemote(definition.handler) ?? options.http))
         ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]

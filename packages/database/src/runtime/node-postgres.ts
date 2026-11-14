@@ -27,7 +27,7 @@ const connectNodePostgres: PostgresDriverConnect = ({ relations, requestScoped, 
 export function createNodePostgresDatabase<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   defaults: PostgresDatabaseDefaults,
-  local?: LocalPostgresDatabase<TSchema, TRelations>,
+  local?: LocalPostgresDatabase<TRelations>,
 ): RuntimePostgresDatabase<TSchema, TRelations> {
   return createDriverPostgresDatabase(connectNodePostgres, definition, defaults, local)
 }
