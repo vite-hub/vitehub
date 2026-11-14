@@ -54,7 +54,7 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes |
 | Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
 | Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
-| Vercel or Deno, normal handler | Inline | No | None | No |
+| Vercel, normal handler | Inline | No | None | No |
 
 Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow gets the same policy as `maximumAttempts: 3`, `initialInterval: '10 seconds'`, and `backoffCoefficient: 2`, so it makes 3 attempts in total.
 

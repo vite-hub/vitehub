@@ -750,12 +750,12 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it("says that the default Workflow runs inline on deno, and not when a provider is set", async () => {
+  it("asks for the Workflow provider on deno and keeps its dependency bundled", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno" }`) })
 
-    const inline = await add(["workflow", "--dry-run"], root)
-    expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
-    expect(inline.json.install.packages).toEqual(["@vite-hub/workflow"])
+    const missing = await add(["workflow", "--dry-run"], root)
+    expect(missing.exitCode, missing.stdout).toBe(2)
+    expect(missing.json.missing).toEqual([{ choices: ["openworkflow"], field: "workflow.provider" }])
 
     const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")

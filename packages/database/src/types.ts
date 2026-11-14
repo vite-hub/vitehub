@@ -238,10 +238,6 @@ export type RuntimeDrizzleDatabase<
   /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
 }
-export type Database<
-  TSchema extends Record<string, unknown> = Record<string, unknown>,
-  TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = DatabaseDefinition<TSchema, TRelations> & RuntimeDrizzleDatabase<TSchema, TRelations>
 
 /** A module whose `schema` tables join a database. */
 export interface DatabaseSchemaSource {

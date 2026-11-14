@@ -69,6 +69,11 @@ export interface FeatureImplication {
   feature: FeatureId
   /** Hosts where the implication does not apply. */
   except?: readonly ViteHubHost[]
+  /**
+   * Hosts where the implied feature needs no provider option, because it runs inline in the request process. A
+   * restart loses its work. The feature still needs its option when the app turns it on itself.
+   */
+  inline?: readonly ViteHubHost[]
 }
 
 /** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
@@ -179,7 +184,7 @@ export default defineAgent({
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow" }],
+    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
@@ -493,7 +498,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
+      deno: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
       dev: native("openworkflow", "OpenWorkflow", "The Node host runs OpenWorkflow and its worker in the dev server, on .vitehub/data/openworkflow.sqlite.db. workflow.remote lets it use the Postgres Default Database or OPENWORKFLOW_POSTGRES_URL."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
       node: {
@@ -565,7 +570,13 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   const definition = features[id]
   if (host !== "dev") return definition.hosts[host]
   if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
+  if (id === "workflow" && appHost === "deno") return native("vercel", "Inline", "Development runs each Workflow inline unless OpenWorkflow storage or a provider is configured.", "process-local")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
+}
+
+/** True when one of the `enabled` features turns `id` on, and `id` then runs inline on `host` without a provider option. */
+export function impliedInline(id: FeatureId, enabled: readonly FeatureId[], host: ViteHubHost): boolean {
+  return enabled.some(source => features[source].implies.some(implication => implication.feature === id && implication.inline?.includes(host)))
 }
 
 /**

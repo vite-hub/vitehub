@@ -43,15 +43,14 @@ describe("workflow config", () => {
     })
   })
 
-  it("defaults to vercel", () => {
+  it("runs inline without a host", () => {
     expect(normalizeWorkflowOptions(undefined)).toEqual({
       provider: "vercel",
     })
   })
 
-  it("does not infer Vercel for Netlify hosting", () => {
-    expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
-    expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
+  it("infers vercel only from Vercel hosting", () => {
+    expect(normalizeWorkflowOptions({}, { hosting: "vercel" })).toEqual({ provider: "vercel" })
   })
 
   it.each(["node-server", "node-cluster", "node"])("infers openworkflow from %s hosting without storage config", (hosting) => {
@@ -66,7 +65,6 @@ describe("workflow config", () => {
   it.each([
     ["vercel", "vercel"],
     ["cloudflare-module", "cloudflare"],
-    ["deno-deploy", "vercel"],
     [undefined, "vercel"],
   ] as const)("keeps the %s hosting inference", (hosting, provider) => {
     expect(normalizeWorkflowOptions({}, { hosting })).toEqual({ provider })
@@ -157,6 +155,18 @@ describe("workflow config", () => {
     const options = Object.create({ database: "legacy" }) as Record<string, unknown>
     options.provider = "cloudflare"
     expect(normalizeWorkflowOptions(options as never)).toEqual({ provider: "cloudflare" })
+  })
+
+  it("does not infer a provider for Netlify", () => {
+    expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
+    expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
+  })
+
+  it("keeps Deno provider enforcement while allowing inline development", () => {
+    expect(() => normalizeWorkflowOptions({}, { hosting: "deno-deploy" })).toThrow(/cannot be inferred/)
+    expect(normalizeWorkflowOptions({}, { hosting: "deno-deploy", inline: true })).toEqual({ provider: "vercel" })
+    expect(normalizeWorkflowOptions({}, { hosting: "node-server", inline: true })).toEqual({ provider: "openworkflow" })
+    expect(normalizeWorkflowOptions({ sqlite: { path: ".data/workflow.sqlite" } }, { hosting: "deno-deploy" })).toEqual({ provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } })
   })
 
   it("infers openworkflow from docker hosting without storage config", () => {

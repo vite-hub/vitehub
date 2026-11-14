@@ -286,6 +286,9 @@ export default defineEventHandler(async (event) => {
 | `multiple` | `true` | Set `false` to accept one file. |
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
+| `onBeforeUpload` | none | Runs for each file before anything is stored, with `{ pathname, contentType, size, request }`. Throw to reject the file. Return `{ pathname }` to store it under another pathname. `put.prefix` and `put.addRandomSuffix` still apply. |
+| `onCompleted` | none | Runs with `(object, request)` after each file is stored. |
+| `direct` | `false` | Also accept [direct uploads](#direct-uploads). |
 
 In Vue, `useUpload()` from `vite-hub/blob/vue` sends the form. Nuxt
 auto-imports it when `blob` is on.
@@ -308,6 +311,116 @@ async function onChange(event: Event) {
 `useUpload()` accepts a `File`, a `FileList`, an array of files, or an element
 with `files`. It resolves with plain objects, where `uploadedAt` is an ISO
 string. Pass `headers` or `fetch` to add auth.
+
+## Direct uploads
+
+A form sends the file through your server, so the request body limit of the
+host applies. A Vercel Function accepts at most 4.5 MB. With a direct upload,
+the browser sends the file straight to storage. Your route only signs the
+upload and checks the result.
+
+Add `direct: true` to the upload route. The route still accepts a form.
+
+```ts [server/api/files.post.ts]
+import { defineEventHandler } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  // Authorize the request here. The route decides who may upload.
+  const [error, result] = await blob.handleUpload(event, {
+    direct: true,
+    ensure: { maxSize: '1GB', types: ['video'] },
+    onBeforeUpload: ({ pathname }) => ({ pathname: `videos/${pathname}` }),
+    onCompleted: async (object, request) => {
+      // Save the upload in your database.
+    },
+  })
+  if (error) throw error
+  return result
+})
+```
+
+In Vue, pass `direct: true` to `useUpload()`. The rest of the API does not
+change.
+
+```vue [app/components/VideoUpload.vue]
+<script setup lang="ts">
+const progress = ref(0)
+const upload = useUpload('/api/files', {
+  direct: true,
+  multiple: false,
+  onProgress: (percent) => { progress.value = percent },
+})
+
+async function onChange(event: Event) {
+  const object = await upload(event.target as HTMLInputElement)
+  console.log(object?.pathname)
+}
+</script>
+
+<template>
+  <input type="file" accept="video/*" @change="onChange">
+  <progress :value="progress" max="100" />
+</template>
+```
+
+For each file, the client sends three requests:
+
+| Step | Request | Server |
+| --- | --- | --- |
+| `sign` | JSON `{ action: 'sign', name, contentType, size }` to the route | Checks `ensure` with the declared type and size, runs `onBeforeUpload`, and returns `{ action: 'sign', pathname, request, ticket }`. |
+| `PUT` | `request.method`, `request.url`, and `request.headers`, with the file | The storage provider stores the file. The app headers, such as `authorization`, are not sent. |
+| `complete` | JSON `{ action: 'complete', ticket }` to the route | Reads the object with `head()`, checks `ensure` again, runs `onCompleted`, and returns `[object]`. |
+
+The server chooses the pathname. The client sends only the file name. The
+`ticket` binds the selected store, pathname, and route URL path, so a client cannot
+complete a file in another store or on another route.
+`complete` checks what the store holds, not what the client declared. When
+the stored size or type fails `ensure`, it deletes the object and throws a
+400 error.
+
+> [!WARNING]
+> The client reports the completion. When the client stops after the `PUT`,
+> for example because the user closed the tab, the file stays in the store and
+> `onCompleted` does not run. Clean up files without a database row later, for
+> example with a scheduled task. A client can also send `complete` again with
+> the same ticket, so make `onCompleted` idempotent.
+
+The signed `PUT` must start within 10 minutes. The ticket for `complete` is
+valid for 24 hours. Direct uploads need `VITEHUB_SECRET`, which signs the
+ticket. A direct upload cannot set `put.access`, `put.contentLength`, or
+`put.customMetadata`, so they throw `BLOB_R0046`. `put.contentType`,
+`put.prefix`, and `put.addRandomSuffix` apply.
+
+| Driver | Direct upload | Notes |
+| --- | --- | --- |
+| `fs` | Signed link to the app | The link binds `ensure.maxSize`, so the route answers `413` for a larger body. The file still goes through the app. |
+| `cloudflare-r2` | R2 presigned URL | Needs the S3 HTTP credentials. R2 cannot bind `maxSize`, so `complete` checks the size. |
+| `s3`, `minio`, `gcs`, `azure` | Provider presigned URL | Through files-sdk. The provider cannot bind `maxSize`, so `complete` checks the size. |
+| `vercel-blob` | Vercel client token | Vercel checks the pathname, the type, and `ensure.maxSize`. Needs `BLOB_READ_WRITE_TOKEN`. A store that only uses Vercel OIDC cannot sign. |
+| `netlify-blobs` | No | Netlify Blobs has no presigned upload. The route answers `{ action: 'form' }`, and the client sends the files as a form, through the app. |
+
+A browser sends a `PUT` to another origin only when the bucket allows it. Add
+a CORS rule to an R2, S3, GCS, or Azure bucket that allows `PUT` from your app
+origin with the `Content-Type` header. For example, for R2 or S3:
+
+```json [cors.json]
+[
+  {
+    "AllowedOrigins": ["https://app.example"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+ViteHub does not set CORS when it provisions a bucket. The Vercel Blob API and
+the signed links of `fs` stores need no CORS rule.
+
+The client for any framework is `uploadFiles(apiBase, files, { direct: true })`
+from `@vite-hub/blob/client`. Pass `onProgress` to get the progress of the
+`PUT` requests from 0 to 100.
 
 ## Multipart uploads
 
@@ -408,7 +521,7 @@ if (completeError) throw completeError
 
 | Driver | Upload state | Notes |
 | --- | --- | --- |
-| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
+| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag while it copies the parts into the final file one after another, so it does not hold the whole file in memory. `abort()` deletes the parts. |
 | `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
 | `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
 
@@ -441,9 +554,9 @@ const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', 
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` driver binds it, and the other drivers fail the request.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel-blob` drivers bind it, and the other drivers fail the request.
 
-The `fs` driver, the `cloudflare-r2` driver, and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+The `fs` driver, the `cloudflare-r2` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel-blob` driver sign requests. The `vercel-blob` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 

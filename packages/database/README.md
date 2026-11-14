@@ -89,7 +89,7 @@ Each Database is `server/databases/<name>.ts`, or `server/databases/<name>/index
 
 `db`, `schema`, and `useDatabase()` from `@vite-hub/database` read the Databases that the Vite integration generates for server code that Nitro builds. Nitro is the only host output. In plain `node`, outside Vite, `db` throws `DATABASE_DISABLED` and `useDatabase()` throws `DATABASE_NOT_FOUND`.
 
-Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names. It returns `{ db, schema, relations }`.
+Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database. Without a name, `useDatabase()` returns the Default Database or the only Named Database. It throws `DATABASE_NAME_REQUIRED` when the app has several Named Databases, and `DATABASE_NOT_FOUND` for a name that has no Definition. Both errors list the Database names. It returns `{ db, schema, relations }`. Query `useDatabase(name).db`. `defineDatabase()` returns only the Definition, not a Drizzle database, because only the generated database has the merged relations and the migrations folder of the build.
 
 Pass `relations` from Drizzle's `defineRelations(schema, r => ({ ... }))` to `defineDatabase()` to read related rows with `db.query.<table>.findMany({ with })`. The result of `with` is typed. Without `relations`, ViteHub uses `defineRelations(schema)`: every table, with no relations. A relation to a table that the merged database does not hold, or that a later layer replaced, fails with `DATABASE_INVALID_RELATIONS`.
 
@@ -216,6 +216,8 @@ An opaque Definition that selects its own resource uses remote HTTP or libSQL ac
 
 Provisioned IDs remain fallbacks for runtime Env values in direct Vite and Nuxt output. A value supplied at runtime takes precedence. An opaque Definition that selects its own resource does not receive the integration resource's provisioned ID. Provision state is read from the Vite root even when `projectRoot` sets another root for Definitions and generated files.
 
+A Definition connects only where `connection` says. Without it, the local runtime uses the local SQLite file and warns once with `DATABASE_URL_VARIABLE_IGNORED` when `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. Write `connection: { url: process.env.TURSO_DATABASE_URL }` to use it.
+
 When a libSQL connection URL or auth token changes at runtime, the next database
 access creates a client with the new credentials and closes the previous client.
 Credential refresh is therefore a lifecycle boundary: await outstanding database
@@ -281,6 +283,8 @@ export default defineNuxtConfig({
 Run `vitehub provision run --provider cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
+
+Off Cloudflare, a production build gives Nuxt Content the default Database when the app sets no `content.database`: Postgres with `connection.url` becomes `{ type: "postgresql" }`, and a remote or env libSQL URL becomes `{ type: "libsql" }`. Env values stay empty in the build, and a generated Nitro plugin reads them when the server starts. See [Nuxt Content](https://vitehub.dev/docs/database/hosts#nuxt-content).
 
 `@vite-hub/database/nuxt` is internal. `vite-hub/nuxt` loads it, and it can change in any release. Do not add it to Nuxt `modules`.
 

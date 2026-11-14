@@ -4,6 +4,7 @@ import { localSqlite } from "#vitehub/database/libsql"
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { postgresConnectionUrl } from "./postgres-connection.ts"
 import { runtimeConfig } from "./definition-config.ts"
+import { warnIgnoredUrlVariable } from "./url-variables.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { DatabaseDefinition, RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
@@ -21,6 +22,7 @@ export function createConfiguredDatabase<TSchema extends Record<string, unknown>
   relations: TRelations,
   migrationsDir?: string,
 ): RuntimeDrizzleDatabase<TSchema, TRelations> {
+  if (localSqlite) warnIgnoredUrlVariable(config)
   const database = createDrizzleSqliteAdapter<TSchema, TRelations>(config, relations, {
     libsql: localSqlite,
     missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",

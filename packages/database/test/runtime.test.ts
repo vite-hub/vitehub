@@ -390,13 +390,15 @@ describe("drizzle runtime", () => {
 })
 
 describe("database definition runtime", () => {
-  it("returns a local database from defineDatabase", async () => {
+  it("opens a local database for a Definition", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-definition-"))
     const { defineDatabase } = await import("../src/definition.ts")
-    const database = defineDatabase({
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+    const definition = defineDatabase({
       connection: { url: `file:${join(tempDir, "definition.sqlite")}` },
       schema: defaultSchema,
     })
+    const database = createDefinitionRuntime(definition)
 
     await database.run(sql`
       create table notes (
@@ -406,9 +408,8 @@ describe("database definition runtime", () => {
     `)
     await database.insert(defaultSchema.notes).values({ title: "definition note" })
 
-    expect(database.name).toBe("default")
-    expect(database.schema).toBe(defaultSchema)
-    expect((database as unknown as { dialect: unknown }).dialect).not.toBe("sqlite")
+    expect(definition.name).toBe("default")
+    expect(definition.schema).toBe(defaultSchema)
     expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
   })
 
@@ -511,8 +512,8 @@ describe("database definition runtime", () => {
       format: "esm",
       platform: "neutral",
       stdin: {
-        contents: 'import { defineDatabase } from "@vite-hub/database"; export const database = defineDatabase({ schema: {} })',
-        resolveDir: import.meta.dirname,
+        contents: 'import { defineDatabase } from "@vite-hub/database"; import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"; export const database = createDefinitionRuntime(defineDatabase({ schema: {} }))',
+        resolveDir: join(import.meta.dirname, ".."),
         sourcefile: "hosted-database-definition.ts",
       },
       write: false,

@@ -8,6 +8,18 @@ icon: i-lucide-cloud-cog
 
 ## Providers
 
+| Host | Provider without `provider` |
+| --- | --- |
+| Cloudflare | Cloudflare |
+| Vercel | Vercel |
+| Netlify | None. Set `provider`. |
+| Node and Docker, including `vite dev` with the Node host | OpenWorkflow, with an automatic worker |
+| Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
+| `vite dev` on a host without a provider | Inline runs in the dev server |
+
+ViteHub infers Vercel only on Vercel. Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an empty discovered Workflow registry starts no worker. `vitehub durability list` shows the store that the app uses.
+
+
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
 | Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
