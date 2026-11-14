@@ -44,7 +44,7 @@ function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
 export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const credentials = resolveCredentials(options.provider)
   const sandboxOptions = {
-    runtime: options.provider.runtime || 'node24',
+    runtime: options.provider.runtime,
     timeout: typeof options.local.timeout === 'number'
       ? options.local.timeout
       : options.provider.timeout,
