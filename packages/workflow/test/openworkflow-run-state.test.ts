@@ -62,10 +62,12 @@ it("reports the payload, times, and steps that OpenWorkflow stores", async () =>
   expect(run.createdAt?.getTime()).toBeGreaterThanOrEqual(startedAt - 1000)
   expect(run.startedAt).toBeInstanceOf(Date)
   expect(run.completedAt).toBeInstanceOf(Date)
-  expect(run.steps).toEqual([
+  // OpenWorkflow lists attempts by creation time in milliseconds, so two fast steps can come in either order.
+  expect(run.steps).toHaveLength(2)
+  expect(run.steps).toEqual(expect.arrayContaining([
     expect.objectContaining({ attempt: 1, name: "onboard-user/01.create-user.ts", status: "completed" }),
     expect.objectContaining({ attempt: 1, name: "onboard-user/02.send-welcome.ts", status: "completed" }),
-  ])
+  ]))
   for (const step of run.steps ?? []) {
     expect(step.startedAt).toBeInstanceOf(Date)
     expect(step.completedAt).toBeInstanceOf(Date)
