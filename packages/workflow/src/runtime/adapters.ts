@@ -238,12 +238,38 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   }
 }
 
+const warnedInlineOpenWorkflowNames = new Set<string>()
+
+/**
+ * Every OpenWorkflow worker registers the discovered Workflow Definitions of the build registry when it starts. Any
+ * worker can claim a run, so a run of another definition, such as an inline `createWorkflow(name, handler)` or an Agent
+ * Workflow, could wait in storage on a worker that never registers it. Those runs execute inline in this process.
+ */
+function isDurableOpenWorkflowDefinition(name: string): boolean {
+  const registry = getWorkflowRuntimeRegistry()
+  return Boolean(registry && Object.hasOwn(registry, name))
+}
+
 function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
+  const inline = inlineAdapter(config)
   return {
-    cancel: async ({ id, name }) => await cancelOpenWorkflowRun(config, name, id),
-    get: async ({ id, name }) => await getOpenWorkflowRun(config, name, id),
+    cancel: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
+      ? await cancelOpenWorkflowRun(config, name, id)
+      : await inline.cancel({ event, id, name }),
+    get: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
+      ? await getOpenWorkflowRun(config, name, id)
+      : await inline.get({ event, id, name }),
     resume: () => unsupportedOperation("openworkflow", "signals"),
-    run: async ({ definition, event, name, options, payload }) => await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event)),
+    run: async (context) => {
+      const { definition, event, name, options, payload } = context
+      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event))
+      if (!warnedInlineOpenWorkflowNames.has(name)) {
+        warnedInlineOpenWorkflowNames.add(name)
+        console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
+      }
+      const run = await inline.run(context)
+      return { ...run, metadata: { mode: "inline", workflow: name } }
+    },
   }
 }
 

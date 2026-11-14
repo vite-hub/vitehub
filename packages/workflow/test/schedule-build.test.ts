@@ -151,7 +151,7 @@ describe("Workflow preparation for Schedule", () => {
       for (const config of configs) useProviderOutputCatalog(config).replaceDeploymentContribution({ owner: "workflow", rootDir: root, write: async () => undefined })
       const clone = { ...Object.fromEntries(Object.entries(configs[1]!)), build: Object.fromEntries(Object.entries(configs[1]!.build)), define: configs[0]!.define }
       const context = { environment: { config: clone } }
-      expect(() => (plugin.buildStart as (this: typeof context) => void).call(context)).toThrow("Cannot identify the owning Workflow build")
+      await expect((plugin.buildStart as (this: typeof context) => Promise<void>).call(context)).rejects.toThrow("Cannot identify the owning Workflow build")
       await (plugin.buildEnd as (this: typeof context, error?: Error) => Promise<void>).call(context, new Error("Ambiguous build"))
       await (plugin.renderError as (this: typeof context, error: Error) => Promise<void>).call(context, new Error("Ambiguous render"))
       await (plugin.closeBundle as { handler(this: typeof context): Promise<void> }).handler.call(context)

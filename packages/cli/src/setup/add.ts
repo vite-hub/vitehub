@@ -74,9 +74,12 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
 const providerKeys = ["authority", "driver", "provider", "store"]
 
-function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: ViteHubHost): boolean {
+function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
   if (!isRecord(value)) return false
-  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  if (id === "workflow" && host !== "netlify") {
+    const configured = (storage: JsonValue | undefined, key: string) => isRecord(storage) && (typeof storage[key] === "string" ? !!storage[key].trim() : isRecord(storage[key]))
+    if (configured(value.postgres, "url") || configured(value.sqlite, "path")) return true
+  }
   return providerKeys.some(key => value[key] !== undefined)
 }
 
@@ -459,7 +462,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
-  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host, [...enabled]))
+  const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), [...enabled]))
   const install: SetupAddPlanned["install"] = {
     dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),
@@ -480,11 +483,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   // Host defaults that build and run, but keep state in one process.
   for (const id of [...addedFeatures, ...implied]) {
-    if (selectsProvider(id, valueFor(id), host)) continue
+    if (selectsProvider(id, valueFor(id))) continue
     const support = hostSupport(id, host, env)
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
-  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"), host)) {
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"))) {
     nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)

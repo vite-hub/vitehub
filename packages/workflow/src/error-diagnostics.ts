@@ -66,6 +66,22 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_R0033: dynamicError,
     WORKFLOW_R0034: dynamicError,
     WORKFLOW_R0035: dynamicError,
+    WORKFLOW_R0040: {
+      why: "OpenWorkflow uses the Postgres Default Database of the app, but that Database has no connection URL outside a request. It connects through PG* environment variables, which OpenWorkflow cannot read.",
+      fix: "Set `connection.url` on the Database Definition, or set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url`.",
+    },
+    WORKFLOW_R0037: {
+      why: "OpenWorkflow sets up its Postgres schema on a second connection while this server holds the setup lock on the first. The database gave no second connection in 10 seconds, so the setup did not start. A pool with one connection, or a pool that other traffic fills, does this. The server tries again later.",
+      fix: "Raise the pool size to 2 or more. Or set up the schema once through a direct connection, then set `workflow.postgres.runMigrations: false`.",
+    },
+    WORKFLOW_R0038: {
+      why: "DATABASE_URL contains a Postgres URL, but OpenWorkflow no longer selects storage from DATABASE_URL alone. Falling back to a local SQLite file would leave existing Postgres runs behind and stop sharing runs between servers.",
+      fix: "Set OPENWORKFLOW_POSTGRES_URL or `workflow.postgres.url` to the same Postgres URL, or add a Postgres Default Database. To choose local storage intentionally, set `workflow.sqlite.path` or OPENWORKFLOW_SQLITE_PATH.",
+    },
+    WORKFLOW_R0039: {
+      why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
+      fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
+    },
     WORKFLOW_R0036: {
       why: ({ binding, name }: { binding: string, name: string }) => `[vitehub] The Cloudflare Workflow ${JSON.stringify(name)} needs the binding ${JSON.stringify(binding)}, and the Worker has no binding of that name. ViteHub does not run the Workflow inline outside a development server, because an inline run is not durable.`,
       fix: "Deploy with the Wrangler config that the build writes, or add the Workflow binding to your own Wrangler config. Set `workflow.binding` when the binding has another name.",

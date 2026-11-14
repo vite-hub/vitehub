@@ -15,7 +15,6 @@ import { setupStatus, uninstallArgs } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, FeatureStarter } from "@vite-hub/internal/features"
 import type { SetupChange } from "./add.ts"
 import type { SetupProject } from "./project.ts"
@@ -221,10 +220,10 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown").includes(id))
     if (by.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
   }
-  const packagesOf = (id: FeatureId, value: JsonValue | undefined, host: ViteHubHost, active = wasEnabled) => {
-    return [...featurePackages(id, value, host, active), ...features[id].devPackages]
+  const packagesOf = (id: FeatureId, value: JsonValue | undefined, active = wasEnabled) => {
+    return [...featurePackages(id, value, active), ...features[id].devPackages]
   }
-  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host, remaining)))
+  const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), remaining)))
 
   // Starter Definitions go; other files in a Definition folder are uses of the feature.
   const starters = new Map<string, string>()
@@ -252,7 +251,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const modules = new Map<string, FeatureId>()
   for (const id of turnedOff) {
     modules.set(runtimeModule(id), id)
-    for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
+    for (const name of packagesOf(id, valueOf(project.config, id))) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name))) {
@@ -284,7 +283,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of wasEnabled) {
     // Unknown features keep their files and packages because their Definitions were not scanned.
     if (enabled(status, id).enabled !== "on") continue
-    const packages = featurePackages(id, valueOf(project.config, id), host, wasEnabled)
+    const packages = featurePackages(id, valueOf(project.config, id), wasEnabled)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
     for (const name of packages) if (removable(name) && project.declared(name, true)) prod.push(name)
     for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)

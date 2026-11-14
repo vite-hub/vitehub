@@ -18,7 +18,10 @@ describe("vitehub status", () => {
     '{ postgres: { schema: "custom" } }',
     '{ sqlite: { path: "   " } }',
     '{ postgres: { url: "" } }',
-  ])("keeps partial Workflow storage options on the inline provider (%s)", async (options) => {
+    '{ provider: "openworkflow" }',
+    '{ sqlite: { path: ".data/workflows.db" } }',
+    '{ postgres: { url: "postgres://localhost/workflows" } }',
+  ])("needs only the Workflow package for Workflow storage options (%s)", async (options) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", workflow: ${options} }`) })
     const { exitCode, json } = await runSetup<SetupStatus>(["status", "--json"], root)
     expect(exitCode).toBe(0)
@@ -27,10 +30,6 @@ describe("vitehub status", () => {
   })
 
   it.each([
-    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
-    ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
-    ["workflow", '{ postgres: { url: "postgres://localhost/workflows" } }', ["openworkflow"]],
-    ["workflow", '{ postgres: { url: { kind: "env-variable", source: { kind: "env", name: "DATABASE_URL" } } } }', ["openworkflow"]],
     ["blob", '{ driver: "s3", bucket: "assets" }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
     ["blob", '{ stores: { default: { driver: "s3", bucket: "assets" } } }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
   ] as const)("reports missing provider packages for %s: %s", async (id, options, packages) => {

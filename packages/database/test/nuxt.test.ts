@@ -1154,6 +1154,8 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
       expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
+      // The Nuxt alias of `@vite-hub/database` has the same exports, so Workflow can import from it.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\")")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

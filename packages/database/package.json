@@ -87,6 +87,11 @@
       "import": "./dist/runtime/libsql-drizzle.js",
       "default": "./dist/runtime/libsql-drizzle.js"
     },
+    "./runtime/postgres-connection": {
+      "types": "./dist/runtime/postgres-connection.d.ts",
+      "import": "./dist/runtime/postgres-connection.js",
+      "default": "./dist/runtime/postgres-connection.js"
+    },
     "./runtime/registry": {
       "types": "./dist/runtime/registry.d.ts",
       "import": "./dist/runtime/registry.js",

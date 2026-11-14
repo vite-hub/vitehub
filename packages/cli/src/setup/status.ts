@@ -141,7 +141,7 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
         : featureSupport(id, host.name)
       const definition = features[id]
       const value = project.config?.ok ? project.config.site.keys[id] : undefined
-      const packages = featurePackages(id, value?.kind === "literal" ? value.value : undefined, host.name)
+      const packages = featurePackages(id, value?.kind === "literal" ? value.value : undefined, featureIds.filter(feature => enabled.get(feature)?.enabled === "on"))
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }

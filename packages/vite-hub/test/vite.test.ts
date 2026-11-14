@@ -853,6 +853,7 @@ describe("vitehub", () => {
       },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
+      databaseImport: "vite-hub/database",
       hosting: "node-server",
       importBase: "vite-hub/workflow",
       providerImportAliases: {

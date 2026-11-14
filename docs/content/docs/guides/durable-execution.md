@@ -8,7 +8,7 @@ navigation.group: Concepts
 icon: i-lucide-history
 ---
 
-Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or a Vercel `native` entry. Inline runs in `vite dev` and normal Vercel handlers are not.
+Durable execution means a job saves each step's result outside the process. When a step fails, the engine retries only that step. When the process stops, the engine replays the job: finished steps return their saved result, and the job continues from the unfinished step. A step can still run more than once, so it must be idempotent (safe to repeat). In ViteHub, a Workflow is durable only when its provider stores the steps: Cloudflare Workflows, OpenWorkflow with Postgres or SQLite, or a Vercel `native` entry. Inline runs of a normal Vercel handler are not, also in `vite dev` with the Vercel host.
 
 ## How durable execution works
 
@@ -52,22 +52,21 @@ For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provid
 | Where the run executes | Provider | Step results saved | Retries of a failed step | Survives a process stop |
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes |
-| Node or Docker with `postgres.url` or `sqlite.path` | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
+| Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
 | Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
 | Vercel, normal handler | Inline | No | None | No |
-| `vite dev` without a provider, and the Workflow that only `agent` turns on outside Cloudflare | Inline | No | None | No |
 
 Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow gets the same policy as `maximumAttempts: 3`, `initialInterval: '10 seconds'`, and `backoffCoefficient: 2`, so it makes 3 attempts in total.
 
 An inline run executes the handler in the current process, kept alive after the response by the host's `waitUntil()` if it has one. Steps run in order, but nothing saves their results, and an error fails the run with no retry. A finished inline run's result stays in memory for five minutes, up to 1,024 runs, and a restart loses it. If the request has no Cloudflare Workflow binding, the Workflow also runs inline.
 
 ::warning
-On Node or Docker, ViteHub picks OpenWorkflow when you set its storage. A build without `provider`, `postgres.url`, or `sqlite.path` fails with `WORKFLOW_C0020`. The default SQLite path, `.vitehub/data/openworkflow.sqlite.db`, is lost when a container or function file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#select-openworkflow-storage) before production.
+On Node or Docker, ViteHub selects OpenWorkflow, and each server runs its worker. It keeps runs in Postgres when `OPENWORKFLOW_POSTGRES_URL` is set or the app has a Postgres Default Database, else in `.vitehub/data/openworkflow.sqlite.db`. `vite dev` always uses that SQLite file unless you set `workflow.remote`. Only discovered Workflow files are durable; `createWorkflow(name, handler)` runs inline. That SQLite file is lost when a container file system is replaced. Read [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) before production.
 ::
 
 ## Build the checkout Workflow in ViteHub
 
-Enable Workflow with OpenWorkflow and SQLite on Node:
+Enable Workflow on Node. ViteHub selects OpenWorkflow:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -76,10 +75,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'node',
-    workflow: {
-      provider: 'openworkflow',
-      sqlite: { path: '.data/workflows.sqlite' },
-    },
+    workflow: true,
   },
 })
 ```
@@ -95,10 +91,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'node',
-      workflow: {
-        provider: 'openworkflow',
-        sqlite: { path: '.data/workflows.sqlite' },
-      },
+      workflow: true,
     }),
     nitro(),
   ],
@@ -112,15 +105,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      host: 'node',
-      workflow: {
-        provider: 'openworkflow',
-        sqlite: { path: '.data/workflows.sqlite' },
-      },
-    }),
-  ],
+  plugins: [vitehub({ host: 'node', workflow: true })],
 })
 ```
 :::
@@ -211,7 +196,7 @@ pnpm vitehub workflow get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
 
-The status is `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `startWorkflow()` only stores the run. A long-lived worker process runs it, and it stays `queued` until a worker takes it (see the [Workflow package README](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker)). To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
+The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. On OpenWorkflow, `startWorkflow()` only puts the run in storage. The worker in your server executes it, and the run stays `queued` until a worker takes it. To see step 2 fail and retry, point `createShipment` at a URL that returns `503`.
 
 ## Durable steps on Vercel
 

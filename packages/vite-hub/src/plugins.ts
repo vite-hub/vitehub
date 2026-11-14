@@ -1652,6 +1652,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
+      databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),

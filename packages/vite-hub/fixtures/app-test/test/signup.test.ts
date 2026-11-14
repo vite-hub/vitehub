@@ -57,7 +57,7 @@ test("keeps configured provider rules and Definition lookup in app tests", async
   await expect(startWorkflow("misspelled", {})).rejects.toMatchObject({ code: "WORKFLOW_DEFINITION_NOT_FOUND" })
   expect(await dynamicQueue.send("welcome", { userId: 1 }, { contentType: "json" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
   expect(hub.jobs).toEqual([])
-  expect(await startWorkflow("onboarding", { userId: 1 })).toMatchObject({ provider: "vercel", status: "queued" })
+  expect(await startWorkflow("onboarding", { userId: 1 })).toMatchObject({ provider: "openworkflow", status: "queued" })
 })
 
 test("the nightly Schedule resets the counter", async () => {

@@ -179,9 +179,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/task/vite", "vite"],
-      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
-      ["@vite-hub/workflow/openworkflow", "openworkflow"],
-      ["vite-hub/workflow/openworkflow", "openworkflow"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])

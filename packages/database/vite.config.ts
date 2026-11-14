@@ -71,6 +71,7 @@ export default defineConfig({
       "src/runtime/migrate-on-start.ts",
       "src/runtime/pglite.ts",
       "src/runtime/postgres.ts",
+      "src/runtime/postgres-connection.ts",
       "src/runtime/registry.ts",
       "src/runtime/relations.ts",
       "src/runtime/request-stats.ts",

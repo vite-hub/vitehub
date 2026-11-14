@@ -8,10 +8,6 @@ import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkflowResolutionInput {
   hosting?: string
-  /**
-   * Run Workflows inline in the process when the host has no provider that ViteHub can infer. `vite dev` and the
-   * Workflow that only the Agent turns on use it. Without it, such a host fails with `WORKFLOW_C0020`.
-   */
   inline?: boolean
 }
 
@@ -114,12 +110,12 @@ function normalizeOpenWorkflowSqliteOptions(value: unknown): OpenWorkflowSqliteO
   }
 }
 
-function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerOptions | undefined {
-  if (typeof value === "undefined") {
-    return undefined
+function normalizeOpenWorkflowWorkerOptions(value: unknown): false | OpenWorkflowWorkerOptions | undefined {
+  if (typeof value === "undefined" || value === false) {
+    return value
   }
   if (!isPlainObject(value)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be a plain object." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be `false` or a plain object." })
   }
 
   const concurrency = readPositiveInteger(value.concurrency, "workflow.worker.concurrency")
@@ -146,6 +142,7 @@ function inferProvider(options: Record<string, unknown>, hosting: string, inline
   }
   if (host === "cloudflare") return "cloudflare"
   if (host === "vercel") return "vercel"
+  if (hosting.includes("node") || hosting.includes("docker")) return "openworkflow"
   if (hasOpenWorkflowStorageConfig(options)) return "openworkflow"
   // Without a host target, or when inline runs are allowed, the Vercel adapter runs each Workflow inline.
   if (!hosting || inline) return "vercel"
@@ -175,6 +172,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, inli
     const postgres = normalizeOpenWorkflowPostgresOptions(options.postgres)
     const sqlite = normalizeOpenWorkflowSqliteOptions(options.sqlite)
     const worker = normalizeOpenWorkflowWorkerOptions(options.worker)
+    const remote = readBoolean(options.remote, "workflow.remote")
 
     if (postgres?.url && sqlite?.path) {
       throw workflowErrorDiagnostics.WORKFLOW_C0012({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
@@ -184,7 +182,8 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, inli
       {
         ...(postgres ? { postgres } : {}),
         ...(sqlite ? { sqlite } : {}),
-        ...(worker ? { worker } : {}),
+        ...(worker !== undefined ? { worker } : {}),
+        ...(remote === true ? { remote } : {}),
       },
       shared,
       { provider: "openworkflow" as const },

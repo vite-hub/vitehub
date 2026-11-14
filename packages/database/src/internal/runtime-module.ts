@@ -5,6 +5,8 @@ interface RenderDatabaseRuntimeModuleOptions {
   /** Module that exports `ensureDatabaseMigrations()`. */
   ensureMigrationsImport: string
   imports: string[]
+  /** The module that exports `readPostgresConnectionUrl()`, for `getPostgresConnectionUrl()`. */
+  postgresConnectionImport: string
   /** Statements that read the Database Definitions. They run on the first Database access, not when the module loads. */
   setup?: string[]
   /** The module of shipped migrations, or why this build cannot apply migrations in the server process. */
@@ -22,6 +24,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError, pingDatabaseEntries } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
+    `import { readPostgresConnectionUrl } from ${JSON.stringify(options.postgresConnectionImport)}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(options.ensureMigrationsImport)}`,
     ...options.imports,
     "",
@@ -72,6 +75,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "export function pingDatabases() { return pingDatabaseEntries(databases, Object.keys(configured())) }",
     "export const db = deferred(() => resolved().default.db, true)",
     "export const schema = deferred(() => resolved().default.schema)",
+    "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",
     "import" in options.migrations
       // A dynamic import keeps the migration SQL out of the server start until a call needs it.
       ? `const loadMigrations = () => import(${JSON.stringify(options.migrations.import)}).then(module => module.default)`

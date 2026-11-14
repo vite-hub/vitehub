@@ -1,6 +1,6 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
 
-export type WorkflowRuntimeModuleName = "cloudflare-runner" | "cloudflare-vite" | "dev-runs" | "execute" | "state" | "vercel-vite"
+export type WorkflowRuntimeModuleName = "cloudflare-runner" | "cloudflare-vite" | "dev-runs" | "execute" | "openworkflow-worker" | "state" | "vercel-vite"
 
 /**
  * The file path of a Workflow runtime module. Generated code imports it by path, so it needs no package export.

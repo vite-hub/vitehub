@@ -573,6 +573,7 @@ async function installNitroLocalDatabaseRuntime(
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    postgresConnectionImport: pathToFileURL(resolve(databaseRuntimeDir, "postgres-connection.js")).href,
     ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
     migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
