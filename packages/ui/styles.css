@@ -3423,6 +3423,12 @@
   .vh-ws-preview-bar { align-items: center; border-bottom: 1px solid var(--vh-border); display: flex; flex: none; gap: 0.25rem; padding: 0 0.25rem; }
   /* UInput draws the path field and its focus. */
   .vh-ws-preview-path { flex: 1; min-width: 0; }
+  .vh-ws-preview-devices { align-items: center; display: flex; flex: none; }
+  .vh-ws-preview-devices .vh-ws-icon-button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
+  /* A pointer needs no 44px target, so the browser frame stays one dense row. */
+  @media (pointer: fine) {
+    .vh-ws-preview-bar .vh-ws-icon-button { height: 1.75rem; width: 1.75rem; }
+  }
   :is(.vh-ws-preview-path, .vh-ws-input) input { font-family: var(--vh-ws-font-mono); }
   /* The frame paints the light canvas, so its page must not take the dark scheme of this page and draw white text. */
   .vh-ws-preview-frame { background: Canvas; border: 0; color-scheme: light; flex: 1; width: 100%; }

@@ -7,7 +7,7 @@ import { requestRealtimeRoom } from "../src/server.ts"
 import { FakeSql, createTestServer, settle } from "./harness.ts"
 import type { TestClient } from "./harness.ts"
 
-const pages: RealtimePresenceDefinition = { document: false, requests: true }
+const pages: RealtimePresenceDefinition = { access: "public", document: false, requests: true }
 
 /** The browser's answer to its last request, sent through the room's WebSocket hooks. */
 function answer(client: TestClient, value: { ok: true, body: unknown } | { ok: false, why: string }, peer: object = client.peer) {
@@ -51,7 +51,7 @@ describe("requestRealtimeRoom()", () => {
     const [crowded] = await requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
     expect(crowded).toMatchObject({ code: "REALTIME_ROOM_CROWDED", why: "2 browsers are in the room, and a request goes to one browser only." })
 
-    createTestServer({ document: false })
+    createTestServer({ access: "public", document: false })
     const [off] = await requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
     expect(off?.code).toBe("REALTIME_ROOM_REQUESTS_OFF")
   })
@@ -142,7 +142,7 @@ describe("requestRealtimeRoom()", () => {
   })
 
   it("ignores an answer that no request waits for", async () => {
-    const server = createTestServer({ document: false })
+    const server = createTestServer({ access: "public", document: false })
     const page = await server.connect("page-1")
     await settle()
     const hooks = (page.response as Response & { crossws: { message(peer: object, message: { uint8Array(): Uint8Array }): void } }).crossws
@@ -155,6 +155,7 @@ describe("requestRealtimeRoom()", () => {
 describe("a Definition with scope: \"user\"", () => {
   // `identify` stands in for the Auth session: the test names the person in a header.
   const perPerson: RealtimePresenceDefinition = {
+    access: "public",
     document: false,
     requests: true,
     scope: "user",

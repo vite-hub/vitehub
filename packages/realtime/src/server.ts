@@ -50,7 +50,7 @@ import {
   writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
-import { assertRealtimeCheckpoint } from "./definition.ts"
+import { assertRealtimeAccess, assertRealtimeCheckpoint } from "./definition.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
   decodeRealtimeRequestFramePayload,
@@ -620,34 +620,45 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
 }
 
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
-  if (definition.identify) {
-    const origin = request.headers.get("origin")
-    // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
-    // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
-    // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
-    // `origins` lets other origins in for definitions whose identify() reads a credential the page sends.
-    if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
-      throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+  if (definition.auth && !definition.identify) {
+    let auth
+    try {
+      auth = await assertAuthOrigin(request, event)
     }
+    catch {
+      throw new HTTPError({ status: 403 })
+    }
+    const session = await auth.api.getSession({ headers: request.headers })
+    const user = toRealtimeUser(session?.user)
+    if (!user) throw new HTTPError({ status: 401 })
+    return user
+  }
+  const origin = request.headers.get("origin")
+  // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials, and keep
+  // public definitions on the origins the developer allowed.
+  // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
+  // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
+  // `origins` lets other origins in for definitions that read a credential the page sends.
+  if (origin && origin !== forwardedRequestOrigin(request) && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+    throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+  }
+  if (definition.identify) {
     const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
     if (definition.auth && !user) throw new HTTPError({ status: 401 })
     return user
   }
   // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
-  const optional = !definition.auth && definition.document === false && definition.scope === "user"
-  if (!definition.auth && !optional) return null
+  if (definition.document !== false || definition.scope !== "user") return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
   }
   catch (error) {
-    if (optional && isMissingAuth(error)) return null
+    if (isMissingAuth(error)) return null
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })
-  const user = toRealtimeUser(session?.user)
-  if (!user && !optional) throw new HTTPError({ status: 401 })
-  return user
+  return toRealtimeUser(session?.user)
 }
 
 /** The app has no Auth Definition (`AUTH_R0005`), so nobody is signed in. */
@@ -659,8 +670,10 @@ async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (!definition.authorize) return true
-  return (await definition.authorize(context)) !== false
+  if (definition.authorize) return (await definition.authorize(context)) !== false
+  // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
+  // `access: "public"`.
+  return definition.auth === true || definition.access === "public"
 }
 
 function errorMessage(error: unknown): string {
@@ -1023,6 +1036,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const loader = Object.hasOwn(registry, definitionName) ? registry[definitionName] : undefined
     const module = await loader?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
+    assertRealtimeAccess(module.default)
     return module.default
   }
 
