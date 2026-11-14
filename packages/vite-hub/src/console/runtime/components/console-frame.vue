@@ -11,7 +11,7 @@ defineProps<{
 </script>
 
 <template>
-  <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
+  <!-- Local storage keeps the sizes of section sidebars across reloads; the cookie storage needs Nuxt to persist. -->
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <!-- Every page has a skip target, including pages without a main landmark or heading. -->
@@ -24,8 +24,9 @@ defineProps<{
 
 <style>
 .vitehub-console {
-  /* Sidebar and detail headers use the 44px height of the page header, so their titles and hairlines line up. */
-  --ui-header-height: 2.75rem;
+  /* The sidebar brand row, section sidebars, and detail headers use the 52px height of the page header, so their titles
+     and hairlines line up. */
+  --ui-header-height: 3.25rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -37,7 +38,7 @@ defineProps<{
 }
 
 .vitehub-console__nav [data-slot="header"] {
-  min-height: 2.75rem;
+  min-height: var(--ui-header-height);
   padding-inline: 0.5rem;
 }
 

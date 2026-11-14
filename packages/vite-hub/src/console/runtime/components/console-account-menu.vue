@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { PrimitiveRailItem } from "@vite-hub/docs/primitive-rail";
 import { computed, inject, ref, watch } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { createConsoleTeam, signOutConsoleAccount, switchConsoleTeam } from "../client/account";
 import { reloadConsoleAccount, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { consoleDocsItem } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
+import ConsoleSidebarItem from "./console-sidebar-item.vue";
 
 /**
- * The account menu of an `account` Console. In an open project, the rail shows one item with teams and the account.
- * The sidebar of the account pages splits it: `team` is the team switcher at the top, `user` the account at the bottom.
+ * The account menu of an `account` Console. In an open project, the last row of the sidebar holds teams, the account,
+ * and the docs. The sidebar of the account pages splits it: `team` is the team switcher at the top, `user` the account
+ * at the bottom.
  */
-const props = withDefaults(defineProps<{ variant?: "rail" | "team" | "user", expanded?: boolean }>(), { variant: "rail", expanded: false });
+const props = withDefaults(defineProps<{ variant?: "sidebar" | "team" | "user" }>(), { variant: "sidebar" });
 
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
@@ -70,15 +72,16 @@ const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [appearanceItems.value];
   if (props.variant === "team") return [teamItems.value];
   // Account settings sits in the sidebar footer, right above this menu.
-  if (props.variant === "user") return [emailItems.value, appearanceItems.value, signOutItems].filter(group => group.length);
+  if (props.variant === "user") return [emailItems.value, [...appearanceItems.value, consoleDocsItem], signOutItems].filter(group => group.length);
   return [
     identityItems.value,
     teamItems.value,
     [
-      { icon: "i-lucide-house", label: "Home", onSelect: () => showConsoleAccountPage("home") },
+      { icon: "i-lucide-layout-grid", label: "All apps", onSelect: () => showConsoleAccountPage("home") },
       { icon: "i-lucide-users", label: "Members", onSelect: () => showConsoleAccountPage("team") },
       { icon: "i-lucide-settings", label: "Account settings", onSelect: () => showConsoleAccountPage("settings") },
       ...appearanceItems.value,
+      consoleDocsItem,
     ],
     signOutItems,
   ].filter(group => group.length);
@@ -119,12 +122,13 @@ async function create(): Promise<void> {
     </button>
   </UDropdownMenu>
 
-  <UDropdownMenu v-else size="sm" :items="items" :content="{ side: 'right', align: 'end', sideOffset: 8 }" :ui="{ content: 'min-w-56' }">
-    <UTooltip :text="label" :content="{ side: 'right' }" :disabled="expanded">
-      <PrimitiveRailItem :label="label">
-        <UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="sm" class="size-5" />
-      </PrimitiveRailItem>
-    </UTooltip>
+  <UDropdownMenu v-else size="sm" :items="items" :content="{ side: 'top', align: 'start', sideOffset: 4 }" :ui="{ content: 'w-60' }">
+    <ConsoleSidebarItem :label="label">
+      <template #icon><UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="2xs" /></template>
+      <template #trailing>
+        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+      </template>
+    </ConsoleSidebarItem>
   </UDropdownMenu>
 
   <UModal v-model:open="creating" title="Create team" description="Teams share their linked apps. You will be the owner." :ui="{ content: 'sm:max-w-[440px]' }">

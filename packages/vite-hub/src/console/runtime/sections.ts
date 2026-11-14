@@ -80,44 +80,45 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
   },
 }
 
-/** Navigation groups in rail order. A contributed section with an unknown id goes to `more`. */
-export const consoleSectionGroupIds = ["agents", "data", "runtime", "platform", "more"] as const
+/** Navigation groups in sidebar order. A contributed section with an unknown id goes to `more`. */
+export const consoleSectionGroupIds = ["site", "data", "users", "ai", "runtime", "more"] as const
 
 export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
-  agents: "agents",
-  skills: "agents",
-  "served-skills": "agents",
-  usage: "agents",
-  channels: "agents",
-  "mcp-client": "agents",
-  logs: "runtime",
+  comments: "site",
+  content: "site",
+  forms: "site",
   databases: "data",
   kv: "data",
   blob: "data",
-  content: "data",
-  comments: "data",
-  forms: "data",
   workspaces: "data",
+  auth: "users",
+  site: "users",
+  email: "users",
+  agents: "ai",
+  skills: "ai",
+  "served-skills": "ai",
+  channels: "ai",
+  usage: "ai",
+  "mcp-client": "ai",
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",
   "sandbox-tasks": "runtime",
-  env: "platform",
-  auth: "platform",
-  email: "platform",
-  "rate-limits": "platform",
-  site: "platform",
-  setup: "platform",
+  logs: "runtime",
+  env: "runtime",
+  "rate-limits": "runtime",
+  setup: "runtime",
 }
 
-/** Labels that the Overview shows above each navigation group. */
+/** Labels that the sidebar and the Overview show above each navigation group. */
 export const consoleSectionGroupLabels: Readonly<Record<ConsoleSectionGroupId, string>> = {
-  agents: "Agents",
+  site: "Site",
   data: "Data",
+  users: "Users",
+  ai: "AI",
   runtime: "Runtime",
-  platform: "Platform",
   more: "More",
 }
 

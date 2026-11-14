@@ -22,6 +22,7 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
 import ConsoleMark from "./console-mark.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import ConsoleState from "./console-state.vue";
@@ -213,7 +214,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="console-home">
       <template #header>
-        <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }" />
+        <ConsolePageHeader title="Overview" :toggle="false" />
       </template>
 
       <template #body>

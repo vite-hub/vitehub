@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import ConsoleAppCrumb from "./console-app-crumb.vue";
 import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
+import ConsoleSidebarTrigger from "./console-sidebar-trigger.vue";
 
 const props = defineProps<{
   cost?: string;
@@ -43,6 +45,7 @@ defineEmits<{
   >
     <template #title>
       <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
+        <ConsoleAppCrumb />
         <!-- A phone shows only the session title. The sessions menu names the Agent, as page headers hide their trail. -->
         <span v-if="project" class="hidden max-w-40 shrink-0 truncate font-normal text-muted sm:inline">{{
           project
@@ -53,6 +56,7 @@ defineEmits<{
       <span v-else class="text-sm font-medium">{{ title }}</span>
     </template>
     <template #leading>
+      <ConsoleSidebarTrigger />
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"
