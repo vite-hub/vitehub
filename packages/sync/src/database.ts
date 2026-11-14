@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import type { AnyRelations } from "drizzle-orm"
@@ -5,19 +6,23 @@ import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
 /**
- * The change log: one entry for each key of each Sync definition, the newest. `seq` is the only cursor, so a pull
- * never depends on clocks. A `delete` keeps the deleted row as JSON, so a pull sends the key only to callers whose
- * `where` matches the row.
+ * The change log of every Sync definition. `seq` is the only cursor, so a pull never depends on clocks.
+ *
+ * - `put`: a row was inserted or changed. Each key has one `put`, the newest. It has no row data: a pull reads the row
+ *   from the table.
+ * - `delete` and `move`: a row left a scope, because it was deleted or because a `where` column changed. These exits
+ *   are appended, one for each delete or move, and keep the row as it was before as JSON. A pull sends the key in
+ *   `deleted` only to callers whose `where` matched that row, and only when the row is not in their scope now.
  */
 export const syncChanges = sqliteTable("vitehub_sync_changes", {
   seq: integer("seq").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   key: text("key").notNull(),
-  op: text("op", { enum: ["put", "delete"] }).notNull(),
+  op: text("op", { enum: ["put", "delete", "move"] }).notNull(),
   row: text("row"),
   createdAt: integer("created_at").notNull(),
 }, table => [
-  uniqueIndex("vitehub_sync_changes_key").on(table.name, table.key),
+  uniqueIndex("vitehub_sync_changes_put").on(table.name, table.key).where(sql`op = 'put'`),
   index("vitehub_sync_changes_seq").on(table.name, table.seq),
 ])
 
@@ -44,7 +49,7 @@ export { syncTableNames } from "./table-names.ts"
 /** The tables of `syncSchema` as SQLite statements that are safe to run on every start. */
 export const syncTables: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS `vitehub_sync_changes` (`seq` integer PRIMARY KEY AUTOINCREMENT, `name` text NOT NULL, `key` text NOT NULL, `op` text NOT NULL, `row` text, `created_at` integer NOT NULL)",
-  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_sync_changes_key` ON `vitehub_sync_changes` (`name`,`key`)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_sync_changes_put` ON `vitehub_sync_changes` (`name`,`key`) WHERE op = 'put'",
   "CREATE INDEX IF NOT EXISTS `vitehub_sync_changes_seq` ON `vitehub_sync_changes` (`name`,`seq`)",
   "CREATE TABLE IF NOT EXISTS `vitehub_sync_mutations` (`id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `created_at` integer NOT NULL)",
   "CREATE INDEX IF NOT EXISTS `vitehub_sync_mutations_created` ON `vitehub_sync_mutations` (`created_at`)",

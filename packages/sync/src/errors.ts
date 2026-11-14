@@ -29,8 +29,8 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
         : "Check the `where` and `write` functions of `server/sync/<name>.ts` for this user.",
     },
     SYNC_SCOPE_CHANGED: {
-      why: "The writes were made for another scope, such as before a sign-in as another user. The server wrote nothing.",
-      fix: "Pull again without a cursor, and do not send the writes of the old scope.",
+      why: "The writes were made for another account, such as before a sign-in as another user. The server wrote nothing.",
+      fix: "Keep the writes for their account and send them when that account signs in again. Call `clearSync()` on sign-out to drop them.",
     },
     SYNC_READ_ONLY: {
       why: "This Sync definition has `write: false`, so the browser cannot change its rows.",
@@ -49,8 +49,12 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       fix: "Insert new rows with a new key, such as `crypto.randomUUID()`, and change existing rows with `update`.",
     },
     SYNC_OUT_OF_SCOPE: {
-      why: ({ column }: { column: string }) => `The write sets \`${column}\` to a value that \`where\` does not allow for this caller.`,
-      fix: "Leave out the columns of `where` on insert, so the server fills them, and do not change them on update.",
+      why: ({ column }: { column: string }) => `The write or the subset sets \`${column}\` to a value that \`where\` does not allow for this caller.`,
+      fix: "Leave out the single values of `where` on insert, so the server fills them. For a column with a list in `where`, such as `teamId`, use one of its values.",
+    },
+    SYNC_ACTION_REFUSED: {
+      why: message,
+      fix: "Read the message of the action in `server/sync/<name>.ts`, change the arguments, and call the action again.",
     },
     SYNC_TOO_MANY_MUTATIONS: {
       why: ({ count, limit }: { count: number, limit: number }) => `The push has ${count} mutations. One push may have at most ${limit}.`,
@@ -77,6 +81,10 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
     SYNC_STORE_DESTROYED: {
       why: ({ name }: { name: string }) => `The Sync store ${JSON.stringify(name)} was destroyed.`,
       fix: "Do not use a store after `destroy()`. Call `createSync()` or `useSync()` again to get a new one.",
+    },
+    SYNC_LOCAL_CLOSED: {
+      why: "An optimistic action changed `local` after it returned, such as after an `await`.",
+      fix: "Change `local` before the optimistic function returns, without `await`. The server action does the async work.",
     },
     SYNC_UNKNOWN_FAILURE: {
       why: "This failure is not in the Sync store. It was retried or dismissed before.",

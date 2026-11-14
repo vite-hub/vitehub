@@ -1,10 +1,18 @@
-// A small IndexedDB storage for Sync, with no dependency. One database holds every Sync route of the origin:
-// `rows` by [route, key], `meta` by route, and `outbox` in insertion order. Each change is one transaction.
+// A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
+// [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
+// mutation id. Each change is one transaction. A store is a route plus a subset, such as
+// `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+import { isMergeable, resultLifetime } from "./storage.ts"
+
 import type { SyncKey, SyncRow } from "../protocol.ts"
-import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored } from "./storage.ts"
+import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResult } from "./storage.ts"
 
 const databaseName = "vitehub-sync"
-const format = 1
+// Format 2 (Sync v2) adds the account, the table version and the defaults to the meta, and tags each write with its
+// account instead of its scope. Format 3 keeps the store of a write in `store`, since `name` is the name of an action.
+// Format 4 marks sent writes, keeps the v1 scope of a write in `legacyScope`, and adds `results`. An upgrade drops the
+// stored rows and keeps the outbox.
+const format = 4
 
 interface MetaRecord extends SyncMeta {
   name: string
@@ -20,7 +28,14 @@ interface RowRecord {
   row: SyncRow
 }
 
-type OutboxRecord = SyncQueuedWrite & { name: string }
+type OutboxRecord = SyncQueuedWrite & { store: string }
+
+interface ResultRecord {
+  id: string
+  result: unknown
+  /** When the result was stored, in milliseconds since the epoch. */
+  at: number
+}
 
 function rowsOf(name: string): IDBKeyRange {
   // An array key sorts after every string, so this range holds every key of `name`.
@@ -35,14 +50,51 @@ function done(transaction: IDBTransaction): Promise<void> {
   })
 }
 
+/**
+ * Moves an outbox of an older format to the current one. Before format 3, `name` held the store. A write of format 1
+ * has the scope id that it was made for, and no account: it keeps the scope id in `legacyScope` and waits for a pull
+ * with that scope id. Any write may have been sent before the upgrade, so each one is marked as sent.
+ */
+function upgradeOutbox(outbox: IDBObjectStore, oldVersion: number): void {
+  if (oldVersion < 3) {
+    if (outbox.indexNames.contains("name")) outbox.deleteIndex("name")
+    outbox.createIndex("store", "store")
+  }
+  const cursor = outbox.openCursor()
+  cursor.onsuccess = () => {
+    const current = cursor.result
+    if (!current) return
+    // SAFETY: the outbox holds records of an older format, which `current.value` reads as plain fields.
+    const record = current.value as Record<string, unknown>
+    if (oldVersion >= 3) {
+      current.update({ ...record, sent: true })
+    }
+    else {
+      const { name, scope, ...write } = record
+      const legacy = oldVersion === 1 && typeof scope === "string" ? { account: null, legacyScope: scope } : {}
+      current.update({ ...write, ...(oldVersion === 1 ? { account: null } : {}), ...legacy, store: name, sent: true })
+    }
+    current.continue()
+  }
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(databaseName, format)
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result
-      database.createObjectStore("rows", { keyPath: ["name", "key"] })
-      database.createObjectStore("meta", { keyPath: "name" })
-      database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("name", "name")
+      if (event.oldVersion === 0) {
+        database.createObjectStore("rows", { keyPath: ["name", "key"] })
+        database.createObjectStore("meta", { keyPath: "name" })
+        database.createObjectStore("outbox", { keyPath: "seq", autoIncrement: true }).createIndex("store", "store")
+        database.createObjectStore("results", { keyPath: "id" }).createIndex("at", "at")
+        return
+      }
+      const transaction = request.transaction!
+      transaction.objectStore("rows").clear()
+      transaction.objectStore("meta").clear()
+      upgradeOutbox(transaction.objectStore("outbox"), event.oldVersion)
+      if (!database.objectStoreNames.contains("results")) database.createObjectStore("results", { keyPath: "id" }).createIndex("at", "at")
     }
     request.onsuccess = () => {
       const database = request.result
@@ -57,11 +109,11 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
   if (!record || record.format !== format) return undefined
-  return { scope: record.scope, key: record.key, cursor: record.cursor }
+  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults }
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
-  return records.map(({ name: _name, ...write }) => write as SyncQueuedWrite)
+  return records.map(({ store: _store, ...write }) => write as SyncQueuedWrite)
 }
 
 /**
@@ -86,7 +138,7 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     const transaction = database.transaction(["rows", "meta", "outbox"], "readonly")
     const meta = transaction.objectStore("meta").get(id)
     const rows = withRows ? transaction.objectStore("rows").getAll(rowsOf(id)) : undefined
-    const outbox = transaction.objectStore("outbox").index("name").getAll(id)
+    const outbox = transaction.objectStore("outbox").index("store").getAll(id)
     await done(transaction)
     const stored = readMeta(meta.result as MetaRecord | undefined)
     const records = stored ? (rows?.result ?? []) as RowRecord[] : []
@@ -109,11 +161,11 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     async write(id, change) {
       const database = await open()
       if (!(database instanceof IDBDatabase)) return database.write(id, change)
-      const transaction = database.transaction(["rows", "meta", "outbox"], "readwrite")
+      const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
       const rows = transaction.objectStore("rows")
       const metaStore = transaction.objectStore("meta")
       const outbox = transaction.objectStore("outbox")
-      const seqs: number[] = []
+      const result: SyncWriteResult = { seqs: [], unmerged: [], gone: [] }
       const current = metaStore.get(id)
       current.onsuccess = () => {
         const record = current.result as MetaRecord | undefined
@@ -136,19 +188,80 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
         else finish()
       }
       for (const seq of change.remove ?? []) outbox.delete(seq)
-      for (const write of change.update ?? []) outbox.put({ ...write, name: id } satisfies OutboxRecord)
-      for (const write of change.add ?? []) {
-        const added = outbox.add({ ...write, name: id })
-        added.onsuccess = () => seqs.push(added.result as number)
+      // A write that a push or another tab removed meanwhile stays removed.
+      for (const write of change.update ?? []) {
+        const existing = outbox.get(write.seq)
+        existing.onsuccess = () => {
+          if (existing.result) outbox.put({ ...write, store: id } satisfies OutboxRecord)
+        }
+      }
+      for (const seq of change.sent ?? []) {
+        const existing = outbox.get(seq)
+        existing.onsuccess = () => {
+          const write = existing.result as OutboxRecord | undefined
+          if (!write) result.gone.push(seq)
+          else if (!write.sent) outbox.put({ ...write, sent: true } satisfies OutboxRecord)
+        }
+      }
+      // A merge reads its target first, so a tab that marked the target as sent in an earlier transaction wins.
+      const merges = change.merge ?? []
+      const targets = merges.map(merge => outbox.get(merge.seq))
+      const add = () => {
+        const unmerged = new Map<number, SyncRow>()
+        merges.forEach((merge, index) => {
+          const target = targets[index]!.result as OutboxRecord | undefined
+          if (target?.store === id && isMergeable(target)) {
+            outbox.delete(merge.seq)
+            return
+          }
+          unmerged.set(merge.index, merge.patch)
+          result.unmerged.push(merge.index)
+        })
+        ;(change.add ?? []).forEach((write, index) => {
+          const patch = unmerged.get(index)
+          const added = outbox.add({ ...(patch && write.op === "update" ? { ...write, patch } : write), store: id })
+          added.onsuccess = () => {
+            result.seqs[index] = added.result as number
+          }
+        })
+      }
+      if (targets.length) targets.at(-1)!.onsuccess = add
+      else add()
+      if (change.results?.length) {
+        const results = transaction.objectStore("results")
+        const now = Date.now()
+        const expired = results.index("at").getAllKeys(IDBKeyRange.upperBound(now - resultLifetime))
+        expired.onsuccess = () => {
+          for (const key of expired.result) results.delete(key)
+        }
+        for (const [mutationId, value] of change.results) results.put({ id: mutationId, result: value, at: now } satisfies ResultRecord)
       }
       await done(transaction)
-      return seqs
+      return result
+    },
+    async takeResults(ids) {
+      const database = await open()
+      if (!(database instanceof IDBDatabase)) return database.takeResults(ids)
+      const transaction = database.transaction("results", "readwrite")
+      const results = transaction.objectStore("results")
+      const found = new Map<string, unknown>()
+      for (const mutationId of ids) {
+        const existing = results.get(mutationId)
+        existing.onsuccess = () => {
+          const record = existing.result as ResultRecord | undefined
+          if (!record) return
+          found.set(mutationId, record.result)
+          results.delete(mutationId)
+        }
+      }
+      await done(transaction)
+      return found
     },
     async clear() {
       const database = await open()
       if (!(database instanceof IDBDatabase)) return database.clear()
-      const transaction = database.transaction(["rows", "meta", "outbox"], "readwrite")
-      for (const store of ["rows", "meta", "outbox"]) transaction.objectStore(store).clear()
+      const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
+      for (const store of ["rows", "meta", "outbox", "results"]) transaction.objectStore(store).clear()
       await done(transaction)
     },
   }

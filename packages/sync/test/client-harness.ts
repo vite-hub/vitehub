@@ -5,8 +5,10 @@ import { createMemoryStorage } from "../src/client/storage.ts"
 import { createFakeSyncServer } from "./client-fake-server.ts"
 
 import type { SyncEnvironment, SyncEvent, SyncMessage } from "../src/client/environment.ts"
+import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { SyncStore } from "../src/client/types.ts"
+import type { SyncOptimisticAction } from "../src/client/store.ts"
+import type { SyncOptimisticActions, SyncStore } from "../src/client/types.ts"
 import type { FakeSyncServer } from "./client-fake-server.ts"
 
 export interface FakeBrowser extends SyncEnvironment {
@@ -40,6 +42,7 @@ export function createFakeBrowser(bus: FakeBus = createFakeBus()): FakeBrowser {
       if (event === "online") browser.online = true
       if (event === "offline") browser.online = false
       if (event === "visible") browser.visible = true
+      if (event === "hidden") browser.visible = false
       for (const listener of listeners) listener(event)
     },
     listen(listener) {
@@ -53,6 +56,11 @@ export function createFakeBrowser(bus: FakeBus = createFakeBus()): FakeBrowser {
       const current = previous.catch(() => undefined).then(task)
       bus.locks.set(name, current)
       return current
+    },
+    lead(name, task) {
+      const controller = new AbortController()
+      void browser.lock(name, () => controller.signal.aborted ? Promise.resolve() : task(controller.signal))
+      return () => controller.abort()
     },
     post(message) {
       // A BroadcastChannel does not deliver a message to its own sender.
@@ -87,7 +95,7 @@ export function createFakeBrowser(bus: FakeBus = createFakeBus()): FakeBrowser {
 }
 
 export interface Tab {
-  store: SyncStore<Todo>
+  store: SyncStore<Todo, TodoActions>
   browser: FakeBrowser
 }
 
@@ -96,6 +104,24 @@ export interface Todo {
   ownerId: string
   title: string
   done?: boolean
+  teamId?: string
+  listId?: string
+}
+
+/** The arguments of the actions that tests define on the fake server. */
+export interface TodoActions {
+  complete: { id: string }
+  add: { id?: string, title: string }
+  /** No fake server defines it. */
+  archive: Record<string, never>
+}
+
+export interface OpenOptions {
+  interval?: number | false
+  fetch?: typeof fetch
+  storage?: SyncStorage
+  where?: SyncValues
+  actions?: SyncOptimisticActions<Todo, TodoActions>
 }
 
 export interface Harness {
@@ -103,7 +129,7 @@ export interface Harness {
   storage: SyncStorage
   bus: FakeBus
   /** Opens the store in a new tab. Each tab has its own store over the shared storage. */
-  open: (options?: { interval?: number | false, fetch?: typeof fetch, storage?: SyncStorage }) => Tab
+  open: (options?: OpenOptions) => Tab
   /** Destroys every store that `open()` made. */
   close: () => void
 }
@@ -112,15 +138,18 @@ export function createHarness(): Harness {
   const server = createFakeSyncServer()
   const storage = createMemoryStorage()
   const bus = createFakeBus()
-  const stores: SyncStore<Todo>[] = []
+  const stores: SyncStore<Todo, TodoActions>[] = []
   return {
     server,
     storage,
     bus,
     open(options = {}) {
       const browser = createFakeBrowser(bus)
-      const store = createSyncStore<Todo>("todos", {
+      const store = createSyncStore<Todo, TodoActions>("todos", {
         url: "/api/_vitehub/sync/todos",
+        ...(options.where ? { where: options.where } : {}),
+        // SAFETY: each optimistic function takes the JSON arguments of its action.
+        ...(options.actions ? { actions: options.actions as Record<string, SyncOptimisticAction> } : {}),
         fetch: options.fetch ?? server.fetch,
         storage: options.storage ?? storage,
         environment: browser,

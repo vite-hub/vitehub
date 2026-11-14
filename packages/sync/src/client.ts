@@ -2,15 +2,16 @@ import { syncRoute } from "./protocol.ts"
 import { createBrowserEnvironment, postClear } from "./client/environment.ts"
 import { createIndexedDBStorage } from "./client/indexeddb.ts"
 import { createMemoryStorage } from "./client/storage.ts"
-import { createSyncStore } from "./client/store.ts"
+import { actionCalls, createSyncStore } from "./client/store.ts"
 import { SyncError } from "./client/types.ts"
+import { whereKey } from "./client/view.ts"
 import { syncErrors } from "./errors.ts"
 
 import type { SyncRow } from "./protocol.ts"
 import type { SyncStorage } from "./client/storage.ts"
-import type { SyncStoreWithReset } from "./client/store.ts"
+import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
-import type { SyncName, SyncRowOf } from "./types.ts"
+import type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
 
 declare const __VITEHUB_APP_BASE_URL__: string | undefined
 
@@ -23,7 +24,7 @@ const shared = new Map<string, SharedStore>()
 let memoryStorage: SyncStorage | undefined
 let indexedDBStorage: SyncStorage | undefined
 
-const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false })
+const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
@@ -44,7 +45,7 @@ function routeOf(name: string, baseURL: string | undefined): string {
 }
 
 /** The store on the server: no request, no timer, no rows. */
-function createIdleStore<TRow>(): SyncStore<TRow> {
+function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
   const browserOnly = () => {
     throw syncErrors.SYNC_BROWSER_ONLY()
   }
@@ -52,9 +53,11 @@ function createIdleStore<TRow>(): SyncStore<TRow> {
     getState: () => idleState,
     subscribe: () => () => undefined,
     get: () => undefined,
+    pending: () => false,
     insert: browserOnly,
     update: browserOnly,
     delete: browserOnly,
+    actions: actionCalls(browserOnly),
     refresh: async () => undefined,
     retry: browserOnly,
     dismiss: () => undefined,
@@ -64,24 +67,35 @@ function createIdleStore<TRow>(): SyncStore<TRow> {
 
 /**
  * The local copy of the Sync table `server/sync/<name>.ts`. It shows the stored rows at once, pulls, and keeps them
- * fresh. Writes apply at once, survive a reload in IndexedDB, and go to the server in order. Calls with one name share
- * one store; `destroy()` ends one call, and the store stops with the last one. On the server it does nothing.
+ * fresh, live while the page shows. Writes and actions apply at once, survive a reload in IndexedDB, and go to the
+ * server in order. Calls with one name and subset share one store; `destroy()` ends one call, and the store stops with
+ * the last one. On the server it does nothing.
  *
  * ```ts
  * const todos = createSync("todos")
  * todos.subscribe(() => render(todos.getState().rows))
  * todos.insert({ title: "Milk" })
+ * todos.actions.complete({ id })
+ *
+ * const comments = createSync("comments", { where: { issueId } })
  * ```
  * @experimental
  */
-function createSync<TName extends SyncName>(name: TName, options: SyncOptions = {}): SyncStore<SyncRowOf<TName>> {
+function createSync<TName extends SyncName>(name: TName, options: SyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>> = {}): SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>> {
   if (!isBrowser()) return createIdleStore()
   const url = routeOf(name, options.baseURL)
-  let entry = shared.get(url)
+  const where: Record<string, unknown> = { ...options.where }
+  const subset = whereKey(where)
+  const sharedKey = subset ? `${url}?${subset}` : url
+  // SAFETY: each optimistic function takes the arguments of its action, which arrive as the same JSON value.
+  const actions = options.actions as Record<string, SyncOptimisticAction | undefined> | undefined
+  let entry = shared.get(sharedKey)
   if (!entry) {
     entry = {
       store: createSyncStore<SyncRow>(name, {
         url,
+        where,
+        ...(actions ? { actions } : {}),
         fetch: options.fetch ?? ((input, init) => globalThis.fetch(input, init)),
         storage: storageFor(options.persist !== false),
         environment: createBrowserEnvironment(),
@@ -89,7 +103,10 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
       }),
       users: 0,
     }
-    shared.set(url, entry)
+    shared.set(sharedKey, entry)
+  }
+  else if (actions) {
+    entry.store.addActions(actions)
   }
   entry.users++
   const { store } = entry
@@ -98,7 +115,8 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
   const check = () => {
     if (!open) throw syncErrors.SYNC_STORE_DESTROYED({ name })
   }
-  // SAFETY: the rows of the route are the JSON rows of its table, which `SyncRowOf` names.
+  // SAFETY: the rows of the route are the JSON rows of its table, which `SyncRowOf` names, and its actions take the
+  // arguments that `SyncActionsOf` names.
   return {
     getState: store.getState,
     subscribe(listener) {
@@ -110,9 +128,11 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
       }
     },
     get: store.get,
+    pending: store.pending,
     insert: value => (check(), store.insert(value)),
     update: (key, patch) => (check(), store.update(key, patch)),
     delete: key => (check(), store.delete(key)),
+    actions: actionCalls((action, args) => (check(), store.actions[action]!(args))),
     refresh: store.refresh,
     retry: failure => (check(), store.retry(failure)),
     dismiss: failure => (check(), store.dismiss(failure)),
@@ -123,14 +143,15 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
       owned.clear()
       if (--entry.users > 0) return
       store.destroy()
-      shared.delete(url)
+      shared.delete(sharedKey)
     },
-  } as SyncStore<SyncRowOf<TName>>
+  } as SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>>
 }
 
 /**
- * Forgets every Sync row and queued write in this browser, in every tab. Call it on sign-out, so the next person on
- * the device does not see them. Writes that wait reject with `SYNC_SCOPE_CHANGED`.
+ * Forgets every Sync row and queued write in this browser, in every tab, also the writes that wait for another
+ * account. Call it on sign-out, so the next person on the device does not see them. Writes that wait reject with
+ * `SYNC_SCOPE_CHANGED`.
  * @experimental
  */
 async function clearSync(): Promise<void> {
@@ -143,6 +164,6 @@ async function clearSync(): Promise<void> {
 
 export { clearSync, createSync, SyncError }
 export { syncRoute } from "./protocol.ts"
-export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncWireError } from "./protocol.ts"
-export type { SyncClientErrorCode, SyncFailure, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"
-export type { SyncName, SyncRowOf } from "./types.ts"
+export type { SyncErrorCode, SyncKey, SyncMutation, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
+export type { SyncActionCalls, SyncClientErrorCode, SyncFailure, SyncLocal, SyncOptimisticActions, SyncOptions, SyncState, SyncStatus, SyncStore, SyncWrite } from "./client/types.ts"
+export type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
