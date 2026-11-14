@@ -191,6 +191,23 @@ describe("rows that leave a scope", () => {
     expect(entries.map(entry => JSON.parse(entry.row ?? "null").teamId)).toEqual(["a", "b", "a"])
   })
 
+  it("keeps every column of a wide table in an exit, also past SQLite's limit of function arguments", async () => {
+    const extra = Array.from({ length: 70 }, (_, index) => `c${index}`)
+    const wide = sqliteTable("wide", { id: text("id").primaryKey(), teamId: text("team_id").notNull(), flag: integer("flag", { mode: "boolean" }), ...Object.fromEntries(extra.map(name => [name, text(name)])) })
+    const definition = defineSync({ table: wide, where: ({ user }) => user ? { teamId: teamsOf(user) } : false })
+    const app = await createHarness({ name: "wide", definition, ddl: [`CREATE TABLE \`wide\` (\`id\` text PRIMARY KEY NOT NULL, \`team_id\` text NOT NULL, \`flag\` integer, ${extra.map(name => `\`${name}\` text`).join(", ")})`] })
+    const held = await app.start(dave)
+    const a = await app.start(alice)
+    await app.push(dave, { ...as(held), mutations: [insert("m1", { id: "w1", teamId: "a", flag: true, c0: "first", c69: "last" })] })
+    const before = await app.start(alice)
+    await app.push(dave, { ...as(held), mutations: [update("m2", "w1", { teamId: "b" })] })
+    const [exit] = await app.db.select({ row: syncChanges.row }).from(syncChanges).where(eq(syncChanges.op, "move"))
+    // A later part drops its `null` values, and a missing column reads as `null`.
+    expect(JSON.parse(exit?.row ?? "null")).toMatchObject({ id: "w1", teamId: "a", flag: 1, c0: "first", c1: null, c69: "last" })
+    expect((await app.pull(alice, { ...as(before), cursor: before.cursor })).body).toMatchObject({ deleted: ["w1"] })
+    expect((await app.pull(alice, { ...as(a), cursor: a.cursor })).body).toMatchObject({ rows: [], deleted: ["w1"] })
+  })
+
   it("compacts exits after 30 days and resets older cursors", async () => {
     const app = await setup()
     const writer = await app.start(dave)
@@ -204,6 +221,63 @@ describe("rows that leave a scope", () => {
     expect(await app.db.select().from(syncState)).toEqual([{ name: "issues", floor: moved - 1 }])
     expect((await app.db.select({ op: syncChanges.op }).from(syncChanges)).map(entry => entry.op)).toEqual(["put", "put"])
     expect((await app.pull(alice, { ...as(old), cursor: old.cursor })).body).toMatchObject({ reset: true, rows: [{ id: "i2", title: "z" }] })
+  })
+})
+
+describe("writes that race", () => {
+  /** A `write` check that runs `race` once, after the handler read the row and before it applies the write. */
+  async function racing() {
+    let race: (() => Promise<void>) | undefined
+    const app = await setup({
+      write: async () => {
+        const run = race
+        race = undefined
+        await run?.()
+        return true
+      },
+    })
+    return { ...app, race: (run: () => Promise<void>) => { race = run } }
+  }
+
+  it("records the exit of a move with the row as it is when the write applies", async () => {
+    const app = await racing()
+    const erin = { user: "erin", teams: ["a", "b", "c"] }
+    const first = await app.start(dave)
+    const second = await app.start(erin)
+    await app.db.insert(issues).values({ id: "i1", teamId: "a", title: "Race" })
+    let b = await app.start(bob)
+
+    // Erin read the row in `a`. Before her move to `c` applies, Dave moves it to `b`, and Bob loads it.
+    app.race(async () => {
+      await app.push(dave, { ...as(first), mutations: [update("m1", "i1", { teamId: "b" })] })
+      const loaded = await app.pull(bob, { ...as(b), cursor: b.cursor })
+      expect(loaded.body.rows).toMatchObject([{ id: "i1", teamId: "b" }])
+      b = { ...b, cursor: loaded.body.cursor }
+    })
+    expect((await app.push(erin, { ...as(second), mutations: [update("m2", "i1", { teamId: "c" })] })).body.results[0]?.status).toBe("applied")
+    expect(await app.rows()).toEqual([{ id: "i1", teamId: "c", title: "Race" }])
+    // The second exit holds `b`, so Bob drops the row.
+    expect((await app.pull(bob, { ...as(b), cursor: b.cursor })).body).toMatchObject({ rows: [], deleted: ["i1"] })
+    const exits = await app.db.select({ op: syncChanges.op, row: syncChanges.row }).from(syncChanges).where(eq(syncChanges.op, "move")).orderBy(syncChanges.seq)
+    expect(exits.map(exit => JSON.parse(exit.row ?? "null").teamId)).toEqual(["a", "b"])
+  })
+
+  it("keeps the put and records no exit when a scoped delete finds no row", async () => {
+    const app = await racing()
+    const writer = await app.start(dave)
+    const deleter = await app.start(alice)
+    await app.push(dave, { ...as(writer), mutations: [insert("m1", { id: "i1", teamId: "a", title: "Stay" })] })
+    const b = await app.start(bob)
+
+    // Alice read the row in `a`. Before her delete applies, Dave moves it to `b`.
+    app.race(async () => {
+      await app.push(dave, { ...as(writer), mutations: [update("m2", "i1", { teamId: "b" })] })
+    })
+    await app.push(alice, { ...as(deleter), mutations: [remove("m3", "i1")] })
+    expect(await app.rows()).toEqual([{ id: "i1", teamId: "b", title: "Stay" }])
+    expect((await app.pull(bob, { ...as(b), cursor: b.cursor })).body).toMatchObject({ rows: [{ id: "i1", teamId: "b" }], deleted: [] })
+    const entries = await app.db.select({ op: syncChanges.op }).from(syncChanges).orderBy(syncChanges.seq)
+    expect(entries.map(entry => entry.op)).toEqual(["move", "put"])
   })
 })
 

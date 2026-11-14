@@ -1,9 +1,9 @@
-import { and, asc, eq, getTableColumns, gt, lt, max, ne, sql } from "drizzle-orm"
+import { and, asc, eq, getTableColumns, gt, lt, max, ne, or, sql } from "drizzle-orm"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import * as v from "valibot"
 
-import { canonical, fingerprint, jsonReplacer, sameValue, toJson } from "./canonical.ts"
+import { canonical, fingerprint, jsonReplacer, toJson } from "./canonical.ts"
 import { syncChanges, syncMutations, syncState } from "./database.ts"
 import { describeSyncTable, isSyncDefinition, syncTableVersion } from "./define.ts"
 import { syncErrors } from "./errors.ts"
@@ -11,8 +11,9 @@ import { liveResponse, wakeLiveStreams } from "./live.ts"
 import { syncPushLimit } from "./protocol.ts"
 import { allows, column, decode, mergeSubset, readSubset, readWhere, rowInScope, scopeSql } from "./scope.ts"
 
+import type { SQL } from "drizzle-orm"
 import type { BatchItem } from "drizzle-orm/batch"
-import type { SQLiteTable } from "drizzle-orm/sqlite-core"
+import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { SyncDatabase } from "./database.ts"
 import type { SyncTable } from "./define.ts"
 import type { SyncKey, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
@@ -121,7 +122,7 @@ function parseRow(text: string): Record<string, unknown> {
   return v.parse(rowSchema, JSON.parse(text))
 }
 
-/** A row as JSON, as Sync stores it in an exit and compares it with the scope. */
+/** A row as JSON, as the wire has it, to compare it with the scope. */
 function rowJson(row: Record<string, unknown>): Record<string, unknown> {
   return parseRow(JSON.stringify(row, jsonReplacer))
 }
@@ -185,6 +186,7 @@ async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
         .orderBy(asc(syncChanges.seq))
         .limit(pageSize),
     ])
+    const stored = storedValues(scoped.table, scope.values)
     const lowest = state[0]?.floor ?? 0
     const highest = Math.max(last[0]?.seq ?? 0, lowest)
     // A cursor below the floor missed removed exits. A cursor above the newest change comes from another Database.
@@ -193,7 +195,7 @@ async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
       const next = changes.at(-1)?.seq ?? cursor
       const deleted = new Set<SyncKey>()
       for (const change of changes) {
-        if (change.op !== "put" && change.current === null && change.row !== null && rowInScope(parseRow(change.row), scope.values)) deleted.add(change.key)
+        if (change.op !== "put" && change.current === null && change.row !== null && rowInScope(parseRow(change.row), stored)) deleted.add(change.key)
       }
       return {
         ...base,
@@ -224,21 +226,98 @@ function issuePath(path: readonly (PropertyKey | { key: PropertyKey })[] | undef
 
 type Statement = BatchItem<"sqlite">
 
-type Target = Pick<Resolved, "db" | "name" | "now">
+type Target = Pick<Resolved, "db" | "name" | "now" | "table">
 
-/** Makes `key`'s `put` the newest change. Each key has one `put`. */
-function putStatements({ db, name, now }: Target, key: SyncKey): Statement[] {
+const changeColumns = sql`(${sql.identifier("name")}, ${sql.identifier("key")}, ${sql.identifier("op")}, ${sql.identifier("row")}, ${sql.identifier("created_at")})`
+
+function keyIs(table: SyncTable, key: SyncKey): SQL {
+  return eq(column(table, table.key), key)
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("").toUpperCase()
+}
+
+/**
+ * The SQL of a column in an exit row: the value that the column stores. A blob is stored as hex or as its text, because
+ * JSON cannot hold a blob.
+ */
+function storedSql(target: SQLiteColumn): SQL {
+  if (target.columnType === "SQLiteBlobBuffer") return sql`hex(${target})`
+  if (target.getSQLType() === "blob" || target.columnType.startsWith("SQLiteNumeric")) return sql`cast(${target} as text)`
+  return sql`${target}`
+}
+
+/** A JSON value of a column as an exit row stores it. See `storedSql()`. */
+function storedValue(table: SyncTable, name: string, value: unknown): unknown {
+  if (value === null || value === undefined) return null
+  const target = column(table, name)
+  const stored: unknown = target.mapToDriverValue(decode(table, name, value))
+  if (stored instanceof Uint8Array) return target.columnType === "SQLiteBlobBuffer" ? hex(stored) : new TextDecoder().decode(stored)
+  if (typeof stored === "boolean") return stored ? 1 : 0
+  if (typeof stored === "bigint") return Number.isSafeInteger(Number(stored)) ? Number(stored) : stored.toString()
+  return toJson(stored) ?? null
+}
+
+/** Scope values as an exit row stores them, so `rowInScope()` can compare them with an exit. */
+function storedValues(table: SyncTable, values: SyncValues): SyncValues {
+  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, Array.isArray(value) ? value.map(item => storedValue(table, name, item)) : storedValue(table, name, value)]))
+}
+
+/** A row that server code passed, such as to `recordSyncChanges()`, as an exit stores it. */
+function storedRow(table: SyncTable, row: SyncRow): SyncRow {
+  return Object.fromEntries(Object.keys(table.columns).filter(name => row[name] !== undefined).map(name => [name, storedValue(table, name, row[name])]))
+}
+
+function literal(text: string): SQL {
+  return sql.raw(`'${text.replaceAll("'", "''")}'`)
+}
+
+/**
+ * The row as a JSON object, in SQL. Before version 3.48, SQLite allows at most 127 arguments to a function, so a wide
+ * table is built in parts. `json_patch()` drops the `null` values of a later part, and a missing column reads as `null`.
+ */
+function rowObjectSql(table: SyncTable): SQL {
+  const pairs = Object.entries(table.columns).map(([name, target]) => sql`${literal(name)}, ${storedSql(target)}`)
+  let object: SQL | undefined
+  for (let start = 0; start < pairs.length; start += 60) {
+    const part = sql`json_object(${sql.join(pairs.slice(start, start + 60), sql`, `)})`
+    object = object ? sql`json_patch(${object}, ${part})` : part
+  }
+  return object ?? sql`json_object()`
+}
+
+/** Makes `key`'s `put` the newest change, when the row exists. Each key has one `put`. */
+function putStatements({ db, name, now, table }: Target, key: SyncKey): Statement[] {
   return [
     db.delete(syncChanges).where(and(eq(syncChanges.name, name), eq(syncChanges.key, key), eq(syncChanges.op, "put"))),
-    db.insert(syncChanges).values({ name, key, op: "put", row: null, createdAt: now }),
+    db.run(sql`INSERT INTO ${syncChanges} ${changeColumns} SELECT ${name}, ${key}, 'put', NULL, ${now} WHERE EXISTS (SELECT 1 FROM ${table.table} WHERE ${keyIs(table, key)})`),
   ]
 }
 
-/** Appends an exit: the row left the scopes that held it, because it was deleted or because a `where` column changed. */
-function exitStatements({ db, name, now }: Target, key: SyncKey, op: "delete" | "move", row: Record<string, unknown>): Statement[] {
-  const exit = db.insert(syncChanges).values({ name, key, op, row: JSON.stringify(row, jsonReplacer), createdAt: now })
-  if (op === "move") return [exit]
-  return [exit, db.delete(syncChanges).where(and(eq(syncChanges.name, name), eq(syncChanges.key, key), eq(syncChanges.op, "put")))]
+/** Removes `key`'s `put` when `condition` holds. */
+function dropPut({ db, name }: Target, key: SyncKey, condition: SQL): Statement {
+  return db.delete(syncChanges).where(and(eq(syncChanges.name, name), eq(syncChanges.key, key), eq(syncChanges.op, "put"), condition))
+}
+
+/**
+ * Appends an exit: the row left the scopes that held it, because it was deleted or because a `where` column changed.
+ * The statement reads the row from the table when the batch runs, and appends nothing when no row matches `condition`.
+ * A row that the handler read before the batch can be old: a write that ran at the same time can have moved it.
+ */
+function exitFromTable({ db, name, now, table }: Target, key: SyncKey, op: "delete" | "move", condition: SQL | undefined): Statement {
+  return db.run(sql`INSERT INTO ${syncChanges} ${changeColumns} SELECT ${name}, ${key}, ${op}, ${rowObjectSql(table)}, ${now} FROM ${table.table} WHERE ${and(keyIs(table, key), condition)}`)
+}
+
+/** Appends an exit with a row that server code passed, as it was before the change. */
+function exitFromRow({ db, name, now, table }: Target, key: SyncKey, op: "delete" | "move", row: SyncRow): Statement {
+  return db.insert(syncChanges).values({ name, key, op, row: JSON.stringify(storedRow(table, row), jsonReplacer), createdAt: now })
+}
+
+/** Whether the table's value of a column differs from `value`, in SQL. `IS NOT` treats two `NULL`s as equal. */
+function differs(table: SyncTable, name: string, value: unknown): SQL {
+  const target = column(table, name)
+  return value === null || value === undefined ? sql`${target} IS NOT NULL` : sql`${target} IS NOT ${sql.param(value, target)}`
 }
 
 async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean): Promise<Record<string, unknown> | undefined> {
@@ -329,7 +408,12 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Re
     const stopped = await check(scoped, "delete", current)
     if (stopped) return [stopped, undefined]
     overlay.set(key, null)
-    return [undefined, [db.delete(target).where(inScope), ...exitStatements(scoped, key, "delete", current)]]
+    // The exit and the removed `put` depend on the row that the delete removes, not on `current`.
+    return [undefined, [
+      exitFromTable(scoped, key, "delete", scopeSql(table, scope.values)),
+      dropPut(scoped, key, sql`EXISTS (SELECT 1 FROM ${target} WHERE ${inScope})`),
+      db.delete(target).where(inScope),
+    ]]
   }
   if (!current) return [{ error: syncErrors.SYNC_NOT_FOUND({ message: `No row with the key ${JSON.stringify(key)} is in the scope of the caller.` }) }, undefined]
   const [refused, values] = readColumns(scoped, write.patch, key)
@@ -339,12 +423,13 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Re
   const stopped = await check(scoped, "update", row)
   if (stopped) return [stopped, undefined]
   if (!Object.keys(patch).length) return [undefined, []]
-  // A new value of a `where` column, such as another team, moves the row out of the scopes that held it.
-  const moved = Object.keys(scope.values).some(name => name in patch && !sameValue(current[name] ?? null, patch[name] ?? null))
+  // A new value of a `where` column, such as another team, moves the row out of the scopes that held it. The exit comes
+  // before the update, so it reads the row as it was, and only when the row changes that column.
+  const moved = Object.keys(scope.values).filter(name => name in patch)
   overlay.set(key, row)
   return [undefined, [
+    ...moved.length ? [exitFromTable(scoped, key, "move", and(scopeSql(table, scope.values), or(...moved.map(name => differs(table, name, patch[name])))))] : [],
     db.update(target).set(patch).where(inScope),
-    ...moved ? exitStatements(scoped, key, "move", current) : [],
     ...putStatements(scoped, key),
   ]]
 }
@@ -669,16 +754,20 @@ export interface SyncChanges {
 /** Writes change log entries for writes that server code made to the table itself. Returns the number of changes. */
 export async function recordChanges(name: string, definition: SyncDefinition, db: SyncDatabase, changes: SyncChanges, now: number): Promise<number> {
   const table = describeSyncTable(definition.options.table)
-  const target: Target = { name, db, now }
+  const target: Target = { name, db, now, table }
   const keyOf = (row: SyncRow, field: "delete" | "moved"): SyncKey => {
     const key = row[table.key]
     if (typeof key !== "string" || !key) throw syncErrors.SYNC_INVALID({ message: `[vitehub] recordSyncChanges("${name}"): each row in \`${field}\` needs its primary key \`${table.key}\`.` })
     return key
   }
   const statements: Statement[] = []
-  for (const row of changes.delete ?? []) statements.push(...exitStatements(target, keyOf(row, "delete"), "delete", row))
+  for (const row of changes.delete ?? []) {
+    const key = keyOf(row, "delete")
+    // A row that server code inserted again keeps its `put`.
+    statements.push(exitFromRow(target, key, "delete", row), dropPut(target, key, sql`NOT EXISTS (SELECT 1 FROM ${table.table} WHERE ${keyIs(table, key)})`))
+  }
   // The exit comes before the `put`, so a pull sees that the row is in the new scope after it left the old one.
-  for (const row of changes.moved ?? []) statements.push(...exitStatements(target, keyOf(row, "moved"), "move", row), ...putStatements(target, keyOf(row, "moved")))
+  for (const row of changes.moved ?? []) statements.push(exitFromRow(target, keyOf(row, "moved"), "move", row), ...putStatements(target, keyOf(row, "moved")))
   for (const key of changes.put ?? []) statements.push(...putStatements(target, key))
   const [first, ...rest] = statements
   if (first) await db.batch([first, ...rest])

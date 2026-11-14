@@ -1,4 +1,5 @@
 import { createClient } from "@libsql/client"
+import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { expect, it } from "vitest"
@@ -35,9 +36,10 @@ it("lists the definitions and their changes without row data", async () => {
   // A deleted row adds an exit, and the list shows the actions and `live: false`.
   createSyncHandler({ definitions: { notes: defineSync({ table: notes, where: () => ({}), live: false, actions: { touch: () => {}, archive: () => {} } }) }, databases: { default: { db } } })
   const [removed] = await db.select().from(notes).limit(1)
+  await db.delete(notes).where(eq(notes.id, removed!.id))
   await recordSyncChanges("notes", { delete: [removed!] })
   const after = await operation("sync.list").run({}, undefined as never)
-  expect(after).toEqual([expect.objectContaining({ live: false, actions: ["archive", "touch"], exits: 1, changes: 2 })])
+  expect(after).toEqual([expect.objectContaining({ live: false, actions: ["archive", "touch"], exits: 1, changes: 2, rows: 1 })])
   const text = operation("sync.list").cli.format(after as never)
   expect(text).toContain("archive,touch")
   expect(text).toContain("EXITS")
