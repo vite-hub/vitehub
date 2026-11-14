@@ -64,10 +64,10 @@ describe("validateSpec", () => {
     expect(result).toEqual({
       valid: false,
       diagnostics: [{
-        code: "AGENT_UI_R0004",
+        code: "AGENT_UI_COMPONENT_UNKNOWN",
         message: expect.stringContaining("The catalog has no component \"Input\""),
         fix: expect.stringContaining("use a Form that names a form of the catalog"),
-        docs: "https://vitehub.dev/docs/agents/diagnostics/agent_ui_r0004",
+        docs: "https://vitehub.dev/docs/agents/diagnostics/agent_ui_component_unknown",
         path: "/elements/root/type",
       }],
     })
@@ -75,28 +75,28 @@ describe("validateSpec", () => {
   })
 
   it.each<[string, unknown, string[]]>([
-    ["a spec without elements", { root: "root" }, ["AGENT_UI_R0001 "]],
-    ["an unknown element key", one({ root: { type: "Text", props: { text: "Hi" }, slots: {} } }), ["AGENT_UI_R0001 /elements/root/slots"]],
-    ["another version", { version: 2, ...one({ root: { type: "Text", props: { text: "Hi" } } }) }, ["AGENT_UI_R0002 /version"]],
-    ["a missing child", one({ root: { type: "Stack", props: {}, children: ["gone"] } }), ["AGENT_UI_R0003 /elements/root/children/0"]],
-    ["an input component", one({ root: { type: "Checkbox", props: {} } }), ["AGENT_UI_R0004 /elements/root/type"]],
-    ["an unknown prop", one({ root: { type: "Text", props: { text: "Hi", color: "red" } } }), ["AGENT_UI_R0006 /elements/root/props/color"]],
-    ["an invalid prop", one({ root: { type: "Image", props: { src: "not a url", alt: "" } } }), ["AGENT_UI_R0007 /elements/root/props/src"]],
-    ["a state read of the wrong type", one({ root: { type: "Text", props: { text: { $state: "/user" } } } }, { user: { name: "Ada" } }), ["AGENT_UI_R0007 /elements/root/props/text"]],
+    ["a spec without elements", { root: "root" }, ["AGENT_UI_SPEC_INVALID "]],
+    ["an unknown element key", one({ root: { type: "Text", props: { text: "Hi" }, slots: {} } }), ["AGENT_UI_SPEC_INVALID /elements/root/slots"]],
+    ["another version", { version: 2, ...one({ root: { type: "Text", props: { text: "Hi" } } }) }, ["AGENT_UI_VERSION_UNSUPPORTED /version"]],
+    ["a missing child", one({ root: { type: "Stack", props: {}, children: ["gone"] } }), ["AGENT_UI_ELEMENT_NOT_FOUND /elements/root/children/0"]],
+    ["an input component", one({ root: { type: "Checkbox", props: {} } }), ["AGENT_UI_COMPONENT_UNKNOWN /elements/root/type"]],
+    ["an unknown prop", one({ root: { type: "Text", props: { text: "Hi", color: "red" } } }), ["AGENT_UI_PROP_UNKNOWN /elements/root/props/color"]],
+    ["an invalid prop", one({ root: { type: "Image", props: { src: "not a url", alt: "" } } }), ["AGENT_UI_PROP_INVALID /elements/root/props/src"]],
+    ["a state read of the wrong type", one({ root: { type: "Text", props: { text: { $state: "/user" } } } }, { user: { name: "Ada" } }), ["AGENT_UI_PROP_INVALID /elements/root/props/text"]],
     ["a repeated item of the wrong type", one({
       root: { type: "Stack", props: {}, repeat: { statePath: "/rows" }, children: ["row"] },
       row: { type: "Text", props: { text: { $item: "name" } } },
-    }, { rows: [{ name: "api" }, { name: ["web"] }] }), ["AGENT_UI_R0007 /elements/row/props/text"]],
-    ["an event that the component does not emit", one({ root: { type: "Text", props: { text: "Hi" }, on: { press: event("x") } } }), ["AGENT_UI_R0008 /elements/root/on/press"]],
-    ["children on a leaf", one({ root: { type: "Text", props: { text: "Hi" }, children: ["child"] }, child: { type: "Text", props: { text: "Hi" } } }), ["AGENT_UI_R0009 /elements/root/children"]],
-    ["too many elements", one(Object.fromEntries(Array.from({ length: 129 }, (_, index) => [index ? `t${index}` : "root", { type: "Text", props: { text: "Hi" } }]))), ["AGENT_UI_R0010 /elements"]],
-    ["a cycle", one({ root: { type: "Stack", props: {}, children: ["a"] }, a: { type: "Stack", props: {}, children: ["root"] } }), ["AGENT_UI_R0012 /elements/root"]],
-    ["a child used twice", one({ root: { type: "Stack", props: {}, children: ["a", "a"] }, a: { type: "Text", props: { text: "Hi" } } }), ["AGENT_UI_R0013 /elements/a"]],
-    ["an action that is not the event", one({ root: { type: "Button", props: { label: "Go" }, on: { press: { action: "approve" } } } }), ["AGENT_UI_R0014 /elements/root/on/press/action"]],
-    ["an event without a name", one({ root: { type: "Button", props: { label: "Go" }, on: { press: { action: "event", params: {} } } } }), ["AGENT_UI_R0001 /elements/root/on/press/params"]],
-    ["a form that the catalog does not have", one({ root: { type: "Form", props: { form: "signup" } } }), ["AGENT_UI_R0015 /elements/root/props/form"]],
-    ["form values that are not a state binding", one({ root: { type: "Form", props: { form: "invite", value: { role: "member" } } } }), ["AGENT_UI_R0007 /elements/root/props/value"]],
-    ["a form that no surface can draw", one({ root: { type: "Form", props: { form: "nested" } } }), ["AGENT_UI_R0016 /elements/root/props/form"]],
+    }, { rows: [{ name: "api" }, { name: ["web"] }] }), ["AGENT_UI_PROP_INVALID /elements/row/props/text"]],
+    ["an event that the component does not emit", one({ root: { type: "Text", props: { text: "Hi" }, on: { press: event("x") } } }), ["AGENT_UI_EVENT_UNKNOWN /elements/root/on/press"]],
+    ["children on a leaf", one({ root: { type: "Text", props: { text: "Hi" }, children: ["child"] }, child: { type: "Text", props: { text: "Hi" } } }), ["AGENT_UI_CHILDREN_NOT_ALLOWED /elements/root/children"]],
+    ["too many elements", one(Object.fromEntries(Array.from({ length: 129 }, (_, index) => [index ? `t${index}` : "root", { type: "Text", props: { text: "Hi" } }]))), ["AGENT_UI_TOO_MANY_ELEMENTS /elements"]],
+    ["a cycle", one({ root: { type: "Stack", props: {}, children: ["a"] }, a: { type: "Stack", props: {}, children: ["root"] } }), ["AGENT_UI_ELEMENT_CYCLE /elements/root"]],
+    ["a child used twice", one({ root: { type: "Stack", props: {}, children: ["a", "a"] }, a: { type: "Text", props: { text: "Hi" } } }), ["AGENT_UI_ELEMENT_REPEATED /elements/a"]],
+    ["an action that is not the event", one({ root: { type: "Button", props: { label: "Go" }, on: { press: { action: "approve" } } } }), ["AGENT_UI_ACTION_UNKNOWN /elements/root/on/press/action"]],
+    ["an event without a name", one({ root: { type: "Button", props: { label: "Go" }, on: { press: { action: "event", params: {} } } } }), ["AGENT_UI_SPEC_INVALID /elements/root/on/press/params"]],
+    ["a form that the catalog does not have", one({ root: { type: "Form", props: { form: "signup" } } }), ["AGENT_UI_FORM_UNKNOWN /elements/root/props/form"]],
+    ["form values that are not a state binding", one({ root: { type: "Form", props: { form: "invite", value: { role: "member" } } } }), ["AGENT_UI_PROP_INVALID /elements/root/props/value"]],
+    ["a form that no surface can draw", one({ root: { type: "Form", props: { form: "nested" } } }), ["AGENT_UI_FORM_NOT_ON_SURFACE /elements/root/props/form"]],
   ])("reports %s", (_, spec, expected) => {
     expect(codes(spec)).toEqual(expected)
   })
@@ -105,7 +105,7 @@ describe("validateSpec", () => {
     const elements: CatalogSpec["elements"] = {}
     for (let level = 0; level < 23; level++) elements[level ? `s${level}` : "root"] = { type: "Stack", props: {}, children: [`s${level + 1}`] }
     elements.s23 = { type: "Text", props: { text: "deep" } }
-    expect(codes(one(elements))).toEqual(["AGENT_UI_R0011 /elements/s20"])
+    expect(codes(one(elements))).toEqual(["AGENT_UI_TOO_DEEP /elements/s20"])
   })
 })
 
@@ -122,11 +122,11 @@ describe("surface subsets", () => {
 
   it("refuses the parts that a surface cannot draw", () => {
     // A chat card has no inputs and no tabs.
-    expect(codes(layout, "chatCard")).toEqual(["AGENT_UI_R0005 /elements/tabs/type", "AGENT_UI_R0005 /elements/form/type"])
+    expect(codes(layout, "chatCard")).toEqual(["AGENT_UI_COMPONENT_NOT_ON_SURFACE /elements/tabs/type", "AGENT_UI_COMPONENT_NOT_ON_SURFACE /elements/form/type"])
     // A chat modal holds a form, not buttons or tables.
     const modal = one({ root: { type: "Stack", props: {}, children: ["note", "form"] }, note: { type: "Text", props: { text: "Who joins?" } }, form: layout.elements.form! }, { invite: {} })
     expect(codes(modal, "chatModal")).toEqual([])
-    expect(codes(layout, "chatModal")).toContain("AGENT_UI_R0005 /elements/approve/type")
+    expect(codes(layout, "chatModal")).toContain("AGENT_UI_COMPONENT_NOT_ON_SURFACE /elements/approve/type")
   })
 
   it("checks a form with the surfaces of @vite-hub/forms", () => {
@@ -134,7 +134,7 @@ describe("surface subsets", () => {
     expect(codes(spec, "web")).toEqual([])
     expect(codes(spec, "chatModal")).toEqual([])
     const result = validateSpec(spec, { surface: "mcp", catalog })
-    expect(result.valid ? [] : result.diagnostics).toEqual([expect.objectContaining({ code: "AGENT_UI_R0016", message: expect.stringContaining("FORMS_C0002"), path: "/elements/root/props/form" })])
+    expect(result.valid ? [] : result.diagnostics).toEqual([expect.objectContaining({ code: "AGENT_UI_FORM_NOT_ON_SURFACE", message: expect.stringContaining("FORMS_FIELD_NOT_DRAWABLE"), path: "/elements/root/props/form" })])
   })
 })
 
@@ -156,8 +156,8 @@ describe("a Form in a layout", () => {
     expect(error?.issues.map(issue => [issue.path.join("."), issue.message])).toEqual([["email", "Enter a valid email."], ["seats", "Pick 1 to 10."]])
   })
 
-  it("throws AGENT_UI_C0004 for an element that is not a Form", () => {
-    expect(() => checkSpecForm(layout, "approve", {}, { catalog })).toThrow(expect.objectContaining({ code: "AGENT_UI_C0004" }))
+  it("throws AGENT_UI_NOT_A_FORM for an element that is not a Form", () => {
+    expect(() => checkSpecForm(layout, "approve", {}, { catalog })).toThrow(expect.objectContaining({ code: "AGENT_UI_NOT_A_FORM" }))
   })
 })
 

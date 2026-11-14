@@ -13,7 +13,7 @@ export interface SpecFormOptions {
   catalog?: Catalog
 }
 
-/** The form of `@vite-hub/forms` that the Form element `id` of `spec` names. Throws `AGENT_UI_C0004` for any other element. */
+/** The form of `@vite-hub/forms` that the Form element `id` of `spec` names. Throws `AGENT_UI_NOT_A_FORM` for any other element. */
 export function specForm(spec: CatalogSpec, id: string, options: SpecFormOptions = {}): FormSource {
   const catalog = options.catalog ?? viteHubCatalog
   const element = Object.hasOwn(spec.elements, id) ? spec.elements[id] : undefined

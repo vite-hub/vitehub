@@ -91,7 +91,7 @@ function checkEntry(entry: CatalogEntry): void {
 }
 
 /**
- * Checks one catalog entry and returns it as it is. It throws `AGENT_UI_C0001` when the entry is invalid.
+ * Checks one catalog entry and returns it as it is. It throws `AGENT_UI_ENTRY_INVALID` when the entry is invalid.
  *
  * @example
  * ```ts
@@ -114,8 +114,8 @@ export function defineCatalogEntry<const Name extends string>(entry: CatalogEntr
 }
 
 /**
- * Builds a catalog from its entries and the forms that its `Form` elements may name. It throws `AGENT_UI_C0001` for an
- * invalid entry and `AGENT_UI_C0002` when two entries have the same name.
+ * Builds a catalog from its entries and the forms that its `Form` elements may name. It throws `AGENT_UI_ENTRY_INVALID` for an
+ * invalid entry and `AGENT_UI_ENTRY_DUPLICATE` when two entries have the same name.
  *
  * @example
  * ```ts

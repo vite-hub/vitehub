@@ -435,7 +435,7 @@ export const catalog = defineCatalog(viteHubCatalogEntries, { forms: { invite } 
 export const instructions = `You help the team.\n\n${catalogPrompt({ surface: "web", catalog })}`
 
 export function checkSpec(spec: unknown) {
-  // Each diagnostic has a stable code, such as AGENT_UI_R0005 for a Form in a chat card. Send them back to the model.
+  // Each diagnostic has a stable code, such as AGENT_UI_COMPONENT_NOT_ON_SURFACE for a Form in a chat card. Send them back to the model.
   const result = validateSpec(spec, { surface: "web", catalog })
   return result.valid ? { spec: result.spec } : { error: result.diagnostics }
 }
