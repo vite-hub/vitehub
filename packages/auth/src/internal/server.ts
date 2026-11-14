@@ -407,13 +407,14 @@ const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Authent
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const resolved = resolveAuthOptions(definition, { request, event: authRequestEvent(input), env: envResolverFor(definition) })
+  const event = authRequestEvent(input)
+  const resolved = resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) })
   const auth = requestProvider(definition, resolved)
   let reads = sessionReads.get(request)
   if (!reads) sessionReads.set(request, reads = new WeakMap())
   let session = reads.get(definition)
   if (!session) reads.set(definition, session = getAuthenticationSession(auth, { headers: request.headers }))
-  return { auth, options: resolved.options, request, session: await session }
+  return { auth, event, options: resolved.options, request, session: await session }
 }
 
 type AuthCheck =
@@ -648,7 +649,7 @@ async function checkAuthRequest(
   resolveIdentity?: AuthAccessIdentityResolver,
   signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
-  const { auth, options, request, session } = await readRequestSession(input, definition)
+  const { auth, event, options, request, session } = await readRequestSession(input, definition)
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
   if (isRuntimeResponse(identity)) return reject(identity)
   if (identity || session) {
@@ -667,7 +668,7 @@ async function checkAuthRequest(
         return reject(createForbiddenResponse(request))
       }
       if (!authorize) continue
-      const rejection = await runAccessAuthorize(authorize, authorization)
+      const rejection = await runAccessAuthorize(authorize, { ...authorization, event })
       if (rejection.response) return reject(rejection.response)
     }
     return { authorization }
@@ -696,11 +697,11 @@ async function checkAuthorizeRequest(
   authorize: AccessAuthorizeOption,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
-  const { request, session } = await readRequestSession(input, definition)
+  const { event, request, session } = await readRequestSession(input, definition)
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
-  const rejection = await runAccessAuthorize(authorize, authorization)
+  const rejection = await runAccessAuthorize(authorize, { ...authorization, event })
   return rejection.response ? reject(rejection.response) : { authorization }
 }
 
@@ -721,13 +722,13 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAnonymousAuthorization() requires a handler function." })
   }
   return async (input) => {
-    const { request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    const { event, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
-    const rejection = await runAccessAuthorize(authorize, authorization, deny)
+    const rejection = await runAccessAuthorize(authorize, { ...authorization, event }, deny)
     if (rejection.response) return rejection.response
     return handler(input, authorization)
   }

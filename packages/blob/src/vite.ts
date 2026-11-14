@@ -370,10 +370,19 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "",
     ...(serve.authorize
       ? [
-          "// Authorize before the store read and before conditional request handling.",
+          `type RouteInput = Parameters<Parameters<typeof ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"}>[1]>[0]`,
+          "",
+          "// Authorize before the store read and before conditional request handling. Nitro calls the function with the",
+          "// H3 event, so `authorize` gets it as `event`. A direct Fetchable call passes the Request.",
+          "function authorized(input: RouteInput, request: Request) {",
           serve.anonymous
-            ? "export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }"
-            : `export default { fetch: withAuthorization(${authorizeModule ? "authorize" : "true"}, (request: Request) => serveBlob(request)) }`,
+            ? "  return withAnonymousAuthorization(authorize, () => serveBlob(request))(input)"
+            : `  return withAuthorization(${authorizeModule ? "authorize" : "true"}, () => serveBlob(request))(input)`,
+          "}",
+          "",
+          "export default Object.assign((event: RouteInput & { req: Request }) => authorized(event, event.req), {",
+          "  fetch: (request: Request) => authorized(request, request),",
+          "})",
         ]
       : ["export default { fetch: serveBlob }"]),
     "",
