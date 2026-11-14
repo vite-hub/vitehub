@@ -7,100 +7,124 @@ navigation.group: Agents and tools
 icon: i-lucide-plug
 ---
 
-Connect your coding agent to the ViteHub MCP and it reads the current ViteHub docs while it works. Sign in with your Console account, and it can also run operations on your team's apps. It is one [MCP](https://modelcontextprotocol.io) server over Streamable HTTP, at two addresses:
-
-| Address | Sign-in | Tools |
-| --- | --- | --- |
-| `https://vitehub.dev/mcp` | None | Docs tools: `list-pages` and `get-page`. |
-| `https://console.vitehub.dev/mcp/account` | Your Console account, with OAuth | The docs tools, and project tools for the apps that your team linked. |
-
-`https://console.vitehub.dev/mcp` serves the same docs tools without sign-in. Name the server `vitehub` in your client, so prompts such as "use the vitehub MCP server" match. Your app serves no Console MCP; to give your own users one, see [MCP server](/docs/mcp).
-
 ## Connect an agent
 
-The docs address has no OAuth metadata, so clients connect without asking. The account address answers `401` with OAuth metadata, so the client opens the Console in your browser once to sign in with GitHub or a passkey and allow it.
+Pick your client. Each one adds the server as `vitehub`, so prompts such as "use the vitehub MCP server" match.
 
-::tabs
-  :::tabs-item{label="Claude Code" icon="i-simple-icons-claude"}
-    ```bash [Terminal]
-    claude mcp add --transport http vitehub https://vitehub.dev/mcp
-    ```
+::mcp-install
+  :::mcp-client{label="Claude Code" icon="i-simple-icons-claude" method="Terminal"}
+    1. Add the server from your terminal:
 
-    This adds the server for you in the current project.
-    Add `--scope project` to share it with the team through `.mcp.json`, or `--scope user` for all your projects.
+       ```bash [Terminal]
+       claude mcp add --transport http vitehub https://vitehub.dev/mcp
+       ```
+
+       It is added for the current project. Add `--scope project` to share it with your team through `.mcp.json`, or `--scope user` for all your projects.
+    2. Start a new session and ask Claude Code to list the `vitehub` tools.
   :::
 
-  :::tabs-item{label="Codex" icon="i-simple-icons-openai"}
-    ```bash [Terminal]
-    codex mcp add vitehub --url https://vitehub.dev/mcp
-    ```
+  :::mcp-client{label="Codex" icon="i-simple-icons-openai" method="Terminal"}
+    1. Add the server from your terminal:
 
-    The command writes this entry to `~/.codex/config.toml`. You can also add it yourself:
+       ```bash [Terminal]
+       codex mcp add vitehub --url https://vitehub.dev/mcp
+       ```
 
-    ```toml [~/.codex/config.toml]
-    [mcp_servers.vitehub]
-    url = "https://vitehub.dev/mcp"
-    ```
+    2. The command writes this entry to `~/.codex/config.toml`. You can also add it yourself:
+
+       ```toml [~/.codex/config.toml]
+       [mcp_servers.vitehub]
+       url = "https://vitehub.dev/mcp"
+       ```
+
+    3. Start a new Codex session.
   :::
 
-  :::tabs-item{label="Cursor" icon="i-simple-icons-cursor"}
-    ```json [.cursor/mcp.json]
-    {
-      "mcpServers": {
-        "vitehub": {
-          "url": "https://vitehub.dev/mcp"
-        }
-      }
-    }
-    ```
+  :::mcp-client{label="Cursor" icon="i-simple-icons-cursor" method="One-click install or mcp.json" install="cursor"}
+    1. Select **Add to Cursor**, or add the server to `.cursor/mcp.json`:
 
-    Use `~/.cursor/mcp.json` for all projects.
-    You can also select **Add MCP server to Cursor** in the page actions menu next to any docs page title.
+       ```json [.cursor/mcp.json]
+       {
+         "mcpServers": {
+           "vitehub": {
+             "url": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
+
+    2. Use `~/.cursor/mcp.json` instead to add it for all your projects.
   :::
 
-  :::tabs-item{label="VS Code" icon="i-simple-icons-visualstudiocode"}
-    ```json [.vscode/mcp.json]
-    {
-      "servers": {
-        "vitehub": {
-          "type": "http",
-          "url": "https://vitehub.dev/mcp"
-        }
-      }
-    }
-    ```
+  :::mcp-client{label="VS Code" icon="i-simple-icons-visualstudiocode" method="One-click install or mcp.json" install="vscode"}
+    1. Select **Add to VS Code**, or add the server to `.vscode/mcp.json`:
 
-    GitHub Copilot uses the server in agent mode.
-    To add it to your user profile instead of the workspace, run:
+       ```json [.vscode/mcp.json]
+       {
+         "servers": {
+           "vitehub": {
+             "type": "http",
+             "url": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
 
-    ```bash [Terminal]
-    code --add-mcp '{"name":"vitehub","type":"http","url":"https://vitehub.dev/mcp"}'
-    ```
+    2. To add it to your user profile instead of the workspace, run:
 
-    You can also select **Add MCP server to VS Code** in the page actions menu.
+       ```bash [Terminal]
+       code --add-mcp '{"name":"vitehub","type":"http","url":"https://vitehub.dev/mcp"}'
+       ```
+
+    3. Open Copilot Chat in agent mode. GitHub Copilot uses the server there.
   :::
 
-  :::tabs-item{label="Windsurf" icon="i-simple-icons-windsurf"}
-    ```json [mcp_config.json]
-    {
-      "mcpServers": {
-        "vitehub": {
-          "serverUrl": "https://vitehub.dev/mcp"
-        }
-      }
-    }
-    ```
+  :::mcp-client{label="Claude" icon="i-simple-icons-anthropic" method="Custom connector"}
+    1. In Claude, open **Customize › Connectors**, then **Add connector › Add custom connector**.
+    2. Name it **ViteHub**, paste `https://vitehub.dev/mcp`, and select **Add**.
+    3. Start a new chat and ask Claude to list the ViteHub tools.
+  :::
 
-    Windsurf is now Devin Desktop. Open the raw MCP configuration from the Cascade MCP settings, or edit the file.
-    Devin Desktop uses `~/.config/devin/mcp_config.json` on macOS and Linux and `%APPDATA%\devin\mcp_config.json` on Windows. Older Windsurf installs use `~/.codeium/windsurf/mcp_config.json`.
+  :::mcp-client{label="Windsurf" icon="i-simple-icons-windsurf" method="mcp_config.json" note="Windsurf is now Devin Desktop. Older Windsurf installs use ~/.codeium/windsurf/mcp_config.json."}
+    1. Open the raw MCP configuration from the Cascade MCP settings, and add the server:
+
+       ```json [mcp_config.json]
+       {
+         "mcpServers": {
+           "vitehub": {
+             "serverUrl": "https://vitehub.dev/mcp"
+           }
+         }
+       }
+       ```
+
+    2. Devin Desktop keeps the file at `~/.config/devin/mcp_config.json` on macOS and Linux, and at `%APPDATA%\devin\mcp_config.json` on Windows.
+  :::
+
+  :::mcp-client{label="Other" icon="i-lucide-plug" method="Any remote MCP client"}
+    1. In your client's settings, add a remote MCP server named `vitehub`.
+    2. Choose **Streamable HTTP** and paste `https://vitehub.dev/mcp`. The docs address needs no sign-in.
   :::
 ::
 
-For the account address, put `https://console.vitehub.dev/mcp/account` in the same place:
+## Docs or your apps
+
+The commands above use the docs address. To let the agent work on your apps too, use the account address in the same place:
+
+| Address | Sign-in | Tools |
+| --- | --- | --- |
+| `https://vitehub.dev/mcp` | None | `list-pages` and `get-page`, for the docs. |
+| `https://console.vitehub.dev/mcp/account` | Your Console account | The docs tools, and [project tools](#project-tools) for the apps your team linked. |
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
 ```
+
+The account address answers `401` with OAuth metadata, so your client opens the Console in your browser once. Sign in with GitHub or a passkey and allow the client. `https://console.vitehub.dev/mcp` serves the same docs tools as the docs address, without sign-in.
+
+::note
+Your app serves no MCP server for the Console. To give your own users one, see [MCP server](/docs/mcp).
+::
 
 ## Check the connection
 
