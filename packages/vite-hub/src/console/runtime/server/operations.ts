@@ -482,7 +482,8 @@ const projectGet = defineConsoleOperation({
   input: v.strictObject({}),
   kind: "read",
   name: "project.get",
-  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  // The Console page opens a project with this one call, so it also gets the sections that it shows.
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access, { navigation: context.surface === "console" }),
   section: false,
 })
 
