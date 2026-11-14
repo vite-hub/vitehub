@@ -37,6 +37,15 @@ describe("defineSync", () => {
     expect(() => defineSync({ table: todos, where, live: "yes" })).toThrow("`live`")
   })
 
+  it("checks the subsets", () => {
+    expect(defineSync({ table: todos, where, subsets: ["ownerId"] }).options.subsets).toEqual(["ownerId"])
+    // @ts-expect-error `subsets` holds column names.
+    expect(() => defineSync({ table: todos, where, subsets: ["color"] })).toThrow(expect.objectContaining({ code: "SYNC_INVALID_DEFINITION", message: expect.stringContaining("\"color\", which is not a column") }))
+    expect(() => defineSync({ table: todos, where, subsets: ["id"] })).toThrow("cannot have the primary key")
+    // @ts-expect-error `subsets` is an array.
+    expect(() => defineSync({ table: todos, where, subsets: "ownerId" })).toThrow("`subsets` must be an array")
+  })
+
   it("checks the actions", () => {
     const complete = ({ update }: { update: (key: string, patch: { title: string }) => void }, { id }: { id: string }) => update(id, { title: "done" })
     expect(defineSync({ table: todos, where, actions: { complete } }).options.actions).toEqual({ complete })

@@ -143,7 +143,15 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   if (!where || typeof where !== "object" || Array.isArray(where)) {
     throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`where\` must return an object of column values, \`{}\`, or \`false\`.` })
   }
-  const [outside, values] = mergeSubset(readWhere(resolved.name, resolved.table, where), subset)
+  const whereValues = readWhere(resolved.name, resolved.table, where)
+  const subsets: readonly string[] = resolved.definition.options.subsets ?? []
+  for (const name of Object.keys(subset)) {
+    // A subset column needs an index, and a write that changes it must reach the subsets that held the row.
+    if (!(name in whereValues) && !subsets.includes(name)) {
+      return [badRequest(`The subset column \`${name}\` is not in \`subsets\`. Add "${name}" to \`subsets\` in \`server/sync/${resolved.name}.ts\`, such as \`defineSync({ subsets: ["${name}"] })\`.`), undefined]
+    }
+  }
+  const [outside, values] = mergeSubset(whereValues, subset)
   if (outside !== undefined) return [fail(403, syncErrors.SYNC_OUT_OF_SCOPE({ column: outside })), undefined]
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
   const account = context.user ? await fingerprint(`account\n${context.user.id}`) : scope.id
@@ -423,9 +431,9 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Re
   const stopped = await check(scoped, "update", row)
   if (stopped) return [stopped, undefined]
   if (!Object.keys(patch).length) return [undefined, []]
-  // A new value of a `where` column, such as another team, moves the row out of the scopes that held it. The exit comes
-  // before the update, so it reads the row as it was, and only when the row changes that column.
-  const moved = Object.keys(scope.values).filter(name => name in patch)
+  // A new value of a `where` or `subsets` column, such as another team, moves the row out of the scopes that held it.
+  // The exit comes before the update, so it reads the row as it was, and only when the row changes that column.
+  const moved = [...new Set([...Object.keys(scope.values), ...scoped.definition.options.subsets ?? []])].filter(name => name in patch)
   overlay.set(key, row)
   return [undefined, [
     ...moved.length ? [exitFromTable(scoped, key, "move", and(scopeSql(table, scope.values), or(...moved.map(name => differs(table, name, patch[name])))))] : [],

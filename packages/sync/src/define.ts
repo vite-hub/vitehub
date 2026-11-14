@@ -88,9 +88,9 @@ const actionName = /^[a-zA-Z]\w*$/
  */
 export function defineSync<const TTable, TArgs = Record<string, never>>(options: DefineSyncOptions<TTable, InferSyncTableRow<TTable>, TArgs>): SyncDefinition<TTable, InferSyncTableRow<TTable>, TArgs> {
   if (!options || typeof options !== "object") throw invalid("Pass an object with `table` and `where`.")
-  describeSyncTable(options.table)
+  const table = describeSyncTable(options.table)
   if (typeof options.where !== "function") throw invalid("`where` must be a function that returns the column values of the caller's rows, such as `({ user }) => user ? { ownerId: user.id } : false`. Return `{}` for every row.")
-  const { write, schema, database, actions, live } = options
+  const { write, schema, database, actions, live, subsets } = options
   if (write !== undefined && typeof write !== "boolean" && typeof write !== "function") throw invalid("`write` must be `true`, `false`, or a function that returns a boolean.")
   if (schema !== undefined) {
     const standard: unknown = Reflect.get(Object(schema), "~standard")
@@ -98,6 +98,14 @@ export function defineSync<const TTable, TArgs = Record<string, never>>(options:
   }
   if (database !== undefined && (typeof database !== "string" || !database)) throw invalid("`database` must be the name of a Database, such as `default`.")
   if (live !== undefined && typeof live !== "boolean") throw invalid("`live` must be `true` or `false`.")
+  if (subsets !== undefined) {
+    const list: unknown = subsets
+    if (!Array.isArray(list)) throw invalid("`subsets` must be an array of column names, such as `[\"issueId\"]`.")
+    for (const name of list) {
+      if (typeof name !== "string" || !Object.hasOwn(table.columns, name)) throw invalid(`\`subsets\` has ${JSON.stringify(name)}, which is not a column of the table "${table.name}".`)
+      if (name === table.key) throw invalid(`\`subsets\` cannot have the primary key \`${name}\`. A subset by key holds one row: read it from the full store.`)
+    }
+  }
   if (actions !== undefined) {
     if (!actions || typeof actions !== "object" || Array.isArray(actions)) throw invalid("`actions` must be an object of functions, such as `{ complete: async ({ update }, { id }: { id: string }) => update(id, { done: true }) }`.")
     for (const [name, action] of Object.entries(actions)) {

@@ -298,10 +298,62 @@ describe("subsets", () => {
     expect(pushed.body.results).toEqual([{ id: "m1", status: "applied" }])
     expect(pushed.body.pull).toMatchObject({ reset: false, rows: [{ id: "i3", teamId: "b" }] })
 
-    // A new column narrows further.
-    const narrow = await app.pull(dave, { where: { title: "B" } })
+    // A column of `subsets` narrows further.
+    const titled = await setup({ subsets: ["title"] })
+    await titled.db.insert(issues).values([{ id: "i1", teamId: "a", title: "A" }, { id: "i2", teamId: "b", title: "B" }])
+    const narrow = await titled.pull(dave, { where: { title: "B" } })
     expect(narrow.body.scope.values).toEqual({ teamId: ["a", "b"], title: "B" })
     expect(narrow.body.rows.map(row => row.id)).toEqual(["i2"])
+  })
+
+  it("refuses a subset on a column that is not in `subsets` and names the fix", async () => {
+    const app = await setup()
+    const { status, body } = await app.pull(dave, { where: { title: "B" } })
+    expect(status).toBe(400)
+    expect(body.code).toBe("SYNC_BAD_REQUEST")
+    expect(body.message).toContain("Add \"title\" to `subsets` in `server/sync/issues.ts`")
+    const held = await app.start(dave)
+    expect(await app.push(dave, { ...as(held), where: { title: "B" }, mutations: [] })).toMatchObject({ status: 400, body: { code: "SYNC_BAD_REQUEST" } })
+    // A column that `where` sets needs no entry in `subsets`.
+    expect((await app.pull(dave, { where: { teamId: "a" } })).status).toBe(200)
+  })
+
+  it("sends a row to the subsets that it leaves when a broader store, an action, or server code changes a subset column", async () => {
+    const definition = defineSync({
+      table: issues,
+      where: ({ user }) => user ? { teamId: teamsOf(user) } : false,
+      subsets: ["note", "done", "createdAt"],
+      actions: { annotate: ({ update }, { id, note }: { id: string, note: string }) => update(id, { note }) },
+    })
+    const app = await createHarness({ name: "issues", definition, ddl: [ddl] })
+    createSyncHandler({ definitions: { issues: definition }, databases: { default: { db: app.db } } })
+    const full = await app.start(dave)
+    await app.push(dave, { ...as(full), mutations: [
+      insert("m1", { id: "i1", teamId: "a", title: "One", note: "x", createdAt: new Date(5).toISOString() }),
+      insert("m2", { id: "i2", teamId: "a", title: "Two", note: "x" }),
+      insert("m3", { id: "i3", teamId: "a", title: "Three", note: "x" }),
+    ] })
+    const x = await app.start(dave, { note: "x" })
+    const open = await app.start(dave, { done: false })
+    const at = await app.start(dave, { createdAt: new Date(5).toISOString() })
+    expect((await app.pull(dave, { where: { createdAt: new Date(5).toISOString() } })).body.rows.map(row => row.id)).toEqual(["i1"])
+
+    // From the full store: a new note and `done`.
+    await app.push(dave, { ...as(full), mutations: [update("m4", "i1", { note: "y", done: true, createdAt: new Date(6).toISOString() })] })
+    // From an action.
+    await app.push(dave, { ...as(full), mutations: [{ id: "m5", op: "action", name: "annotate", args: { id: "i2", note: "y" } }] })
+    // From server code.
+    const [before] = await app.db.select().from(issues).where(eq(issues.id, "i3"))
+    await app.db.update(issues).set({ note: "y" }).where(eq(issues.id, "i3"))
+    expect(await recordSyncChanges("issues", { moved: [before!] })).toEqual([undefined, { recorded: 1 }])
+
+    const deleted = async (held: typeof x, where: Record<string, unknown>) => (await app.pull(dave, { ...as(held), cursor: held.cursor, where })).body.deleted.sort()
+    expect(await deleted(x, { note: "x" })).toEqual(["i1", "i2", "i3"])
+    expect(await deleted(open, { done: false })).toEqual(["i1"])
+    expect(await deleted(at, { createdAt: new Date(5).toISOString() })).toEqual(["i1"])
+    // A change of another column records no exit.
+    await app.push(dave, { ...as(full), mutations: [update("m6", "i2", { title: "Renamed" })] })
+    expect((await app.db.select({ op: syncChanges.op }).from(syncChanges).where(eq(syncChanges.op, "move"))).length).toBe(3)
   })
 
   it("refuses a subset outside `where`, and a subset that is not single column values", async () => {

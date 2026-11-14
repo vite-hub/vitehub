@@ -17,6 +17,8 @@ export interface SyncSummary {
   write: "yes" | "no" | "check"
   /** Whether browsers may keep a live stream open (`live` of the definition). */
   live: boolean
+  /** The columns that a browser may load a subset by (`subsets` of the definition). */
+  subsets: string[]
   /** The names of the actions of the definition. */
   actions: string[]
   rows: number
@@ -50,13 +52,14 @@ export async function summarizeSync(installed: InstalledSync): Promise<SyncSumma
       db.select({ count: count() }).from(syncChanges).where(and(eq(syncChanges.name, name), ne(syncChanges.op, "put"))),
       db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.name, name)),
     ])
-    const { write, live, actions } = definition.options
+    const { write, live, actions, subsets } = definition.options
     return {
       name,
       table: table.name,
       key: table.key,
       write: write === false ? "no" : typeof write === "function" ? "check" : "yes",
       live: live !== false,
+      subsets: [...subsets ?? []],
       actions: Object.keys(actions ?? {}).sort(),
       rows: rows[0]?.count ?? 0,
       changes: changes[0]?.count ?? 0,

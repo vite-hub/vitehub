@@ -72,6 +72,15 @@ export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TAr
   write?: boolean | ((context: SyncWriteContext<TRow>) => boolean | Promise<boolean>)
   /** Checks the whole row on insert and update, on the server. */
   schema?: StandardSchemaV1
+  /**
+   * The columns that a browser may load a subset by, such as `["issueId"]` for
+   * `useSync("comments", { where: { issueId } })`. A subset on another column is refused with `SYNC_BAD_REQUEST`, unless
+   * `where` sets that column. When a write changes one of these columns, the row leaves the subsets that held it. Add an
+   * index on each of these columns.
+   *
+   * @experimental
+   */
+  subsets?: readonly (keyof TRow & string)[]
   /** Named writes with server logic, called from the browser as `todos.actions.<name>(args)`. */
   actions?: SyncActions<TRow, TArgs>
   /**

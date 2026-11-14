@@ -27,22 +27,23 @@ it("lists the definitions and their changes without row data", async () => {
   await recordSyncChanges("notes", { put: ["n1", "n2"] })
 
   const summary = await operation("sync.list").run({}, undefined as never)
-  expect(summary).toEqual([{ name: "notes", table: "notes", key: "id", write: "no", live: true, actions: [], rows: 2, changes: 2, exits: 0, floor: 0, lastSeq: 2 }])
+  expect(summary).toEqual([{ name: "notes", table: "notes", key: "id", write: "no", live: true, subsets: [], actions: [], rows: 2, changes: 2, exits: 0, floor: 0, lastSeq: 2 }])
   expect(operation("sync.list").cli.format(summary as never)).toContain("notes")
 
   const changes = await operation("sync.changes").run({ name: "notes", limit: 1 }, undefined as never)
   expect(changes).toEqual([{ seq: 2, key: "n2", op: "put", createdAt: expect.any(Number) }])
 
   // A deleted row adds an exit, and the list shows the actions and `live: false`.
-  createSyncHandler({ definitions: { notes: defineSync({ table: notes, where: () => ({}), live: false, actions: { touch: () => {}, archive: () => {} } }) }, databases: { default: { db } } })
+  createSyncHandler({ definitions: { notes: defineSync({ table: notes, where: () => ({}), live: false, subsets: ["body"], actions: { touch: () => {}, archive: () => {} } }) }, databases: { default: { db } } })
   const [removed] = await db.select().from(notes).limit(1)
   await db.delete(notes).where(eq(notes.id, removed!.id))
   await recordSyncChanges("notes", { delete: [removed!] })
   const after = await operation("sync.list").run({}, undefined as never)
-  expect(after).toEqual([expect.objectContaining({ live: false, actions: ["archive", "touch"], exits: 1, changes: 2, rows: 1 })])
+  expect(after).toEqual([expect.objectContaining({ live: false, subsets: ["body"], actions: ["archive", "touch"], exits: 1, changes: 2, rows: 1 })])
   const text = operation("sync.list").cli.format(after as never)
   expect(text).toContain("archive,touch")
   expect(text).toContain("EXITS")
+  expect(text).toContain("SUBSETS")
   expect(JSON.stringify(changes)).not.toContain("secret")
   await expect(operation("sync.changes").run({ name: "nope" }, undefined as never)).rejects.toMatchObject({ code: "SYNC_UNKNOWN_NAME" })
 })
