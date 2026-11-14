@@ -358,19 +358,66 @@ function differs(table: SyncTable, name: string, value: unknown): SQL {
   return value === null || value === undefined ? sql`${target} IS NOT NULL` : sql`${target} IS NOT ${sql.param(value, target)}`
 }
 
-async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean): Promise<Record<string, unknown> | undefined> {
+/**
+ * The rows that the checks of one mutation read, as JSON text, or `null` when no row was there. The batch applies only
+ * when each of these reads gives the same answer, so a write that ran at the same time cannot pass a check that it
+ * changed. See `guardSql()`.
+ */
+type Reads = Map<string, { key: SyncKey, scopedOnly: boolean, json: string | null }>
+
+async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?: Reads): Promise<Record<string, unknown> | undefined> {
   const { db, table } = scoped
-  const [row] = await db.select().from(table.table)
+  const [found] = await db.select({ row: getTableColumns(table.table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
     .where(and(eq(column(table, table.key), key), scopedOnly ? scopeSql(table, scoped.scope.values) : undefined))
     .limit(1)
-  return row
+  const read = `${scopedOnly ? "scoped" : "any"}:${key}`
+  if (reads && !reads.has(read)) reads.set(read, { key, scopedOnly, json: found?.json ?? null })
+  return found?.row
+}
+
+/** True in SQL while every read of `reads` gives the same answer as when the checks ran. */
+function guardSql(scoped: Scoped, reads: Reads): SQL | undefined {
+  const { table, scope } = scoped
+  const target: SQLiteTable = table.table
+  const guards = [...reads.values()].map(({ key, scopedOnly, json }) => json === null
+    ? sql`NOT EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), scopedOnly ? scopeSql(table, scope.values) : undefined)})`
+    : sql`EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), sql`${rowObjectSql(table)} = ${json}`)})`)
+  return guards.length ? and(...guards) : undefined
+}
+
+/**
+ * The ledger entry of a mutation. With a guard, it stores no name when a read changed: the `NOT NULL` column then fails
+ * the statement, and with it the whole batch, so no write of the mutation applies.
+ */
+function ledgerStatement({ db, name, now }: Scoped, id: string, guard: SQL | undefined): Statement {
+  if (!guard) return db.insert(syncMutations).values({ id, name, createdAt: now })
+  return db.run(sql`INSERT INTO ${syncMutations} (${sql.identifier("id")}, ${sql.identifier("name")}, ${sql.identifier("created_at")}) VALUES (${id}, CASE WHEN ${guard} THEN ${name} END, ${now})`)
+}
+
+async function guardHolds(scoped: Scoped, guard: SQL): Promise<boolean> {
+  const row = await scoped.db.get<{ ok: number }>(sql`SELECT CASE WHEN ${guard} THEN 1 ELSE 0 END AS ok`)
+  return row?.ok === 1
+}
+
+/**
+ * The message of a SQLite error that comes from the row itself, such as a `NOT NULL` column without a value. The same
+ * row fails the same way each time, so the mutation is rejected and the push goes on.
+ */
+function rowErrorMessage(error: unknown): string | undefined {
+  for (let cause = error, depth = 0; cause && typeof cause === "object" && depth < 5; cause = Reflect.get(cause, "cause"), depth++) {
+    const message: unknown = Reflect.get(cause, "message")
+    const code: unknown = Reflect.get(cause, "code")
+    if (typeof message === "string" && /constraint failed|datatype mismatch/i.test(message)) return message.replace(/^D1_ERROR:\s*/, "")
+    if (typeof code === "string" && /^SQLITE_(CONSTRAINT|MISMATCH)/.test(code) && typeof message === "string") return message
+  }
+  return undefined
 }
 
 /** The rows that earlier writes of the same action changed: the row, or `null` after a delete. */
 type Overlay = Map<SyncKey, Record<string, unknown> | null>
 
-async function currentRow(scoped: Scoped, overlay: Overlay, key: SyncKey, scopedOnly: boolean): Promise<Record<string, unknown> | undefined> {
-  if (!overlay.has(key)) return await readRow(scoped, key, scopedOnly)
+async function currentRow(scoped: Scoped, overlay: Overlay, key: SyncKey, scopedOnly: boolean, reads: Reads): Promise<Record<string, unknown> | undefined> {
+  if (!overlay.has(key)) return await readRow(scoped, key, scopedOnly, reads)
   const row = overlay.get(key)
   if (!row || (scopedOnly && !rowInScope(rowJson(row), scoped.scope.values))) return undefined
   return row
@@ -388,7 +435,12 @@ function readColumns(scoped: Scoped, input: SyncRow, key: SyncKey | undefined): 
     if (!(name in table.columns)) return [invalid(`\`${name}\` is not a column of the table "${table.name}".`), undefined]
     if (name === table.key && key !== undefined && value !== key) return [invalid(`The primary key \`${name}\` cannot change.`), undefined]
     if (name in scope.values && !allows(scope.values[name], value)) return [{ error: syncErrors.SYNC_OUT_OF_SCOPE({ column: name }) }, undefined]
-    values[name] = decode(table, name, value)
+    try {
+      values[name] = decode(table, name, value)
+    }
+    catch {
+      return [invalid(`\`${name}\` has a value that the column cannot store.`), undefined]
+    }
   }
   return [undefined, values]
 }
@@ -415,7 +467,7 @@ type Write =
  * Checks one write with the rules of the definition, and returns the statements that apply it with their change log
  * entries. `overlay` holds the rows that earlier writes of the same action changed, and gets this write.
  */
-async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Refusal, undefined] | [undefined, Statement[]]> {
+async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads): Promise<[Refusal, undefined] | [undefined, Statement[]]> {
   const { db, table, scope } = scoped
   const keyColumn = column(table, table.key)
   const target: SQLiteTable = table.table
@@ -430,7 +482,7 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Re
       // A list does not say which value to use, such as which team: the client must set one.
       else if (!(name in row)) return [{ error: syncErrors.SYNC_OUT_OF_SCOPE({ column: name }) }, undefined]
     }
-    if (await currentRow(scoped, overlay, key, false)) return [{ error: syncErrors.SYNC_KEY_EXISTS({ key }) }, undefined]
+    if (await currentRow(scoped, overlay, key, false, reads)) return [{ error: syncErrors.SYNC_KEY_EXISTS({ key }) }, undefined]
     const stopped = await check(scoped, "insert", row)
     if (stopped) return [stopped, undefined]
     overlay.set(key, row)
@@ -438,7 +490,7 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay): Promise<[Re
   }
   const { key } = write
   if (typeof key !== "string" || !key) return [invalid("An update or a delete needs `key`."), undefined]
-  const current = await currentRow(scoped, overlay, key, true)
+  const current = await currentRow(scoped, overlay, key, true, reads)
   const inScope = and(eq(keyColumn, key), scopeSql(table, scope.values))
   if (write.op === "delete") {
     // Deleting a missing row changes nothing, so a repeated delete is not an error.
@@ -529,7 +581,7 @@ function actionRefusal(name: string, error: unknown): Refusal {
  * Runs an action: it collects the writes, checks each with the rules of browser writes, and applies them with the
  * ledger entry in one atomic batch. One refused write refuses the whole action.
  */
-async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "action" }>): Promise<[Refusal, undefined] | [undefined, { statements: Statement[], result: unknown }]> {
+async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "action" }>, reads: Reads): Promise<[Refusal, undefined] | [undefined, { statements: Statement[], result: unknown }]> {
   const actions: unknown = scoped.definition.options.actions
   const action: unknown = actions && typeof actions === "object" && Object.hasOwn(actions, mutation.name) ? Reflect.get(actions, mutation.name) : undefined
   if (!isAction(action)) return [invalid(`This Sync definition has no action named ${JSON.stringify(mutation.name)}.`), undefined]
@@ -542,7 +594,7 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
   }
   const context: SyncActionContext<Record<string, unknown>> = {
     ...scoped.context,
-    get: async key => await readRow(scoped, key, true),
+    get: async key => await readRow(scoped, key, true, reads),
     insert: (value) => {
       const given: unknown = value[table.key]
       const key = typeof given === "string" && given ? given : crypto.randomUUID()
@@ -568,43 +620,57 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
   const overlay: Overlay = new Map()
   const statements: Statement[] = []
   for (const write of writes) {
-    const [refused, planned] = await plan(scoped, write, overlay)
+    const [refused, planned] = await plan(scoped, write, overlay, reads)
     if (refused) return [refused, undefined]
     statements.push(...planned)
   }
   return [undefined, { statements, result: toJson(result) }]
 }
 
+/** Attempts of one mutation whose reads changed before its batch ran. Then the push fails, and the client retries. */
+const maxConflicts = 3
+
 /**
  * Applies one mutation in one atomic batch. The ledger insert comes first, so a mutation id that is there already fails
- * the whole batch, and the rows stay as they are.
+ * the whole batch, and the rows stay as they are. When a write that ran at the same time changed a row that the checks
+ * read, the batch fails, and the mutation is checked again from the start.
  */
 async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutationResult> {
   const { id } = mutation
   if (await applied(scoped, id)) return { id, status: "duplicate" }
-  const { db, name, now } = scoped
-  const ledger = db.insert(syncMutations).values({ id, name, createdAt: now })
-  try {
+  // An action is server code, so `write: false` stops only the writes of the browser.
+  if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
+  for (let attempt = 1; ; attempt++) {
+    const reads: Reads = new Map()
+    let statements: Statement[]
+    let result: unknown
     if (mutation.op === "action") {
-      const [refused, done] = await runAction(scoped, mutation)
+      const [refused, done] = await runAction(scoped, mutation, reads)
       if (refused) return rejected(id, refused)
-      await db.batch([ledger, ...done.statements])
-      return done.result === undefined ? { id, status: "applied" } : { id, status: "applied", result: done.result }
+      statements = done.statements
+      result = done.result
     }
-    // An action is server code, so `write: false` stops only the writes of the browser.
-    if (scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
-    const [refused, statements] = await plan(scoped, mutation, new Map())
-    if (refused) return rejected(id, refused)
-    await db.batch([ledger, ...statements])
-    return { id, status: "applied" }
-  }
-  catch (error) {
-    // A push that runs at the same time applied the same id first, or inserted the same key.
-    if (await applied(scoped, id)) return { id, status: "duplicate" }
-    if (mutation.op === "insert" && typeof mutation.value[scoped.table.key] === "string" && await readRow(scoped, String(mutation.value[scoped.table.key]), false)) {
-      return rejected(id, { error: syncErrors.SYNC_KEY_EXISTS({ key: String(mutation.value[scoped.table.key]) }) })
+    else {
+      const [refused, planned] = await plan(scoped, mutation, new Map(), reads)
+      if (refused) return rejected(id, refused)
+      statements = planned
     }
-    throw error
+    const guard = guardSql(scoped, reads)
+    try {
+      await scoped.db.batch([ledgerStatement(scoped, id, guard), ...statements])
+      return result === undefined ? { id, status: "applied" } : { id, status: "applied", result }
+    }
+    catch (error) {
+      // A push that runs at the same time applied the same id first.
+      if (await applied(scoped, id)) return { id, status: "duplicate" }
+      if (guard && !await guardHolds(scoped, guard)) {
+        if (attempt < maxConflicts) continue
+        throw syncErrors.SYNC_SERVER_ERROR({ message: `Other writes changed the rows of the mutation ${JSON.stringify(id)} ${maxConflicts} times while it was checked. Send it again.` })
+      }
+      const message = rowErrorMessage(error)
+      if (message) return rejected(id, invalid(`The Database refused the row: ${message}`))
+      throw error
+    }
   }
 }
 

@@ -113,6 +113,16 @@ function isMergeable(write: SyncQueuedWrite | undefined): boolean {
   return write?.op === "update" && !write.sent && !write.error
 }
 
+/**
+ * `true` when a new update may replace the stored update `target`: it is mergeable, and no later write of the queue
+ * changes the same row or is an action. Another tab may have queued such a write, and a merge would send the fields of
+ * `target` after it.
+ */
+function canMerge(target: SyncQueuedWrite | undefined, later: readonly SyncQueuedWrite[]): boolean {
+  if (!target || !isMergeable(target)) return false
+  return !later.some(write => write.seq > target.seq && (write.op === "action" || write.key === target.key))
+}
+
 /** Applies the row part of `change`. A changed row keeps its place, and a new row goes last. */
 function applyRowChange(rows: Map<SyncKey, SyncRow>, change: SyncStorageChange): Map<SyncKey, SyncRow> {
   const next = change.reset ? new Map<SyncKey, SyncRow>() : rows
@@ -169,7 +179,7 @@ function createMemoryStorage(): SyncStorage {
       const bySeq = new Map(current.writes.map(write => [write.seq, write]))
       const result: SyncWriteResult = {
         seqs: (copy.add ?? []).map(() => ++seq),
-        unmerged: (copy.merge ?? []).filter(merge => !isMergeable(bySeq.get(merge.seq))).map(merge => merge.index),
+        unmerged: (copy.merge ?? []).filter(merge => !canMerge(bySeq.get(merge.seq), current.writes)).map(merge => merge.index),
         gone: (copy.sent ?? []).filter(sent => !bySeq.has(sent)),
       }
       names.set(id, {
@@ -201,5 +211,5 @@ function createMemoryStorage(): SyncStorage {
   }
 }
 
-export { addedWrites, applyQueueChange, applyRowChange, createMemoryStorage, isMergeable, resultLifetime }
+export { addedWrites, applyQueueChange, applyRowChange, canMerge, createMemoryStorage, isMergeable, resultLifetime }
 export type { SyncMerge, SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange, SyncStored, SyncWriteResult }

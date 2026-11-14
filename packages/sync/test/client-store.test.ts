@@ -58,6 +58,17 @@ describe("start and pull", () => {
     expect(store.get("a")?.title).toBe("Oat milk")
   })
 
+  it("resolves a write with its row when the row comes on a later page of the push answer", async () => {
+    const h = setup()
+    const { store } = h.open()
+    await store.refresh()
+    h.server.pageSize = 1
+    seed(h, [{ id: "a", ownerId: "ada", title: "1" }, { id: "b", ownerId: "ada", title: "2" }, { id: "c", ownerId: "ada", title: "3" }])
+    const row = await store.insert({ id: "d", title: "4" })
+    expect(row).toMatchObject({ id: "d", title: "4" })
+    expect(store.getState().rows.map(item => item.id)).toEqual(["a", "b", "c", "d"])
+  })
+
   it("pulls again while the server has more changes", async () => {
     const h = setup()
     const { store } = h.open()
@@ -704,6 +715,51 @@ describe("coalescing and pending", () => {
     expect(h.server.applied.filter(mutation => mutation.op === "update").map(mutation => mutation.op === "update" && mutation.patch)).toEqual([{ title: "first" }, { done: true }])
   })
 
+  it("never replaces an update of another tab, so that tab's handle waits for the server", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    const one = h.open()
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    h.server.offline = true
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    const first = one.store.update("a", { title: "Oat milk" })
+    await until(() => two.store.pending("a"))
+    const second = two.store.update("a", { done: true })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(first.state).toBe("queued")
+    h.server.offline = false
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    expect(await first).toMatchObject({ title: "Oat milk" })
+    expect(await second).toMatchObject({ title: "Oat milk", done: true })
+    expect(h.server.applied.map(mutation => mutation.op === "update" && mutation.patch)).toEqual([{ title: "Oat milk" }, { done: true }])
+  })
+
+  it("never merges over a newer update of the same row that another tab stored", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk", done: false }])
+    const one = h.open()
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    h.server.offline = true
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    // The tabs do not hear each other, as when BroadcastChannel is late.
+    const tabs = [...h.bus.tabs]
+    h.bus.tabs.clear()
+    const tick = () => new Promise(resolve => setTimeout(resolve, 5))
+    void one.store.update("a", { title: "Oat milk" }).then(undefined, () => undefined)
+    await tick()
+    void two.store.update("a", { title: "Soy milk" }).then(undefined, () => undefined)
+    await tick()
+    void one.store.update("a", { done: true }).then(undefined, () => undefined)
+    await tick()
+    for (const tab of tabs) h.bus.tabs.add(tab)
+    h.server.offline = false
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    await until(() => one.store.getState().queued === 0 && two.store.getState().queued === 0)
+    expect(h.server.rows.get("a")).toMatchObject({ title: "Soy milk", done: true })
+  })
+
   it("tells which rows have queued writes", async () => {
     const h = setup()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }, { id: "b", ownerId: "ada", title: "Eggs" }])
@@ -1003,6 +1059,27 @@ describe("persistence and tabs", () => {
     first.store.destroy()
     await until(() => h.server.rows.has(write.key))
     await until(() => other.store.getState().queued === 0 && other.store.get(write.key) !== undefined)
+  })
+
+  it("keeps a write made before the stored copy is read with the stored account", async () => {
+    const h = setup()
+    const first = h.open()
+    await first.store.refresh()
+    first.store.destroy()
+    h.server.offline = true
+    // A new page: the write comes before the store has read its stored copy.
+    const { store } = h.open()
+    const insert = store.insert({ title: "Ada's" })
+    insert.then(undefined, () => undefined)
+    await store.refresh()
+    h.server.user = "bob"
+    h.server.offline = false
+    await store.refresh()
+    expect(h.server.applied).toEqual([])
+    expect(insert.state).toBe("queued")
+    h.server.user = "ada"
+    await store.refresh()
+    expect(await insert).toMatchObject({ title: "Ada's", ownerId: "ada" })
   })
 
   it("keeps an insert made before the first pull, and sends it with the scope of that pull", async () => {

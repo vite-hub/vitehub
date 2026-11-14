@@ -139,15 +139,17 @@ describe("pushChange", () => {
 })
 
 describe("mergeTarget", () => {
-  it("finds the last unsent update of the key, and stops at another write of the key or at an action", () => {
+  it("finds the last unsent update of the key that this tab made, and stops at another write of the key or at an action", () => {
     const first = write(1, { op: "update", key: "a", patch: { title: "1" } })
+    const own = new Set([first.id])
     const other = write(2, { op: "update", key: "b", patch: { title: "2" } })
-    expect(mergeTarget([first, other], "a", meta.account, new Set())).toBe(first)
-    expect(mergeTarget([first, other], "a", meta.account, new Set(["m1"]))).toBeUndefined()
-    expect(mergeTarget([first, write(3, { op: "delete", key: "a" })], "a", meta.account, new Set())).toBeUndefined()
-    expect(mergeTarget([first, write(3, { op: "action", key: "m3", name: "rename", args: {} })], "a", meta.account, new Set())).toBeUndefined()
-    expect(mergeTarget([write(1, { op: "insert", key: "a", value: {} })], "a", meta.account, new Set())).toBeUndefined()
-    expect(mergeTarget([first, write(4, { op: "update", key: "a", patch: {}, error: { code: "SYNC_INVALID", message: "No." } })], "a", meta.account, new Set())).toBe(first)
+    expect(mergeTarget([first, other], "a", meta.account, new Set(), own)).toBe(first)
+    expect(mergeTarget([first, other], "a", meta.account, new Set(["m1"]), own)).toBeUndefined()
+    expect(mergeTarget([first, write(3, { op: "delete", key: "a" })], "a", meta.account, new Set(), own)).toBeUndefined()
+    expect(mergeTarget([first, write(3, { op: "action", key: "m3", name: "rename", args: {} })], "a", meta.account, new Set(), own)).toBeUndefined()
+    expect(mergeTarget([write(1, { op: "insert", key: "a", value: {} })], "a", meta.account, new Set(), own)).toBeUndefined()
+    expect(mergeTarget([first, write(4, { op: "update", key: "a", patch: {}, error: { code: "SYNC_INVALID", message: "No." } })], "a", meta.account, new Set(), own)).toBe(first)
+    expect(mergeTarget([first, other], "a", meta.account, new Set(), new Set())).toBeUndefined()
   })
 })
 

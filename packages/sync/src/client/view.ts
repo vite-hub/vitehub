@@ -233,16 +233,17 @@ function pushChange(sent: readonly SyncQueuedWrite[], results: readonly SyncMuta
 
 /**
  * The unsent update that a new update of `key` can merge into: the last active write that changes `key`, when it is an
- * update that no tab sent. An action in between stops the search, since its server code may read the row. A sent
- * write may be on the server already, so a merge into it would send its old values again with a new id.
+ * update that no tab sent, and that this tab made and waits for (`own`). An action in between stops the search, since
+ * its server code may read the row. A sent write may be on the server already, so a merge into it would send its old
+ * values again with a new id. A write of another tab keeps its id, so that tab can settle it.
  */
-function mergeTarget<TWrite extends SyncNewWrite>(writes: readonly TWrite[], key: SyncKey, account: string | undefined, sending: ReadonlySet<string>): TWrite | undefined {
+function mergeTarget<TWrite extends SyncNewWrite>(writes: readonly TWrite[], key: SyncKey, account: string | undefined, sending: ReadonlySet<string>, own: { has: (id: string) => boolean }): TWrite | undefined {
   for (let index = writes.length - 1; index >= 0; index--) {
     const write = writes[index]!
     if (!isActive(write, account)) continue
     if (write.op === "action") return undefined
     if (write.key !== key) continue
-    return write.op === "update" && !write.sent && !sending.has(write.id) ? write : undefined
+    return write.op === "update" && !write.sent && !sending.has(write.id) && own.has(write.id) ? write : undefined
   }
   return undefined
 }

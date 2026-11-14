@@ -211,6 +211,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let error: SyncError | null = null
   let live = false
   let state!: SyncState<SyncRow>
+  // `true` once the first read of the stored copy ended, also when it failed.
+  let started = false
 
   // Each change in memory moves `version`, so a storage read that started before it does not overwrite it.
   let version = 0
@@ -418,6 +420,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   function flush(): void {
     flushQueued = false
     if (!local.length && !removals.length) return
+    // A write made before the stored copy was read gets its account from that copy, not from the next pull, which can
+    // come from another account.
+    if (!started) {
+      flushQueued = true
+      void loading.then(flush)
+      return
+    }
     const batch = local.filter(write => !busy.has(write.id)).map(write => write.account === null && meta ? { ...write, account: meta.account } : write)
     const pendingMerges = new Map<number, [string, PendingMerge]>()
     const merge: SyncMerge[] = []
@@ -515,7 +524,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     for (;;) {
       const at = version
       const stored = await storage.read(id)
-      if (destroyed) return
+      // After `destroy()`, the copy in memory still gets the account, for the writes that the store flushes then.
+      if (destroyed) {
+        meta ??= stored.meta
+        return
+      }
       if (at !== version) continue
       meta = stored.meta
       confirmed = new Map(stored.rows)
@@ -637,8 +650,16 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
-    await commit({ ...pulled, remove: settled.remove, update: [...settled.update, ...pulled.update ?? []], ...(stored.length ? { results: stored } : {}) })
-    if (answer.body.pull.more) wantPull = true
+    const done: SyncStorageChange = { remove: settled.remove, ...(stored.length ? { results: stored } : {}) }
+    if (!answer.body.pull.more) {
+      await commit({ ...pulled, ...done, update: [...settled.update, ...pulled.update ?? []] })
+      return true
+    }
+    // The rows of the applied writes can be on a later page. The writes stay in the outbox, and show, until the pulls
+    // bring their rows. A pull that fails leaves them sent, and the next push gets `duplicate` for them.
+    await commit({ ...pulled, update: [...settled.update, ...pulled.update ?? []] })
+    if (!(await pull())) return false
+    await commit(done)
     return true
   }
 
@@ -875,7 +896,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   publish()
-  const loading = reload().catch(() => undefined)
+  const loading = reload().catch(() => undefined).then(() => {
+    started = true
+  })
   const stopEvents = environment.listen((event) => {
     if (event === "hidden") {
       stopLive()
@@ -946,7 +969,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     update(key, patch) {
       const fields = { id: randomUUID(), account: meta?.account ?? null, key, op: "update" as const }
       // A later patch of the same row merges into the update that waits for it, so one push sends one update.
-      const target = mergeTarget([...writes, ...local], key, meta?.account, busy)
+      const target = mergeTarget([...writes, ...local], key, meta?.account, busy, pending)
       if (target?.op !== "update") return enqueue({ ...fields, patch: { ...patch } })
       const write = { ...fields, patch: { ...target.patch, ...patch } }
       assertOpen()

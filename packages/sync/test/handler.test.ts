@@ -183,6 +183,49 @@ describe("push", () => {
     expect(await app.rows()).toEqual([{ id: "a1", ownerId: "alice", title: "Milk", done: false }])
   })
 
+  it("rejects a row that the Database refuses, and applies the next mutations", async () => {
+    const app = await setup()
+    const alice = await app.start("alice")
+    const { status, body } = await app.push("alice", { ...as(alice), mutations: [insert("m1", { id: "bad" }), insert("m2", { id: "good", title: "ok" })] })
+    expect(status).toBe(200)
+    expect(body.results[0]).toMatchObject({ id: "m1", status: "rejected", error: { code: "SYNC_INVALID", message: expect.stringContaining("NOT NULL") } })
+    expect(body.results[1]).toEqual({ id: "m2", status: "applied" })
+    expect(await app.rows()).toEqual([{ id: "good", ownerId: "alice", title: "ok", done: false }])
+  })
+
+  it("checks a write again when a write at the same time changed the row that `write` saw", async () => {
+    // Two updates that each pass alone, and fail together: a locked title on a done row.
+    let waiting: (() => void)[] = []
+    let hold = true
+    const app = await setup({
+      write: async ({ row }) => {
+        if (hold) {
+          await new Promise<void>((resolve) => {
+            waiting.push(resolve)
+            if (waiting.length === 2) {
+              for (const release of waiting) release()
+              waiting = []
+              hold = false
+            }
+          })
+        }
+        return !(row.title === "locked" && row.done)
+      },
+    })
+    const alice = await app.start("alice")
+    hold = false
+    await app.push("alice", { ...as(alice), mutations: [insert("m1", { id: "a1", title: "open" })] })
+    hold = true
+    const [first, second] = await Promise.all([
+      app.push("alice", { ...as(alice), mutations: [update("m2", "a1", { title: "locked" })] }),
+      app.push("alice", { ...as(alice), mutations: [update("m3", "a1", { done: true })] }),
+    ])
+    const statuses = [first.body.results[0]!.status, second.body.results[0]!.status].sort()
+    expect(statuses).toEqual(["applied", "rejected"])
+    const [row] = await app.rows()
+    expect(row!.title === "locked" && row!.done).toBe(false)
+  })
+
   it("applies a mutation id once, so a retry after a lost answer is a duplicate", async () => {
     const app = await setup()
     const alice = await app.start("alice")

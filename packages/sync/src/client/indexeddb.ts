@@ -2,7 +2,7 @@
 // [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
 // mutation id. Each change is one transaction. A store is a route plus a subset, such as
 // `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
-import { isMergeable, resultLifetime } from "./storage.ts"
+import { canMerge, resultLifetime } from "./storage.ts"
 
 import type { SyncKey, SyncRow } from "../protocol.ts"
 import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResult } from "./storage.ts"
@@ -203,14 +203,16 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
           else if (!write.sent) outbox.put({ ...write, sent: true } satisfies OutboxRecord)
         }
       }
-      // A merge reads its target first, so a tab that marked the target as sent in an earlier transaction wins.
+      // A merge reads its target and the later writes first, so a tab that marked the target as sent, or queued a write
+      // of the same row, in an earlier transaction wins.
       const merges = change.merge ?? []
       const targets = merges.map(merge => outbox.get(merge.seq))
+      const later: OutboxRecord[] = []
       const add = () => {
         const unmerged = new Map<number, SyncRow>()
         merges.forEach((merge, index) => {
           const target = targets[index]!.result as OutboxRecord | undefined
-          if (target?.store === id && isMergeable(target)) {
+          if (target?.store === id && canMerge(target, later.filter(write => write.store === id))) {
             outbox.delete(merge.seq)
             return
           }
@@ -225,7 +227,15 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
           }
         })
       }
-      if (targets.length) targets.at(-1)!.onsuccess = add
+      if (merges.length) {
+        const scan = outbox.openCursor(IDBKeyRange.lowerBound(Math.min(...merges.map(merge => merge.seq)), true))
+        scan.onsuccess = () => {
+          const cursor = scan.result
+          if (!cursor) return add()
+          later.push(cursor.value as OutboxRecord)
+          cursor.continue()
+        }
+      }
       else add()
       if (change.results?.length) {
         const results = transaction.objectStore("results")
