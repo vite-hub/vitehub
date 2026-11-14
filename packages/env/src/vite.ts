@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
 import {
@@ -48,6 +49,7 @@ import type {
   EnvRuntimeRegistryValue,
 } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -110,9 +112,12 @@ function resolveDeclarations(options: EnvDeclarations, config: object): EnvDecla
 
 export type EnvVitePlugin = Plugin & {
   api: EnvVitePluginAPI
-  /** Contributes `vitehub env inspect` and `vitehub env check`. */
-  vitehub: { cli: () => ViteHubCliContributor }
+  /** Contributes `vitehub env inspect`, `vitehub env check`, and the `env.inspect` operation. */
+  vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
+
+// Generated code imports the operations module by path, so it needs no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
 
 interface ResolvedEnvState {
   diagnosticsText: string | undefined
@@ -258,6 +263,8 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     },
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
+      // The Console, `vitehub env status`, and agents run these on the signed RPC endpoint of the app.
+      operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
     // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
     configEnvironment(name, config) {
@@ -848,6 +855,7 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  names?: readonly string[]`,
+    `${prefix}  name?: string`,
     `${prefix}  path?: string`,
     `${prefix}  provider?: string`,
     `${prefix}  required: boolean`,
