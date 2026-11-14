@@ -77,7 +77,7 @@ describe("built-in host integration", () => {
       // An app that adds hubAgent() itself is not missing the option.
       await expect(resolveConfig({
         root,
-        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), { name: "@vite-hub/agent/vite" }],
+        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), Promise.resolve({ name: "@vite-hub/agent/vite" })],
       }, "build")).resolves.toBeTruthy()
     }
     if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })

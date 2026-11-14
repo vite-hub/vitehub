@@ -672,11 +672,6 @@ function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
   return [...names]
 }
 
-function hasPlugin(options: unknown, name: string): boolean {
-  if (Array.isArray(options)) return options.some(option => hasPlugin(option, name))
-  return isRecord(options) && options.name === name
-}
-
 function findEnvPlugin(options: unknown): EnvVitePlugin | undefined {
   if (Array.isArray(options)) {
     for (const option of options) {
@@ -1218,11 +1213,11 @@ const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 function agentOptionMissingPlugin(): Plugin {
   return {
     name: "vite-hub/agent-option-missing",
-    config(config) {
+    configResolved(config) {
       // An app can add hubAgent() itself.
-      if (hasPlugin(config.plugins, "@vite-hub/agent/vite")) return
-      const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
-      // SAFETY: ViteHub hosts add this private server-directory symbol before plugins read the config.
+      if (config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      const root = resolveViteHubProjectRoot(config.root)
+      // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]
       const definition = serverDirs.flatMap(directory => listSourceFiles(resolve(root, directory, "agents")))[0]
       if (!definition) return
