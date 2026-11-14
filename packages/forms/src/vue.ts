@@ -1,22 +1,100 @@
 import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, validate } from "@formisch/vue"
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
 
-import { formRoute, submitForm } from "./client.ts"
+import { fieldErrors, formRoute, submitForm } from "./client.ts"
 import { unwrap } from "./schema.ts"
 
 import type { FormSchema, FormStore } from "@formisch/vue"
 import type { PropType, Ref, VNode } from "vue"
-import type { FormAnchor, FormSubmitError, SubmitFormOptions } from "./client.ts"
+import type { FormAnchor, FormFieldErrors, FormSubmitError, SubmitFormOptions } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
 
-export { FormSubmitError, formRoute, submitForm } from "./client.ts"
-export type { FormAnchor, FormIssue, SubmitFormOptions } from "./client.ts"
+export { FormSubmitError, fieldErrors, formRoute, submitForm } from "./client.ts"
+export type { FormAnchor, FormFieldErrors, FormIssue, SubmitFormOptions } from "./client.ts"
 
 /** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
 interface QueryRouter {
   currentRoute: { value: { query: Record<string, unknown>, hash: string } }
   isReady: () => Promise<void>
   replace: (to: { query: Record<string, unknown>, hash: string }) => Promise<unknown>
+}
+
+/** What `useFormAction()` returns. */
+export interface FormActionState {
+  /**
+   * Sends the controls of the form by their `name`: `<form @submit="submit">`. It cancels the browser post, so give
+   * the form `method="post"` and `:action="formRoute(name)"` and it still works before the app loads.
+   */
+  submit: (event: SubmitEvent) => Promise<void>
+  /** The server error of each field, by `name`, until the next send or `clear()`. */
+  errors: Ref<FormFieldErrors>
+  /** The id of the stored submission after a success. */
+  sent: Ref<string | true | undefined>
+  /** The last failure, such as the rate limit or a network error. `error.message` is the message for the whole form. */
+  error: Ref<FormSubmitError | undefined>
+  /** True while the form sends. */
+  pending: Ref<boolean>
+  /** Removes the error of one field, such as when the person edits it, or every error without a name. */
+  clear: (name?: string) => void
+}
+
+/** The first control of the form, in page order, that has one of these names. */
+function firstControl(form: HTMLFormElement, names: FormFieldErrors): HTMLElement | undefined {
+  for (const element of form.elements) {
+    if (element instanceof HTMLElement && "name" in element && typeof element.name === "string" && element.name in names) return element
+  }
+  return undefined
+}
+
+/**
+ * Sends a native `<form>` to `server/forms/<name>.ts`. The server validates the form schema and answers a 400 with the
+ * error of each field, which `errors` holds by the control's `name`. Focus moves to the first field with an error,
+ * after it renders. A success resets the form.
+ *
+ * ```vue
+ * <form method="post" :action="formRoute('contact')" @submit="submit">
+ *   <Field name="email" :invalid="errors.email ? true : undefined">
+ *     <Input type="email" required @value-change="clear('email')" />
+ *     <FieldError v-if="errors.email" match>{{ errors.email }}</FieldError>
+ *   </Field>
+ * </form>
+ * ```
+ */
+export function useFormAction(name: string, options: SubmitFormOptions = {}): FormActionState {
+  const errors = ref<FormFieldErrors>({})
+  const sent = ref<string | true>()
+  const error = ref<FormSubmitError>()
+  const pending = ref(false)
+  async function submit(event: SubmitEvent) {
+    event.preventDefault()
+    // A second click on a slow network would store the message twice.
+    if (pending.value) return
+    // `currentTarget` is null after the first await.
+    const form = event.currentTarget
+    if (!(form instanceof HTMLFormElement)) return
+    pending.value = true
+    sent.value = undefined
+    error.value = undefined
+    errors.value = {}
+    // The submitter's own name and value count, as in a browser post. `FormData` throws for a submitter of another form.
+    const submitter = event.submitter && "form" in event.submitter && event.submitter.form === form ? event.submitter : null
+    const [failure, data] = await submitForm(name, new FormData(form, submitter), options).finally(() => { pending.value = false })
+    if (!failure) {
+      sent.value = data.id ?? true
+      form.reset()
+      return
+    }
+    error.value = failure
+    errors.value = fieldErrors(failure)
+    // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
+    await nextTick()
+    firstControl(form, errors.value)?.focus()
+  }
+  function clear(field?: string) {
+    if (field === undefined) errors.value = {}
+    else if (field in errors.value) errors.value = Object.fromEntries(Object.entries(errors.value).filter(([key]) => key !== field))
+  }
+  return { submit, errors, sent, error, pending, clear }
 }
 
 /** What `useFormSubmit()` returns. */

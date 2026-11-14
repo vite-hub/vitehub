@@ -197,10 +197,19 @@ describe("resolveAuthViteConfig", () => {
         name: "default",
         source: "server-auth",
       },
+      implicitMemory: true,
       rootDir,
       route: "/api/auth",
       tables: false,
     })
+  })
+
+  it("accepts database: \"memory\" as an explicit memory store", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  database: 'memory',"])
+    const config = resolveAuthViteConfig(undefined, rootDir)
+    expect(config?.tables).toBe(false)
+    expect(config).not.toHaveProperty("implicitMemory")
   })
 
   it.each([

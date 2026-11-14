@@ -4,6 +4,7 @@ import { normalizeKey } from "unstorage"
 import type { ResolvedRedisKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { chunks } from "./batch.ts"
 import { createPortableRedisKeyLister, escapeRedisGlob, redisDeleteIfEqualsScript, redisIncrementResult, redisIncrementScript, redisTTLSeconds } from "./redis-shared.ts"
 
 /** The URL of a store: `env:<NAME>` reads the variable now, so a build never holds the URL of its server. */
@@ -20,6 +21,17 @@ function ttlMilliseconds(ttl: number): number {
   redisTTLSeconds(ttl)
   return Math.ceil(ttl * 1000)
 }
+
+/** The `PX` milliseconds of a write. Like other unstorage drivers, no TTL or 0 keeps the key. */
+function writeTTL(options: { ttl?: unknown } | undefined): number | undefined {
+  const ttl = options?.ttl
+  if (ttl === undefined || ttl === null || ttl === 0) return
+  if (typeof ttl === "number") return ttlMilliseconds(ttl)
+  throw kvErrorDiagnostics.KV_INVALID_TTL()
+}
+
+/** Keys per `MGET`, so one reply stays a moderate size. */
+const mgetBatchSize = 1000
 
 /**
  * KV over a Redis server through TCP, with `ioredis`. Each atomic operation is one command or one script. This module
@@ -57,12 +69,27 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
     options,
     hasItem: async key => await client.exists(prefixed(key)) > 0,
     getItem: async key => await client.get(prefixed(key)),
-    // Like other unstorage drivers, no TTL or 0 keeps the key.
+    async getItems(items) {
+      const values: (string | null)[] = []
+      for (const batch of chunks(items, mgetBatchSize)) values.push(...await client.mget(...batch.map(item => prefixed(item.key))))
+      return items.map((item, index) => ({ key: item.key, value: values[index] ?? null }))
+    },
     async setItem(key, value, setOptions?: { ttl?: unknown }) {
-      const ttl = setOptions?.ttl
-      if (ttl === undefined || ttl === null || ttl === 0) await client.set(prefixed(key), value)
-      else if (typeof ttl === "number") await client.set(prefixed(key), value, "PX", ttlMilliseconds(ttl))
-      else throw kvErrorDiagnostics.KV_INVALID_TTL()
+      const ttl = writeTTL(setOptions)
+      if (ttl === undefined) await client.set(prefixed(key), value)
+      else await client.set(prefixed(key), value, "PX", ttl)
+    },
+    // One pipeline, so the writes cost one round trip. It is not a transaction.
+    async setItems(items, setOptions?: { ttl?: unknown }) {
+      const pipeline = client.pipeline()
+      for (const item of items) {
+        const ttl = writeTTL({ ...setOptions, ...item.options })
+        if (ttl === undefined) pipeline.set(prefixed(item.key), item.value)
+        else pipeline.set(prefixed(item.key), item.value, "PX", ttl)
+      }
+      for (const [error] of await pipeline.exec() ?? []) {
+        if (error) throw error
+      }
     },
     async removeItem(key) {
       await client.unlink(prefixed(key))

@@ -34,8 +34,8 @@ function withoutSessionCookies(headers: Headers, names: string[]): Headers {
 
 /**
  * Applies `access.policy`. A session is created only when `allow` returns `true`. Each Better Auth request with a
- * session cookie, which includes every `getSession()` call and so every ViteHub guard, asks again once `recheck` has
- * passed for that session. A refusal deletes the session and its cookies, and the request continues signed out.
+ * session cookie or bearer credential, including every `getSession()` call and so every ViteHub guard, asks again
+ * once `recheck` has passed for that session. A refusal deletes the session and its cookies, and the request continues signed out.
  */
 export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicyPlugin {
   const recheck = policy.recheck ?? defaultRecheck
@@ -70,15 +70,28 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
     return allowed
   }
 
+  // A fresh middleware context parses the effective headers instead of the original cookie header.
+  const readToken = createAuthMiddleware(async ctx =>
+    ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret))
+
   return {
     id: accessPolicyPluginId,
     allows,
     hooks: {
       before: [{
-        matcher: context => Boolean(context.headers?.get("cookie")),
+        matcher: context => Boolean(context.headers?.get("cookie") || context.headers?.get("authorization") || context.request?.headers.get("authorization")),
         handler: createAuthMiddleware(async (ctx) => {
+          // Before-hook header replacements are deferred by Better Auth. Ask the installed bearer
+          // plugin to normalize the credential with its own signature rules, then check that session.
+          let headers = ctx.headers
+          const bearer = ctx.context.options.plugins?.find(plugin => plugin.id === "bearer")
+          for (const hook of bearer?.hooks?.before ?? []) {
+            if (!hook.matcher(ctx)) continue
+            const result = await hook.handler(ctx)
+            if (result && "context" in result && result.context?.headers) headers = result.context.headers
+          }
           const { sessionData, sessionToken } = ctx.context.authCookies
-          const token = await ctx.getSignedCookie(sessionToken.name, ctx.context.secret)
+          const token = await readToken({ ...ctx, headers })
           if (!token) return
           const stored = await ctx.context.internalAdapter.findSession(token)
           const live = stored && new Date(stored.session.expiresAt).getTime() > Date.now()
@@ -89,7 +102,7 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
           if (stored) await ctx.context.internalAdapter.deleteSession(token)
           deleteSessionCookie(ctx)
           ctx.context.session = null
-          return { context: { headers: withoutSessionCookies(ctx.headers ?? new Headers(), [sessionToken.name, sessionData.name]) } }
+          return { context: { headers: withoutSessionCookies(headers ?? new Headers(), [sessionToken.name, sessionData.name]) } }
         }),
       }],
     },

@@ -1,3 +1,4 @@
+import { bearer } from "better-auth/plugins"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -13,13 +14,14 @@ const secret = "vitehub-access-policy-test-secret-4d1c9b7e2a"
 
 interface MemoryRow { [key: string]: unknown }
 
-function createPolicyAuth(allow: AuthAccessPolicy["allow"], recheck?: number, cookieCache = false) {
+function createPolicyAuth(allow: AuthAccessPolicy["allow"], recheck?: number, cookieCache = false, bearerAuth = false) {
   const db: Record<string, MemoryRow[]> = { account: [], session: [], user: [], verification: [] }
   const definition = defineFixedAuth({
     access: { policy: { allow, ...(recheck === undefined ? {} : { recheck }) } },
     database: memoryAdapter(db),
     emailAndPassword: { enabled: true },
     secret,
+    plugins: bearerAuth ? [bearer()] : [],
     ...(cookieCache ? { session: { cookieCache: { enabled: true, maxAge: 300 } } } : {}),
   })
   return { db, definition }
@@ -92,6 +94,37 @@ describe("access.policy", () => {
     expect((await guarded(request())).status).toBe(401)
     expect(handler).toHaveBeenCalledOnce()
     expect(db.session).toHaveLength(0)
+  })
+
+  it.each([
+    ["session", true], ["guard", true], ["session", false], ["guard", false],
+  ] as const)("revokes a refused bearer-only %s request (signed: %s)", async (kind, signed) => {
+    let member = true
+    const allow = vi.fn(() => member)
+    const { db, definition } = createPolicyAuth(allow, 0, true, true)
+    const signup = await signUp(definition)
+    const token = signed ? signup.headers.get("set-auth-token")! : String(db.session![0]!.token)
+    expect(token).toBeTruthy()
+    const headers = { authorization: `Bearer ${token}`, accept: "application/json" }
+    const handler = vi.fn(() => new Response("protected"))
+    const guarded = withAuth(handler, definition)
+    const request = () => kind === "session"
+      ? handleAuthRequest(definition, new Request(`${origin}/api/auth/get-session`, { headers }))
+      : guarded(new Request(`${origin}/private`, { headers }))
+    expect((await request()).status).toBe(200)
+    member = false
+    const refused = await request()
+    if (kind === "session") {
+      expect(await refused.json()).toBeNull()
+      expect(refused.headers.getSetCookie().some(value => /session_token=;.*Max-Age=0/i.test(value))).toBe(true)
+    }
+    else expect(refused.status).toBe(401)
+    expect(allow.mock.calls.length).toBeGreaterThan(1)
+    expect(db.session).toHaveLength(0)
+    member = true
+    const replay = await request()
+    if (kind === "session") expect(await replay.json()).toBeNull()
+    else expect(replay.status).toBe(401)
   })
 
   it("keeps an allowed answer for `recheck` milliseconds", async () => {
