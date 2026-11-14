@@ -129,6 +129,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "linkedom": "^0.18.13",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -140,6 +141,7 @@
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
     "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
