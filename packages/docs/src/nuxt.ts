@@ -907,6 +907,7 @@ function stylesheet(name: string): string {
   // `@nuxt/ui` does not export its package.json, so walk up from its entry.
   let root = dirname(fileURLToPath(import.meta.resolve(name)))
   while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
+    // Internal invariant: a package that resolved has a package.json above its entry.
     if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
     root = dirname(root)
   }
