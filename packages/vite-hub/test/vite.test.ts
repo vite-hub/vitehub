@@ -2111,9 +2111,14 @@ describe("vitehub", () => {
     await expect(applyDeploymentConfig({ host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
     })
+    // ViteHub selected kv, so a KV store that cannot share counts falls back to memory with a warning.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
-      [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } },
+      [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true, provider: "kv" } },
     })
+    // An explicit kv provider gets no fallback, so the Rate Limit build fails on such a store.
+    const explicit = await applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "kv" } }, {}, "build")
+    expect(explicit).toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } } })
+    expect(explicit).not.toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true } } })
     // An explicit provider wins, and the dev server counts in memory.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
@@ -2129,7 +2134,7 @@ describe("vitehub", () => {
 
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, host: "node", rateLimit: true })
-    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", memoryFallback: true, provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

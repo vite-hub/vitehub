@@ -54,6 +54,10 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass `kv` or `kv.store(name)` from `@vite-hub/kv` as the `storage` option to `kvRateLimitDriver()`.",
     },
+    RATE_LIMIT_R0048: {
+      ...dynamicError,
+      fix: "Use a KV driver that every server process shares: Redis, a Postgres Database, or Upstash. To count in the memory of each process instead, pass `memoryFallback: true` to `setRateLimitRuntimeConfig()`.",
+    },
     RATE_LIMIT_R0047: {
       ...dynamicError,
       fix: "Enable KV in the app and build again. For a custom runtime, pass the KV driver, storage, and store name to `setRateLimitRuntimeConfig()`.",
@@ -62,5 +66,13 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_B0002: dynamicError,
     RATE_LIMIT_B0003: dynamicError,
     RATE_LIMIT_B0004: dynamicError,
+    RATE_LIMIT_B0005: {
+      ...dynamicError,
+      fix: "Use a KV driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash. Or remove `provider: 'kv'` to let ViteHub choose.",
+    },
+    RATE_LIMIT_B0006: {
+      ...dynamicError,
+      fix: "Count in a shared store: on Node, set `rateLimit: { provider: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
+    },
   },
 })
