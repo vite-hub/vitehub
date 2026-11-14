@@ -11,7 +11,7 @@ import { keepOwnClient, trackPgliteClient } from "./request-stats.ts"
 
 import type { PGlite as PgliteClient } from "@electric-sql/pglite"
 import type { AnyRelations } from "drizzle-orm"
-import type { LocalPostgresDatabase, PostgresDatabaseDefaults } from "./postgres.ts"
+import type { LocalPostgresDatabase, PostgresDatabaseDefaults, PostgresDrizzle } from "./postgres.ts"
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
 
 export interface PgliteOptions {
@@ -39,7 +39,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
   definition: PostgresDatabaseDefinition<TSchema, TRelations>,
   url: DatabaseConfigValue | undefined,
   options: PgliteOptions,
-): Promise<LocalPostgresDatabase<TSchema, TRelations> | undefined> {
+): Promise<LocalPostgresDatabase<TRelations> | undefined> {
   if (!runsOnPglite(definition.driver, resolveConfigValue(definition.connection?.url ?? url))) return
   const always = definition.driver === "pglite"
 
@@ -60,7 +60,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
   const { relations } = definition
 
   // Drizzle's queries count in the request stats. `db.$client` stays the client that Drizzle got.
-  function open(client: PgliteClient): RuntimePostgresDatabase<TSchema, TRelations> {
+  function open(client: PgliteClient): PostgresDrizzle<TRelations> {
     return keepOwnClient(drizzle({ client: trackPgliteClient(client), relations }), client)
   }
 
@@ -87,7 +87,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
     return { client, db }
   }
 
-  let folderDatabase: RuntimePostgresDatabase<TSchema, TRelations> | undefined
+  let folderDatabase: PostgresDrizzle<TRelations> | undefined
   return {
     always,
     get() {
@@ -99,7 +99,8 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
           mkdirSync(dirname(options.dataDir), { recursive: true })
           client = new PGlite(options.dataDir)
           folderClients.set(options.dataDir, client)
-          console.info(`[vitehub] Database "${definition.name}" runs on PGlite in ${options.dataDir}${always ? "" : ", because it has no `connection.url` or PG* variables"}.`)
+          const replicas = definition.connection?.replicas?.length ? " It ignores `connection.replicas`, so `db.$replica` queries PGlite too." : ""
+          console.info(`[vitehub] Database "${definition.name}" runs on PGlite in ${options.dataDir}${always ? "" : ", because it has no `connection.url` or PG* variables"}.${replicas}`)
         }
         folderDatabase = open(client)
       }

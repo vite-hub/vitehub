@@ -14,11 +14,14 @@ export function hasUpstashEnv(env: Record<string, string | undefined>): boolean 
   return Boolean(url && token)
 }
 
+/** `base` is the resolved key prefix of the store, never empty. */
 export function resolveUpstashStore(
-  config: Partial<UpstashKVStoreConfig> = {},
+  config: Partial<UpstashKVStoreConfig>,
+  base: string,
 ): ResolvedUpstashKVStoreConfig {
   return {
     driver: "upstash",
+    base,
     token: trimmed(config.token) ?? maskedUpstashRuntimeValue,
     url: trimmed(config.url) ?? maskedUpstashRuntimeValue,
   }

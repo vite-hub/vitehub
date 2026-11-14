@@ -241,8 +241,14 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   if (!parsed.dryRun) await readProvisionState(context.rootDir)
 
   const { actions, checked, warnings } = await planProvision(provider, context, options, parsed.json)
+  // A step that could not look up its resources planned nothing for them, so applying would report success for an incomplete plan.
+  const blocked = !checked && !parsed.dryRun
   if (!parsed.json) {
     if (!checked) context.stdout.write("provision: plan not checked.\n")
+    if (blocked) {
+      context.stderr.write("provision: nothing applied. Fix the warnings above, or preview with --dry-run.\n")
+      return 1
+    }
     if (!actions.length) {
       if (checked) context.stdout.write(`provision: no ${provider} resources to create.\n`)
       return 0
@@ -252,7 +258,7 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
 
   // apply() is idempotent: it skips creation when the resource exists but still returns its ids.
   let state: ProvisionState = {}
-  if (!parsed.dryRun) {
+  if (!parsed.dryRun && !blocked) {
     for (const { action } of actions) {
       const result = await action.apply()
       if (result.ids) state = mergeProvisionState(state, result.ids)
@@ -262,8 +268,10 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   if (wroteState) await writeProvisionState(context.rootDir, state)
 
   if (parsed.json) {
+    if (blocked) context.stderr.write("provision: plan not checked, nothing applied. Read warnings in the JSON result.\n")
     context.stdout.write(`${JSON.stringify({
       actions: actions.map(serializeAction),
+      checked,
       ids: state[provider] ?? {},
       mode: parsed.dryRun ? "dry-run" : "apply",
       provider,
@@ -275,7 +283,7 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   else if (wroteState) {
     context.stdout.write(`provision: wrote ids to ${PROVISION_STATE_FILE}\n`)
   }
-  return 0
+  return blocked ? 1 : 0
 }
 
 async function runProvisionStatus(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
