@@ -19,7 +19,7 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
   if (pathname.startsWith("/invite/")) return "invite"
   const cookies = request.headers.get("cookie") ?? ""
   if (!sessionCookie.test(cookies)) return "sign-in"
-  if (/^\/(?:home|team|settings)\/?$/.test(pathname)) return "shell"
+  if (/^\/(?:home|team|team-settings|settings)\/?$/.test(pathname)) return "shell"
   if (pathname === "/") return appView.test(cookies) ? "app" : "shell"
   // Other paths, such as /logs, are pages of an open app.
   return "app"
@@ -28,7 +28,7 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
 /** The page with the first paint of the request's view. A page of the sidebar also marks its row. */
 export function renderConsolePage(html: string, request: Request): string {
   const boot = consolePageBoot(request)
-  const page = boot === "shell" ? /^\/(home|team|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
+  const page = boot === "shell" ? /^\/(home|team|team-settings|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
   return html.replace('data-vitehub-boot="app" data-vitehub-page=""', `data-vitehub-boot="${boot}" data-vitehub-page="${page}"`)
 }
 
