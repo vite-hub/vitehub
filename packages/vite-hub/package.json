@@ -232,6 +232,11 @@
       "import": "./dist/bundle.js",
       "default": "./dist/bundle.js"
     },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js",
+      "default": "./dist/cache.js"
+    },
     "./channels": {
       "types": "./dist/channels.d.ts",
       "import": "./dist/channels.js",
@@ -962,6 +967,7 @@
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
+    "unstorage": "catalog:storage",
     "uqr": "catalog:ui",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",

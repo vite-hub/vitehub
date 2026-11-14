@@ -4,7 +4,7 @@ import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 
-import { resolveCacheStorage } from "../src/cache.ts"
+import { resolveCacheStorage } from "../src/cache-storage.ts"
 import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { optionalFeaturePackages } from "../src/internal/optional-owners.ts"
 

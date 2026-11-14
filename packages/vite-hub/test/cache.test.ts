@@ -1,7 +1,7 @@
 import { kvStorageDriver as kvCacheDriver } from "@vite-hub/kv/vite"
 import { describe, expect, it } from "vitest"
 
-import { applyCacheStorage, resolveCacheStorage } from "../src/cache.ts"
+import { applyCacheStorage, resolveCacheStorage } from "../src/cache-storage.ts"
 
 describe("resolveCacheStorage", () => {
   it("applies explicit binding, namespace, and base options", () => {

@@ -4120,6 +4120,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      unstorage:
+        specifier: catalog:storage
+        version: 2.0.0-beta.0
       uqr:
         specifier: catalog:ui
         version: 0.1.3

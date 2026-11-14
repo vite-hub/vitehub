@@ -15,6 +15,8 @@ export const viteHubServerImports = {
   auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
   blob: { "vite-hub/blob": ["blob"] },
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
+  // `defineCachedFunction` and `defineCachedHandler` keep Nitro's auto-imports. Import the tagged ones from `vite-hub/cache`.
+  cache: { "vite-hub/cache": ["invalidateTag"] },
   channels: { "vite-hub/channels": ["defineChannel", "useChannel"] },
   connections: { "vite-hub/connections": ["defineConnection"], "vite-hub/connections/server": ["useConnection"] },
   database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
@@ -38,6 +40,7 @@ interface ServerImportEntries {
   "vite-hub/auth/server": typeof import("./auth/server.ts")
   "vite-hub/blob": typeof import("./blob.ts")
   "vite-hub/browser": typeof import("./browser.ts")
+  "vite-hub/cache": typeof import("./cache.ts")
   "vite-hub/channels": typeof import("./channels.ts")
   "vite-hub/connections": typeof import("./connections.ts")
   "vite-hub/connections/server": typeof import("./connections/server.ts")

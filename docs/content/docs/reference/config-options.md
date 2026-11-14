@@ -71,7 +71,7 @@ Use the ViteHub `cache` integration when Nitro cache storage should use a host-a
 
 Read the [configuration reference](/docs/reference/config-options#vite-integration-options) and the [host guide](/docs/frameworks-hosts). The integration selects Cloudflare KV, Vercel runtime cache, Deno KV, or local filesystem storage from the host and options.
 
-Keep cache keys, expiry, and invalidation in application code. A `nitro.kv` (`nitro.storage` in Nuxt) cache mount takes precedence over the ViteHub cache option. Netlify requires an explicit supported arrangement.
+Keep cache keys, expiry, and invalidation in application code. To clear related entries together, use `tags` and `invalidateTag()` from `vite-hub/cache`. A `nitro.kv` (`nitro.storage` in Nuxt) cache mount takes precedence over the ViteHub cache option. Netlify requires an explicit supported arrangement.
 
 Prove a miss, a hit, expiry or invalidation, and the selected host output. Never use cache as the only copy of data that must survive eviction.
 ::
