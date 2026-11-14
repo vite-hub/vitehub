@@ -75,20 +75,24 @@ export async function resolveGitHubMergeConflicts(target: string, git: GitHubCon
     if (blocking.length) lockfile = `dependency inputs remain conflicted: ${blocking.join(", ")}`;
     else if (!sides) lockfile = "the lockfile was added or deleted on one side";
     else if (options.regenerateLockfile === false) lockfile = "the host does not run a package manager";
+    else if (parseAllDocuments(sides[2]).some(document => document.has("pnpmfileChecksum"))) lockfile = "the lockfile depends on a pnpmfile, which the host does not run";
     else {
       const path = join(target, "pnpm-lock.yaml");
       const conflictedText = await readFile(path);
+      let regenerated: string | undefined;
       try {
         await writeFile(path, sides[2]);
-        const regenerated = await (options.regenerateLockfile ?? (directory => regenerateGitHubPnpmLockfile(directory, options.signal, { slots: options.slots })))(target);
-        const lost = lostResolutions(sides[0], sides[1], regenerated);
-        if (lost.length) throw new Error(`regeneration dropped resolutions the PR changed: ${lost.slice(0, 5).join(", ")}${lost.length > 5 ? ` and ${lost.length - 5} more` : ""}`);
-        await stage("pnpm-lock.yaml", regenerated, "pnpm-lockfile");
+        regenerated = await (options.regenerateLockfile ?? (directory => regenerateGitHubPnpmLockfile(directory, options.signal, { slots: options.slots })))(target);
       } catch (error) {
         if (options.signal?.aborted) throw error;
+        lockfile = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 300);
+      }
+      const lost = regenerated === undefined ? undefined : lockfileChoices(sides[0], sides[1], sides[2], regenerated);
+      if (lost && !lost.length) await stage("pnpm-lock.yaml", regenerated!, "pnpm-lockfile");
+      else {
+        if (lost) lockfile = `the PR's lockfile choices conflict with the base or are missing after regeneration: ${lost.slice(0, 5).join(", ")}${lost.length > 5 ? ` and ${lost.length - 5} more` : ""}`;
         // The index still holds the unmerged stages; restore the markers the model resolves.
         await writeFile(path, conflictedText);
-        lockfile = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 300);
       }
     }
   }
@@ -127,23 +131,56 @@ async function unionAdditions(git: GitHubConflictGit, entry: Stages, sides: read
   let ours: string[] = [];
   let theirs: string[] = [];
   let hunks = 0;
+  // Markdown structure of the merged text so far. A hunk is unioned only at plain block level.
+  let block: Block = { kind: "plain", components: 0 };
+  let afterHunk = false;
   for (const line of lines) {
     if (state === "base") {
       // A hunk that rewrote base text needs judgment.
       if (line !== markers.split) return undefined;
       state = "theirs";
     } else if (state === "none" && line === markers.ours) {
+      // Frontmatter keys, code, table rows and component bodies need a choice, not both sides.
+      // A hunk at the top of the file can be frontmatter itself.
+      if (!plain(block) || tableRow(result.at(-1)) || !result.length) return undefined;
       [state, ours, theirs] = ["ours", [], []];
     } else if (state === "ours" && line === markers.base) state = "base";
     else if (state === "theirs" && line === markers.theirs) {
-      if (competing(ours, theirs)) return undefined;
+      if (competing(ours, theirs) || [ours, theirs].some(side => !plain(side.reduce((current, added) => nextBlock(current, added, false), block)))) return undefined;
       result.push(...theirs, ...ours);
       state = "none";
+      afterHunk = true;
       hunks++;
     } else if (markerLines.has(line)) return undefined;
-    else (state === "none" ? result : state === "ours" ? ours : theirs).push(line);
+    else if (state === "none") {
+      if (afterHunk && tableRow(line)) return undefined;
+      afterHunk = false;
+      result.push(line);
+      block = nextBlock(block, line, result.length === 1);
+    } else (state === "ours" ? ours : theirs).push(line);
   }
   return state === "none" && hunks ? result.join("\n") : undefined;
+}
+
+interface Block { kind: "plain" | "frontmatter" | "fence" | "html"; fence?: string; components: number }
+const plain = (block: Block) => block.kind === "plain" && block.components === 0;
+const tableRow = (line: string | undefined) => line !== undefined && /^\s*\|/.test(line);
+
+/** Markdown block state after one line: frontmatter, a code fence, an HTML block, or open MDC components. */
+function nextBlock(block: Block, line: string, first: boolean): Block {
+  if (block.kind === "frontmatter") return /^(?:---|\.\.\.)\s*$/.test(line) ? { ...block, kind: "plain" } : block;
+  if (block.kind === "fence") {
+    const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+    return close && close[0] === block.fence![0] && close.length >= block.fence!.length ? { kind: "plain", components: block.components } : block;
+  }
+  if (block.kind === "html") return line.trim() ? block : { kind: "plain", components: block.components };
+  if (first && /^---\s*$/.test(line)) return { ...block, kind: "frontmatter" };
+  const fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+  if (fence) return { ...block, kind: "fence", fence };
+  if (/^\s*<[!?/a-zA-Z]/.test(line)) return { ...block, kind: "html" };
+  if (/^\s*:{2,}[\w-]/.test(line)) return { ...block, components: block.components + 1 };
+  if (/^\s*:{2,}\s*$/.test(line)) return { ...block, components: Math.max(0, block.components - 1) };
+  return block;
 }
 
 /**
@@ -231,45 +268,53 @@ function jsonStyle(text: string): { indent: string; newline: boolean } | undefin
 const serialize = (value: Json, style: { indent: string; newline: boolean }) => `${JSON.stringify(value, null, style.indent)}${style.newline ? "\n" : ""}`;
 
 /**
- * Lockfile entries the PR added or changed against the merge base that the regenerated lockfile lacks.
- * Importer and catalog versions drop their peer suffix, which changes whenever a peer moves.
+ * Lockfile choices the PR made against the merge base that the merge cannot keep: the base changed the
+ * same entry differently, or the regenerated lockfile resolves it differently. An entry that left the
+ * graph, such as a package the base upgraded away, holds no choice. Undefined when a lockfile does not parse.
  */
-function lostResolutions(base: string, ours: string, regenerated: string): string[] {
-  const [before, pr, after] = [base, ours, regenerated].map(lockfileResolutions);
-  return [...pr!].filter(([key, value]) => before!.get(key) !== value && after!.get(key) !== value).map(([key]) => key.replaceAll("\0", " "));
+function lockfileChoices(ancestor: string, ours: string, theirs: string, regenerated: string): string[] | undefined {
+  const [before, pr, base, after] = [ancestor, ours, theirs, regenerated].map(lockfileResolutions);
+  if (!before || !pr || !base || !after) return undefined;
+  const differs = (side: Map<string, string>, key: string, value: string) => side.has(key) && side.get(key) !== value;
+  return [...pr].filter(([key, value]) => before.get(key) !== value
+    && (differs(base, key, value) && base.get(key) !== before.get(key) || differs(after, key, value))).map(([key]) => key.replaceAll("\0", " "));
 }
 
-function lockfileResolutions(text: string): Map<string, string> {
+/**
+ * Every choice in a pnpm lockfile: importer and catalog resolutions, package sources and the
+ * dependency edges of each snapshot. Versions drop their peer suffix, which changes whenever a peer moves.
+ */
+function lockfileResolutions(text: string): Map<string, string> | undefined {
   const resolutions = new Map<string, string>();
+  const edgeVersions = new Map<string, string[]>();
   const documents = parseAllDocuments(text);
+  if (documents.some(document => document.errors.length)) return undefined;
+  const version = (value: unknown) => typeof value === "string" ? value.split("(")[0]! : JSON.stringify(value);
   for (const [index, document] of documents.entries()) {
-    if (document.errors.length) throw new Error("The lockfile is not valid YAML.");
     const data: unknown = document.toJS();
     if (!isRuntimeRecord(data)) continue;
     // pnpm writes its environment lockfile as a document before the project lockfile.
     const prefix = index === documents.length - 1 ? "" : `env${index}\0`;
     const dependency = (value: unknown) => isRuntimeRecord(value) && typeof value.version === "string"
-      ? `${String(value.specifier ?? "")} ${value.version.split("(")[0]}` : JSON.stringify(value);
-    if (isRuntimeRecord(data.importers)) {
-      for (const [importer, fields] of Object.entries(data.importers)) {
-        if (!isRuntimeRecord(fields)) continue;
-        for (const [field, dependencies] of Object.entries(fields)) {
-          if (!isRuntimeRecord(dependencies)) continue;
-          for (const [name, value] of Object.entries(dependencies)) resolutions.set(`${prefix}${importer}\0${field}\0${name}`, dependency(value));
-        }
-      }
-    }
-    if (isRuntimeRecord(data.catalogs)) {
-      for (const [catalog, dependencies] of Object.entries(data.catalogs)) {
-        if (!isRuntimeRecord(dependencies)) continue;
-        for (const [name, value] of Object.entries(dependencies)) resolutions.set(`${prefix}catalog:${catalog}\0${name}`, dependency(value));
-      }
-    }
-    if (isRuntimeRecord(data.packages)) {
-      for (const [name, value] of Object.entries(data.packages)) {
-        resolutions.set(`${prefix}package\0${name}`, JSON.stringify(isRuntimeRecord(value) ? value.resolution : value));
-      }
-    }
+      ? `${String(value.specifier ?? "")} ${version(value.version)}` : JSON.stringify(value);
+    const each = (section: unknown, visit: (key: string, value: unknown) => void) => {
+      if (isRuntimeRecord(section)) for (const [key, value] of Object.entries(section)) visit(key, value);
+    };
+    each(data.importers, (importer, fields) => each(fields, (field, dependencies) => {
+      if (isRuntimeRecord(dependencies)) each(dependencies, (name, value) => resolutions.set(`${prefix}${importer}\0${field}\0${name}`, dependency(value)));
+    }));
+    each(data.catalogs, (catalog, dependencies) => each(dependencies, (name, value) => resolutions.set(`${prefix}catalog:${catalog}\0${name}`, dependency(value))));
+    each(data.packages, (name, value) => resolutions.set(`${prefix}package\0${name}`, JSON.stringify(isRuntimeRecord(value) ? value.resolution : value)));
+    // Which version each package depends on is a choice too: `pnpm update` can move only an edge.
+    // Peer variants of one package share their edges, so a peer moving elsewhere renames no choice.
+    each(data.snapshots, (name, snapshot) => each(snapshot, (field, edges) => {
+      if (field !== "dependencies" && field !== "optionalDependencies") return;
+      each(edges, (edge, value) => {
+        const key = `${prefix}${version(name)}\0${field}\0${edge}`;
+        edgeVersions.set(key, [...edgeVersions.get(key) ?? [], version(value)]);
+      });
+    }));
   }
+  for (const [key, versions] of edgeVersions) resolutions.set(key, [...new Set(versions)].sort().join(" "));
   return resolutions;
 }

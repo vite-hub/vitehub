@@ -3,9 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
 
+// Each case builds and merges real Git repositories, which takes seconds on a loaded host.
+vi.setConfig({ testTimeout: 30_000 });
 const exec = promisify(execFile);
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -109,6 +111,24 @@ it.each([
   expect((await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: noLockfile }))?.remaining).toEqual(["docs/guide.md"]);
 });
 
+it.each([
+  ["frontmatter", "---\ntitle: A\n---\n\n# A\n", "title: A\n", "title: A\nlayout: landing\n", "title: A\nlayout: page\n"],
+  ["a fenced code block", "# Run\n\n```sh\n```\n", "```sh\n", "```sh\ncp source target\n", "```sh\nrm source\n"],
+  ["a table", "# Options\n\n| Key | Value |\n| --- | --- |\n| a | 1 |\n", "| a | 1 |\n", "| a | 1 |\n| retries | 3 |\n", "| a | 1 |\n| retries | 5 |\n"],
+  ["an MDC component", "# Tip\n\n::tip\nRead this.\n::\n", "Read this.\n", "Read this.\nThe PR way.\n", "Read this.\nThe main way.\n"],
+])("leaves Markdown additions inside %s for the model", async (_, doc, anchor, pr, main) => {
+  const { root, expectedHead, base } = await conflict({ "docs/guide.md": doc }, { "docs/guide.md": doc.replace(anchor, pr) }, { "docs/guide.md": doc.replace(anchor, main) });
+  expect((await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: noLockfile }))?.remaining).toEqual(["docs/guide.md"]);
+});
+
+it("keeps both sides of new sections that bring their own code blocks and tables", async () => {
+  const doc = "# CLI\n\nIntro.\n";
+  const section = (name: string) => `\n## ${name}\n\n\`\`\`bash\npnpm ${name}\n\`\`\`\n\n| Option | Description |\n| --- | --- |\n| --${name} | Run ${name}. |\n`;
+  const { root, expectedHead, base } = await conflict({ "docs/cli.md": doc }, { "docs/cli.md": doc + section("sql") }, { "docs/cli.md": doc + section("seed") });
+  expect((await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: noLockfile }))?.remaining).toEqual([]);
+  expect(await readFile(join(root, "docs/cli.md"), "utf8")).toBe(doc + section("seed") + section("sql"));
+});
+
 it("does not union code, Markdown outside the allowlist, or Markdown hunks that rewrote base text", async () => {
   const code = "export const a = 1\n\nexport const z = 26\n";
   const doc = "# Guide\n\n- first\n- second\n";
@@ -144,6 +164,50 @@ it("leaves the lockfile conflicted when regeneration drops a resolution only the
   expect(result).toMatchObject({ conflicted: ["pnpm-lock.yaml"], resolved: [], remaining: ["pnpm-lock.yaml"], lockfile: expect.stringContaining(". dependencies foo") });
   expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toContain("<<<<<<<");
   expect(await git(root, "diff", "--name-only", "--diff-filter=U")).toBe("pnpm-lock.yaml");
+});
+
+it.each(["base", "pr"] as const)("leaves the lockfile conflicted when both sides moved a dependency edge (regeneration keeps the %s edge)", async kept => {
+  const x = (version: string) => `      x${version.at(-1)}:\n        specifier: npm:x@${version}\n        version: x@${version}\n`;
+  const graph = (edge: string) => `lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n${entry("foo", "1.0.0", "1.0.0")}${x("1.0.0")}${x("1.0.1")}${x("1.0.2")}
+packages:\n\n  foo@1.0.0:\n    resolution: {integrity: sha512-foo}\n\n  x@1.0.0:\n    resolution: {integrity: sha512-x0}\n\n  x@1.0.1:\n    resolution: {integrity: sha512-x1}\n\n  x@1.0.2:\n    resolution: {integrity: sha512-x2}
+\nsnapshots:\n\n  foo@1.0.0:\n    dependencies:\n      x: ${edge}\n\n  x@1.0.0: {}\n\n  x@1.0.1: {}\n\n  x@1.0.2: {}\n`;
+  const manifest = json({ name: "root", dependencies: { foo: "1.0.0", x0: "npm:x@1.0.0", x1: "npm:x@1.0.1", x2: "npm:x@1.0.2" } });
+  const { root, expectedHead, base } = await conflict(
+    { "package.json": manifest, "pnpm-lock.yaml": graph("1.0.0") },
+    { "pnpm-lock.yaml": graph("1.0.1") },
+    { "pnpm-lock.yaml": graph("1.0.2") },
+  );
+  // pnpm keeps the base lockfile's edge: every version is still in the graph and satisfies foo.
+  // Keeping the PR's edge instead would drop the base's choice, so that also needs the model.
+  const result = await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: { regenerateLockfile: async target => kept === "base" ? await readFile(join(target, "pnpm-lock.yaml"), "utf8") : graph("1.0.1") } });
+  expect(result).toMatchObject({ resolved: [], remaining: ["pnpm-lock.yaml"], lockfile: expect.stringContaining("foo@1.0.0 dependencies x") });
+  expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toContain("<<<<<<<");
+});
+
+it("regenerates the lockfile when the PR moved an edge of a package the base removed from the graph", async () => {
+  const graph = (edges: string) => `lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n${edges ? entry("foo", "1.0.0", "1.0.0") : ""}${entry("x", "1.0.0", "1.0.0")}
+packages:\n\n${edges ? "  foo@1.0.0:\n    resolution: {integrity: sha512-foo}\n\n" : ""}  x@1.0.0:\n    resolution: {integrity: sha512-x0}
+\nsnapshots:\n\n${edges}  x@1.0.0: {}\n`;
+  const { root, expectedHead, base } = await conflict(
+    { "package.json": json({ name: "root", dependencies: { foo: "1.0.0", x: "1.0.0" } }), "pnpm-lock.yaml": graph("  foo@1.0.0:\n    dependencies:\n      x: 1.0.0\n\n") },
+    { "pnpm-lock.yaml": graph("  foo@1.0.0:\n    dependencies:\n      x: 1.0.0\n    optionalDependencies:\n      y: 2.0.0\n\n") },
+    { "package.json": json({ name: "root", dependencies: { x: "1.0.0" } }), "pnpm-lock.yaml": graph("") },
+  );
+  const result = await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: { regenerateLockfile: async target => await readFile(join(target, "pnpm-lock.yaml"), "utf8") } });
+  expect(result).toMatchObject({ resolved: [{ path: "pnpm-lock.yaml", rule: "pnpm-lockfile" }], remaining: [] });
+});
+
+it("leaves a lockfile that depends on a pnpmfile for the model", async () => {
+  let called = false;
+  const hooked = (body: string) => lockfile(body).replace("lockfileVersion: '9.0'\n", "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-hook\n");
+  const { root, expectedHead, base } = await conflict(
+    { "package.json": json({ name: "root", dependencies: { foo: "^1.0.0" } }), "pnpm-lock.yaml": hooked(entry("foo", "^1.0.0", "1.0.0")) },
+    { "pnpm-lock.yaml": hooked(entry("foo", "^1.0.0", "1.0.1")) },
+    { "pnpm-lock.yaml": hooked(entry("foo", "^1.0.0", "1.0.2")) },
+  );
+  const result = await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: { regenerateLockfile: async () => { called = true; return ""; } } });
+  expect(called).toBe(false);
+  expect(result).toMatchObject({ remaining: ["pnpm-lock.yaml"], lockfile: expect.stringContaining("pnpmfile") });
 });
 
 it("does not regenerate the lockfile while a package.json stays conflicted", async () => {
