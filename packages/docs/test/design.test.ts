@@ -82,6 +82,6 @@ describe("docs design", () => {
     const module = readFileSync(fileURLToPath(new URL("../src/nuxt.ts", import.meta.url)), "utf8")
 
     expect(module).toContain("`@layer theme, base, comark, components, utilities;`")
-    expect(module.indexOf("@layer theme, base, comark")).toBeLessThan(module.indexOf("@import \"tailwindcss\""))
+    expect(module.indexOf("@layer theme, base, comark")).toBeLessThan(module.indexOf("stylesheet(\"tailwindcss\")"))
   })
 })

@@ -43,6 +43,8 @@ function wrapCloudflareWorkflowStep(
   runtimeEvent: () => unknown,
 ): WorkflowProviderStep | undefined {
   if (!step?.do) return step
+  // Cloudflare passes `step` as an RPC stub. Call its methods directly: `step.sleep.bind(step)`
+  // is a remote call that sends the stub away and disposes it.
   return {
     async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
       return await step.do!(name, options, async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
@@ -54,7 +56,7 @@ function wrapCloudflareWorkflowStep(
         }
       })))
     },
-    ...(step.sleep ? { sleep: step.sleep.bind(step) } : {}),
+    ...(step.sleep ? { sleep: async (name: string, duration: string) => await step.sleep!(name, duration) } : {}),
   }
 }
 

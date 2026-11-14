@@ -212,6 +212,18 @@ it("leaves a lockfile that depends on a pnpmfile for the model", async () => {
   expect(result).toMatchObject({ remaining: ["pnpm-lock.yaml"], lockfile: expect.stringContaining("pnpmfile") });
 });
 
+it.each(["pnpm@7.33.0", "pnpm@8.15.9", "npm@10.9.0"])("leaves the lockfile for the model when package.json selects %s", async packageManager => {
+  let called = false;
+  const { root, expectedHead, base } = await conflict(
+    { "package.json": json({ name: "root", packageManager, dependencies: { foo: "^1.0.0" } }), "pnpm-lock.yaml": lockfile(entry("foo", "^1.0.0", "1.0.0")) },
+    { "pnpm-lock.yaml": lockfile(entry("foo", "^1.0.0", "1.0.1")) },
+    { "pnpm-lock.yaml": lockfile(entry("foo", "^1.0.0", "1.0.2")) },
+  );
+  const result = await prepareGitHubRepairBase(root, { expectedHead, base, conflicts: { regenerateLockfile: async () => { called = true; return ""; } } });
+  expect(called).toBe(false);
+  expect(result).toMatchObject({ remaining: ["pnpm-lock.yaml"], lockfile: expect.stringContaining("pnpm 9") });
+});
+
 it("does not regenerate the lockfile while a package.json stays conflicted", async () => {
   let called = false;
   const { root, expectedHead, base } = await conflict(

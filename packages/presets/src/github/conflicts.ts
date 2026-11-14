@@ -76,6 +76,7 @@ export async function resolveGitHubMergeConflicts(target: string, git: GitHubCon
     else if (!sides) lockfile = "the lockfile was added or deleted on one side";
     else if (options.regenerateLockfile === false) lockfile = "the host does not run a package manager";
     else if (parseAllDocuments(sides[2]).some(document => document.has("pnpmfileChecksum"))) lockfile = "the lockfile depends on a pnpmfile, which the host does not run";
+    else if (!await scriptSafePnpm(target)) lockfile = "the host regenerates lockfiles only with pnpm 9 or newer, whose --ignore-scripts also skips the prepare scripts of Git-hosted dependencies";
     else {
       const path = join(target, "pnpm-lock.yaml");
       const conflictedText = await readFile(path);
@@ -98,6 +99,21 @@ export async function resolveGitHubMergeConflicts(target: string, git: GitHubCon
   }
   const done = new Set(resolved.map(item => item.path));
   return { conflicted, resolved, remaining: conflicted.filter(path => !done.has(path)), ...(lockfile ? { lockfile } : {}) };
+}
+
+/**
+ * Regeneration resolves dependencies the base lockfile never listed. pnpm 7 and older run the `prepare`
+ * script of a Git-hosted dependency even with --ignore-scripts, so only pnpm 9 or newer, or the host's
+ * default when package.json selects none, may resolve on the host.
+ */
+async function scriptSafePnpm(target: string): Promise<boolean> {
+  let manifest: unknown;
+  try { manifest = JSON.parse(await readFile(join(target, "package.json"), "utf8")); }
+  catch { return false; }
+  const packageManager = isRuntimeRecord(manifest) ? manifest.packageManager : undefined;
+  if (packageManager === undefined) return true;
+  const major = typeof packageManager === "string" ? /^pnpm@(\d+)\./.exec(packageManager)?.[1] : undefined;
+  return major !== undefined && Number(major) >= 9;
 }
 
 /** Files that pnpm reads as dependency inputs. While one is conflicted, the lockfile cannot be regenerated. */
