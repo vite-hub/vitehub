@@ -665,7 +665,7 @@ pnpm vitehub env inspect [--stage <name>] [--json]
 pnpm vitehub env check [--stage <name>] [--json]
 ```
 
-Both load the Vite config in the stage mode, with `.env.<stage>` files, and process values win. They list each declared variable with status, source, and required and secret flags. `env check` exits with status `1` when Server Env would fail to load, so it can gate CI or deploys.
+Both load the Vite config in the stage mode, with `.env.<stage>` files, and process values win. They list each declared variable with status, source, and required and secret flags. `--json` also lists the host variable `names` of each env declaration, in read order. `env check` exits with status `1` when Server Env would fail to load, so it can gate CI or deploys.
 
 ## Generate and derive secrets
 
