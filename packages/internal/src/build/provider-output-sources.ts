@@ -94,8 +94,39 @@ export async function rebasePublishedProviderSourceLinks(
   await visit(stagedSourcesDir)
 }
 
-/** Copies durable generated sources into deployment artifacts and rewrites their serialized runtime location. */
+/** Lists the existing published source paths that `contents` names, in every form that the rewrite reads. */
+function referencedProviderSourcePaths(contents: string, publishedSourcesDir: string): string[] {
+  const prefixes = [
+    { decode: (path: string) => path, prefix: publishedSourcesDir },
+    { decode: (path: string) => path, prefix: JSON.stringify(publishedSourcesDir).slice(1, -1) },
+    { decode: decodeURIComponent, prefix: pathToFileURL(publishedSourcesDir).href },
+  ]
+  const references = new Set<string>()
+  for (const { decode, prefix } of prefixes) {
+    for (let index = contents.indexOf(prefix); index !== -1; index = contents.indexOf(prefix, index + prefix.length)) {
+      // A literal path ends at a quote or a blank. Code can append a computed suffix, so stop at `${`, `?`, and `#` too.
+      const suffix = /^[^"'`\s?#]*/.exec(contents.slice(index + prefix.length))![0].split("${", 1)[0]!
+      if (suffix && !/^[\\/]/.test(suffix)) continue
+      const reference = resolve(publishedSourcesDir, ...decode(suffix).split(/[\\/]+/).filter(Boolean))
+      if (pathContains(publishedSourcesDir, reference) && existsSync(reference)) references.add(reference)
+    }
+  }
+  return [...references].filter(reference => ![...references].some(parent => parent !== reference && pathContains(parent, reference)))
+}
+
+/** Dotenv files hold local secrets. A deployment never receives them, even inside a directory that its code names. */
+function isDotenvFile(path: string): boolean {
+  return basename(path).startsWith(".env")
+}
+
+/**
+ * Copies the durable generated sources that deployment files name into deployment artifacts and rewrites their
+ * serialized runtime location. The deployment files are complete bundles, so a source that they do not name is not
+ * copied: the retained snapshot holds the whole project root, with local files that must not be deployed.
+ */
 export async function publishProviderSourcesToDeploymentOutputs(options: {
+  /** Copies the whole retained snapshot, not only the sources that `files` name. Dotenv files stay out. */
+  copyAllSources?: boolean
   destinations: ProviderOutputSourceDestination[]
   publishedSourcesDir: string
   signal?: AbortSignal
@@ -104,11 +135,19 @@ export async function publishProviderSourcesToDeploymentOutputs(options: {
     options.signal?.throwIfAborted()
     await rm(destination.sourcesDir, { force: true, recursive: true })
     if (!existsSync(options.publishedSourcesDir)) return
-    await mkdir(dirname(destination.sourcesDir), { recursive: true })
-    await cp(options.publishedSourcesDir, destination.sourcesDir, { recursive: true })
-    await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
-    await Promise.all(destination.files.map(async (file) => {
-      const contents = await readFile(file, "utf8")
+    const files = await Promise.all(destination.files.map(async file => ({ contents: await readFile(file, "utf8"), file })))
+    const references = options.copyAllSources
+      ? [options.publishedSourcesDir]
+      : new Set(files.flatMap(({ contents }) => referencedProviderSourcePaths(contents, options.publishedSourcesDir)))
+    for (const reference of references) {
+      const target = resolve(destination.sourcesDir, relative(options.publishedSourcesDir, reference))
+      await mkdir(dirname(target), { recursive: true })
+      await cp(reference, target, { filter: source => !isDotenvFile(source), recursive: true })
+    }
+    if (existsSync(destination.sourcesDir)) {
+      await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
+    }
+    await Promise.all(files.map(async ({ contents, file }) => {
       const rewritten = rewriteRetainedProviderSourcePaths(contents, options.publishedSourcesDir, destination.runtimeSourcesDir)
       if (rewritten !== contents) await writeFile(file, rewritten, { encoding: "utf8", signal: options.signal })
     }))
