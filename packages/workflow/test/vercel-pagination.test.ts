@@ -47,10 +47,32 @@ it("reads Vercel step pages through empty pages and ignores a final cursor", asy
 
   expect(result.steps).toMatchObject([{ id: "step-one", name: "first", status: "completed" }])
   expect(requests).toEqual([undefined, "one", "two"].map(cursor => ({
-    pagination: { cursor, limit: 1000, sortOrder: "asc" },
+    pagination: { cursor, limit: 100, sortOrder: "asc" },
     resolveData: "none",
     runId: "run-pagination",
   })))
+})
+
+it("reads more than one page of steps without passing the Vercel page limit", async () => {
+  // Vercel's step listing answers HTTP 400 for a page larger than 100 steps.
+  const maxLimit = 100
+  const stored = Array.from({ length: 250 }, (_, index) => ({ attempt: 1, status: "completed", stepId: `step-${index}`, stepName: `step ${index}` }))
+  const limits: unknown[] = []
+  installStepsList(async (options) => {
+    const { cursor, limit } = (options as { pagination: { cursor?: string, limit: number } }).pagination
+    limits.push(limit)
+    if (!Number.isInteger(limit) || limit < 1 || limit > maxLimit) {
+      throw Object.assign(new Error(`GET /v2/runs/run-pagination/steps -> HTTP 400: limit must be between 1 and ${maxLimit}`), { status: 400 })
+    }
+    const start = cursor ? Number(cursor) : 0
+    const end = Math.min(start + limit, stored.length)
+    return { cursor: end < stored.length ? String(end) : null, data: stored.slice(start, end), hasMore: end < stored.length }
+  })
+
+  const result = await inspectVercelWorkflowRun("pagination", definition, "run-pagination")
+
+  expect(result.steps?.map(step => step.id)).toEqual(stored.map(step => step.stepId))
+  expect(limits).toEqual([100, 100, 100])
 })
 
 it.each([
