@@ -97,6 +97,11 @@
       "import": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
+    "./agent/page": {
+      "types": "./dist/agent/page.d.ts",
+      "import": "./dist/agent/page.js",
+      "default": "./dist/agent/page.js"
+    },
     "./agent/process": {
       "types": "./dist/agent/process.d.ts",
       "import": "./dist/agent/process.js",
@@ -141,6 +146,11 @@
       "types": "./dist/auth/database.d.ts",
       "import": "./dist/auth/database.js",
       "default": "./dist/auth/database.js"
+    },
+    "./auth/forward": {
+      "types": "./dist/auth/forward.d.ts",
+      "import": "./dist/auth/forward.js",
+      "default": "./dist/auth/forward.js"
     },
     "./auth/mcp": {
       "types": "./dist/auth/mcp.d.ts",
@@ -557,6 +567,11 @@
       "import": "./dist/realtime/bus.js",
       "default": "./dist/realtime/bus.js"
     },
+    "./realtime/agent": {
+      "types": "./dist/realtime/agent.d.ts",
+      "import": "./dist/realtime/agent.js",
+      "default": "./dist/realtime/agent.js"
+    },
     "./realtime/client": {
       "types": "./dist/realtime/client.d.ts",
       "import": "./dist/realtime/client.js",
@@ -824,7 +839,8 @@
     "build:console-account": "vp build --config console.account.vite.config.ts",
     "dev": "vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
-    "test": "vp run --cache -t vite-hub#build && vp test"
+    "test": "vp run --cache -t vite-hub#build && vp test",
+    "test:browser": "vp run --cache -t vite-hub#build && node --test test/agent-page.browser.mjs"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -881,6 +897,8 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/vue-3": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
@@ -902,6 +920,8 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",
@@ -932,7 +952,6 @@
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
-    "reka-ui": "^2.11.0",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
@@ -1005,7 +1024,6 @@
     "openworkflow": "catalog:workflow",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
-    "reka-ui": "^2.10.5",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
     "vue": "catalog:vue-compat"
@@ -1177,9 +1195,6 @@
       "optional": true
     },
     "posthog-node": {
-      "optional": true
-    },
-    "reka-ui": {
       "optional": true
     },
     "vite": {

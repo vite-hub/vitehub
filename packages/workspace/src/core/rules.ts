@@ -1,8 +1,10 @@
 import { minimatch } from "minimatch"
+import { lookup } from "mrmime"
 
 import { workspaceError } from "./errors.ts"
 import { contentToBytes, normalizeWorkspacePath } from "./path.ts"
 import { workspaceDefinitionPlugins, workspacePluginsVersion } from "./plugins.ts"
+import { assertWorkspaceRules, cascadingRuleKeys } from "./rule-keys.ts"
 
 import type {
   ResolvedWorkspaceRule,
@@ -31,6 +33,14 @@ interface NormalizedWorkspacePolicy {
   rules: Array<ResolvedWorkspaceRule & { specificity: number }>
 }
 
+type CascadingRuleKey = typeof cascadingRuleKeys[number]
+
+/** The matched rule, and the pattern of the rule that set each field, for error messages. */
+interface MatchedWorkspaceRule {
+  origins: Partial<Record<CascadingRuleKey, string>>
+  rule: ResolvedWorkspaceRule
+}
+
 function normalizeMaxBytes(value: WorkspaceRule["maxBytes"]): number | undefined {
   if (value === undefined) return undefined
   if (typeof value === "number") return value
@@ -54,7 +64,27 @@ function mergeHooks(left: WorkspaceHooks = {}, right: WorkspaceHooks = {}): Work
   }
 }
 
-function normalizeRules(rules: WorkspaceRules = {}): NormalizedWorkspacePolicy["rules"] {
+/** Merges rules on the same pattern field by field. A later rule replaces only the fields it sets, and validators add up. */
+function mergeRules(left: WorkspaceRules, right: WorkspaceRules = {}): WorkspaceRules {
+  assertWorkspaceRules(right)
+  const merged: WorkspaceRules = { ...left }
+  for (const [pattern, rule] of Object.entries(right)) {
+    const previous = merged[pattern]
+    if (!previous) {
+      merged[pattern] = rule
+      continue
+    }
+    const next: WorkspaceRule = { ...previous, validate: [...toArray(previous.validate), ...toArray(rule.validate)] }
+    if (rule.commit !== undefined) next.commit = rule.commit
+    if (rule.maxBytes !== undefined) next.maxBytes = rule.maxBytes
+    if (rule.mediaType !== undefined) next.mediaType = rule.mediaType
+    if (rule.write !== undefined) next.write = rule.write
+    merged[pattern] = next
+  }
+  return merged
+}
+
+function normalizeRules(rules: WorkspaceRules): NormalizedWorkspacePolicy["rules"] {
   return Object.entries(rules).map(([pattern, rule]) => {
     const normalizedPattern = normalizeWorkspacePath(pattern)
     return {
@@ -73,11 +103,11 @@ function normalizePolicy(definition: WorkspaceDefinition): NormalizedWorkspacePo
 
   for (const plugin of workspaceDefinitionPlugins(definition)) {
     if (!plugin?.id) throw workspaceErrorDiagnostics.WORKSPACE_R0024({ message: "[vitehub] Workspace plugins require an id." })
-    rules = { ...rules, ...plugin.rules }
+    rules = mergeRules(rules, plugin.rules)
     hooks = mergeHooks(hooks, plugin.hooks)
   }
 
-  rules = { ...rules, ...definition.rules }
+  rules = mergeRules(rules, definition.rules)
   hooks = mergeHooks(hooks, definition.hooks)
 
   return {
@@ -86,12 +116,25 @@ function normalizePolicy(definition: WorkspaceDefinition): NormalizedWorkspacePo
   }
 }
 
-function matchRule(policy: NormalizedWorkspacePolicy, path: string): ResolvedWorkspaceRule | undefined {
+/**
+ * Resolves every rule that matches the path, from the least to the most specific. A more specific rule replaces a
+ * field only when it sets that field, so `"docs/**": { maxBytes }` keeps a broader `write: false`. Validators of every
+ * matching rule run, the least specific first.
+ */
+function matchRule(policy: NormalizedWorkspacePolicy, path: string): MatchedWorkspaceRule | undefined {
   const normalized = normalizeWorkspacePath(path)
-  let matched: ResolvedWorkspaceRule | undefined
+  let matched: MatchedWorkspaceRule | undefined
   for (const rule of policy.rules) {
     const globstarDirectory = rule.pattern.endsWith("/**") ? rule.pattern.slice(0, -3) : undefined
-    if (minimatch(normalized, rule.pattern, { dot: true }) || normalized === globstarDirectory) matched = rule
+    if (!minimatch(normalized, rule.pattern, { dot: true }) && normalized !== globstarDirectory) continue
+    matched ??= { origins: {}, rule: { pattern: rule.pattern, validate: [] } }
+    matched.rule.pattern = rule.pattern
+    matched.rule.validate = [...matched.rule.validate, ...rule.validate]
+    for (const key of cascadingRuleKeys) {
+      if (rule[key] === undefined) continue
+      matched.origins[key] = rule.pattern
+      Object.assign(matched.rule, { [key]: rule[key] })
+    }
   }
   return matched
 }
@@ -109,25 +152,37 @@ function sizeOf(content: WorkspaceWriteInput["content"]) {
   return content === undefined ? 0 : contentToBytes(content).byteLength
 }
 
-function assertRuleAllows(input: WorkspaceWriteInput) {
-  const rule = input.rule
-  if (!rule) return
+/** The media type that a file write stores: the one the caller passed, else the one its path implies. */
+function writeMediaType(input: Pick<WorkspaceWriteInput, "mediaType" | "path">): string {
+  return input.mediaType || lookup(input.path) || "application/octet-stream"
+}
+
+function assertRuleAllows(input: WorkspaceWriteInput, matched: MatchedWorkspaceRule | undefined) {
+  if (!matched) return
+  const { origins, rule } = matched
 
   const exists = Boolean(input.previous)
   if (!writeAllowed(rule.write, input.operation, exists)) {
-    throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow ${input.operation} for ${input.path}.`)
+    throw workspaceError(`[vitehub] Workspace rule "${origins.write}" does not allow ${input.operation} for ${input.path}.`)
   }
 
   if (rule.maxBytes !== undefined && sizeOf(input.content) > rule.maxBytes) {
-    throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" limits writes to ${rule.maxBytes} bytes: ${input.path}.`)
+    throw workspaceError(`[vitehub] Workspace rule "${origins.maxBytes}" limits writes to ${rule.maxBytes} bytes: ${input.path}.`)
   }
 
-  if (rule.mediaType && input.mediaType) {
+  if (rule.mediaType && input.operation === "writeFile") {
     const allowed = Array.isArray(rule.mediaType) ? rule.mediaType : [rule.mediaType]
-    if (!allowed.includes(input.mediaType)) {
-      throw workspaceError(`[vitehub] Workspace rule "${rule.pattern}" does not allow media type ${input.mediaType}: ${input.path}.`)
+    const mediaType = writeMediaType(input)
+    if (!allowed.includes(mediaType)) {
+      throw workspaceError(`[vitehub] Workspace rule "${origins.mediaType}" does not allow media type ${mediaType}: ${input.path}.`)
     }
   }
+}
+
+/** Stores the media type that the rule checked, so the stored file cannot get another type from the Store. */
+function withCheckedMediaType(input: WorkspaceWriteInput, matched: MatchedWorkspaceRule | undefined): WorkspaceWriteInput {
+  if (!matched?.rule.mediaType || input.operation !== "writeFile" || input.mediaType) return input
+  return { ...input, mediaType: writeMediaType(input) }
 }
 
 async function runHooks(hooks: WorkspaceHooks, name: keyof WorkspaceHooks, input: WorkspaceHookContext) {
@@ -159,22 +214,24 @@ export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): Wor
 
   return {
     check(input) {
-      const checked = { ...input, rule: matchRule(currentPolicy(), input.path) }
-      assertRuleAllows(checked)
-      return checked
+      const matched = matchRule(currentPolicy(), input.path)
+      const checked = { ...input, rule: matched?.rule }
+      assertRuleAllows(checked, matched)
+      return withCheckedMediaType(checked, matched)
     },
     async before(input) {
       const policy = currentPolicy()
-      const rule = matchRule(policy, input.path)
+      const matched = matchRule(policy, input.path)
+      const rule = matched?.rule
       let current: WorkspaceWriteInput = { ...input, rule }
       await runHooks(policy.hooks, "write:before", current)
       current = { ...current, rule }
-      assertRuleAllows(current)
-      if (current.rule?.validate.length) current = await runValidators(current.rule.validate, current)
+      assertRuleAllows(current, matched)
+      if (rule?.validate.length) current = await runValidators(rule.validate, current)
       await runHooks(policy.hooks, "write:validate", current)
       current = { ...current, rule }
-      assertRuleAllows(current)
-      return current
+      assertRuleAllows(current, matched)
+      return withCheckedMediaType(current, matched)
     },
     async after(input) {
       await runHooks(currentPolicy().hooks, "write:after", input)
@@ -198,7 +255,7 @@ export function resolveWorkspaceAutoCommit(definition: WorkspaceDefinition, diff
 
   const policy = normalizePolicy(definition)
   const paths = diff.entries.map(entry => normalizeWorkspacePath(entry.path))
-  const rules = paths.map(path => matchRule(policy, path))
+  const rules = paths.map(path => matchRule(policy, path)?.rule)
   if (!rules.length || rules.some(rule => !rule?.commit)) return
 
   const message = rules

@@ -938,113 +938,6 @@ describe("Resend Email driver", () => {
     },
   );
 
-  it("rejects raw message payloads before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send({ ...message, raw: "From: hello@example.com\r\n\r\nHello" }, context),
-    ).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects template payloads before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send({ ...message, template: { id: "welcome" } }, context),
-    ).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["tracking preferences", { tracking: { opens: false } }],
-    ["AMP content", { amp: "<html amp4email>" }],
-    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
-    ["preheaders", { preheader: "Preview" }],
-    ["locales", { locale: "en" }],
-  ])("rejects unsupported %s before fetch", async (_name, unsupported) => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      // SAFETY: this table contains public EmailMessage option fragments for runtime rejection tests.
-      driver.send({ ...message, ...unsupported } as typeof message, context),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects stream selection before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send(message, { ...context, stream: "transactional" }),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { react: {} },
-    { jsx: {} },
-    { mjml: "<mjml />" },
-    { handlebars: "Hello {{name}}" },
-    { handlebarsVars: { name: "Maxi" } },
-    { liquid: "Hello {{ name }}" },
-    { liquidVars: { name: "Maxi" } },
-  ])("rejects unsupported renderer payloads before fetch", async (renderer) => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(driver.send({ ...message, ...renderer }, context)).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects unsupported personalizations before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com", variables: { name: "One" } }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "resend" } });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("applies one address and subject personalization", async () => {
-    const request = vi.fn(
-      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
-        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
-    );
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await driver.send(
-      { ...message, personalizations: [{ subject: "Personal welcome", to: "one@example.com" }] },
-      context,
-    );
-
-    // SAFETY: the successful Resend request stores its serialized JSON body in this call.
-    expect(JSON.parse(request.mock.calls[0]![1]?.body as string)).toMatchObject({
-      subject: "Personal welcome",
-      to: ["one@example.com"],
-    });
-  });
-
   it("rejects an invalid scheduled date without making a request", async () => {
     const request = vi.fn();
     const driver = resend({ apiKey: "re_secret", fetch: request });
@@ -1061,16 +954,6 @@ describe("Resend Email driver", () => {
 
     await expect(driver.send({ ...message, scheduledAt: "" }, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "resend" },
-    });
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it("rejects sandbox delivery before fetch", async () => {
-    const request = vi.fn();
-    const driver = resend({ apiKey: "re_secret", fetch: request });
-
-    await expect(driver.send({ ...message, sandbox: true }, context)).resolves.toMatchObject({
-      error: { code: "UNSUPPORTED", driver: "resend" },
     });
     expect(request).not.toHaveBeenCalled();
   });
@@ -1356,18 +1239,6 @@ describe("Cloudflare Email driver", () => {
     expect(String(Constructor.mock.calls[0]?.[2])).not.toContain("List-Unsubscribe-Post:");
   });
 
-  it("rejects stream selection before delivery", async () => {
-    const send = vi.fn();
-    const Constructor = vi.fn();
-    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
-
-    await expect(
-      driver.send(message, { ...context, stream: "transactional" }),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
-    expect(Constructor).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-  });
-
   it("omits empty optional recipient headers", async () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
@@ -1409,22 +1280,6 @@ describe("Cloudflare Email driver", () => {
       expect(send).not.toHaveBeenCalled();
     },
   );
-
-  it("rejects multiple personalizations before delivery", async () => {
-    const send = vi.fn();
-    const Constructor = vi.fn();
-    // SAFETY: this mock constructor deliberately omits the runtime constructor signature.
-    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor as never });
-
-    await expect(
-      driver.send(
-        { ...message, personalizations: [{ to: "one@example.com" }, { to: "two@example.com" }] },
-        context,
-      ),
-    ).resolves.toMatchObject({ error: { code: "UNSUPPORTED", driver: "cloudflare-email" } });
-    expect(Constructor).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-  });
 
   it("rejects an empty primary recipient list before delivery", async () => {
     const send = vi.fn();
@@ -1665,7 +1520,12 @@ describe("Cloudflare Email driver", () => {
     const Constructor = vi.fn();
     const driver = cloudflareEmail({ binding: { send: vi.fn() }, EmailMessage: Constructor });
 
-    await driver.send({ ...message, html: undefined, text: undefined, [field]: content }, context);
+    await driver.send(
+      field === "text"
+        ? { ...message, html: undefined, text: content }
+        : { ...message, html: content, text: undefined },
+      context,
+    );
 
     // SAFETY: the Cloudflare Email constructor receives the generated raw MIME string as argument 3.
     const raw = Constructor.mock.calls[0]![2] as string;
@@ -1723,9 +1583,7 @@ describe("Cloudflare Email driver", () => {
 
   const unsupportedCloudflarePayloads = [
     ["scheduledAt", "scheduled delivery"],
-    ["raw", "raw message payloads"],
     ["idempotencyKey", "idempotency keys"],
-    ["template", "template payloads"],
   ] as const;
 
   it.each(unsupportedCloudflarePayloads)(
@@ -1813,17 +1671,16 @@ describe("Cloudflare Email driver", () => {
   });
 
   it.each([
-    [true, true, "CANCELLED", "Cloudflare Email send was cancelled."],
-    [false, true, "UNSUPPORTED", "Cloudflare Email does not support sandbox delivery."],
-    [false, false, "INVALID_OPTIONS", "Cloudflare Email owns the SuBjEcT header."],
+    [true, "CANCELLED", "Cloudflare Email send was cancelled."],
+    [false, "INVALID_OPTIONS", "Cloudflare Email owns the SuBjEcT header."],
   ] as const)(
-    "preserves earlier diagnostics with aborted=%s and sandbox=%s",
-    async (aborted, sandbox, code, diagnostic) => {
+    "preserves earlier diagnostics with aborted=%s",
+    async (aborted, code, diagnostic) => {
       const getter = vi.fn(() => {
         throw new Error("option must not be read");
       });
       const input = Object.defineProperty(
-        { ...message, sandbox, headers: { SuBjEcT: "custom" } },
+        { ...message, headers: { SuBjEcT: "custom" } },
         "scheduledAt",
         { get: getter },
       );
@@ -1881,22 +1738,7 @@ describe("Cloudflare Email driver", () => {
   });
 
   const unsupportedCloudflareOptions: [string, Partial<EmailMessage>][] = [
-    ["raw message payloads", { raw: "From: hello@example.com\r\n\r\nHello" }],
     ["idempotency keys", { idempotencyKey: "send-1" }],
-    ["sandbox delivery", { sandbox: true }],
-    ["template payloads", { template: { id: "welcome" } }],
-    ["React renderer payloads", { react: {} }],
-    ["JSX renderer payloads", { jsx: {} }],
-    ["MJML renderer payloads", { mjml: "<mjml />" }],
-    ["Handlebars renderer payloads", { handlebars: "Hello {{name}}" }],
-    ["Handlebars variables", { handlebarsVars: { name: "Maxi" } }],
-    ["Liquid renderer payloads", { liquid: "Hello {{ name }}" }],
-    ["Liquid variables", { liquidVars: { name: "Maxi" } }],
-    ["tracking preferences", { tracking: { opens: false } }],
-    ["AMP content", { amp: "<html amp4email>" }],
-    ["DSN options", { dsn: { notify: ["FAILURE"] } }],
-    ["preheaders", { preheader: "Preview" }],
-    ["locales", { locale: "en" }],
     ["tags", { tags: [{ name: "kind", value: "welcome" }] }],
     ["metadata", { metadata: { campaign: "welcome" } }],
   ];

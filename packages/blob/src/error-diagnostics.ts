@@ -16,7 +16,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
-      fix: "Use a free pathname or an empty folder. `media.move()` replaces an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
     },
     BLOB_NOT_FOUND: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation found no object in the "${store}" store.`,
@@ -50,7 +50,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0002: withFix("Set `blob.serve.headers` to an object of header names and string values, for example `{ \"Cache-Control\": \"public, max-age=300\" }`."),
     BLOB_C0003: withFix("Make each value in `blob.serve.headers` a string, for example `\"public, max-age=300\"`. Write a number as a string."),
     BLOB_C0004: withFix("Use a valid HTTP header in `blob.serve.headers`. A header name has no spaces or colons, and a value has no line breaks."),
-    BLOB_C0005: withFix("Set `blob.serve` to `true` or to an object, for example `{ route: \"/assets\" }`."),
+    BLOB_C0005: withFix("Set `blob.serve` to an object that says who may read the files: `{ access: \"public\" }` when anyone may read every object of the store, or `{ authorize: true }` to require a signed-in Auth session. `serve: true` was removed because it made every object public."),
     BLOB_C0006: withFix("Set `blob.serve.store` to a key of `blob.stores`, or remove it to serve the `default` store."),
     BLOB_C0007: withFix("Set `blob` in the Vite config to an object, for example `{ driver: \"fs\" }`, or to `false`."),
     BLOB_C0008: withFix("Add a `default` store to `blob.stores`, for example `stores: { default: { driver: \"fs\" } }`."),
@@ -66,6 +66,8 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_C0018: withFix("Set a hosted `driver` on the store, for example `\"cloudflare-r2\"` or `\"vercel-blob\"`, or remove `remote: true`."),
     BLOB_C0019: withFix("Put the credential in an env variable, and set the option to `process.env.<NAME>`, for example `secretAccessKey: process.env.S3_SECRET_ACCESS_KEY`. ViteHub writes only the variable name into the build output and reads the value at runtime, so set the variable for the build and for the server. A value that `loadEnv()` reads from a `.env` file is not in `process.env`: set the variable in the shell or CI, or copy the `loadEnv()` result into `process.env` before the config uses it. Or remove the option when the driver reads its own env variable, such as `AWS_SECRET_ACCESS_KEY` for `s3`."),
     BLOB_C0020: withFix("Give the credential a value that no other env variable has in the build environment, for example remove the other variable from the build environment. Or remove the option when the driver reads its own env variable, such as `AWS_SECRET_ACCESS_KEY` for `s3`, or `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` for `minio`."),
+    BLOB_C0021: withFix("Set exactly one of `blob.serve.access: \"public\"` and `blob.serve.authorize: true`. Use `access: \"public\"` only when anyone may read every object of the served store. Use `authorize: true`, and export `authorize` from `server/blob.ts`, for private files. `authorize: false` does not make a route public."),
+    BLOB_C0022: withFix("Remove `access: \"public\"` from the Vercel Blob store so that it writes private objects, which only the authorized serve route sends. Or, when anyone may read every object, serve the store with `blob.serve.access: \"public\"`."),
     BLOB_B0001: withFix("Set `blob.serve.authorize: true` so that the serve route calls the `authorize` export of `server/blob.ts`. Or remove the `authorize` export."),
     BLOB_B0002: withFix("Set `auth: true` in `vitehub()` and create `server/auth.ts`. With `@vite-hub/blob` alone, add `hubAuth()` from `@vite-hub/auth/vite` to the Vite plugins. Or remove `blob.serve.authorize`."),
     BLOB_B0003: withFix("Keep one `server/blob` file. Delete or merge the other files that the message lists."),
@@ -104,7 +106,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0031: withFix("Pass a `partNumber` from 1 to 10000 to `uploadPart()`. Number the parts from 1 in upload order."),
     BLOB_R0032: withFix("Pass the `pathname` and `uploadId` that `blob.createMultipartUpload()` returned to `blob.resumeMultipartUpload()`, and pass the parts that `uploadPart()` returned to `complete()`. A completed or aborted upload does not exist anymore. Start a new one."),
     BLOB_R0033: withFix("Use a pathname or folder outside `_vitehub/derived` and `_vitehub/media`, where ViteHub keeps image variants and media records. If the message is about an R2 list page, retry, and report it at https://github.com/vite-hub/vitehub/issues if it fails again."),
-    BLOB_R0034: withFix("For a pathname, pass a non-empty pathname that names an object. For a pathname or prefix, remove control characters, broken Unicode, and `.` or `..` segments. For an image transformer, install the package that the message names, for example `pnpm add sharp` or `pnpm add @cf-wasm/photon`, or add the Cloudflare Images binding to the Worker. Its name is `IMAGES`, or the value of `blob.images.binding`."),
+    BLOB_R0034: withFix("For a pathname, pass a non-empty pathname that names an object. For a pathname or prefix, remove control characters, broken Unicode, `%` followed by two hex digits after decoding, and `.` or `..` segments. For an image transformer, install the package that the message names, for example `pnpm add sharp` or `pnpm add @cf-wasm/photon`, or add the Cloudflare Images binding to the Worker. Its name is `IMAGES`, or the value of `blob.images.binding`."),
     BLOB_R0035: withFix("Change the argument of the `media` call as the message says. For example, a crop name has letters, digits, `_`, or `-`, and a crop aspect looks like `\"16:9\"`."),
     BLOB_R0036: withFix("Use a JPEG, PNG, WebP, or GIF image within the limits that the message names, and request `webp`, `jpeg`, or `png`, not AVIF. For larger images, set `blob.images.transformer` to `\"sharp\"` or `\"cloudflare-images\"`."),
     BLOB_R0037: withFix("Call `sign()` with `method: \"PUT\"` on a writable handle from `blob.store(name)`. A handle from `blob.store(name, { mode: \"read\" })` signs `GET` requests only."),
@@ -115,5 +117,6 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0042: withFix("Sign a new link with `blob.sign()`. Pass a larger `expiresIn` when the client needs more time."),
     BLOB_R0043: withFix("Send a smaller body, or sign the link with a larger `maxSize`."),
     BLOB_R0044: withFix("Set the env variable that the message names in the server environment, with the same value as at build time. The Blob config read it from `process.env` at build time, and ViteHub reads it again at runtime."),
+    BLOB_R0045: withFix("Remove `access` from the `put()` options. `put()` cannot make one object private. Keep private files in a store that `blob.serve` does not serve, or serve it with `blob.serve.authorize: true`. On Vercel Blob, set `access` on the store in the Vite config."),
   },
 })

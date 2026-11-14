@@ -254,7 +254,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       // promise settles. This keeps cleanup possible even when a later
       // response-processing step rejects after the server created the upload.
       const createRequest = send("create", pathname, {
-        body: JSON.stringify({ contentType: file.type || undefined }),
+        body: JSON.stringify({ contentType: file.type || undefined, size: file.size }),
         headers: { "content-type": "application/json" },
         method: "POST",
       })
