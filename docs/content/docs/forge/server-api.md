@@ -103,7 +103,7 @@ export default defineNuxtModule({
 
 | Import | Returns |
 | --- | --- |
-| `readForgeBuild(root, env)` | `{ commit, branch, repository, pullRequest }` from the CI or host, else from Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` come first, for builds without CI variables or `.git`, such as a Docker build. From `@vite-hub/forge/build/node`. |
+| `readForgeBuild(root, env)` | `{ commit, branch, repository, pullRequest }` from the CI or host, else from Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` each replace their own field, for builds without CI variables or `.git`, such as a Docker build. From `@vite-hub/forge/build/node`. |
 | `buildMetaContent(build)` | `{"repository":"acme/web","commit":"<sha>"}` for the meta tag, or `undefined` without a repository and a full commit SHA. |
 | `parseBuildMeta(content)`, `buildIdentity(build)` | `{ repository, commit }`, or `undefined` when the value is missing or malformed. |
 | `buildMetaName` | `"vitehub:build"`. |

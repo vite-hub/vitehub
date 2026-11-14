@@ -56,6 +56,12 @@ describe("readForgeBuild", () => {
     expect(build).toEqual({ commit: sha, branch: "feature", repository: "acme/app", pullRequest: 12 })
   })
 
+  it("applies each VITEHUB_BUILD_ override on its own", async () => {
+    const ci = { GITHUB_SHA: "1".repeat(40), GITHUB_HEAD_REF: "ci-branch", GITHUB_REPOSITORY: "acme/app" }
+    expect(await readForgeBuild(empty, { ...ci, VITEHUB_BUILD_BRANCH: "preview-branch" })).toEqual({ commit: "1".repeat(40), branch: "preview-branch", repository: "acme/app" })
+    expect(await readForgeBuild(empty, { ...ci, VITEHUB_BUILD_COMMIT: sha })).toEqual({ commit: sha, branch: "ci-branch", repository: "acme/app" })
+  })
+
   it("takes the head commit, not the test merge commit, on a pull_request event", async () => {
     const event = join(empty, "event.json")
     writeFileSync(event, JSON.stringify({ pull_request: { head: { sha } } }))

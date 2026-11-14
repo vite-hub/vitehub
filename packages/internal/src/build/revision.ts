@@ -10,7 +10,6 @@ export interface BuildRevision {
 
 /** CI and host variables that name the commit and branch of a build, in the order they are read. */
 const buildVariables: ReadonlyArray<readonly [commit: string, branch: string]> = [
-  ["VITEHUB_BUILD_COMMIT", "VITEHUB_BUILD_BRANCH"],
   ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"],
   ["WORKERS_CI_COMMIT_SHA", "WORKERS_CI_BRANCH"],
   ["CF_PAGES_COMMIT_SHA", "CF_PAGES_BRANCH"],
@@ -45,8 +44,8 @@ async function pullRequestHead(env: Record<string, string | undefined>): Promise
   }
 }
 
-/** The commit and branch of the build, from the CI or host, else from Git. Empty outside a Git checkout. */
-export async function readBuildRevision(root: string, env: Record<string, string | undefined> = process.env): Promise<BuildRevision> {
+/** The commit and branch that the CI or host names, else Git's. Empty outside a Git checkout. */
+async function discoveredRevision(root: string, env: Record<string, string | undefined>): Promise<BuildRevision> {
   for (const [commitName, branchName] of buildVariables) {
     const commit = commitName === "GITHUB_SHA" ? await pullRequestHead(env) ?? env.GITHUB_SHA : env[commitName]
     if (!commit) continue
@@ -55,4 +54,14 @@ export async function readBuildRevision(root: string, env: Record<string, string
   }
   const [commit, branch] = await Promise.all([readGit(root, ["rev-parse", "HEAD"]), readGit(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
   return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}) }
+}
+
+/**
+ * The commit and branch of the build, from the CI or host, else from Git. `VITEHUB_BUILD_COMMIT` and
+ * `VITEHUB_BUILD_BRANCH` each replace their own field. Empty outside a Git checkout.
+ */
+export async function readBuildRevision(root: string, env: Record<string, string | undefined> = process.env): Promise<BuildRevision> {
+  const { VITEHUB_BUILD_COMMIT: commit, VITEHUB_BUILD_BRANCH: branch } = env
+  const found = commit && branch ? {} : await discoveredRevision(root, env)
+  return { ...found, ...(commit ? { commit } : {}), ...(branch ? { branch } : {}) }
 }
