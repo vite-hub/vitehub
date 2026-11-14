@@ -270,11 +270,11 @@ onBeforeUnmount(() => {
                   <template v-else>
                     <li v-if="build" class="vitehub-console__overview-row">
                       <UIcon name="i-lucide-rocket" class="vitehub-console__overview-icon" />
-                      <span class="vitehub-console__overview-description text-default">
-                        <span class="font-medium text-highlighted">{{ build.commit?.author ?? "Someone" }}</span>
-                        <span class="text-muted"> deployed </span>
-                        <span v-if="build.commit" class="font-mono text-xs text-muted">{{ build.commit.sha.slice(0, 7) }} </span>
-                        <span v-if="build.commit?.message">{{ build.commit.message }}</span>
+                      <span class="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span class="shrink-0 font-medium text-highlighted">{{ build.commit?.author ?? "Someone" }}</span>
+                        <span class="shrink-0 text-muted">deployed</span>
+                        <span v-if="build.commit" class="shrink-0 font-mono text-xs text-muted">{{ build.commit.sha.slice(0, 7) }}</span>
+                        <span v-if="build.commit?.message" class="truncate text-default">{{ build.commit.message }}</span>
                       </span>
                       <span class="vitehub-console__overview-meta"><ConsoleRelativeTime :value="build.time" /></span>
                     </li>
@@ -332,22 +332,22 @@ onBeforeUnmount(() => {
                 </li>
                 <li v-if="projects.info.value?.vitehub" class="vitehub-overview__detail">
                   <span class="vitehub-overview__detail-icon"><ConsoleMark class="size-3.5 text-highlighted" /></span>
-                  <span class="min-w-0 flex-1 truncate">vite-hub <span class="font-mono text-xs">{{ projects.info.value.vitehub }}</span></span>
+                  <span class="flex min-w-0 flex-1 items-center gap-1.5"><span>vite-hub</span><span class="truncate font-mono text-xs">{{ projects.info.value.vitehub }}</span></span>
                   <span class="vitehub-overview__detail-key">ViteHub</span>
                 </li>
                 <li v-if="build?.commit" class="vitehub-overview__detail">
                   <UIcon name="i-lucide-git-branch" class="vitehub-overview__detail-icon" />
-                  <span class="min-w-0 flex-1 truncate">
-                    <span v-if="build.commit.branch" class="font-mono text-xs">{{ build.commit.branch }} </span>
-                    <span class="font-mono text-xs text-muted">{{ build.commit.sha.slice(0, 7) }}</span>
+                  <span class="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-xs">
+                    <span v-if="build.commit.branch" class="truncate">{{ build.commit.branch }}</span>
+                    <span class="shrink-0 text-muted">{{ build.commit.sha.slice(0, 7) }}</span>
                   </span>
                   <span class="vitehub-overview__detail-key">Source</span>
                 </li>
                 <li v-if="build" class="vitehub-overview__detail">
                   <UIcon name="i-lucide-rocket" class="vitehub-overview__detail-icon" />
-                  <span class="min-w-0 flex-1 truncate">
-                    <ConsoleRelativeTime :value="build.time" />
-                    <span v-if="build.commit?.author" class="text-muted"> by {{ build.commit.author }}</span>
+                  <span class="flex min-w-0 flex-1 items-center gap-1">
+                    <ConsoleRelativeTime :value="build.time" class="shrink-0" />
+                    <span v-if="build.commit?.author" class="truncate text-muted">by {{ build.commit.author }}</span>
                   </span>
                   <span class="vitehub-overview__detail-key">Deployed</span>
                 </li>

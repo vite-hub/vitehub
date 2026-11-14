@@ -150,9 +150,9 @@ async function link(): Promise<void> {
       </p>
     </header>
 
-    <section v-if="setupDone" class="grid gap-4" aria-labelledby="vitehub-account-title">
+    <section v-if="setupDone" class="grid grid-cols-1 gap-4" aria-labelledby="vitehub-account-title">
       <div class="flex items-center gap-2">
-        <UInput v-model="filter" type="search" icon="i-lucide-search" placeholder="Filter apps" aria-label="Filter apps" class="w-64 min-w-0" />
+        <UInput v-model="filter" type="search" icon="i-lucide-search" placeholder="Filter apps" aria-label="Filter apps" class="min-w-0 flex-1 sm:w-64 sm:flex-none" />
         <UButton v-if="manage" class="ms-auto" icon="i-lucide-plus" label="Link app" @click="projects.linkOpen.value = true" />
       </div>
       <div v-if="shownRows.length" class="overflow-x-auto rounded-lg border border-default">
@@ -173,19 +173,20 @@ async function link(): Promise<void> {
                   <ConsoleAppLogo :app="row.identity" class="vitehub-apps__logo" />
                   <span class="grid min-w-0">
                     <span class="truncate font-medium text-highlighted">{{ row.identity.name }}</span>
-                    <span class="truncate font-mono text-xs text-muted">{{ row.identity.host }}</span>
+                    <span v-if="row.identity.host !== row.identity.name" class="truncate font-mono text-xs text-muted">{{ row.identity.host }}</span>
                   </span>
                 </a>
               </td>
               <td class="vitehub-apps__deploy max-sm:hidden">
                 <span v-if="row.deploy" class="flex min-w-0 items-center gap-2" :title="row.deploy.message">
                   <span v-if="row.deploy.author" class="vitehub-apps__avatar" :title="row.deploy.author" aria-hidden="true">{{ row.deploy.author.charAt(0).toUpperCase() }}</span>
-                  <span class="truncate">
-                    <ConsoleRelativeTime :value="row.deploy.time" class="text-default" />
-                    <template v-if="row.deploy.sha"><span class="text-dimmed"> · </span><span class="font-mono text-xs text-muted">{{ row.deploy.sha }}</span></template>
-                    <span v-if="row.deploy.message" class="text-muted"> {{ row.deploy.message }}</span>
-                    <span v-if="row.deploy.author" class="sr-only"> by {{ row.deploy.author }}</span>
-                  </span>
+                  <ConsoleRelativeTime :value="row.deploy.time" class="shrink-0 text-default" />
+                  <template v-if="row.deploy.sha">
+                    <span class="shrink-0 text-dimmed" aria-hidden="true">·</span>
+                    <span class="shrink-0 font-mono text-xs text-muted">{{ row.deploy.sha }}</span>
+                  </template>
+                  <span v-if="row.deploy.message" class="truncate text-muted">{{ row.deploy.message }}</span>
+                  <span v-if="row.deploy.author" class="sr-only">by {{ row.deploy.author }}</span>
                 </span>
                 <span v-else class="text-dimmed">{{ status[row.app.id] === "connected" ? "No build recorded" : "" }}</span>
               </td>
@@ -214,7 +215,7 @@ async function link(): Promise<void> {
                     rel="noreferrer"
                     :aria-label="`Comment on ${row.identity.name}, ${row.comments.open} open`"
                   >
-                    Comment
+                    <span class="max-sm:sr-only">Comment</span>
                     <span v-if="row.comments.open" class="vitehub-apps__count">{{ row.comments.open }}</span>
                   </UButton>
                 </span>
@@ -487,7 +488,7 @@ a.vitehub-account-list__row:hover {
   align-items: center;
   display: flex;
   gap: 0.625rem;
-  min-width: 0;
+  min-width: 9rem;
 }
 
 .vitehub-apps__open::after {
