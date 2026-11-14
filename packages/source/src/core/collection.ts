@@ -7,6 +7,9 @@ import { parseCollectionSchema } from "./schema.ts"
 export { CollectionCursorError } from "./collection-cursor.ts"
 export type { CollectionCursorErrorOptions, CollectionCursorErrorReason } from "./collection-cursor.ts"
 
+// Keep the guard on the reader so object spreads retain it, including across package entry points.
+const untransformedTableRows = Symbol.for("@vite-hub/source/untransformed-table-rows")
+
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
 declare const collectionQueryInput: unique symbol
@@ -610,6 +613,9 @@ export function defineCollection<
     // SAFETY: The overload without transform fixes TItem to TSourceItem; otherwise lookup applies the typed transform.
     Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
   }
+  if (typeof input !== "function" && input.source.rawRows === true && definition.transform === undefined) {
+    Object.defineProperty(collection.page, untransformedTableRows, { value: true })
+  }
   return collection
 }
 
@@ -645,7 +651,7 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
  * Checks who can read a Collection route and returns the checked values. `defineCollectionHandler()` runs it again
  * for Collection objects that did not come from `defineCollection()`.
  */
-export function assertCollectionAccess(definition: { access?: unknown; authorize?: unknown; route?: unknown }): {
+export function assertCollectionAccess(definition: { access?: unknown; authorize?: unknown; route?: unknown; page?: unknown }): {
   access?: "public"
   authorize?: AccessAuthorizeOption
 } {
@@ -663,6 +669,10 @@ export function assertCollectionAccess(definition: { access?: unknown; authorize
   }
   if (access === "public" && authorize !== undefined) throw sourceErrorDiagnostics.SOURCE_R0038()
   if (access === undefined && authorize === undefined && definition.route !== false) throw sourceErrorDiagnostics.SOURCE_R0035()
+  if (access === "public" && definition.route !== false && typeof definition.page === "function"
+    && Reflect.get(definition.page, untransformedTableRows) === true) {
+    throw sourceErrorDiagnostics.SOURCE_R0036()
+  }
   // SAFETY: The checks above narrow authorize to true or a callable access rule.
   return { access, authorize: authorize as AccessAuthorizeOption | undefined }
 }

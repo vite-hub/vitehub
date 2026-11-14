@@ -111,6 +111,25 @@ describe("@vite-hub/source/drizzle", () => {
         .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
     })
 
+    it("refuses public handlers composed from untransformed table Collections", () => {
+      const collection = defineCollection({ authorize: true, source: usersSource() })
+      const { authorize: _authorize, ...reader } = collection
+      expect(() => defineCollectionHandler({ ...reader, access: "public" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
+    })
+
+    it("serves transformed table Collections through composed public handlers", async () => {
+      const collection = defineCollection({
+        authorize: true,
+        source: usersSource(),
+        transform: ({ id, name }) => ({ id, name }),
+      })
+      const { authorize: _authorize, ...reader } = collection
+      const response = await defineCollectionHandler({ ...reader, access: "public" })
+        .fetch(new Request("https://app.test/api/users"))
+      expect(await response.json()).toEqual({ items: [{ id: "u1", name: "Ada" }], nextCursor: null })
+    })
+
     it("serves only the transformed fields of a public table Collection", async () => {
       const collection = defineCollection({
         access: "public",
