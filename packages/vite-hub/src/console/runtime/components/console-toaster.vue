@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@vite-hub/kit/toast";
+import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@ui-sdk/vue/toast";
 import { watch } from "vue";
 
 import { useConsoleToast } from "../client/toast";

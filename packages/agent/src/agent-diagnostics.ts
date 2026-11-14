@@ -1558,6 +1558,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",
       fix: "Pass `join: connectRealtimeRoom` from `vite-hub/realtime/client`: `connectPage(createAgent(), { join: connectRealtimeRoom })`.",
     },
+    AGENT_R1053: {
+      why: ({ url, form }: { url: string, form: string }) => `[vitehub] --url ${url} ${form}. --url is the app URL in every vitehub command. This old form stops working in the next minor version.`,
+      fix: ({ use }: { use: string }) => `Pass ${use}.`,
+    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",

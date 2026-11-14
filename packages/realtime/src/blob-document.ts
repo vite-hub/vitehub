@@ -5,7 +5,7 @@ import type { RealtimeDocumentAdapter } from "./types.ts"
 /** The part of a ViteHub Blob store that `blobDocument()` uses, such as `blob` from `vite-hub/blob`. */
 export interface RealtimeBlobStore {
   get(pathname: string): Promise<[error: unknown, value: Blob | null | undefined]>
-  put(pathname: string, body: string, options: { access: "private", contentType: string }): Promise<[error: unknown, value: unknown]>
+  put(pathname: string, body: string, options: { contentType: string }): Promise<[error: unknown, value: unknown]>
 }
 
 export interface RealtimeBlobDocumentOptions {
@@ -25,7 +25,7 @@ async function digestOf(text: string): Promise<string> {
 }
 
 /**
- * Stores each Realtime document as one private Blob file at `prefix + documentId`. Its digest is the SHA-256 of the
+ * Stores each Realtime document as one Blob file at `prefix + documentId`. Its digest is the SHA-256 of the
  * body. `save()` reads the stored file and throws `RealtimeDocumentConflict` when its digest is not `ifDigest`.
  * Blob has no conditional write, so a writer outside the room that writes between that read and the save's write is
  * overwritten. The room itself saves one at a time.
@@ -54,7 +54,7 @@ export function blobDocument(store: RealtimeBlobStore, options: RealtimeBlobDocu
           ? "The Blob file of this document was deleted after the realtime room loaded it."
           : "The Blob file of this document changed after the realtime room loaded it.")
       }
-      const [error] = await store.put(pathname, body, { access: "private", contentType })
+      const [error] = await store.put(pathname, body, { contentType })
       if (error) throw error
       return { digest: await digestOf(body) }
     },

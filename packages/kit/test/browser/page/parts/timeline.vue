@@ -7,7 +7,7 @@ import {
   TimelineMarker,
   TimelineTime,
   TimelineTitle,
-} from "@vite-hub/kit/timeline"
+} from "@ui-sdk/vue/timeline"
 
 const events = [
   {
