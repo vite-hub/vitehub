@@ -117,6 +117,16 @@
       "import": "./dist/agent/state.js",
       "default": "./dist/agent/state.js"
     },
+    "./agent/ui": {
+      "types": "./dist/agent/ui.d.ts",
+      "import": "./dist/agent/ui.js",
+      "default": "./dist/agent/ui.js"
+    },
+    "./agent/ui/vue": {
+      "types": "./dist/agent/ui/vue.d.ts",
+      "import": "./dist/agent/ui/vue.js",
+      "default": "./dist/agent/ui/vue.js"
+    },
     "./agent/vite": {
       "types": "./dist/agent/vite.d.ts",
       "import": "./dist/agent/vite.js",
