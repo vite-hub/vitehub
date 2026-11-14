@@ -61,7 +61,7 @@ async function sendStored(storage: SyncStorage): Promise<void> {
     const split = id.indexOf("?")
     const url = split < 0 ? id : id.slice(0, split)
     const where: unknown = split < 0 ? {} : JSON.parse(id.slice(split + 1))
-    const store = createSyncStore(url.slice(url.lastIndexOf("/") + 1), {
+    const store = createSyncStore<SyncRow>(url.slice(url.lastIndexOf("/") + 1), {
       url,
       // SAFETY: `whereKey()` wrote the subset as a JSON object of column values.
       where: where as SyncValues,
