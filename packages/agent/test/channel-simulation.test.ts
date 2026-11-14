@@ -283,7 +283,7 @@ describe("simulated chat Channels", () => {
     const polling = telegram({ mode: "polling" })
     expect(inspectMessageChannelInstructions({ telegram: polling }).join("\n")).toContain("Telegram")
     expect(polling.listener).toBeUndefined()
-    expect(polling.webhooks).toBe(true)
+    expect(polling.webhooks).toEqual({ secretToken: false })
     expect(telegram().webhooks).toMatchObject({ secretToken: false })
   })
 
