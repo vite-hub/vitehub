@@ -201,7 +201,13 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  */
 function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
   const cloudflareGlobals = cloudflare && workersModule
-  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined, requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit"]
+  const setters = [
+    cloudflareGlobals ? "setActiveCloudflareEnv" : undefined,
+    "setBlobRuntimeConfig",
+    imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined,
+    imageModule === "photon" && cloudflareGlobals ? "loadWorkerPhoton" : undefined,
+    requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit",
+  ]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
@@ -215,7 +221,11 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
-    imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
+    imageModule === "photon"
+      ? cloudflareGlobals
+        ? "  setBlobPhotonLoader(() => loadWorkerPhoton(import('@cf-wasm/photon/others'), import('@cf-wasm/photon/photon.wasm')))"
+        : "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))"
+      : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     requestBodyLimit === undefined ? undefined : `  setBlobRequestBodyLimit(${requestBodyLimit})`,
     "}",
