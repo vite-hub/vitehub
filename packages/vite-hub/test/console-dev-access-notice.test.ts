@@ -26,8 +26,16 @@ describe("the startup line of a development Console without signed calls", () =>
     }
   })
 
+  it("says that a tunnel needs a key when console: true has none yet", () => {
+    const notice = consoleDevAccessNotice("token", { address: "127.0.0.1" }, {})
+    expect(notice?.level).toBe("info")
+    expect(notice?.message).toContain("without a signature")
+    expect(notice?.message).toContain("VITEHUB_CONSOLE_KEY_<NAME>")
+    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" }, { VITEHUB_CONSOLE_KEY_CI: "" })?.level).toBe("warn")
+  })
+
   it("says nothing for signed calls or a server without a TCP address", () => {
-    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" })).toBeUndefined()
+    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" }, { VITEHUB_CONSOLE_KEY_CI: "a".repeat(43) })).toBeUndefined()
     expect(consoleDevAccessNotice(undefined, { address: "0.0.0.0" })).toBeUndefined()
     expect(consoleDevAccessNotice("local", "/tmp/dev.sock")).toBeUndefined()
     expect(consoleDevAccessNotice("local", null)).toBeUndefined()

@@ -5,7 +5,10 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { checkConsoleSignature } from "./console-signature.ts"
+import { consoleSignatureHeader } from "@vite-hub/internal/console-signature"
+
+import { checkConsoleSignature, consoleKeysMissing } from "./console-signature.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -113,11 +116,23 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
+/**
+ * The access mode of one request. A development server with `console: true` and no `VITEHUB_CONSOLE_KEY_<NAME>` cannot
+ * verify a signature, so it treats an unsigned request like `console: { auth: false }`: it answers this machine, such as
+ * the `vitehub` CLI, and refuses others. A signed request, and every request once a key is set, needs the signature.
+ */
+function requestAccessMode(policy: ConsoleAccessPolicy, event: ConsoleRequestEvent): ConsoleAccessMode {
+  if (policy.mode !== "token" || !isConsoleDevelopmentBuild()) return policy.mode
+  if (consoleRequest(event).headers.has(consoleSignatureHeader)) return "token"
+  return consoleKeysMissing(event) ? "open" : "token"
+}
+
 async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
   const policy = installedConsoleAccessPolicy()
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  const mode = requestAccessMode(policy, event)
   // Every Console route and Realtime room reads its access here, so none can skip this rule.
-  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: policy.mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
+  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
     return rejection(403, "CONSOLE_LOOPBACK_ONLY")
   }
   let user: ConsoleUser | undefined
@@ -126,10 +141,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   let surface: ConsoleAccess["surface"]
   let confirmed: ConsoleAccess["confirmed"]
   let signature: ConsoleAccess["signature"]
-  if (policy.mode === "local") {
+  if (mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
-  else if (policy.mode === "token") {
+  else if (mode === "token") {
     // A signature is the only way in. A cookie, a session, or a bearer token never counts.
     const signed = await checkConsoleSignature(consoleRequest(event), event)
     if (!signed.ok) return signed.response
@@ -161,7 +176,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       sections = allowed
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(mode, { mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
 }
 
 /** The person of a checked access, or `undefined` for an access that the check did not create. */
