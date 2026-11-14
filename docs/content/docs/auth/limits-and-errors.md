@@ -138,26 +138,6 @@ The operation needs a database adapter or plugin API. Add it to the primary Auth
 
 Better Auth or a computed column reader failed. Read the error cause in server code, and never send it to clients.
 
-## AUTH_GITHUB_ORG_REQUIRED
-
-`checkGitHubOrgMember()` got an empty organization login. Pass the login, for example `checkGitHubOrgMember(token, 'acme')`. `isGitHubOrgMember()` returns `false` instead.
-
-## AUTH_GITHUB_TOKEN_INVALID
-
-`checkGitHubOrgMember()` got no token, or GitHub answered `401`: the token expired or was revoked. Ask the user to sign in with GitHub again.
-
-## AUTH_GITHUB_ORG_ACCESS_DENIED
-
-GitHub answered `403`, or `404` to a classic OAuth token without the `read:org` scope. The organization can use SAML single sign-on that the token is not authorized for, or restrict OAuth apps. Ask the user to sign in with GitHub again with `read:org`, and to authorize single sign-on when GitHub asks. An organization owner may have to approve the OAuth app.
-
-## AUTH_GITHUB_UNAVAILABLE
-
-`checkGitHubOrgMember()` got no membership from GitHub: a network error, a timeout, a `429` or `5xx` answer, a rate limit, or a body that is not a membership. Deny access for now and ask the user to try again later. `error.cause` holds the network error.
-
-## AUTH_GITHUB_NOT_ORG_MEMBER
-
-The GitHub user is not an active member of the organization: GitHub answered `404`, or the invitation is still pending. Deny access, or invite the user.
-
 ## AUTH_MCP_OAUTH_MISSING
 
 `serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `oauthProvider()` with `resources`. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
