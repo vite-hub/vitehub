@@ -60,6 +60,8 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
+| `DATABASE_SQL_FAILED` | Printed by `vitehub database sql`, which then exits with code 1 |
+| `DATABASE_DROP_FAILED`, `DATABASE_DROP_NOT_CONFIRMED` | Printed by `vitehub database drop`, which then exits with code 1 |
 | `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
 | `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub database seed`, which then exits with code 1 |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
@@ -198,6 +200,20 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 ### DATABASE_EXPORT_FAILED
 
 `vitehub database export` cannot write the dump. `error.why` has the reason, such as a missing SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. It writes no file on failure. See [Export a database](/docs/database/configure#export-a-database).
+
+## SQL and drop errors
+
+### DATABASE_SQL_FAILED
+
+`vitehub database sql` cannot run the SQL. `error.why` has the reason, such as a SQL error, a local file that does not exist, a remote database without `--remote`, or missing credentials. Statements before the failed one stay applied. See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables).
+
+### DATABASE_DROP_NOT_CONFIRMED
+
+`vitehub database drop` was not confirmed. On a terminal, answer `y`. Without a terminal, such as in CI, add `--force`. Nothing was dropped.
+
+### DATABASE_DROP_FAILED
+
+`vitehub database drop` cannot drop the tables. `error.why` has the reason, such as a remote database without `--remote`, missing credentials, or a database error. The drop runs in one transaction, so nothing was dropped.
 
 ## Seed errors
 

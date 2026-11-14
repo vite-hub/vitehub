@@ -135,6 +135,8 @@ Available namespaces:
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
+| `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
+| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
 | `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
@@ -844,6 +846,26 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 | `--output <file>` | Write this file. Defaults to `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
+
+## Run SQL on a Database
+
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+
+```bash [Terminal]
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json < report.sql
+pnpm vitehub database drop --force
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Use the remote database. Needed for a database that is not a local file or folder. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | The database to use. Needed when the app has several. |
+| `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
+| `--force` | `drop` only. Drop without asking. |
+
+See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 
 ## Seed a Database
 
