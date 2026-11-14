@@ -1,4 +1,4 @@
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { isActiveContentType } from "./internal/active-content.ts"
 import { blobSizeToBytes } from "./internal/size.ts"

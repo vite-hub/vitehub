@@ -7,6 +7,7 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  isDefinitionSourceFile,
   isGitRepositoryDirectory,
   mergeDefinitions,
   normalizePathDefinitionName,
@@ -22,7 +23,6 @@ import type { DiscoveredWorkflowDefinition } from "./types.ts"
 const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
-const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
 const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
 const folderAgentIndexFilePattern = /^index\.(?:c|m)?[jt]s$/i
@@ -51,7 +51,7 @@ function readDirEntries(root: string) {
 }
 
 function isSourceFile(file: string) {
-  return sourceFilePattern.test(file) && !declarationFilePattern.test(file)
+  return sourceFilePattern.test(file) && isDefinitionSourceFile(file)
 }
 
 function findDefineAgentObjectStart(masked: string, start: number): number | undefined {
