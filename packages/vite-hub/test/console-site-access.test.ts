@@ -111,6 +111,22 @@ describe("Console members", () => {
     expect(app.database.sqlite.prepare("SELECT id FROM user WHERE email = ?").get("grace@example.com")).toBeDefined()
   })
 
+  it("gives only the page tool roles that console.authorize grants", async () => {
+    installConsoleAccess({ mode: "token", authorize: ({ via }) => via === "console" ? { sections: ["site"], grants: ["comments-read"] } : false })
+    const grace: ConsoleCallerUser = { email: "grace@example.com", id: "console-grace", name: "Grace" }
+    const { cookie } = await open(await link("site.link", {}, grace))
+    expect((await signedIn(cookie))?.user).toMatchObject({ email: "grace@example.com", role: "console,comments-read" })
+  })
+
+  it("refuses grants that no page tool gives, and a person whom console.authorize refuses", async () => {
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["site"], grants: ["comments-admin"] }) })
+    const { status, body } = await call("site.link")
+    expect(status).toBe(500)
+    expect(JSON.stringify(body)).toContain("comments-admin")
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["content"] }) })
+    expect((await call("site.link")).status).toBe(403)
+  })
+
   it("gives a phone link 10 minutes", async () => {
     const { value } = await call("site.link", { qr: true })
     const left = Date.parse(String(Reflect.get(Object(value), "expiresAt"))) - Date.now()

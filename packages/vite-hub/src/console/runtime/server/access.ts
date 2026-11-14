@@ -3,7 +3,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
-import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
+import { consoleAuthorizedGrants, consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { checkConsoleSignature } from "./console-signature.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
@@ -40,6 +40,8 @@ export interface ConsoleAccess {
    * section id, or `"<section>:read"` for a section that the request may only read.
    */
   readonly sections: "all" | readonly string[]
+  /** The page tool roles that Site access gives the person, from `grants` of `console.authorize`. Not set: every role. */
+  readonly grants?: readonly string[]
   /** The person who called: the signed Console user, or the local developer on a development server. */
   readonly user?: ConsoleUser
   /** Who signed the request: the ViteHub Console or the CLI. Not set for an open Console. */
@@ -143,6 +145,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     }
   }
   let sections: ConsoleAccess["sections"] = "all"
+  let grants: readonly string[] | undefined
   if (policy.mode !== "local" && policy.authorize) {
     const request = consoleRequest(event)
     const result: unknown = await policy.authorize(
@@ -158,10 +161,18 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       const allowed = consoleAuthorizedSections(result)
       if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
       if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      const roles = consoleAuthorizedGrants(result)
+      if (roles === false) return rejection(500, "CONSOLE_REQUEST_FAILED", "The grants of console.authorize must be a list of page tool roles, such as [\"comments-read\"].")
       sections = allowed
+      grants = roles
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+}
+
+/** The page tool roles of a checked access, from `grants` of `console.authorize`, or `undefined` for every role. */
+export function readConsoleAccessGrants(access: ConsoleAccess): readonly string[] | undefined {
+  return consoleAccessGrant.isValid(access) ? access.grants : undefined
 }
 
 /** The person of a checked access, or `undefined` for an access that the check did not create. */
