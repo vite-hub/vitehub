@@ -155,7 +155,14 @@ without the app's Databases. Do not pass the Database Definition: it holds
 options only, and `useDatabase()` gives the database with the migrations and
 relations of the build.
 
-```ts
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from "@vite-hub/database"
+import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+
+export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
+```
+
+```ts [server/workspaces/drop.ts]
 import { blob } from "@vite-hub/blob"
 import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
