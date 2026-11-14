@@ -24,6 +24,8 @@ interface RemoteRuntimeOptions {
   readonly home?: string;
   readonly runtime: string;
   readonly workspace?: string;
+  /** Keep the files that earlier sessions of the same Sandbox left in Home. */
+  readonly preserveHome?: boolean;
   readonly preserveWorkspace?: boolean;
 }
 
@@ -148,7 +150,7 @@ export async function resolveRemoteEnvironment(
 async function materializeRemotePlan(
   input: SandboxRuntimeInput,
   session: RuntimeSession,
-  options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveWorkspace"> & { signal?: AbortSignal },
+  options: Pick<RemoteRuntimeOptions, "home" | "workspace" | "preserveHome" | "preserveWorkspace"> & { signal?: AbortSignal },
   environment: Record<string, string>,
 ) {
   const home = options.home ?? "/home/vitehub";
@@ -157,7 +159,7 @@ async function materializeRemotePlan(
   const diagnosticSecrets = [...sandboxRequirementSecrets(
     Object.keys(input.plan.env).map(name => environment[name]!),
   )];
-  for (const path of new Set([home, ...(options.preserveWorkspace ? [] : [workspace])])) {
+  for (const path of new Set([...(options.preserveHome ? [] : [home]), ...(options.preserveWorkspace ? [] : [workspace])])) {
     if (await session.existsFile({ abortSignal, path }))
       await session.removeFile({ abortSignal, path, recursive: true });
   }

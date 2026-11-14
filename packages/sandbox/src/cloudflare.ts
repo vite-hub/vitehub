@@ -126,6 +126,10 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
+        // A new Container starts empty. One with the same ID can serve other sessions right now,
+        // so opening must not delete their files. A checkout still needs an empty workspace.
+        preserveHome: true,
+        preserveWorkspace: !input.checkout,
         runtime: "cloudflare",
         signal: openOptions?.signal,
       }, env);

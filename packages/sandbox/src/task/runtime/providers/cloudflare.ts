@@ -25,7 +25,6 @@ export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions) 
   }
 
   return {
-    closeAfterRun: options.provider.keepAlive === true,
     provider: 'cloudflare' as const,
     sandboxId: options.provider.sandboxId,
     resolveSandbox: async (requirements: readonly string[]) => await resolveCloudflareSandbox(

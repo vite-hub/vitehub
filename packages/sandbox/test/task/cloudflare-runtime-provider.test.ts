@@ -23,7 +23,6 @@ describe("Cloudflare Sandbox runtime provider", () => {
     }))
 
     await provider.resolveSandbox(["node"])
-    expect(provider.closeAfterRun).toBe(false)
     expect(resolveCloudflareSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         namespace,
@@ -48,13 +47,17 @@ describe("Cloudflare Sandbox runtime provider", () => {
     )
   })
 
-  it("closes a Sandbox session when keepAlive disables idle shutdown", async () => {
+  it("passes keepAlive to the Sandbox idle policy", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", keepAlive: true },
     }))
 
-    expect(provider.closeAfterRun).toBe(true)
+    await provider.resolveSandbox(["node"])
+    expect(resolveCloudflareSandbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cloudflare: expect.objectContaining({ keepAlive: true }) }),
+      ["node"],
+    )
   })
 
   it("says how to run Sandbox locally when the dev server has no binding", async () => {

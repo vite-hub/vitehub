@@ -65,7 +65,6 @@ beforeEach(() => {
   runtimeMocks.resolveTaskSandbox.mockReset()
   runtimeMocks.sleep.mockClear()
   runtimeMocks.resolveTaskSandbox.mockImplementation(async ({ provider }) => ({
-    closeAfterRun: provider.provider === "cloudflare" ? provider.keepAlive === true : true,
     provider: provider.provider,
     resolveSandbox: runtimeMocks.resolveProviderSandbox,
     sandboxId: provider.sandboxId,
@@ -256,14 +255,11 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(third).resolves.toEqual({ ok: true })
   })
 
-  it("holds an actively cancelled shared Sandbox until execution and destruction settle", async () => {
+  it("holds an actively cancelled shared Sandbox until execution settles, and keeps it open", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "active-cancellation" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     let finishExecution!: () => void
     const execution = new Promise<void>(resolve => { finishExecution = resolve })
-    let finishDestruction!: () => void
-    const destruction = new Promise<void>(resolve => { finishDestruction = resolve })
-    runtimeMocks.close.mockImplementationOnce(async () => await destruction)
     runtimeMocks.executeSandboxTaskDefinition
       .mockImplementationOnce(async (...args) => {
         const lifecycle = args[6] as { onExecution: (execution: Promise<unknown>) => void }
@@ -288,11 +284,9 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).not.toHaveBeenCalled()
     finishExecution()
-    await vi.waitFor(() => expect(runtimeMocks.close).toHaveBeenCalledOnce())
-    expect(runtimeMocks.open).toHaveBeenCalledOnce()
-    finishDestruction()
     await expect(next).resolves.toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
+    expect(runtimeMocks.close).not.toHaveBeenCalled()
   })
 
   it("closes the Sandbox session after failed definitions", async () => {
@@ -409,7 +403,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("closes Cloudflare when keepAlive disables idle shutdown", async () => {
+  it("closes a Cloudflare Sandbox without an ID after the run, also with keepAlive", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", keepAlive: true })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })

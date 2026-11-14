@@ -39,9 +39,9 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 | `className` | `'Sandbox'` | Exported Durable Object class name. |
 | `migrationTag` | `'v1'` | Unique Wrangler migration tag for the class. |
 | `name` | - | Container name. The `cloudflare` host builds it from the app name. |
-| `sandboxId` | - | One Sandbox ID for every run. |
-| `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
-| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (the Cloudflare maximum). ViteHub then closes the session after each run. |
+| `sandboxId` | - | One Sandbox ID for every run. The Sandbox stays after each run until it is idle for `sleepAfter`. |
+| `sleepAfter` | `'5m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
+| `keepAlive` | `false` | Set the idle time to 6 hours, the Cloudflare maximum. Use it with `sandboxId` to keep a warm Sandbox between runs. A Sandbox without `sandboxId` still stops after each run. |
 | `normalizeId` | `false` | Lowercase the Sandbox ID before it names the Durable Object. |
 
 On Cloudflare, ViteHub writes the Container, Durable Object binding, migration, and Worker exports to Provider Output (the generated host files). It writes `.vitehub/sandbox-task/Dockerfile` when the container has no image.
