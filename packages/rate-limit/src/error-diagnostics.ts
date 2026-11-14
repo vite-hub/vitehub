@@ -62,5 +62,9 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_B0002: dynamicError,
     RATE_LIMIT_B0003: dynamicError,
     RATE_LIMIT_B0004: dynamicError,
+    RATE_LIMIT_B0005: {
+      why: "Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit.",
+      fix: "Enable KV on Node so that ViteHub selects the kv provider, or set `rateLimit.provider` to \"kv\" and configure a Redis KV store or a Postgres Database. Keep `memory` only for one server process.",
+    },
   },
 })

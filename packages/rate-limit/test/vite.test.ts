@@ -127,6 +127,9 @@ describe("hubRateLimit", () => {
     await writeCloudflareDeclaration(root)
     await configResolved(hubRateLimit({ provider: "memory" }))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts requests in the memory of each server process"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints).toMatchObject({ version: 1, command: "build", hints: [{ code: "RATE_LIMIT_B0005", docs: "https://vitehub.dev/docs/rate-limit/diagnostics/rate_limit_b0005" }] })
+    expect(hints.hints[0].fix).toContain("rateLimit.provider")
   })
 
   it("fails configuration for conflicting policies with the same ID", async () => {

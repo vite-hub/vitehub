@@ -1,3 +1,4 @@
+import { reportViteHubHint } from "@vite-hub/internal/hints"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
@@ -121,8 +122,6 @@ function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig, kvImport:
   ].join("\n")
 }
 
-/** A build that counts in memory gets one warning, so a multi-instance deploy does not hide it. */
-const memoryBuildWarning = "[vitehub] Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit. To share the counts, enable KV on Node (ViteHub then selects the kv provider), or set rateLimit.provider to \"kv\", and configure a Redis KV store or use a Postgres Database."
 
 function resolveRateLimitNamespace(configured?: string): string | undefined {
   return configured?.trim() || undefined
@@ -179,7 +178,8 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
 
   const warnAboutMemory = (): void => {
     if (!resolved || warnedAboutMemory || resolved.command !== "build" || declarations.length === 0 || effectiveProvider(provider, resolved) !== "memory") return
-    resolved.logger.warn(memoryBuildWarning)
+    // One hint for a build that counts in memory, so a multi-instance deploy does not hide it.
+    reportViteHubHint(resolved, rateLimitErrorDiagnostics.RATE_LIMIT_B0005())
     warnedAboutMemory = true
   }
 
