@@ -761,7 +761,7 @@ describe("hubSandboxTask", () => {
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/Dockerfile"), "utf8"))
-      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:1\.\d+\.\d+ AS sandbox-tools\n[\s\S]*FROM docker\.io\/library\/node:[\s\S]*COPY --from=sandbox-tools \/usr\/local\/bin\/sandbox-shim \/usr\/local\/bin\/sandbox-shim[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn[\s\S]*CMD \["sleep", "infinity"\]/)
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:1\.\d+\.\d+ AS sandbox-tools\n[\s\S]*FROM docker\.io\/library\/node:[\s\S]* procps tini [\s\S]*COPY --from=sandbox-tools \/usr\/local\/bin\/sandbox-shim \/usr\/local\/bin\/sandbox-shim[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn[\s\S]*ENTRYPOINT \["\/usr\/bin\/tini", "--"\]\nCMD \["sleep", "infinity"\]/)
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {

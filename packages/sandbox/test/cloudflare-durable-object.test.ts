@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { posix } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
@@ -21,6 +22,15 @@ function gnuTimeout() {
     } catch {}
   }
   throw new Error("Install GNU coreutils to test the Debian Sandbox image's process-group timeout.");
+}
+
+/** Running `sleep <mark>` processes. Zombies do not count. */
+function markedProcesses(mark: string) {
+  return execFileSync("ps", ["-eo", "pid=,stat=,args="], { encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .map(line => line.trim().split(/\s+/))
+    .filter(([, status, command, argument]) => command === "sleep" && argument === mark && !status!.startsWith("Z"));
 }
 
 class FileError extends Error {
@@ -92,7 +102,7 @@ function fakeContainer() {
           return { exitCode: await exitCode, stderr: await err, stdout: await out };
         },
       };
-      if (command.at(-1) !== "long-running") {
+      if (!command.includes("long-running")) {
         queueMicrotask(() => {
           stdout.enqueue(encoder.encode(`${options?.cwd}|${options?.env?.NAME ?? ""}|${command.join(" ")}`));
           stderr.enqueue(encoder.encode("warning\n"));
@@ -148,6 +158,17 @@ function fakeFiles() {
     }
   }
   return { Files, directories, files };
+}
+
+/** The `kill` commands that signal a spawned process group: `[signal, group file]`. */
+function groupKills(executions: Execution[]) {
+  return executions
+    .filter(execution => execution.command[2]?.includes("kill -"))
+    .map(execution => execution.command.slice(-2));
+}
+
+function groupFile(execution: Execution) {
+  return execution.command.at(-1);
 }
 
 function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"]) {
@@ -385,6 +406,58 @@ describe("Cloudflare Sandbox Durable Object", () => {
     }
   });
 
+  it.skipIf(process.platform !== "linux").each([
+    ["SIGTERM", "sleep $MARK & wait"],
+    ["SIGKILL", "sleep $MARK & wait"],
+    ["SIGKILL", "bash -c 'trap \"\" TERM; sleep $MARK' & sleep $MARK"],
+  ])("sends %s to every process of a spawned command: %s", async (signal, template) => {
+    const mark = `6${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
+    const { container, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const children: ReturnType<typeof spawn>[] = [];
+    container.exec = async (command, options) => {
+      const child = spawn(command[0]!, command.slice(1), { cwd: "/", stdio: ["pipe", "pipe", "pipe"] });
+      children.push(child);
+      const exitCode = new Promise<number>((resolve, reject) => {
+        child.on("exit", (code, signal) => resolve(code ?? (signal === "SIGKILL" ? 137 : 143)));
+        child.on("error", reject);
+      });
+      const stream = (readable: NodeJS.ReadableStream) => new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable.on("data", chunk => controller.enqueue(new Uint8Array(chunk)));
+          readable.on("end", () => controller.close());
+        },
+      });
+      return {
+        exitCode,
+        stderr: options?.stderr === "ignore" ? null : stream(child.stderr!),
+        stdin: null,
+        stdout: options?.stdout === "ignore" ? null : stream(child.stdout!),
+        kill: signal => { child.kill(signal); },
+        async output() { throw new Error("not used"); },
+      };
+    };
+    try {
+      const child = await objects.get("Task-1")!.startProcess(`echo started; ${template.replaceAll("$MARK", mark)}`);
+      await vi.waitFor(() => expect(markedProcesses(mark).length).toBeGreaterThanOrEqual(template.includes("trap") ? 2 : 1));
+
+      await child.kill(signal);
+
+      await expect(child.waitForExit()).resolves.toEqual({ exitCode: signal === "SIGKILL" ? 137 : 143 });
+      await vi.waitFor(() => expect(markedProcesses(mark)).toEqual([]));
+      // The wrapper's job notice ("Killed ...") stays out of the command output.
+      await expect(child.getLogs()).resolves.toEqual({ stderr: "", stdout: "started\n" });
+      const groupFile = children[0]!.spawnargs.at(-1)!;
+      expect(groupFile).toMatch(/^\/tmp\/vitehub-process-.+\.pgid$/);
+      expect(existsSync(groupFile)).toBe(false);
+    } finally {
+      for (const [pid] of markedProcesses(mark)) {
+        try { process.kill(Number(pid), "SIGKILL"); } catch {}
+      }
+      await session.close();
+    }
+  });
+
   it("streams spawned output live, forwards stdin and reports the exit code", async () => {
     const { executions, runtime } = setup();
     const sandbox = await resolveSandbox({ runtime }, {});
@@ -426,7 +499,7 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(execution.options?.stdin).toBeUndefined();
     expect(process.stdin).toBeUndefined();
     await process.kill("SIGINT");
-    expect(execution.signals).toEqual([2]);
+    expect(groupKills(executions)).toEqual([["2", groupFile(execution)]]);
     execution.exit(130);
     await session.close();
   });
@@ -477,13 +550,13 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const cancelled = await session.spawn!("long-running", [], { signal: controller.signal });
     const first = executions.at(-1)!;
     controller.abort(reason);
-    await vi.waitFor(() => expect(first.signals).toEqual([9]));
+    await vi.waitFor(() => expect(groupKills(executions)).toEqual([["9", groupFile(first)]]));
     first.exit(137);
     await expect(cancelled.wait()).rejects.toBe(reason);
 
     const timed = await session.spawn!("long-running", [], { timeout: 20 });
     const second = executions.at(-1)!;
-    await vi.waitFor(() => expect(second.signals).toEqual([9]));
+    await vi.waitFor(() => expect(groupKills(executions).at(-1)).toEqual(["9", groupFile(second)]));
     second.exit(137);
     await expect(timed.wait()).rejects.toMatchObject({ name: "TimeoutError" });
 

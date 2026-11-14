@@ -46,7 +46,9 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 
 On Cloudflare, ViteHub writes the Container, Durable Object binding, migration, and Worker exports to Provider Output (the generated host files). It writes `.vitehub/sandbox-task/Dockerfile` when the container has no image.
 
-For a custom image, give your container a complete Dockerfile that copies `/usr/local/bin/sandbox-shim` from `docker.io/cloudflare/sandbox:<installed @cloudflare/sandbox version>`. On Vercel, set `runtime` or `source`. There is no helper for partial Dockerfiles, because image syntax differs between providers.
+The generated image runs `tini` as its first process, so it collects the processes that commands leave behind. ViteHub starts each spawned command in its own process group with `setsid`, so a kill or a timeout also stops its child processes.
+
+For a custom image, give your container a complete Dockerfile that copies `/usr/local/bin/sandbox-shim` from `docker.io/cloudflare/sandbox:<installed @cloudflare/sandbox version>`. Keep `bash` and `setsid` in the image, and use an init process such as `tini` as the entrypoint. On Vercel, set `runtime` or `source`. There is no helper for partial Dockerfiles, because image syntax differs between providers.
 
 ## Related guides
 
