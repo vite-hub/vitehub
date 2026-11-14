@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Field, FieldLabel } from "@vite-hub/kit/field"
-import { TimeInput } from "@vite-hub/kit/time-input"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { TimeInput } from "@ui-sdk/vue/time-input"
 </script>
 
 <template>
