@@ -111,7 +111,11 @@ describe("access.policy", () => {
     const request = () => kind === "session"
       ? handleAuthRequest(definition, new Request(`${origin}/api/auth/get-session`, { headers }))
       : guarded(new Request(`${origin}/private`, { headers }))
-    expect((await request()).status).toBe(200)
+    const allowed = await request()
+    expect(allowed.status).toBe(200)
+    if (kind === "session") expect(await allowed.json()).toMatchObject({ user: { email: "ada@example.com" } })
+    else expect(await allowed.text()).toBe("protected")
+    expect(allow).toHaveBeenCalledTimes(2)
     member = false
     const refused = await request()
     if (kind === "session") {
