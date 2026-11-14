@@ -17,7 +17,7 @@ export type GitHubOrgMemberErrorCode =
   | "AUTH_GITHUB_TOKEN_INVALID"
   | "AUTH_GITHUB_UNAVAILABLE"
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. The docs build writes a page for each code.
 const githubErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
