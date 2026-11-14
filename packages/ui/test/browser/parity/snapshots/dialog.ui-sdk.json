@@ -1,0 +1,202 @@
+{
+  "component": "dialog",
+  "engine": "ui-sdk",
+  "steps": [
+    {
+      "step": "load",
+      "focus": "(body)",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab to the trigger",
+      "focus": "button \"Open settings\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Enter opens",
+      "focus": "textbox \"Name\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Tab to Save",
+      "focus": "button \"Save\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Tab to Close",
+      "focus": "button \"Close\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Tab wraps to the first field",
+      "focus": "textbox \"Name\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Shift+Tab wraps to Close",
+      "focus": "button \"Close\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Escape closes",
+      "focus": "button \"Open settings\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Click opens",
+      "focus": "textbox \"Name\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- dialog \"Settings\":",
+        "  - heading \"Settings\" [level=2]",
+        "  - paragraph: Change the session settings.",
+        "  - text: Name",
+        "  - textbox \"Name\"",
+        "  - button \"Save\"",
+        "  - button \"Close\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": [
+        "button \"Open settings\" aria-controls dialog \"Settings Change the session settings. Na\"",
+        "dialog \"Settings Change the session settings. Na\" aria-labelledby h2 \"Settings\"",
+        "dialog \"Settings Change the session settings. Na\" aria-describedby p \"Change the session settings.\""
+      ]
+    },
+    {
+      "step": "Click outside closes",
+      "focus": "button \"Open settings\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Space opens",
+      "focus": "button \"Open settings\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Click Close",
+      "focus": "button \"Open settings\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    },
+    {
+      "step": "Tab to After",
+      "focus": "button \"After\"",
+      "tree": [
+        "- button \"Open settings\"",
+        "- button \"After\""
+      ],
+      "live": [],
+      "relations": []
+    }
+  ]
+}

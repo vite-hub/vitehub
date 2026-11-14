@@ -19,6 +19,7 @@ App code calls Server Primitives with full trust. A Capability picks which opera
 | Read project files | [Workspace tools](/docs/workspace/agent-capability) and [Skills](/docs/agents/capabilities/skills) |
 | Query application data | [Database](/docs/database/agent-capability), [KV](/docs/kv/agent-capability), or [Blob](/docs/blob/agent-capability) |
 | Search or call an external service | [Web search](/docs/agents/capabilities/web-search), [Fetch](/docs/agents/capabilities/fetch), [OpenAPI](/docs/agents/capabilities/openapi), or [MCP](/docs/agents/capabilities/mcp) |
+| Work the person's open page | [Page](/docs/agents/capabilities/page) |
 | Continue a conversation | [Chat](/docs/agents/capabilities/chat), [Chat History](/docs/agents/chat-history-sessions), and [Memory](/docs/agents/capabilities/memory) |
 | Restrict work | [Access](/docs/agents/capabilities/access), [Budget](/docs/agents/capabilities/budget), and [Rate Limit](/docs/rate-limit/agent-capability) |
 | Inspect cost and results | [Usage](/docs/agents/capabilities/usage), [Diagnostics](/docs/agents/capabilities/diagnostics), and [OTLP](/docs/agents/capabilities/otlp) |

@@ -705,7 +705,7 @@ describe("content preview", { timeout: 30_000 }, () => {
   })
 
   it("is unavailable without collections and leaves Source-only requests unchanged", async () => {
-    const content = defineContent({ source: { items: async () => [{ key: "index.md", content: "# Home" }] }, logger: false })
+    const content = defineContent({ access: "public", source: { items: async () => [{ key: "index.md", content: "# Home" }] }, logger: false })
     cleanup.push(() => content.dispose())
     await expect(content.preview.enable(new Request("https://site.test/"))).rejects.toMatchObject({ code: "CONTENT_R0008" })
     const request = new Request("https://site.test/", { headers: { cookie: `${contentPreviewCookieName}=v1.1.x` } })

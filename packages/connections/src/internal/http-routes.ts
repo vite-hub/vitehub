@@ -90,14 +90,17 @@ export function errorResponse(error: unknown): Response {
   return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 
+const unknownHostMessage = "The request host is not an origin of vitehub({ publicUrl }).";
+
 /**
  * The same-origin check of the action route. It accepts the public origin from `vitehub({ publicUrl })`
  * and the origin of the request URL that the server sees, when its host is the public host. Behind a TLS-terminating proxy without a public
  * URL, the server can see `http:` while the browser sends an `https:` Origin.
  */
 function originRejection(request: Request, agentName?: string): Response | undefined {
-  // The configured URL of the Agent binds the check, so another request host cannot widen it.
-  const expected = (agentName ? resolvePublicUrl({ agentName }) : undefined) ?? resolvePublicUrl({ agentName, request });
+  // A configured URL binds the check, so the request Host cannot widen it.
+  const expected = resolvePublicUrl({ agentName, request });
+  if (!expected) return json({ error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", unknownHostMessage) }, 403);
   const origin = request.headers.get("origin");
   const requestOrigin = new URL(request.url).origin;
   const requestHostMatchesPublic = new URL(expected).host === new URL(request.url).host;
@@ -178,6 +181,7 @@ const connect: ConnectionsRoute = {
     if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     // The provider redirects the browser, so the callback uses the public origin, not the one behind a proxy.
     const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
+    if (!publicOrigin) return failure(unknownHostMessage, 403, "CONNECTIONS_ORIGIN_REJECTED");
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
@@ -284,7 +288,9 @@ const action: ConnectionsRoute = {
         });
       case "chatgpt-export":
       case "chatgpt-import": {
-        const url = new URL(resolvePublicUrl({ agentName: access.agentName, request }));
+        const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
+        if (!publicOrigin) return json({ error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", unknownHostMessage) }, 403);
+        const url = new URL(publicOrigin);
         const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
         if (url.protocol !== "https:" && !loopback) {
           return json({ error: managementErrorBody("CONNECTIONS_FORBIDDEN", "Credential transfer requires HTTPS or a loopback host.") }, 403);

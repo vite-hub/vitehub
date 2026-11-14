@@ -1,5 +1,5 @@
 import { clearActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCloudflareKVStorage } from "../src/runtime/cloudflare-kv.ts"
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
@@ -168,5 +168,36 @@ describe("Cloudflare KV binding", () => {
     await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor, limit: 1 }))).rejects.toThrow(
       "repeated pagination cursor",
     )
+  })
+})
+
+describe("Cloudflare KV cursors across isolates", () => {
+  // A paged namespace that behaves like Cloudflare: it rejects cursors it did not issue.
+  function createPagedNamespace(keys: string[]) {
+    const namespace = createNamespace()
+    namespace.list = async ({ cursor, limit = 1_000 }: { cursor?: string, limit?: number }) => {
+      const start = cursor === undefined ? 0 : Number(/^cf-(\d+)$/.exec(cursor)?.[1] ?? Number.NaN)
+      if (Number.isNaN(start)) throw new Error("Invalid cursor.")
+      const end = start + limit
+      return end < keys.length
+        ? { cursor: `cf-${end}`, keys: keys.slice(start, end).map(name => ({ name })), list_complete: false }
+        : { keys: keys.slice(start).map(name => ({ name })), list_complete: true }
+    }
+    return namespace
+  }
+
+  it("resumes a cursor in a fresh module instance", async () => {
+    const binding = createPagedNamespace(["a", "b", "c"])
+    const first = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const page = await runWithActiveCloudflareEnv({ KV: binding }, () => first.listKeys({ limit: 1 }))
+    expect(page).toMatchObject({ keys: ["a"], cursor: expect.stringMatching(/^vhc1:/) })
+
+    // A new isolate loads the module again, with an empty cursor registry.
+    vi.resetModules()
+    const fresh = await import("../src/runtime/cloudflare-kv.ts")
+    const second = fresh.createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const next = await runWithActiveCloudflareEnv({ KV: binding }, () => second.listKeys({ cursor: page.cursor, limit: 1 }))
+    expect(next).toMatchObject({ keys: ["b"], cursor: expect.stringMatching(/^vhc1:/) })
+    await expect(runWithActiveCloudflareEnv({ KV: binding }, () => second.listKeys({ cursor: next.cursor, limit: 1 }))).resolves.toEqual({ keys: ["c"] })
   })
 })

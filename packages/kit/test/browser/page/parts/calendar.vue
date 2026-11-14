@@ -9,7 +9,7 @@ import {
   CalendarWeekday,
   CalendarWeekdays,
   CalendarWeeks,
-} from "@vite-hub/kit/calendar"
+} from "@ui-sdk/vue/calendar"
 import { ChevronLeftIcon, ChevronRightIcon } from "../icons"
 </script>
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
+import { createGitHubPullRequestOperations, reviewerLabeledSevere, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
 
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
@@ -556,6 +556,53 @@ describe("host-owned repair operations", () => {
     expect(replies.map(call => (call.body as { body: string }).body)).toEqual([`${commentPrefix}<!-- vitehub-babysitter-outcome:declined -->\n**Declined.** P2: outside this PR's scope.`])
     expect(f.calls.indexOf(replies[0]!)).toBeLessThan(f.calls.findIndex(call => call.operationName === "ResolveReviewThread"))
     expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("refuses to decline a P0 or P1 finding", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    for (const reason of ["P1: the review push budget is spent.", "**P0**: out of scope."]) {
+      await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })).rejects.toMatchObject({ code: "PRESETS_REVIEW_SEVERE_DECLINED" })
+    }
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("posts a downgraded decline of a reviewer's P0 or P1 and leaves the thread open until a person replies", async () => {
+    const f = await fixture()
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Verify ownership before granting admin**"
+    f.state.threadComments = [{ ...reviewComment, body: codex, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    // A retry posts nothing new and keeps holding.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    // Any other outcome resolves it.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("resolves a downgraded decline once a person replied in the thread", async () => {
+    const f = await fixture()
+    f.state.threadComments = [
+      { ...reviewComment, body: "**P1 · Class: lost MAIL_KEY.**", author: { login: "pullfrog", __typename: "Bot" } },
+      { ...reviewComment, databaseId: 504, body: "Fine as P2, ship it.", author: { login: "maintainer", __typename: "User" } },
+    ]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: the maintainer accepted it." })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each([
+    ["**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Title", true],
+    ["**P0 · Class: data loss.**", true],
+    ["P1: broken contract", true],
+    ["**P2 · Class: alias.**", false],
+    ["**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Title", false],
+    ["P10 is a page size", false],
+    ["This breaks the P1 path.", false],
+  ])("reads a reviewer's severity label from %j", (body, severe) => {
+    expect(reviewerLabeledSevere(body)).toBe(severe)
   })
 
   it("requires a reason for every outcome except fixed", async () => {

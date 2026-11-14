@@ -98,6 +98,91 @@ Copy the whole `.output` directory to the server. With a built-in coding
 provider, build on the server's operating system and CPU type, because the
 build packages only the build machine's native binaries.
 
+## Run behind a reverse proxy
+
+A reverse proxy, such as Caddy or nginx, often ends HTTPS and sends plain HTTP
+to Node. The server then sees `http://` request URLs, so callback URLs and
+links that your code builds from the request start with `http://`.
+
+Set `trustProxy: true` to read the first `X-Forwarded-Proto` value. When it is
+`https`, the request URL becomes `https://` before any middleware or route
+runs. Set `sameOriginWrites: true` to refuse browser writes with cookies that
+come from another origin.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'node',
+    trustProxy: true,
+    sameOriginWrites: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'node',
+      trustProxy: true,
+      sameOriginWrites: true,
+    }),
+  ],
+})
+```
+:::
+::
+
+- `trustProxy` never reads `X-Forwarded-Host`. The proxy must send the
+  client's `Host` header to Node. Caddy does this by default. In nginx, set
+  `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-Proto $scheme;`.
+- `sameOriginWrites` answers `403` to a request that is not `GET`, `HEAD`, or
+  `OPTIONS`, has a `Cookie` header, and has `Sec-Fetch-Site: same-site` or
+  `cross-site`, or an `Origin` that is not the app's origin. A sibling
+  subdomain is same-site, so the browser still sends `SameSite=Lax` cookies
+  from it. Requests without cookies, such as API clients with bearer tokens and
+  webhooks, pass.
+- `sameOriginWrites: { exclude: ['/api/forms/contact'] }` lets a route take
+  writes from other sites, such as a [Form](/docs/forms/server-api) with `origins`. A
+  prefix matches the path and the paths below it.
+
+::warning
+Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`.
+Without a proxy, a client can send the header and make the server build
+`https://` URLs for a plain HTTP request.
+::
+
+Both options work on every host. On Cloudflare, Vercel, Netlify, and Deno
+Deploy, the request URL is already `https://`, so `trustProxy` changes nothing
+there.
+
 ## Check health
 
 Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers
@@ -209,16 +294,16 @@ one disk, so they do not work across several instances.
 
 | Primitive | Node default | Works across several instances today |
 | --- | --- | --- |
-| Blob | `fs` under `.vitehub/data/blob` | With a shared remote store, such as `s3`, or one shared volume. |
+| Blob | `s3` when `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET` are set during the build, else `fs` under `.vitehub/data/blob` | With a shared remote store, such as `s3`, or one shared volume. |
 | KV | `database` with a Postgres Default Database, else `fs-lite` under `.vitehub/data/kv`. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. | Yes with Postgres, Redis, or Upstash. Redis requires `kv: { driver: 'redis' }`, with the same `REDIS_URL` on every server. `fs-lite` keeps local files on one host. See [Node picks a shared store](/docs/kv/configure#node-picks-a-shared-store). |
 | Cache | `fs-lite` under `.vitehub/data/cache` | Only with `cache: { driver: 'kv' }` and a shared KV store, such as Postgres, Redis, or Upstash. |
 | Database | SQLite file `file:.vitehub/data/database/sqlite.db` | Only with a remote database, such as Postgres or remote libSQL. |
-| Database `migrateOnStart` | On for Postgres. `true` also migrates local SQLite files; `false` turns it off. | Yes for Postgres. An advisory lock lets one instance migrate while the others wait. For SQLite, migrate once before starting several processes. See [Startup migrations](/docs/database/configure#migrate-when-the-server-starts). |
+| Database `migrateOnStart` | On for Postgres. `true` also migrates local SQLite files; `false` turns it off. `{ backup: true }` copies each SQLite file before its migrations. | Yes for Postgres. An advisory lock lets one instance migrate while the others wait. For SQLite, migrate once before starting several processes. See [Startup migrations](/docs/database/configure#migrate-when-the-server-starts). |
 | Queue | `postgres` with a Postgres Default Database, else `local` with files under `.vitehub/data/queue`. | Yes with Postgres: every instance shares the jobs and claims due jobs from the same table. With `local`, a job runs only on the instance that accepted it. A shared volume has no lock between processes, so two instances can run the same job. |
 | Rate Limit | `kv` when KV is on, else `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory`, or `kv` on `fs-lite`, counts in one process and resets on restart. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
 | Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
-| Workflow | `vercel`, which runs inline in the request off Vercel. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
+| Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. The Workflow that only `agent` turns on runs inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
 | Sandbox | None | `sandboxTask: true` fails the build. |
 
 A multi-instance deploy today needs one instance that owns Schedule.

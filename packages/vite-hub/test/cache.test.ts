@@ -1,4 +1,4 @@
-import { kvNitroCacheDriver as kvCacheDriver } from "@vite-hub/kv/vite"
+import { kvStorageDriver as kvCacheDriver } from "@vite-hub/kv/vite"
 import { describe, expect, it } from "vitest"
 
 import { applyCacheStorage, resolveCacheStorage } from "../src/cache-storage.ts"
@@ -91,6 +91,10 @@ describe("KV cache storage", () => {
       expect(resolveCacheStorage({ driver: "kv" }, preset, kvCacheDriver)).toEqual({ devStorage: mount, storage: mount })
     }
     expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", kvCacheDriver).storage).toEqual({ base: "pages", driver: kvCacheDriver })
+  })
+
+  it.each(["", ":", "/", ":://", "?", "/?cache", "\\?cache"])("keeps the default prefix for a base %j without a key segment", (base) => {
+    expect(resolveCacheStorage({ base, driver: "kv" }, "node", kvCacheDriver).storage).toEqual({ base: "nitro-cache", driver: kvCacheDriver })
   })
 
   it("requires kv", () => {
