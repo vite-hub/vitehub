@@ -92,7 +92,7 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const memberGrants = "grants" in record.target ? grants : viteHubPageGrants().map(grant => grant.id)
   const user = await unwrap(api.hostUser(guest
     ? { name, roles: [guestRole, ...grants] }
-    : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles: [consoleGrant.id, ...memberGrants] }))
+    : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles: [consoleGrant.id, ...memberGrants], owned: viteHubPageGrants().map(grant => grant.id) }))
   const headers = await unwrap(api.hostSession(user.id, request))
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)

@@ -453,7 +453,7 @@ export default defineRealtime({
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Cloudflare or Vercel host uses that host's Sandbox."),
+      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Vercel host uses Vercel Sandbox when Vercel credentials are set. The Vite or Nuxt dev server cannot host a Cloudflare Container: build, then run `wrangler dev` on the build output."),
       netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
@@ -509,7 +509,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     id: "workflow",
     packages: ["@vite-hub/workflow"],
     providerPackages: { provider: { openworkflow: ["openworkflow"] } },
-    summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
+    summary: "Durable Workflows in `server/workflows/` with steps and provider retries.",
     title: "Workflow",
   }),
   workspace: feature({
@@ -567,9 +567,13 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   // Node and Deno select OpenWorkflow when its storage is set and no provider is.
   if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  // A Sandbox Task host loads its provider SDK at build time (Cloudflare) or at run time (Vercel).
+  if (id === "sandboxTask" && (host === "vercel" || host === "cloudflare")) selected.push(sandboxProviderPackages[host])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
+
+const sandboxProviderPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

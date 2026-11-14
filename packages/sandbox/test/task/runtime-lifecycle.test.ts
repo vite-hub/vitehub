@@ -391,6 +391,22 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
+  it("does not retry a Cloudflare command that reached its exec deadline before the handler started", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    // The transport error of a package install that ran past the exec deadline.
+    runtimeMocks.executeSandboxTaskDefinition.mockRejectedValue(new Error(
+      "[vitehub] Cloudflare Sandbox exec failed: [vitehub] Cloudflare Sandbox exec timed out after 180000ms.",
+    ))
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: expect.stringContaining("exec timed out after 180000ms") } })
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
   it("retries transient Cloudflare failures before Definition execution starts", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })

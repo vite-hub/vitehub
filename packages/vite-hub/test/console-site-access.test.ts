@@ -84,6 +84,7 @@ afterEach(() => {
 
 describe("Console members", () => {
   it("signs the browser in as the app user with the member's email, with the console role and every page tool role", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
     const url = await link("site.link", { path: "/runs/42" })
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
@@ -111,11 +112,29 @@ describe("Console members", () => {
     expect(app.database.sqlite.prepare("SELECT id FROM user WHERE email = ?").get("grace@example.com")).toBeDefined()
   })
 
+  it("refuses an app account with the member's email that nobody verified, and gives it no role", async () => {
+    // Anyone can sign up to the app with the member's email. That account must not get the member's roles.
+    const { response, cookie } = await open(await link("site.link"))
+    expect(response.status).toBe(403)
+    expect(await response.text()).toContain("its email is not verified")
+    expect(cookie).toBe("")
+    expect(app.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(app.member.id)).toEqual({ role: "user" })
+  })
+
   it("gives only the page tool roles that console.authorize grants", async () => {
     installConsoleAccess({ mode: "token", authorize: ({ via }) => via === "console" ? { sections: ["site"], grants: ["comments-read"] } : false })
     const grace: ConsoleCallerUser = { email: "grace@example.com", id: "console-grace", name: "Grace" }
     const { cookie } = await open(await link("site.link", {}, grace))
     expect((await signedIn(cookie))?.user).toMatchObject({ email: "grace@example.com", role: "console,comments-read" })
+  })
+
+  it("takes back page tool roles that console.authorize no longer grants, and keeps the app's own roles", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1, role = 'user,editor' WHERE id = ?").run(app.member.id)
+    await open(await link("site.link"))
+    expect(app.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(app.member.id)).toEqual({ role: "user,editor,console,comments-read,comments-write" })
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["site"], grants: ["comments-read"] }) })
+    const { cookie } = await open(await link("site.link"))
+    expect((await signedIn(cookie))?.user).toMatchObject({ id: app.member.id, role: "user,editor,console,comments-read" })
   })
 
   it("refuses grants that no page tool gives, and a person whom console.authorize refuses", async () => {
