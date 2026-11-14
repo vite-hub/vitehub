@@ -36,7 +36,7 @@ async function siteUser(event: CommentsRequestEvent): Promise<CommentsUser | nul
 
 /**
  * The user of a request, shared by the overlay API, Realtime presence, the MCP tools, and the comment operations.
- * With `identify`, the app decides: `identify` names the user and `authorize` decides what they may do. Without
+ * With `identify`, the app decides: `identify` names the user, `null` is anonymous, and `authorize` decides what they may do. Without
  * `identify`, it is the user of `session`, the ViteHub Auth user. Then, when there is none, the person of the Site
  * access cookie, and last the person signed in with GitHub.
  */
@@ -44,7 +44,7 @@ export async function resolveCommentsIdentity(comments: Comments, event: Comment
   if (comments.options.identify) {
     // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
     getStandardContext(event)
-    return { user: await comments.options.identify({ event }) ?? await siteUser(event), gate: {} }
+    return { user: await comments.options.identify({ event }) ?? null, gate: {} }
   }
   const user = await options.session?.(event).catch(() => null)
     ?? await siteUser(event)
