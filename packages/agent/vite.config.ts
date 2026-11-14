@@ -78,6 +78,7 @@ export default defineConfig({
       "src/observability/host.ts",
       "src/observability/posthog.ts",
       "src/operations.ts",
+      "src/page.ts",
       "src/invocations/index.ts",
       "src/internal/default-invocations.ts",
       "src/internal/default-invocations-core.ts",

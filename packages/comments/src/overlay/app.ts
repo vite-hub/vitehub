@@ -11,7 +11,7 @@ import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRout
 import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
-import { captureMarked, markerBox, markerColors, markerWidth, startMarker } from "./marker.ts"
+import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
 import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
@@ -21,7 +21,7 @@ import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
 import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
-import type { MarkerBox, MarkerColor, MarkerSession } from "./marker.ts"
+import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
 interface Cursor {
   selector: string
@@ -149,6 +149,20 @@ const commentIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24"
 
 const highlightIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "m9 11-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" }))
 
+/** The Marker's tips: the highlighter, a pen, an arrow, and a T for a text label. */
+const tipIcons: Record<MarkerTip, () => VNode> = {
+  marker: highlightIcon,
+  pen: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" })),
+  arrow: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M7 17 17 7M7 7h10v10" })),
+  text: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M4 7V4h16v3M9 20h6M12 4v16" })),
+}
+
+/** The tip whose key this is, as Drop's Marker keys: B, P, A, and T. */
+function tipOfKey(event: KeyboardEvent): MarkerTip | undefined {
+  if (event.metaKey || event.ctrlKey || event.altKey) return undefined
+  return (Object.keys(markerTips) as MarkerTip[]).find(tip => markerTips[tip].key === event.key.toUpperCase())
+}
+
 const undoIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" }))
 
 const pageIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" }))
@@ -222,11 +236,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
   const editing = ref(false)
-  /** The highlighter strokes being drawn, how many there are, their color, and whether Done is taking the screenshot. */
+  /** The ink being drawn, how much there is, the tip and color, and whether Done is taking the screenshot. */
   let marker: MarkerSession | undefined
   const marking = ref(false)
   const marks = ref(0)
-  const markColor = ref<MarkerColor>("yellow")
+  const markTip = ref<MarkerTip>("marker")
+  const markColor = ref<MarkerColor>("pink")
   const finishing = ref(false)
   /** Strokes that stay on the page while their comment is written, and that comment. */
   let ink: { session: MarkerSession, draft: unknown } | undefined
@@ -378,7 +393,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function startMarking() {
     dropInk()
-    marker = startMarker({ color: () => markerColors[markColor.value], onChange: () => (marks.value = marker?.strokes().length ?? 0) })
+    marker = startMarker({
+      tip: () => markTip.value,
+      color: () => markerColors[markColor.value],
+      onChange: () => (marks.value = marker?.strokes().length ?? 0),
+      onSubmit: () => void finishMarking(),
+    })
     marks.value = 0
     marking.value = true
   }
@@ -398,6 +418,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    */
   async function finishMarking() {
     const session = marker
+    // A label being typed goes down as it is.
+    session?.commit()
     const strokes = session?.strokes() ?? []
     const box = markerBox(strokes)
     if (!session || !box || finishing.value) return
@@ -413,7 +435,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (!shot) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
       const files = shot ? [new File([shot], "highlight.webp", { type: shot.type })] : []
       const before = state.draft.value
-      const element = areaContainer(box, markerWidth / 2 + 1)
+      const element = areaContainer(box, markerTips.marker.width / 2 + 1)
       try {
         if (element) {
           const area = clip(box, element)
@@ -738,20 +760,40 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
   })
 
-  /** While the person highlights: the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
+  function pickTip(tip: MarkerTip) {
+    markTip.value = tip
+    marker?.restyle()
+  }
+
+  /** While the person highlights: the tips, the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
   function markerToolbar(): VNode {
     const busy = finishing.value
+    // A press on a color keeps the focus in the label being typed, so the color goes to that label.
+    const keepFocus = (event: MouseEvent) => event.preventDefault()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
+      h("div", { class: "swatches" }, (Object.keys(markerTips) as MarkerTip[]).map(tip => h("button", {
+        key: tip,
+        class: "swatch",
+        type: "button",
+        "aria-label": markerTips[tip].label,
+        "aria-keyshortcuts": markerTips[tip].key,
+        "aria-pressed": String(markTip.value === tip),
+        title: `${markerTips[tip].label} (${markerTips[tip].key})`,
+        disabled: busy,
+        onClick: () => pickTip(tip),
+      }, tipIcons[tip]()))),
+      h("span", { class: "sep" }),
       h("div", { class: "swatches" }, (Object.keys(markerColors) as MarkerColor[]).map(name => h("button", {
         key: name,
         class: "swatch",
         type: "button",
-        "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} highlighter`,
+        "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} ink`,
         "aria-pressed": String(markColor.value === name),
         disabled: busy,
+        onMousedown: keepFocus,
         onClick: () => {
           markColor.value = name
-          marker?.recolor()
+          marker?.restyle()
         },
       }, h("span", { style: { background: markerColors[name] } })))),
       h("span", { class: "sep" }),
@@ -1009,16 +1051,17 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         setMode("view")
         return
       }
-      if (marking.value) {
-        if (event.key === "Escape") setMode("view")
+      // B with the marker in hand turns Highlight off, below. With another tip in hand it takes the marker.
+      if (marking.value && !(event.key === "b" && markTip.value === "marker")) {
+        const tip = tipOfKey(event)
+        if (tip) pickTip(tip)
+        else if (event.key === "Escape") setMode("view")
         else if (event.key === "Enter") void finishMarking()
         else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") marker?.undo()
-        // The strokes stay where they were drawn, so the keys do not scroll the page either.
-        else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", "b"].includes(event.key)) return
-        if (event.key !== "b") {
-          event.preventDefault()
-          return
-        }
+        // The ink stays where it was drawn, so the keys do not scroll the page either.
+        else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return
+        event.preventDefault()
+        return
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
       // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.

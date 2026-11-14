@@ -239,6 +239,55 @@ describe("useWebContainer", () => {
     wrapper.unmount();
   });
 
+  it("previews only the dev server port without a port option", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    fake.ready?.("https://preview.example");
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    wrapper.unmount();
+  });
+
+  it("previews the env.PORT of the dev server", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false, port: 3000, env: { PORT: "5173" } });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.ready?.("https://other.example");
+    expect(workspace.previewUrl.value).toBeUndefined();
+    fake.serverListener?.({ port: 5173, url: "https://vite.example" });
+    expect(workspace.previewUrl.value).toBe("https://vite.example");
+    wrapper.unmount();
+  });
+
+  it("rejects setFiles() and reset() when a write fails, and writes again on the next call", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a" }, install: false, start: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.directories.add("b.txt");
+    await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
+    await expect(workspace.reset()).resolves.toBeUndefined();
+    await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
+    // Logs flush on a 32 ms timer.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(workspace.logs.value.join("")).toContain("Could not write the files: EISDIR");
+    fake.directories.delete("b.txt");
+    await workspace.setFiles({ "b.txt": "b" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", "b.txt": "b" });
+    wrapper.unmount();
+  });
+
   it("serializes overlapping install and restart recovery", async () => {
     const { workspace, wrapper } = mountWorkspace({ files: {} });
     await flushPromises();

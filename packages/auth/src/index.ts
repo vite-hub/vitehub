@@ -6,6 +6,8 @@ export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,
   AuthAccessConfiguration,
+  AuthAccessPolicy,
+  AuthAccessPolicyContext,
   AuthAccessAuthorizationContext,
   AuthAccessAuthorize,
   AuthAccessAuthorizeResult,

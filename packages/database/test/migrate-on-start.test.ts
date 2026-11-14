@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -488,6 +489,155 @@ describe("database.migrateOnStart", () => {
       code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
       why: expect.stringContaining("libSQL over https"),
     })
+  })
+})
+
+describe("migrateOnStart backup", () => {
+  const grace = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (8, 'Grace');", tag: "20231114221323_grace", when: 1_700_000_003_000 }
+  const linus = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (9, 'Linus');", tag: "20231114221324_linus", when: 1_700_000_004_000 }
+  const startMigration = (entry: { sql: string, tag: string, when: number }) => ({ dataLoss: [], hash: entry.tag, name: entry.tag, statements: entry.sql.split("--> statement-breakpoint"), when: entry.when })
+  const copyName = /^app-(?:[a-f0-9]{64}-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-before-(.+)\.sqlite$/
+
+  /** Runs `migrateOnStart()` on a SQLite file with the migrations `entries`, and returns the log lines. */
+  async function start(file: string, entries: Array<{ sql: string, tag: string, when: number }>, backup: { dir?: string, keep: number }) {
+    const client = createClient({ url: `file:${file}` })
+    const logs: string[] = []
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations: entries.map(startMigration), name: "default" }], { backup, log: message => logs.push(message) })
+      return logs
+    }
+    finally {
+      client.close()
+    }
+  }
+
+  async function sqliteFile() {
+    const root = await mkdtemp(join(packageRoot, ".vitest-migrate-backup-"))
+    roots.push(root)
+    return { backups: join(root, "backups"), file: join(root, "app.sqlite"), root }
+  }
+
+  it("copies a SQLite file before its pending migrations, and only when one is pending", async () => {
+    const { backups, file } = await sqliteFile()
+    // A new database has nothing to keep.
+    await start(file, [init], { keep: 3 })
+    expect(existsSync(backups)).toBe(false)
+
+    const logs = await start(file, [init, seed], { keep: 3 })
+    const copies = await readdir(backups)
+    expect(copies).toHaveLength(1)
+    expect(copies[0]).toMatch(copyName)
+    expect(copies[0]!.match(copyName)![1]).toBe(seed.tag)
+    expect(logs[0]).toBe(`[vitehub] Database "default": copied ${file} to ${join(backups, copies[0]!)} before 1 migration(s).`)
+    // The copy is the database before the start: the table without the seed row, and the ledger with `init` only.
+    expect(await readLedger(`file:${join(backups, copies[0]!)}`)).toEqual([init.when])
+    expect(await readLedger(`file:${file}`)).toEqual([init.when, seed.when])
+
+    // Nothing is pending, so the next start makes no copy.
+    expect(await start(file, [init, seed], { keep: 3 })).toEqual([])
+    expect(await readdir(backups)).toEqual(copies)
+  })
+
+  it("keeps the newest copies of each file, and leaves other files in the folder", async () => {
+    const { file, root } = await sqliteFile()
+    const dir = join(root, "copies")
+    await mkdir(dir)
+    await writeFile(join(dir, "notes.txt"), "kept")
+    await writeFile(join(dir, "app-old-2023-11-14T22-13-20-000Z-before-x.sqlite"), "kept")
+    await start(file, [init], { dir, keep: 2 })
+    // Three starts, each with one new migration, make three copies.
+    for (const count of [2, 3, 4]) await start(file, [init, seed, grace, linus].slice(0, count), { dir, keep: 2 })
+    const names = (await readdir(dir)).sort()
+    expect(names.filter(name => copyName.test(name)).map(name => name.match(copyName)![1])).toEqual([grace.tag, linus.tag])
+    expect(names).toEqual(expect.arrayContaining(["notes.txt", "app-old-2023-11-14T22-13-20-000Z-before-x.sqlite"]))
+  })
+
+  it("retains independent readable copies of same-named files in a shared directory", async () => {
+    const { file: first, root } = await sqliteFile()
+    const second = join(root, "second", "app.sqlite")
+    const dir = join(root, "copies")
+    await mkdir(join(root, "second"))
+    for (const file of [first, second]) {
+      await start(file, [init], { dir, keep: 1 })
+      await start(file, [init, seed], { dir, keep: 1 })
+    }
+    expect(await readdir(dir)).toHaveLength(2)
+    // Prune one file's older copy without removing the other file's restore point.
+    await start(first, [init, seed, grace], { dir, keep: 1 })
+    const copies = await readdir(dir)
+    expect(copies).toHaveLength(2)
+    const ledgers = await Promise.all(copies.map(name => readLedger(`file:${join(dir, name)}`)))
+    expect(ledgers).toEqual(expect.arrayContaining([[init.when], [init.when, seed.when]]))
+  })
+
+  it("stops the start before any migration when the copy fails", async () => {
+    const { file, root } = await sqliteFile()
+    await start(file, [init], { keep: 3 })
+    // A file where the folder should be makes the copy fail.
+    const dir = join(root, "not-a-folder")
+    await writeFile(dir, "")
+    await expect(start(file, [init, seed], { dir, keep: 3 })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_BACKUP_FAILED",
+      why: expect.stringContaining("The server applied no migration."),
+    })
+    expect(await readLedger(`file:${file}`)).toEqual([init.when])
+  })
+
+  it("rejects databases that it cannot copy, and an invalid keep", async () => {
+    const backup = resolveMigrateOnStart({ migrateOnStart: { backup: true } })!
+    expect(backup).toEqual({ allowDataLoss: false, backup: { keep: 3 }, explicit: true })
+    expect(resolveMigrateOnStart({ migrateOnStart: { backup: { dir: "data/backups", keep: 5 } } })).toEqual({ allowDataLoss: false, backup: { dir: "data/backups", keep: 5 }, explicit: true })
+    for (const keep of [0, 1.5]) {
+      expect(() => resolveMigrateOnStart({ migrateOnStart: { backup: { keep } } })).toThrow(expect.objectContaining({ code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED" }))
+    }
+
+    const config = (database: Record<string, unknown>) => ({ databaseNames: ["default"], databases: { default: database } }) as unknown as ResolvedDBViteConfig
+    expect(selectMigrateOnStartDatabases(config({ connection: { url: "file:data/app.sqlite" }, dialect: "sqlite" }), backup, "node")).toEqual(["default"])
+    for (const [database, problem] of [
+      [{ dialect: "postgresql" }, "It is a Postgres database."],
+      [{ connection: { url: "libsql://app.turso.io" }, dialect: "sqlite" }, "It uses remote libSQL."],
+      [{ connection: { url: ":memory:" }, dialect: "sqlite" }, "It is in memory."],
+    ] as const) {
+      expect(() => selectMigrateOnStartDatabases(config(database), backup, "node")).toThrow(expect.objectContaining({
+        code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+        why: expect.stringContaining(problem),
+      }))
+    }
+
+    // A URL from the environment is checked when the server starts.
+    const memory = createClient({ url: ":memory:" })
+    try {
+      await expect(migrateOnStart([{ db: drizzle({ client: memory }), dialect: "sqlite" as const, migrations: [startMigration(init)], name: "default" }], { backup: { keep: 3 } })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+        why: expect.stringContaining("It is in memory."),
+      })
+    }
+    finally {
+      memory.close()
+    }
+    await expect(migrateOnStart([{ db: {}, dialect: "postgresql" as const, migrations: [], name: "analytics" }], { backup: { keep: 3 } })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+      why: expect.stringContaining("It is a Postgres database."),
+    })
+  })
+
+  it("backs up a Nuxt Node server's SQLite file in a backups folder beside it", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const file = join(root, "data/app.sqlite")
+    const options = { connection: { url: `file:${file}` }, migrateOnStart: { backup: true } }
+    await writeMigrations(root, [init])
+    await (await buildNodeServer(root, options)).start()
+    expect(existsSync(join(root, "data/backups"))).toBe(false)
+
+    await writeMigrations(root, [init, seed])
+    const started = await (await buildNodeServer(root, options)).start()
+    const copies = await readdir(join(root, "data/backups"))
+    expect(copies).toHaveLength(1)
+    expect(started.stdout.trim().split("\n")).toEqual([
+      `[vitehub] Database "default": copied ${file} to ${join(root, "data/backups", copies[0]!)} before 1 migration(s).`,
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
   })
 })
 

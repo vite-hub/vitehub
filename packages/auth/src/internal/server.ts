@@ -923,8 +923,9 @@ async function checkAuthAccessRequest(
 export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
   definition?: AuthDefinition,
+  publicRoutes: readonly string[] = [],
 ): (input: AuthRequestInput) => Promise<Response | undefined> {
-  const match = createAuthAccessRouteMatcher(routes)
+  const match = createAuthAccessRouteMatcher(routes, publicRoutes)
 
   return async (input) => {
     const matched = match(input)

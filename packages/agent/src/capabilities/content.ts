@@ -51,7 +51,7 @@ export interface ContentCapabilityOptions {
   lease?: "override"
 }
 
-type ContentAction = "publish" | "read" | "write"
+type ContentAction = "publish" | "read-draft" | "write"
 type ContentRef = "draft" | "published"
 type WriteTool = "publish" | "save" | "schedule" | "unschedule"
 
@@ -432,7 +432,7 @@ function recoverable(error: unknown, operation: "get" | "publish" | "save" | "sc
 
 function denied(action: ContentAction, collection: string, id?: string): ViteHubError {
   const target = id === undefined ? collection : `${collection}/${id}`
-  return new ViteHubError("CAPABILITY_DENIED", `[vitehub] The Invoker may not ${action} Content ${JSON.stringify(target)}.`, {
+  return new ViteHubError("CAPABILITY_DENIED", `[vitehub] The Invoker may not ${action === "read-draft" ? "read" : action} Content ${JSON.stringify(target)}.`, {
     details: { action, capability: "content", collection, ...(id === undefined ? {} : { id }) },
   })
 }
@@ -510,7 +510,7 @@ function contentTools(
   /** The ids the user may read. Lists, counts, and schedules never show a document that `authorize` hides. */
   const readableIds = async (collection: string, ids: Iterable<string>): Promise<Set<string>> => {
     const list = [...new Set(ids)]
-    const allowed = await Promise.all(list.map(id => can("read", collection, id)))
+    const allowed = await Promise.all(list.map(id => can("read-draft", collection, id)))
     return new Set(list.filter((_id, index) => allowed[index]))
   }
   const findCollection = (name: unknown) => String(name) === name ? scoped.find(candidate => candidate.name === name) : undefined
@@ -613,7 +613,7 @@ function contentTools(
       description: "List the Content collections and singletons this Agent can use, with their fields, format, locales (source locale first), and what the current user may do in each.",
       execute: async () => ({
         collections: await Promise.all(scoped.map(async entry => ({
-          access: Object.fromEntries(await Promise.all(operationNames.map(async action => [action, await can(action, entry.name)] as const))),
+          access: Object.fromEntries(await Promise.all(operationNames.map(async operation => [operation, await can(operation === "read" ? "read-draft" : operation, entry.name)] as const))),
           fields: [...entry.fields],
           format: entry.format,
           kind: entry.kind,
@@ -638,7 +638,7 @@ function contentTools(
         const ref = input?.ref ?? "published"
         const locale = localeOption(target, input?.locale)
         if (isProblem(locale)) return locale
-        await authorize("read", target.name)
+        await authorize("read-draft", target.name)
         // A locale lists its translations and, for documents without one, the source locale version.
         const statuses = [...await statusesOf(target), ...locale.locale ? await statusesOf(target, undefined, locale.locale) : []]
         const readable = await readableIds(target.name, statuses.map(status => status.id))
@@ -697,7 +697,7 @@ function contentTools(
         const ref = input.ref ?? "published"
         const locale = localeOption(target, input.locale)
         if (isProblem(locale)) return locale
-        await authorize("read", target.name, id)
+        await authorize("read-draft", target.name, id)
         try {
           const document = await target.get(id, { ref, ...locale })
           if (!document) {
@@ -736,7 +736,7 @@ function contentTools(
         const id = input.id === undefined ? undefined : documentId(target, input.id)
         const locale = localeOption(target, input.locale)
         if (isProblem(locale)) return locale
-        await authorize("read", target.name, id)
+        await authorize("read-draft", target.name, id)
         const statuses = await statusesOf(target, id, locale.locale)
         const readable = await readableIds(target.name, statuses.map(status => status.id))
         return { collection: target.name, documents: statuses.filter(status => readable.has(status.id)) }
@@ -767,7 +767,7 @@ function contentTools(
           if (!locale.locale || locale.locale === target.locales?.[0]) {
             return invalidInput("locale", `Pass a translation locale of ${target.name}: ${target.locales?.slice(1).join(", ") ?? "none"}.`)
           }
-          await authorize("read", target.name)
+          await authorize("read-draft", target.name)
           const statuses = await statusesOf(target)
           const readable = await readableIds(target.name, statuses.map(status => status.id))
           const translations = statuses.flatMap((status) => {

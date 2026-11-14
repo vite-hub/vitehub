@@ -65,10 +65,10 @@ export interface KVDevGetResult {
   /** With `preview`: how `value` is written. */
   format?: "json" | "text"
   /**
-   * Whether the key can expire. `none`: the store never expires keys (fs-lite ignores TTL). `unknown`: the store can
-   * expire keys, but its driver cannot report the time left, so a write that sets no TTL removes the expiry.
+   * Whether the key can expire. `unknown`: the store can expire keys, but its driver cannot report the time left, so a
+   * write that sets no TTL removes the expiry.
    */
-  expiry?: "none" | "unknown"
+  expiry?: "unknown"
   /** With `preview`: the value was cut at 256 KiB. */
   truncated?: true
   key: string
@@ -150,7 +150,6 @@ export function listKVDevStores(): KVDevStore[] {
 }
 
 function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
-  if (driver === "fs-lite") return "The fs-lite driver ignores TTL. The value does not expire."
   if (driver === "upstash" && Math.ceil(ttl) !== ttl) return `Upstash rounds the TTL up to ${Math.ceil(ttl)} seconds.`
   if (driver === "cloudflare-kv-binding") {
     const effectiveTTL = Math.max(60, Math.ceil(ttl))
@@ -213,7 +212,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       const value = unwrap(await selected.storage.get(key))
       const found = value !== null || unwrap(await selected.storage.has(key))
       const result: KVDevGetResult = { found, key, store: selected.name }
-      if (found) result.expiry = selected.driver === "fs-lite" ? "none" : "unknown"
+      if (found) result.expiry = "unknown"
       if (!found) return result
       if (input.preview) return { ...result, ...previewKVValue(value) } satisfies KVDevGetResult
       const inspected = inspectKVValue(value)

@@ -52,6 +52,7 @@ const AUTH_SERVER_ID = "#vitehub/auth/server"
 const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
 export { BLOB_VIRTUAL_CONFIG_ID, BLOB_VITE_PLUGIN_NAME, resolveBlobViteConfig }
+export { hasS3BlobEnv } from "./config.ts"
 export type { BlobViteRuntimeConfig } from "./vite-config.ts"
 
 export interface BlobVitePluginAPI {
