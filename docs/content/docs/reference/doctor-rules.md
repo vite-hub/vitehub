@@ -989,7 +989,6 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `preset` was renamed to `host`.
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
-- `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
 - `logs` moved into `observability`, as `observability: { logs }`.
 - `contentImportBase` was removed.
 

@@ -3498,6 +3498,17 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(generated).not.toContain(`"section":"sandbox-tasks"`)
   })
 
+  it("turns Sandbox Tasks on for an explicit Vercel provider on the Node host", async () => {
+    const development = createNuxt(true)
+
+    await viteHubNuxtModule({ console: { auth: false }, host: "node", sandboxTask: { provider: "vercel", timeout: 60_000 } }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+
+    const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
+    expect(generated).toContain(`"sandbox-tasks"`)
+  })
+
   it("removes Blob Console metadata when Nuxt replay disables Blob", async () => {
     const development = createNuxt(true, [{
       name: "vite-hub/blob-replay",

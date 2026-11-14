@@ -45,7 +45,8 @@ describe("feature catalog parity with owner resolution", () => {
       const support = featureSupport(id, "dev", preset)
       const policy = plan.services[service]
       if (!policy.supported) {
-        expect(support.level, id).toBe("unsupported")
+        // A host without a Sandbox takes an explicit Vercel provider.
+        expect(support.level, id).toBe(id === "sandboxTask" && preset === "netlify" ? "explicit" : "unsupported")
         continue
       }
       expect(support, id).toMatchObject({ adapter: policy.adapter, level: "native" })

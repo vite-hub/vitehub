@@ -35,6 +35,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
     },
+    VITE_HUB_R0145: {
+      ...dynamicError,
+      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,

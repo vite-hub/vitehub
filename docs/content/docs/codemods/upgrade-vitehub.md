@@ -57,7 +57,7 @@ npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
 
 The report lists what the codemod cannot move: a `logs` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
 
-Sandbox Task option objects belong in `hubSandboxTask()`. The codemod passes them to an existing standalone plugin call without arguments. When the config uses `vitehub()` or `vite-hub/nuxt`, it keeps the options in place and reports a follow-up, because the framework accepts only `true` or `false` for Sandbox Tasks.
+Sandbox Task option objects move like the other keys: into `vitehub({ sandboxTask })`, the `vite-hub/nuxt` options, or an existing `hubSandboxTask()` call without arguments.
 
 Vite Doctor rule [`VHUB0031`](/docs/reference/doctor-rules#vhub0031) reports the same options.
 

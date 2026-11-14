@@ -564,8 +564,13 @@ export interface ViteHubOptions {
    * no unit. Other hosts ignore it.
    */
   systemd?: boolean | SystemdOptions
-  /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
-  sandboxTask?: boolean
+  /**
+   * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
+   * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the provider options, such as
+   * `{ provider: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ provider: "vercel", networkPolicy: "deny-all" }`.
+   * `provider: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials.
+   */
+  sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
   workflow?: boolean | WorkflowOptions
   workspace?: boolean | WorkspaceOptions
@@ -573,6 +578,23 @@ export interface ViteHubOptions {
 
 /** Queue options accepted by the framework distribution. */
 export type ViteHubQueueOptions = QueueOptions
+
+/** Sandbox Task options accepted by the framework distribution: the options of `hubSandboxTask()`. */
+export type ViteHubSandboxTaskOptions = Exclude<SandboxTaskOptions, false>
+
+/**
+ * The Sandbox provider of the app, or undefined when Sandbox Tasks are off or the host has no Sandbox. An explicit
+ * `provider` wins over the host's Sandbox. Cloudflare Sandbox needs the Cloudflare host for its Container binding.
+ */
+export function resolveSandboxTaskProvider(sandboxTask: ViteHubOptions["sandboxTask"], plan: DeploymentPlan): "cloudflare" | "vercel" | undefined {
+  if (!sandboxTask) return
+  const provider = sandboxTask === true ? undefined : sandboxTask.provider
+  if (provider === "cloudflare" && plan.host !== "cloudflare") {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0145({ message: `[vitehub] sandboxTask.provider "cloudflare" works with the "cloudflare" host only, because Cloudflare Sandbox needs the Container and Durable Object binding of a Worker. The "${plan.host}" host cannot provide them.` })
+  }
+  if (provider) return provider
+  return plan.services.sandbox.supported ? plan.services.sandbox.adapter : undefined
+}
 
 /** The local and Postgres providers run only on the Node host. */
 function assertNodeQueueProvider(queue: ViteHubOptions["queue"], host: ViteHubHost): void {
@@ -960,8 +982,11 @@ function deploymentPlugins(
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
+            const configuredSandboxTask = options.sandboxTask && options.sandboxTask !== true ? options.sandboxTask : undefined
+            const configuredSandboxName = configuredSandboxTask && "name" in configuredSandboxTask ? configuredSandboxTask.name : undefined
             setResolvedFeatureOptions(config, "sandboxTask", {
-              ...(plan.services.sandbox.adapter === "cloudflare"
+              ...configuredSandboxTask,
+              ...(plan.services.sandbox.adapter === "cloudflare" && configuredSandboxName === undefined
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
               provider: plan.services.sandbox.adapter,
@@ -1289,7 +1314,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   assertFeatureSupported("browser", plan.host, options)
   assertFeatureSupported("email", plan.host, options)
-  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
+  const sandboxTaskProvider = resolveSandboxTaskProvider(options.sandboxTask, plan)
+  const sandboxTaskEnabled = sandboxTaskProvider !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueProvider(options.queue, plan.host)
@@ -1341,7 +1367,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
-  if (options.sandboxTask) requestedServices.push("sandbox")
+  // The host selects the Sandbox, unless an explicit provider is not the host's own, such as Vercel Sandbox on Node.
+  const hostSandbox = plan.services.sandbox
+  if (options.sandboxTask && (options.sandboxTask === true || !options.sandboxTask.provider || (hostSandbox.supported && options.sandboxTask.provider === hostSandbox.adapter))) requestedServices.push("sandbox")
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
@@ -1498,12 +1526,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (sandboxTaskEnabled) {
-    const sandboxTaskPolicy = plan.services.sandbox
-    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask({
-      ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
+    const sandboxTaskPluginOptions = {
+      ...options.sandboxTask === true ? {} : options.sandboxTask,
+      provider: sandboxTaskProvider,
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
-    } as SandboxTaskOptions)))
+    }
+    // SAFETY: hubSandboxTask() removes the two package-private integration fields before it reads the public options.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask(sandboxTaskPluginOptions as SandboxTaskOptions)))
   }
   if (options.agent) {
     // The generated plugin installs the journal, with the Console on or off, so the Console only reads it.
