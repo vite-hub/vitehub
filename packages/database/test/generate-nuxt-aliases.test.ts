@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join, relative } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -50,6 +51,37 @@ async function createNuxtApp() {
 }
 
 describe("database generate with Nuxt aliases", () => {
+  it.each([false, true])("preserves application paths alongside host aliases (baseUrl: %s)", async (withBaseUrl) => {
+    const { alias, appDir } = await createNuxtApp()
+    const entry = createRequire(import.meta.url).resolve("drizzle-orm/sqlite-core")
+    const configDir = join(appDir, "config")
+    const baseDir = withBaseUrl ? join(appDir, "vendor") : configDir
+    await writeModule(join(configDir, "tsconfig.json"), [JSON.stringify({
+      compilerOptions: {
+        ...(withBaseUrl ? { baseUrl: "../vendor" } : {}),
+        paths: { "sqlite-core": [relative(baseDir, entry)] },
+      },
+    })])
+    await writeModule(join(appDir, "tsconfig.json"), [JSON.stringify({ extends: "./config/tsconfig.json" })])
+    await writeModule(join(appDir, "server/tables/posts.ts"), [
+      "import { integer, sqliteTable } from 'sqlite-core'",
+      "export const posts = sqliteTable('posts', { id: integer('id').primaryKey() })",
+    ])
+    const config = resolveDBViteConfig(undefined, appDir)!
+    const options = { alias: { ...alias, "sqlite-core": "drizzle-orm/sqlite-core" } }
+    await writeGeneratedDatabaseArtifacts(config, options)
+    // Rewriting must still read the application config, rather than the generated config.
+    await writeGeneratedDatabaseArtifacts(config, options)
+    await execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate", "--config", config.generatedDrizzleConfigFile,
+    ], { cwd: appDir })
+    const migrationsDir = join(appDir, config.databases.default!.migrationsDir)
+    const [folder] = await readdir(migrationsDir)
+    const sql = await readFile(join(migrationsDir, folder!, "migration.sql"), "utf8")
+    expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `posts`", "CREATE TABLE `users`"])
+  }, 60_000)
+
   it("creates the tables that a Definition imports through Nuxt aliases", async () => {
     const { alias, appDir } = await createNuxtApp()
     const config = resolveDBViteConfig(undefined, appDir)!

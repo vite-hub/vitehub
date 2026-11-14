@@ -2,6 +2,7 @@ import { mkdir, rm } from "node:fs/promises"
 
 import { computePackageDir, createImportPath, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { createPathsMatcher, getTsconfig } from "get-tsconfig"
 import { dirname, isAbsolute, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
@@ -303,7 +304,13 @@ async function writeGeneratedAliasTsconfig(dir: string, alias: Record<string, st
     await rm(file, { force: true })
     return
   }
-  const paths: Record<string, string[]> = {}
+  // Start above our own generated file, including when rewriting an existing generation.
+  // The matcher preserves the base of paths inherited through extends, with or without baseUrl.
+  const inherited = getTsconfig(dirname(dir))
+  const matchPaths = inherited && createPathsMatcher(inherited)
+  const paths: Record<string, string[]> = Object.fromEntries(
+    Object.keys(inherited?.config.compilerOptions?.paths ?? {}).map(key => [key, matchPaths?.(key) ?? []]),
+  )
   for (const [name, target] of entries) {
     const key = name.replace(/\/+$/, "")
     paths[key] = [target]
