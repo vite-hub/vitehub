@@ -81,6 +81,17 @@ describe("vitehub add", () => {
     expect(telemetry.json.install.packages).toContain("@vite-hub/agent")
   })
 
+  it.each([
+    ["vercel", "@vercel/sandbox", "@cloudflare/sandbox"],
+    ["cloudflare", "@cloudflare/sandbox", "@vercel/sandbox"],
+  ] as const)("installs the %s Sandbox SDK with Sandbox Tasks", async (host, sdk, other) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
+    const result = await add(["sandboxTask", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain(sdk)
+    expect(result.json.install.packages).not.toContain(other)
+  })
+
   it("adds a Logs source under observability", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,

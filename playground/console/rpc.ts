@@ -7,6 +7,7 @@ import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runti
 import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
 import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
 import { authFixture } from "./auth-fixture.ts"
+import { cacheFixture } from "./cache-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
@@ -70,6 +71,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   if (channel) return channel
   const site = siteFixture(origin, payload.operation, input)
   if (site) return site
+  const cache = await cacheFixture(payload.operation, input)
+  if (cache) return cache
   const servedSkills = servedSkillsFixture(payload.operation, input)
   if (servedSkills) return servedSkills
   let route = fixtureRoutes[payload.operation]
