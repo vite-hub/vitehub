@@ -8,6 +8,7 @@ import { glob } from "tinyglobby"
 
 import { blockBindings } from "../shared/bindings.ts"
 import { moduleSource } from "../shared/module-source.ts"
+import { unwrapExpression } from "../shared/nuxt-config.ts"
 import { relativeSpecifier } from "./database.ts"
 
 import type { CallExpression, File, MemberExpression } from "@babel/types"
@@ -238,7 +239,22 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
   return rewritten
 }
 
-/** Rewrites NuxtHub imports, KV and Blob calls, and reports what the codemod cannot rewrite. */
+/**
+ * Whether the call around `db.query`, such as `db.query.users.findMany({ where: (users, { eq }) => ... })`, passes a
+ * function as `where` at any depth. Drizzle 1.0 reads `where` as an object filter. `orderBy` functions still work.
+ */
+function hasWhereCallback(ancestors: readonly Node[]): boolean {
+  const call = ancestors.at(-3)
+  if (call?.type !== "CallExpression" || call.callee !== ancestors.at(-2) || !call.arguments[0]) return false
+  let callback = false
+  walk(call.arguments[0], (child) => {
+    if (child.type !== "ObjectProperty" || keyName(child.key, child.computed) !== "where") return
+    const value = unwrapExpression(child.value)
+    if (value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression") callback = true
+  })
+  return callback
+}
+
 export async function rewriteSources(input: SourceInput): Promise<SourceResult> {
   const { cwd, features, schema } = input
   const files = await glob(["**/*.{ts,mts,cts,js,mjs,cjs,tsx,jsx,vue}"], {
@@ -328,9 +344,11 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
       if (receivers.size && script) {
         result.calls += rewriteCalls(file, source, program, output, receivers, followUps)
       }
-      walk(program, (node) => {
+      walk(program, (node, ancestors) => {
         if (node.type === "MemberExpression" && keyName(node.property, node.computed) === "query" && node.object.type === "Identifier" && databases.has(node.object.name)) {
-          followUps.push({ file, line: at(node), message: "Drizzle 1.0 changes relational queries. Replace callback where and orderBy options with Drizzle 1.0 query syntax, migrate declared relations with defineRelations(), and pass them to the Database Definition. Check ownership filters and nested queries before running this call." })
+          followUps.push({ file, line: at(node), message: hasWhereCallback(ancestors)
+            ? "This query passes a function as where. Drizzle 1.0 reads where as an object, such as where: { id: 1 }, or where: { RAW: (table, { eq }) => eq(table.id, 1) }. Rewrite it, and check ownership filters and nested queries before running this call. orderBy functions still work. See https://orm.drizzle.team/docs/relations-v1-v2."
+            : "Drizzle 1.0 changes relational queries. Check this query, migrate declared relations with defineRelations(), pass them to the Database Definition, and check nested queries before running this call. See https://orm.drizzle.team/docs/relations-v1-v2." })
         }
         if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || bindings.has(node.callee.name)) return
         const name = node.callee.name

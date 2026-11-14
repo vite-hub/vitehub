@@ -20,7 +20,6 @@ describe("defineAuth", () => {
       },
       basePath: "/auth",
       route: false,
-      runtime: () => ({ secret: "runtime-secret" }),
     })).toEqual({
       options: {
         appName: "ViteHub",
@@ -36,9 +35,8 @@ describe("defineAuth", () => {
           },
         },
         basePath: "/auth",
-          route: false,
-        runtime: expect.any(Function),
-        },
+        route: false,
+      },
     })
   })
 
@@ -91,7 +89,17 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`/)
     expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database must be `authDatabase\(\)`/)
     expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage takes only a Better Auth adapter/)
-    expect(() => defineAuth({ runtime: "secret" } as never)).toThrow(/runtime must be an object or a function/)
+  })
+
+  it("rejects the removed runtime option and shows the callback form", () => {
+    // `runtime.advanced` used to replace the whole static `advanced`, so `cookiePrefix` was lost without an error.
+    const removed = { advanced: { cookiePrefix: "acme" }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }
+    for (const runtime of [removed.runtime, { secret: "secret" }, "secret"]) {
+      expect(() => defineAuth({ ...removed, runtime } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0039",
+        fix: expect.stringContaining("defineAuth(({ env }) => ({"),
+      }))
+    }
   })
 
   it("rejects unsupported access config", () => {

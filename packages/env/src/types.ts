@@ -29,10 +29,11 @@ export interface EnvSourceContext {
   }
   env: Record<string, string | undefined>
   git: {
+    /** Reads `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. */
     branch: () => Promise<string>
+    /** Reads `GIT_SHA`, then `GITHUB_SHA`, then local Git. */
     commit: (options?: { short?: boolean }) => Promise<string>
-    ref: () => Promise<string>
-    sha: (options?: { short?: boolean }) => Promise<string>
+    /** Reads `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. */
     tag: () => Promise<string | undefined>
   }
   mode: EnvMode
@@ -56,8 +57,6 @@ export type EnvSource =
     names?: string[]
     /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
     canonical?: string | false
-    /** Treat empty host values as missing when reading the ordered names. */
-    skipEmpty?: boolean
     serializable: true
   }
   | {
@@ -68,17 +67,6 @@ export type EnvSource =
   | {
     kind: "git-commit"
     label: "git:commit"
-    serializable: true
-    short?: boolean
-  }
-  | {
-    kind: "git-ref"
-    label: "git:ref"
-    serializable: true
-  }
-  | {
-    kind: "git-sha"
-    label: "git:sha"
     serializable: true
     short?: boolean
   }
@@ -117,21 +105,26 @@ export interface EnvVariableDeclaration {
   type?: string
 }
 
-export interface EnvVariableOptions {
-  default?: unknown
+interface EnvVariableBaseOptions {
   mode?: EnvMode
-  optional?: boolean
-  required?: boolean
   schema?: unknown
   secret?: boolean
   source?: EnvSource | EnvSourceResolver
   type?: string
 }
 
+/**
+ * A value is required by default. `optional: true` lets it be missing.
+ * A `default` makes the value always present, so it cannot be combined with `optional: true`.
+ */
+export type EnvRequirednessOptions<TValue> =
+  | { default?: TValue, optional?: false }
+  | { default?: never, optional: true }
+
+export type EnvVariableOptions = EnvVariableBaseOptions & EnvRequirednessOptions<unknown>
+
 /** Options for `env.boolean()`, `env.number()`, and `env.enum()`. The helper owns the parser and type. */
-export interface EnvTypedVariableOptions<TValue> extends Omit<EnvVariableOptions, "default" | "schema" | "type"> {
-  default?: TValue
-}
+export type EnvTypedVariableOptions<TValue> = Omit<EnvVariableBaseOptions, "schema" | "type"> & EnvRequirednessOptions<TValue>
 
 /** Serializable parser for one Server Env value. Host and provider values are strings before parsing. */
 export type EnvValueSchema =

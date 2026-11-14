@@ -87,5 +87,8 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0065: withFix("The Cloudflare Artifacts Store keeps its Git checkout in memory. A Git step used the path in the message in a way that the error code rejects, for example `ENOENT` for a missing file. Run the operation again. If it fails again, report it at https://github.com/vite-hub/vitehub/issues with the message."),
     WORKSPACE_R0066: withFix("Connect a Blob store to the Vercel project so that it gets `BLOB_STORE_ID`. Off Vercel, set `BLOB_READ_WRITE_TOKEN`."),
     WORKSPACE_R0074: withFix("The Workspace Store keeps no file revisions, so ViteHub cannot prove that the file at the path in the message is the one it started to remove. Check the file. If it must go, delete it in the Store itself, for example in its directory or bucket, because the Workspace rejects writes under a Source. Then run the Source operation again."),
+    WORKSPACE_R0075: withFix("Remove `read` from the rule. Workspace rules limit writes only, so `read: false` would not hide the files. Keep files that a reader must not see out of the Workspace, for example in another Workspace or in an Env secret."),
+    WORKSPACE_R0076: withFix("Remove the option from the rule. A Workspace rule accepts `commit`, `maxBytes`, `mediaType`, `validate`, and `write`."),
+    WORKSPACE_R0077: withFix("Pass the Drizzle database of the history Database: `database: () => useDatabase(\"history\").db` with `import { useDatabase } from \"vite-hub/database\"`. A Database Definition from `defineDatabase()` is not a Drizzle database."),
   },
 })

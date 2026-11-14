@@ -3,12 +3,13 @@ import { getMigrations } from "better-auth/db/migration"
 import { APIError } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { admin, organization, siwe, twoFactor } from "better-auth/plugins"
-import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
+import { createDatabaseAuthEventStore } from "../src/index.ts"
 import { aggregateAuthEvents, createBetterAuthOptions, getAuthForDefinition, handleAuthRequest, listAuthEvents } from "../src/internal/server.ts"
 import { hubAuth } from "../src/vite.ts"
 import { runViteHubCli } from "../../cli/src/index.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthDefinition, AuthRuntimeOptions } from "../src/types.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:3000"
 const databases: ReturnType<typeof eventDatabase>[] = []
@@ -19,12 +20,15 @@ async function setup(overrides: AuthRuntimeOptions = {}) {
   const store = createDatabaseAuthEventStore({ db })
   const userHook = vi.fn()
   let otp = ""
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: [admin(), organization(), twoFactor({ skipVerificationOnEnable: true, otpOptions: { sendOTP: async (input) => { otp = input.otp } } })],
     databaseHooks: { user: { create: { after: userHook } } },
     events: { store, authorize: ({ user }) => user.role === "admin" },
-    runtime: { database: sqlite, secret: "auth-events-test-secret-12345678901234567890", baseURL: origin, ...overrides },
+    database: sqlite,
+    secret: "auth-events-test-secret-12345678901234567890",
+    baseURL: origin,
+    ...overrides,
   })
   await (await getMigrations(createBetterAuthOptions(definition))).runMigrations()
   const request = (path: string, body?: object, cookie?: string) => handleAuthRequest(definition, new Request(`${origin}/api/auth/${path}`, {
@@ -280,7 +284,7 @@ describe("auth events with real Better Auth and Node SQLite", () => {
   })
 
   it("keeps database-free auth and existing hooks usable when events are disabled", async () => {
-    const definition: AuthDefinition = defineAuth({ events: false, emailAndPassword: { enabled: true }, runtime: { secret: "auth-events-test-secret-12345678901234567890" } })
+    const definition: AuthDefinition = defineFixedAuth({ events: false, emailAndPassword: { enabled: true }, secret: "auth-events-test-secret-12345678901234567890" })
     const response = await handleAuthRequest(definition, new Request(`${origin}/api/auth/sign-up/email`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ name: "Memory", email: "memory@example.com", password: "passwordpassword" }) }))
     expect(response.status).toBe(200)
     await expect(listAuthEvents({}, definition)).rejects.toThrow("disabled")

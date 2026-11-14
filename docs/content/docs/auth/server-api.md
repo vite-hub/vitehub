@@ -96,7 +96,7 @@ const { data } = await client.admin.listUsers({ query: { limit: 10 } })
 - The client imports the file together with Better Auth, on first use, not when the app starts.
 - ViteHub writes the type of the file to `.vitehub/types/auth.d.ts`, so `client.admin` and the other plugin endpoints are typed. Restart the dev server after you add or remove the file.
 
-For a second client, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Use the same `basePath` in the client and the Definition. A custom client must include the app base path in `basePath`, such as `/app/auth`.
+For a second client, or a custom `basePath` outside Nuxt, import `createAuthClient` from the same entry. It loads Better Auth on the first call, so it adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Without `basePath`, it uses the same path as the default client. A `basePath` that you set is used as it is, so include the app base path, such as `/app/auth`.
 
 The default client has the user and session fields of your Auth Definition. See [Typed user fields](#typed-user-fields).
 
@@ -151,12 +151,12 @@ export default defineHandler(async (event) => {
 | Helper | Description |
 | --- | --- |
 | `auth` | Proxy to the discovered Better Auth instance. |
-| `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
+| `getAuth()` | Returns the discovered Better Auth instance. |
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
-| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
-| `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
+| `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
+| `handleAuthRequest(definition, input, event?)` | Handles an Auth request for an explicit Auth Definition. |
 | `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
-| `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
+| `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Else it returns JSON `401` with the code `SIGNED_OUT`, or the sign-in redirect for an HTML request. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Else it returns JSON `401` (`SIGNED_OUT`) without a session, `403` (`FORBIDDEN`) when `authorize` returns `false`, or the callback's `Response`. |
@@ -199,8 +199,10 @@ Add `authorize` when a session alone is not enough. ViteHub calls it only after 
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
+  database: authDatabase(),
   access: {
     routes: [
       {
@@ -219,6 +221,60 @@ The same callback protects [Blob serve routes](/docs/blob/configure#protect-serv
 The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
 The [Console](/docs/development/console#protect-the-console-route) endpoint does not use these access routes. It takes only signed requests and one-time links.
+
+### Make every route private
+
+With `routes: ['/**']`, the access middleware guards every path. List the paths that a signed-out visitor can open in `access.public`. A request to a public path skips all access routes and their `authorize` callbacks.
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  access: {
+    routes: ['/**'],
+    public: ['/', '/login', '/api/auth/**', '/api/health'],
+    signIn: { provider: 'github' },
+  },
+})
+```
+
+- Write public routes like access routes: an exact path, or a path that ends in `/**`. Write the list inline, so the Vite plugin can read it at build time.
+- Keep `/api/auth/**` public. Sign-in and the OAuth callback are below it.
+- Make public the files that the browser loads before sign-in, such as `/_nuxt/**` and `/favicon.ico` in a Nuxt app.
+- A route rule that caches or prerenders only public paths does not stop the build ([`AUTH_B0002`](/docs/auth/limits-and-errors#auth_b0002)).
+
+### Decide who can stay signed in
+
+`access.policy` decides who can use the app. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
+
+```ts [server/auth.ts]
+import { defineAuth, isGitHubOrgMember } from 'vite-hub/auth'
+
+const members = ['ada@example.com', 'grace@example.com']
+
+export default defineAuth({
+  access: {
+    policy: {
+      allow: async ({ user, accessToken }) =>
+        (user.emailVerified && members.includes(user.email))
+        || await isGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 }),
+      recheck: 300_000,
+    },
+  },
+})
+```
+
+| `allow` | Result |
+| --- | --- |
+| Returns `true` | The person signs in, or the session continues. Auth keeps the answer for `recheck` milliseconds. |
+| Returns another value | Auth refuses the sign-in, or deletes the session and its cookies. The request continues signed out, so a guard answers `401`. |
+| Throws | The request fails. The session stays, and Auth asks again on the next request. |
+
+- `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
+- `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
+- [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
+- The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
+- Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.
 
 ## Typed user fields
 

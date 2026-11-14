@@ -129,9 +129,11 @@ The page guard controls which page the browser shows. The code of the page and t
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
   appName: 'Acme',
+  database: authDatabase(),
   emailAndPassword: { enabled: true },
   access: {
     routes: ['/api/dashboard/**'],

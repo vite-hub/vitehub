@@ -31,7 +31,7 @@ Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and o
 
 - `bigint` values, also nested, show as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`.
 - Cloudflare writes report the TTL after rounding.
-- Drivers cannot tell a key's time left, so `kv get` shows `expiry: "unknown"` (`"none"` on `fs-lite`, which never expires keys).
+- Drivers cannot tell a key's time left, so `kv get` shows `expiry: "unknown"`.
 - A write without `--ttl` removes the old expiry. The Console editor warns and has an **Expires in seconds** field.
 
 ## Preview deployments

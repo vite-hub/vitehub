@@ -26,7 +26,7 @@ describe("Vercel Blob provision status", () => {
         : { store: { projectsMetadata } }
       return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
     })
-    const step = createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" }))
+    const step = createBlobVercelProvisionStep(() => ({ access: "public", driver: "vercel-blob" }))
     const loadConfig = async () => ({
       plugins: [{ vitehub: { cli: { namespaces: [], provision: [step] } } }],
       root: rootDir,
@@ -85,7 +85,7 @@ describe("Vercel Blob provision status", () => {
     const stdout = { write: vi.fn<(chunk: string | Uint8Array) => void>() }
     const stderr = { write: vi.fn<(chunk: string | Uint8Array) => void>() }
     const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never)
-    const step = createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" }))
+    const step = createBlobVercelProvisionStep(() => ({ access: "public", driver: "vercel-blob" }))
 
     runViteHubCliEntrypoint({
       args: ["provision", "status", "--provider", "vercel", ...json ? ["--json"] : []],
@@ -115,7 +115,7 @@ describe("Vercel Blob provision status", () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider request"))
     const stdout = { write: vi.fn<(chunk: string | Uint8Array) => void>() }
     const stderr = { write: vi.fn<(chunk: string | Uint8Array) => void>() }
-    const step = createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" }))
+    const step = createBlobVercelProvisionStep(() => ({ access: "public", driver: "vercel-blob" }))
     const args = ["provision", "status", "--provider", "vercel", ...json ? ["--json"] : []]
 
     const exitCode = await runViteHubCli({

@@ -1,6 +1,7 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
-import { lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { constants, createReadStream } from "node:fs"
+import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
@@ -58,22 +59,27 @@ interface FsBlobEntry {
   uploadedAt: Date
 }
 
-function encodeCursor(value: number) {
-  return Buffer.from(String(value)).toString("base64url")
+// The cursor holds the last listed key. Keys sort by UTF-16 code unit, so a
+// key added or removed between pages cannot shift the next page.
+const cursorPrefix = "after:"
+
+function encodeCursor(after: string) {
+  return Buffer.from(`${cursorPrefix}${after}`).toString("base64url")
 }
 
 function decodeCursor(cursor: string | undefined) {
-  if (cursor === undefined) return 0
+  if (cursor === undefined) return ""
   // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
   const decodedBytes = Buffer.from(cursor, "base64url")
   const decoded = decodedBytes.toString("utf8")
   // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (decodedBytes.toString("base64url") !== cursor || !/^\d+$/.test(decoded)) throw new TypeError("Invalid Blob cursor.")
-  const parsed = Number(decoded)
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!Number.isSafeInteger(parsed) || String(parsed) !== decoded) throw new TypeError("Invalid Blob cursor.")
-  return parsed
+  if (decodedBytes.toString("base64url") !== cursor || !Buffer.from(decoded).equals(decodedBytes) || !decoded.startsWith(cursorPrefix)) throw new TypeError("Invalid Blob cursor.")
+  return decoded.slice(cursorPrefix.length)
+}
+
+function compareKeys(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function encodeMetaKey(pathname: string) {
@@ -163,6 +169,12 @@ function generationMetaPath(root: string, pathname: string, stats: BigIntStats) 
 
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex")
+}
+
+async function sha256File(path: string) {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
 }
 
 function metadataKey(metadata: FsBlobMetadata) {
@@ -271,14 +283,17 @@ async function readMetadata(root: string, pathname: string, stats: BigIntStats, 
   }
 }
 
-async function writeAtomic(root: string, path: string, bytes: Uint8Array | string | ((temporary: string) => Promise<void>), beforePublish?: (temporary: string) => Promise<void>) {
+/** Writes `content` to a new file. A function writes the new file itself, for example with `copyFile()`. */
+type AtomicContent = Uint8Array | string | ((temporary: string) => Promise<void>)
+
+async function writeAtomic(root: string, path: string, content: AtomicContent, beforePublish?: (temporary: string) => Promise<void>) {
   // Keep incomplete bytes outside user listings, then publish one complete file.
   const temporary = resolve(root, ".vitehub", "blob-writes", randomUUID())
   await assertNoSymlinkPath(root, temporary)
   await mkdir(dirname(temporary), { recursive: true })
   try {
-    if (typeof bytes === "function") await bytes(temporary)
-    else await writeFile(temporary, bytes, { flag: "wx" })
+    if (typeof content === "function") await content(temporary)
+    else await writeFile(temporary, content, { flag: "wx" })
     await beforePublish?.(temporary)
     await assertNoSymlinkPath(root, path)
     await rename(temporary, path)
@@ -383,11 +398,10 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
   }
 }
 
-async function walkFiles(root: string, dir = root): Promise<string[]> {
-  let entries: Dirent[]
+async function readDirectory(root: string, dir: string): Promise<Dirent[]> {
   try {
     await assertNoSymlinkPath(root, dir)
-    entries = await readdir(dir, { withFileTypes: true })
+    return await readdir(dir, { withFileTypes: true })
   }
   catch (error) {
     // A child directory can disappear or become a file after its parent was read.
@@ -399,14 +413,53 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
     }
     throw error
   }
-  const files = await Promise.all(entries.map(async (entry) => {
-    const path = resolve(dir, entry.name)
-    const pathname = relative(root, path).split(sep).join("/")
-    if (pathname === ".vitehub" || pathname.startsWith(".vitehub/")) return []
-    if (entry.isDirectory()) return await walkFiles(root, path)
-    return entry.isFile() ? [pathname] : []
-  }))
-  return files.flat().sort((left, right) => left.localeCompare(right))
+}
+
+interface ListScope {
+  after: string
+  folded: boolean
+  prefix: string
+}
+
+interface ListItem {
+  folder: boolean
+  key: string
+}
+
+// Directory keys end with "/", so sorting each directory by key gives the
+// global key order. Only directories on the prefix path, after the cursor,
+// and before the page ends are read.
+async function* walkKeys(root: string, scope: ListScope, dir = root, dirKey = ""): AsyncGenerator<ListItem> {
+  const children = (await readDirectory(root, dir)).flatMap((entry) => {
+    if (entry.isDirectory()) return [{ directory: true, key: `${dirKey}${entry.name}/`, name: entry.name }]
+    return entry.isFile() ? [{ directory: false, key: `${dirKey}${entry.name}`, name: entry.name }] : []
+  }).sort((left, right) => compareKeys(left.key, right.key))
+  for (const child of children) {
+    if (child.key === ".vitehub/") continue
+    if (!child.directory) {
+      if (child.key.startsWith(scope.prefix) && child.key > scope.after) yield { folder: false, key: child.key }
+      continue
+    }
+    const belowPrefix = child.key.length > scope.prefix.length && child.key.startsWith(scope.prefix)
+    if (!belowPrefix && !scope.prefix.startsWith(child.key)) continue
+    // Every key in this directory sorts before the cursor.
+    if (child.key < scope.after && !scope.after.startsWith(child.key)) continue
+    const path = resolve(dir, child.name)
+    if (scope.folded && belowPrefix) {
+      if (await containsFile(root, path)) yield { folder: true, key: child.key }
+      continue
+    }
+    yield* walkKeys(root, scope, path, child.key)
+  }
+}
+
+async function containsFile(root: string, dir: string): Promise<boolean> {
+  const entries = await readDirectory(root, dir)
+  if (entries.some(entry => entry.isFile())) return true
+  for (const entry of entries) {
+    if (entry.isDirectory() && await containsFile(root, resolve(dir, entry.name))) return true
+  }
+  return false
 }
 
 async function listEntries(root: string, paths: string[]) {
@@ -415,52 +468,33 @@ async function listEntries(root: string, paths: string[]) {
   return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
 }
 
-async function foldedList(root: string, paths: string[], options: BlobListOptions, start: number): Promise<BlobListResult> {
-  const prefix = options.prefix || ""
+async function listKeys(root: string, options: BlobListOptions, after: string): Promise<BlobListResult> {
   const limit = options.limit ?? 1000
-  const folders = new Set<string>()
+  const folded = Boolean(options.folded)
+  const folders: string[] = []
   const selected: string[] = []
+  const items = walkKeys(root, { after, folded, prefix: options.prefix || "" })
+  let hasMore = false
 
-  // A zero limit is an empty page. Keep folder discovery consistent with the
-  // existing folded listing behavior, but never emit a blob when callers ask
-  // for no blobs.
-  if (limit <= 0) {
-    for (const pathname of paths.slice(start)) {
-      const remainder = pathname.slice(prefix.length)
-      const firstSlash = remainder.indexOf("/")
-      if (firstSlash !== -1) folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
+  for await (const item of items) {
+    // A zero limit is an empty page. A folded listing still reports every folder after the cursor.
+    if (selected.length >= limit && (limit > 0 || !folded)) {
+      hasMore = true
+      break
     }
-    return {
-      blobs: [],
-      cursor: start < paths.length ? encodeCursor(start) : undefined,
-      folders: [...folders].sort((left, right) => left.localeCompare(right)),
-      hasMore: start < paths.length,
-    }
-  }
-
-  let consumed = start
-
-  for (const pathname of paths.slice(start)) {
-    consumed += 1
-    const remainder = pathname.slice(prefix.length)
-    const firstSlash = remainder.indexOf("/")
-    if (firstSlash !== -1) {
-      folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
-      continue
-    }
-
-    selected.push(pathname)
-    if (selected.length >= limit) break
+    if (limit <= 0) hasMore = true
+    if (item.folder) folders.push(item.key)
+    else if (limit > 0) selected.push(item.key)
   }
 
   const entries = await listEntries(root, selected)
-  // Selected files removed during metadata reads must not shift the next live key past the cursor.
-  const next = consumed - selected.length + entries.length
+  // A selected file removed during metadata reads still moves the cursor past its key.
+  const last = limit > 0 ? selected.at(-1) ?? after : after
   return {
     blobs: entries.map(toBlobObject),
-    cursor: consumed < paths.length ? encodeCursor(next) : undefined,
-    folders: [...folders].sort((left, right) => left.localeCompare(right)),
-    hasMore: consumed < paths.length,
+    cursor: hasMore ? encodeCursor(last) : undefined,
+    ...(folded ? { folders } : {}),
+    hasMore,
   }
 }
 
@@ -535,7 +569,11 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
                   const bytes = chunk as Buffer
                   etag.update(bytes)
                   contentHash.update(bytes)
-                  await output.write(bytes)
+                  for (let offset = 0; offset < bytes.length;) {
+                    const { bytesWritten } = await output.write(bytes, offset, bytes.length - offset)
+                    if (bytesWritten === 0) throw new Error("Multipart output write made no progress.")
+                    offset += bytesWritten
+                  }
                 }
               }
               finally {
@@ -694,25 +732,9 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       return entry ? toBlobObject(entry) : null
     },
     async list(options: BlobListOptions = {}): Promise<BlobListResult> {
-      const start = decodeCursor(options.cursor)
+      const after = decodeCursor(options.cursor)
       try {
-        const files = await walkFiles(root)
-        const paths = options.prefix ? files.filter(path => path.startsWith(options.prefix!)) : files
-        if (options.folded) {
-          return await foldedList(root, paths, options, start)
-        }
-
-        const limit = options.limit ?? 1000
-        const page = paths.slice(start, start + limit)
-        const entries = await listEntries(root, page)
-        // Files removed while reading this page must not shift the next live key past the cursor.
-        const consumed = start + entries.length
-        const hasMore = start + page.length < paths.length
-        return {
-          blobs: entries.map(toBlobObject),
-          cursor: hasMore ? encodeCursor(consumed) : undefined,
-          hasMore,
-        }
+        return await listKeys(root, options, after)
       }
       catch (error) {
         if (isNotFound(error)) {
@@ -733,6 +755,18 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         return sha256(bytes)
       }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
     },
+    // Copies the file, then writes the metadata of the source for the new file.
+    async copy(from, to) {
+      const source = await readEntry(root, from)
+      if (!source) return null
+      const sourcePath = resolveBlobPath(root, from)
+      await assertNoSymlinkPath(root, sourcePath)
+      return publish(to, async (temporary) => {
+        await copyFile(sourcePath, temporary, constants.COPYFILE_EXCL)
+        return sha256File(temporary)
+      }, source.meta)
+    },
   }
+
   return driver
 }

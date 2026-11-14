@@ -1,4 +1,4 @@
-import type { EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
+import type { EnvMode, EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { envValueTypeName, parseEnvValue, stringValueSchema } from "./values.ts"
@@ -38,11 +38,12 @@ interface EnvNamespace {
   buildTimestamp: () => EnvSource
   custom: (label: string, resolver: EnvSourceResolver) => EnvSource
   /** Accept only the listed strings. The values are public metadata, so an enum cannot be secret. */
-  enum: <const TValues extends readonly [string, ...string[]]>(values: TValues, options?: Omit<EnvTypedVariableOptions<TValues[number]>, "secret">) => EnvVariableDeclaration
+  enum: <const TValues extends readonly [string, ...string[]]>(values: TValues, options?: EnvTypedVariableOptions<TValues[number]> & { secret?: never }) => EnvVariableDeclaration
+  /** The current branch: `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. */
   gitBranch: () => EnvSource
+  /** The current commit SHA: `GIT_SHA`, then `GITHUB_SHA`, then local Git. `short` keeps 7 characters of a CI value. */
   gitCommit: (options?: { short?: boolean }) => EnvSource
-  gitRef: () => EnvSource
-  gitSha: (options?: { short?: boolean }) => EnvSource
+  /** The current tag, or `undefined`: `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. */
   gitTag: () => EnvSource
   /** Parse a finite number. */
   number: (options?: EnvTypedVariableOptions<number>) => EnvVariableDeclaration
@@ -53,11 +54,10 @@ interface EnvNamespace {
    * The server build imports the module, so refinements and transforms run on every resolution.
    */
   schemaFrom: (module: string, exportName?: string) => EnvSchemaModuleReference
-  source: (name: string | string[], options?: { canonical?: boolean, skipEmpty?: boolean }) => EnvSource
-  variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
+  source: (name: string | string[], options?: { canonical?: boolean }) => EnvSource
 }
 
-function source(name: string | string[], options: { canonical?: boolean, skipEmpty?: boolean } = {}): EnvSource {
+function source(name: string | string[], options: { canonical?: boolean } = {}): EnvSource {
   const names = Array.isArray(name) ? name : [name]
   if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
     throw envErrorDiagnostics.ENV_R0002({ message: "env.source() requires one or more non-empty env variable names." })
@@ -69,7 +69,6 @@ function source(name: string | string[], options: { canonical?: boolean, skipEmp
     name: normalized[0]!,
     ...(options.canonical === false ? { canonical: false as const } : {}),
     ...(normalized.length > 1 ? { names: normalized } : {}),
-    ...(options.skipEmpty ? { skipEmpty: true } : {}),
     serializable: true,
   }
 }
@@ -95,23 +94,6 @@ function gitCommit(options: { short?: boolean } = {}): EnvSource {
   return {
     kind: "git-commit",
     label: "git:commit",
-    serializable: true,
-    short: options.short,
-  }
-}
-
-function gitRef(): EnvSource {
-  return {
-    kind: "git-ref",
-    label: "git:ref",
-    serializable: true,
-  }
-}
-
-function gitSha(options: { short?: boolean } = {}): EnvSource {
-  return {
-    kind: "git-sha",
-    label: "git:sha",
     serializable: true,
     short: options.short,
   }
@@ -182,18 +164,18 @@ export function schemaModuleReference(schema: unknown): EnvSchemaModuleReference
 }
 
 function variable(options: EnvVariableOptions = {}): EnvVariableDeclaration {
-  options = readDeclarationOptions(options)
-  return createDeclaration(options, options.schema ?? defaultStringSchema, options.type)
+  const snapshot = readDeclarationOptions(options)
+  return createDeclaration(snapshot, snapshot.schema ?? defaultStringSchema, snapshot.type)
 }
 
 function typedVariable(schema: RuntimeValueSchema, options: EnvVariableOptions): EnvVariableDeclaration {
-  options = readDeclarationOptions(options)
+  const snapshot = readDeclarationOptions(options)
   const valueSchema = runtimeSchemaParsers.get(schema.safeParse)
-  return createDeclaration(options, schema, valueSchema && envValueTypeName(valueSchema))
+  return createDeclaration(snapshot, schema, valueSchema && envValueTypeName(valueSchema))
 }
 
 /** Create an internal built-in declaration whose parser survives runtime serialization. */
-export function descriptorVariable(valueSchema: EnvValueSchema, options: Omit<EnvVariableOptions, "schema" | "type">): EnvVariableDeclaration {
+export function descriptorVariable(valueSchema: EnvValueSchema, options: EnvTypedVariableOptions<unknown>): EnvVariableDeclaration {
   return typedVariable(createRuntimeValueSchema(valueSchema), options)
 }
 
@@ -207,7 +189,7 @@ function numberVariable(options: EnvTypedVariableOptions<number> = {}): EnvVaria
 
 function enumVariable<const TValues extends readonly [string, ...string[]]>(
   values: TValues,
-  options: Omit<EnvTypedVariableOptions<TValues[number]>, "secret"> = {},
+  options: EnvTypedVariableOptions<TValues[number]> & { secret?: never } = {},
 ): EnvVariableDeclaration {
   if (!Array.isArray(values) || !values.length || values.some(value => typeof value !== "string" || !value) || new Set(values).size !== values.length) {
     throw envErrorDiagnostics.ENV_R0022({ message: "env.enum() requires one or more unique non-empty strings." })
@@ -226,18 +208,30 @@ function isInspectableRecord(value: unknown): boolean {
   }
 }
 
+interface DeclarationOptions {
+  default: unknown
+  mode: EnvMode | undefined
+  optional: boolean
+  schema: unknown
+  secret: boolean | undefined
+  source: EnvSource | EnvSourceResolver | undefined
+  type: string | undefined
+}
+
 // Read options once so Proxy traps cannot bypass the declaration diagnostic.
-function readDeclarationOptions(options: EnvVariableOptions): EnvVariableOptions {
+function readDeclarationOptions(options: EnvVariableOptions): DeclarationOptions {
   if (!isInspectableRecord(options)) {
     throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
   }
-  let snapshot: EnvVariableOptions
+  let snapshot: DeclarationOptions
+  let required: unknown
   try {
+    // JavaScript config can still pass the removed `required` key.
+    required = Reflect.get(options, "required")
     snapshot = {
       default: options.default,
       mode: options.mode,
-      optional: options.optional,
-      required: options.required,
+      optional: options.optional === true,
       schema: options.schema,
       secret: options.secret,
       source: options.source,
@@ -247,14 +241,17 @@ function readDeclarationOptions(options: EnvVariableOptions): EnvVariableOptions
   catch {
     throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
   }
-  if (snapshot.optional && snapshot.required !== undefined) {
-    throw envErrorDiagnostics.ENV_R0006({ message: "env() cannot use both optional and required." })
+  if (required !== undefined) {
+    throw envErrorDiagnostics.ENV_R0006({ message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing." })
+  }
+  if (snapshot.optional && snapshot.default !== undefined) {
+    throw envErrorDiagnostics.ENV_R0006({ message: "env() cannot use both optional and default. A default makes the value always present." })
   }
   return snapshot
 }
 
-function createDeclaration(options: EnvVariableOptions, schema: unknown, type: string | undefined): EnvVariableDeclaration {
-  const required = options.optional ? false : options.required ?? true
+function createDeclaration(options: DeclarationOptions, schema: unknown, type: string | undefined): EnvVariableDeclaration {
+  const required = !options.optional
 
   const source = typeof options.source === "function"
     ? custom("custom", options.source)
@@ -289,15 +286,12 @@ export const env: EnvNamespace = Object.assign(variable, {
   enum: enumVariable,
   gitBranch: gitBranch,
   gitCommit: gitCommit,
-  gitRef: gitRef,
-  gitSha: gitSha,
   gitTag: gitTag,
   number: numberVariable,
   packageJson: packageJson,
   provider: provider,
   schemaFrom: schemaFrom,
   source: source,
-  variable: variable,
 })
 
 /** Return the serializable value schema of a declaration created by `env()`, `env.boolean()`, `env.number()`, or `env.enum()`. */

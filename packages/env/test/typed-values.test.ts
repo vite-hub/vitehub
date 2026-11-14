@@ -55,11 +55,16 @@ describe("typed Server Env values", () => {
     })
   })
 
+  it("reads an empty value as missing, so the default applies", () => {
+    expect(resolveServerEnv(labellerRegistry(), cloudflareRequest({ LABELLER_PIN: "1", LABELLER_MIN_CONFIDENCE: "" }))).toMatchObject({
+      labeller: { minConfidence: 0.6 },
+    })
+  })
+
   it("reports invalid values with the declaration path and without the value", () => {
     for (const [name, value, message] of [
       ["LABELLER_DRY_RUN", "yes", "Expected a boolean: true, false, 1, or 0."],
       ["LABELLER_MIN_CONFIDENCE", "high", "Expected a finite number."],
-      ["LABELLER_MIN_CONFIDENCE", "", "Expected a finite number."],
       ["LABELLER_MODE", "archive", "Expected one of \"draft\", \"send\"."],
     ] as const) {
       const error = capture(() => resolveServerEnv(labellerRegistry(), cloudflareRequest({ LABELLER_PIN: "1", [name]: value })))

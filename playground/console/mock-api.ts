@@ -22,6 +22,7 @@ import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
+import { servedSkillsConsoleSection } from "../../packages/vite-hub/src/skills/console.ts"
 import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
 
 // SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
@@ -43,6 +44,7 @@ const sections = [
   "env",
   "agents",
   "skills",
+  "served-skills",
   "usage",
   "channels",
   "mcp-client",
@@ -188,7 +190,6 @@ async function captureEmailOutbox(): Promise<void> {
     from: "hello@acme.test",
     headers: { Authorization: "Bearer re_playground_secret" },
     html: '<p onclick="steal()">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert("xss")</script>',
-    preheader: "Start here",
     subject: "Welcome to Acme",
     text: "Welcome, Linus.",
     to: ["linus@example.test"],
@@ -477,7 +478,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection], projectName: manifest.name, sections })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections })
     return true
   }
 
