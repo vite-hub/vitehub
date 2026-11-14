@@ -2004,7 +2004,7 @@ describe("gmail() Channel", () => {
     })
 
     const result = await replayChannel(agent, "gmail", { dryRun: true, limit: 1 })
-    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", status: "completed" }])
+    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", output: "Work", status: "completed" }])
     expect(subject).toBe("Invoice")
     expect(google.writes()).toEqual([])
     const record = await invocations.getByRunId(channelMessageRunId("gmail", "m1", { dryRun: true }), "labeller")

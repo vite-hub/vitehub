@@ -62,6 +62,11 @@ export interface ReplayChannelItem {
   invocationStatus?: AgentInvocationRecordStatus
   key: string
   /**
+   * What the Agent returned for a `completed` item, such as the structured result of `driver.ask`.
+   * Only `replayChannel()` and `context.dispatch()` callers get it; the replay HTTP route leaves it out.
+   */
+  output?: unknown
+  /**
    * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
    * already queued, or its `order.version` was not newer than the last one admitted for its `order.key`.
    */
@@ -285,7 +290,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
       ...(run.invoker ? { context: { ...invocation.input.context, invoker: run.invoker } } : {}),
       ...(run.dryRun ? { dryRun: true } : {}),
     })
-    return { id, key, status: isWorkflowRun(output) ? "started" : "completed" }
+    return isWorkflowRun(output) ? { id, key, status: "started" } : { id, key, output, status: "completed" }
   }
   catch (error) {
     await reservation?.releaseClaim()
@@ -485,7 +490,7 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
   const maxLimit = options.maxLimit ?? Number.POSITIVE_INFINITY
   try {
     if (describe === true) return replayJson(describeChannelHistory(agent, channel))
-    return replayJson(await replayChannel(agent, channel, {
+    const result = await replayChannel(agent, channel, {
       ...(cursor ? { cursor } : {}),
       ...(dryRun === true ? { dryRun: true } : {}),
       ...(force === true ? { force: true } : {}),
@@ -495,7 +500,9 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
       ...(options.invoker ? { invoker: options.invoker } : {}),
       ...(options.runtime ? { runtime: options.runtime } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
-    }))
+    })
+    // Agent output can quote the private data of an item. The CLI prints only IDs and statuses.
+    return replayJson({ ...result, items: result.items.map(({ output: _output, ...item }) => item) })
   }
   catch (error) {
     const code = isRuntimeRecord(error) && typeof error.code === "string" ? error.code : undefined
