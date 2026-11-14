@@ -47,7 +47,7 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 | `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
-`WorkflowStartOptions` accepts `id`.
+`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_R0037`, also in `vite dev`, and `getWorkflowRun()` reports it as `unknown`. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
 Inline runs buffer the response body before they complete. Each inspection and duplicate start returns a new response, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
 

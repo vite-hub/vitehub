@@ -168,7 +168,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. To set your own id, pass `{ id }`. Use only letters, digits, `-`, and `_`, up to 100 characters, so the id works on every provider; Cloudflare rejects other ids with `WORKFLOW_R0037`. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them.
 
 The other runtime helpers are:
 

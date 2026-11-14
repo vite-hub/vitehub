@@ -122,6 +122,14 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
   return { id }
 }
 
+const cloudflareInstanceIdPattern = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,99}$/
+const reservedCloudflareInstanceIds: ReadonlySet<string> = new Set(["batch", "terminate", "terminateAll"])
+
+/** True when Cloudflare accepts `id` as a new Workflow instance id. */
+function isCloudflareInstanceId(id: string): boolean {
+  return cloudflareInstanceIdPattern.test(id) && !reservedCloudflareInstanceIds.has(id) && !/^cf_[0-9a-f]{64}$/.test(id)
+}
+
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
   cancelled: "cancelled",
   complete: "completed",
@@ -165,6 +173,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async get({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       if (binding) {
+        // Cloudflare cannot store a run under an id that it rejects.
+        if (!isCloudflareInstanceId(id)) return { id, provider: "cloudflare", status: "unknown" }
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
         const output = ownSerializedOutput(metadata)
@@ -180,6 +190,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {
+      // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
+      if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_R0037({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()
