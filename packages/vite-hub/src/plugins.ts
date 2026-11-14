@@ -1747,5 +1747,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  */
 export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertNoRemovedViteHubOptions(options, "`vitehub()`")
-  return withPrintedDiagnostics(withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved)))
+  // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
+  return withCmsPresetPlugins(withComments(options), resolved => withPrintedDiagnostics(createViteHubPlugins(resolved)))
 }
