@@ -241,6 +241,11 @@ interface RealtimePresenceFields {
   editor?: never
   history?: never
   persistence?: never
+  /**
+   * Lets server code ask the one browser in a room with `requestRealtimeRoom()` from `@vite-hub/realtime/server`. The
+   * browser answers with `room.onRequest()`. Default `false`: rooms without it refuse request frames.
+   */
+  requests?: boolean
 }
 
 /**
@@ -314,6 +319,16 @@ export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeD
 /**
  * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
  */
+/** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
+export type RealtimeRoomRequestErrorCode =
+  | "REALTIME_ROOM_ABORTED"
+  | "REALTIME_ROOM_CROWDED"
+  | "REALTIME_ROOM_ELSEWHERE"
+  | "REALTIME_ROOM_EMPTY"
+  | "REALTIME_ROOM_REFUSED"
+  | "REALTIME_ROOM_REQUESTS_OFF"
+  | "REALTIME_ROOM_TIMEOUT"
+
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"

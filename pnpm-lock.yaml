@@ -1123,6 +1123,9 @@ importers:
       '@types/proper-lockfile':
         specifier: 'catalog:'
         version: 4.1.4
+      '@ui-sdk/core':
+        specifier: 0.1.0-beta.2
+        version: 0.1.0-beta.2
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
