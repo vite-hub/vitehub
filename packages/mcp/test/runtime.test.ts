@@ -291,6 +291,63 @@ describe("MCP Apps metadata", () => {
   })
 })
 
+describe("optional sign-in on one route", () => {
+  const missing = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+  const signedIn = { clientId: "client", clientName: "ChatGPT", scopes: ["lessons:read"], user: { id: "u1", name: "Ada" } }
+  const showLesson = defineMcpTool({ description: "Play a lesson.", public: true, scopes: ["lessons:read"], handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello guest" })
+  const createHandler = vi.fn(() => "created")
+  const createLesson = defineMcpTool({ description: "Create a lesson.", input: z.object({ title: z.string() }), scopes: ["lessons:write"], handler: createHandler })
+  const player = { uri: "ui://lessons/player.html", public: true, handler: () => "<html>" } satisfies McpResourceDefinition
+  const notes = { uri: "notes://mine", handler: () => "private" } satisfies McpResourceDefinition
+  const options = { optional: true, resources: { notes, player }, tools: { create_lesson: createLesson, show_lesson: showLesson }, verify: missing }
+
+  it("lists every tool without a token, with the securitySchemes that say which need sign-in", async () => {
+    const { body, response } = await rpc(options, "tools/list")
+    expect(response.status).toBe(200)
+    const oauth = (scopes: string[]) => ({ scopes, type: "oauth2" })
+    expect(body.result.tools).toEqual([
+      expect.objectContaining({ _meta: { securitySchemes: [oauth(["lessons:write"])] }, name: "create_lesson", securitySchemes: [oauth(["lessons:write"])] }),
+      expect.objectContaining({ _meta: { securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }, name: "show_lesson", securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }),
+    ])
+  })
+
+  it("runs a public tool without a token and asks for sign-in before any other tool runs", async () => {
+    expect((await rpc(options, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    const { body } = await rpc(options, "tools/call", { arguments: {}, name: "create_lesson" })
+    expect(body.result).toEqual({
+      _meta: { "mcp/www_authenticate": ["Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"insufficient_scope\", error_description=\"Sign in to call create_lesson. Ask the user to connect their account.\", scope=\"lessons:write\""] },
+      content: [{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }],
+      isError: true,
+    })
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("serves only public resources without a token", async () => {
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect((await rpc(options, "resources/read", { uri: "notes://mine" })).body.error?.code).toBe(-32002)
+  })
+
+  it("rejects an invalid token with a 401", async () => {
+    const invalid = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: expired" }, undefined] as const
+    expect((await rpc({ ...options, verify: invalid }, "tools/list")).response.status).toBe(401)
+  })
+
+  it("gives a signed-in caller the tools that its scopes allow", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    expect((await rpc({ ...options, verify }, "tools/list")).body.result.tools).toEqual([expect.objectContaining({ name: "show_lesson" })])
+    expect((await rpc({ ...options, verify }, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello Ada", type: "text" }])
+    const { body, response } = await rpc({ ...options, verify }, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(403)
+    expect(body.error?.code).toBe(-32001)
+    expect(response.headers.get("www-authenticate")).toContain("error=\"insufficient_scope\"")
+    expect(response.headers.get("www-authenticate")).toContain("scope=\"lessons:write\"")
+  })
+
+  it("still answers 401 without a token when sign-in is required", async () => {
+    expect((await rpc({ ...options, optional: false, tools: { create_lesson: createLesson } }, "tools/list")).response.status).toBe(401)
+  })
+})
+
 describe("app MCP hooks", () => {
   const signedIn = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
   const verify = async () => [undefined, signedIn] as const
