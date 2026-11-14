@@ -2326,6 +2326,32 @@ describe("gmail() Channel", () => {
     await expect(gmailClient({ ...channel, kind: "http" })).rejects.toThrow(/expects a Channel from gmail/)
   })
 
+  it("splits a label change into modify requests of at most 100 label IDs each", async () => {
+    const labels = Array.from({ length: 151 }, (_, index) => ({ id: `Label_${index}`, name: `L${index}` }))
+    const modifies: { addLabelIds: string[], removeLabelIds: string[] }[] = []
+    const agent = defineAgent({
+      channels: {
+        gmail: gmail({
+          async client(request) {
+            if (request.path === "labels") return { labels }
+            if (request.path === "messages/m9/modify") modifies.push(request.body as typeof modifies[number])
+            return {}
+          },
+        }),
+      },
+      driver: { run: () => "done" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.modify({ addLabels: ["L0"], removeLabels: labels.slice(1).map(label => label.name) })
+        },
+      },
+    })
+    const message = { attachments: [], body: "", cc: [], date: "", from: "ada@example.com", headers: {}, id: "m9", labelIds: ["INBOX"], snippet: "", subject: "Hello", threadId: "t9", to: [] }
+    await runAgentTrigger(agent, runtimeContext(), "gmail.received", message)
+    expect(modifies.map(body => [body.addLabelIds, body.removeLabelIds.length])).toEqual([[["Label_0"], 100], [[], 50]])
+    expect(modifies.flatMap(body => body.removeLabelIds)).toEqual(labels.slice(1).map(label => label.id))
+  })
+
   it("runs a received message through a custom Gmail client", async () => {
     const requests: string[] = []
     const agent = defineAgent({
