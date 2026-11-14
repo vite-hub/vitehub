@@ -3121,53 +3121,15 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
-  it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {
+  it("resolves server Env in Nitro and leaves Wrangler's alias to the project", async () => {
     for (const override of [undefined, "/custom/env.mjs"]) {
       const { nuxt, runNitroConfigHook } = createNuxt()
-      const config: Record<string, unknown> = { cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } } }
+      const config: Record<string, unknown> = { cloudflare: { wrangler: override ? { alias: { "#vitehub/env/server": override } } : {} } }
       await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
       await runNitroConfigHook(config)
-      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? `${tmp}/vitehub-nuxt/.vitehub/env/server.mjs`)
-    }
-  })
-
-  it.each([undefined, "/wrangler/env.mjs"])("passes a Nitro server Env override to Wrangler while preserving its explicit alias %s", async (wranglerOverride) => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
-    nuxt.options.nitro.alias = { "#vitehub/env/server": "/nitro/env.mjs" }
-    await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
-    const config = nitroOptions(nuxt)
-    config.cloudflare = { wrangler: { alias: wranglerOverride ? { "#vitehub/env/server": wranglerOverride } : {} } }
-    for (let replay = 0; replay < 2; replay++) {
-      await runNitroConfigHook(config)
-      expect(config).toHaveProperty("alias.#vitehub/env/server", "/nitro/env.mjs")
-      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", wranglerOverride ?? "/nitro/env.mjs")
-    }
-  })
-
-  it.each([
-    ["json", JSON.stringify({ alias: { "#vitehub/env/server": "/project/env.mjs" } })],
-    ["jsonc", '{ // Project Env implementation\n "alias": { "#vitehub/env/server": "/project/env.mjs" }, }'],
-    ["toml", '[alias]\n"#vitehub/env/server" = "/project/env.mjs"'],
-  ])("preserves a project Wrangler Env alias from wrangler.%s", async (extension, contents) => {
-    const rootDir = await mkdtemp("/tmp/vitehub-nuxt-wrangler-")
-    try {
-      await writeFile(resolve(rootDir, `wrangler.${extension}`), contents)
-      await mkdir(resolve(rootDir, "app"))
-      for (const override of [undefined, "/inline/env.mjs"]) {
-        const { nuxt, runNitroConfigHook } = createNuxt()
-        const config: Record<string, unknown> = {
-          rootDir: resolve(rootDir, "app"),
-          cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } },
-        }
-        await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
-        await runNitroConfigHook(config)
-        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
-        await runNitroConfigHook(config)
-        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
-      }
-    }
-    finally {
-      await rm(rootDir, { force: true, recursive: true })
+      expect(config).toHaveProperty("alias.#vitehub/env/server", `${tmp}/vitehub-nuxt/.vitehub/env/server.mjs`)
+      // Nitro's Worker output sets no_bundle, so Wrangler never resolves this alias.
+      expect((config.cloudflare as { wrangler: { alias?: unknown } }).wrangler.alias).toEqual(override ? { "#vitehub/env/server": override } : undefined)
     }
   })
 
@@ -3381,7 +3343,6 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       },
       cloudflare: {
         wrangler: {
-          alias: { "#vitehub/env/server": `${tmp}/vitehub-nuxt/.vitehub/env/server.mjs` },
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },
