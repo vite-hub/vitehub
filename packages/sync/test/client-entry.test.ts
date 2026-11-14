@@ -93,6 +93,38 @@ describe("createSync in the browser", () => {
     expect(again.getState().rows).toEqual([])
   })
 
+  it("stops every destroyed store of one subset on clearSync(), when the page opened it twice", async () => {
+    const server = createFakeSyncServer()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let posts = 0
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (init?.method === "POST") {
+        posts++
+        await gate
+      }
+      return server.fetch(input, init)
+    }
+    const first = createSync("todos", { fetch, interval: false, where: { listId: "l3" } })
+    await first.refresh()
+    const write = first.insert({ title: "Ada's" })
+    write.then(undefined, () => undefined)
+    await until(() => posts === 1)
+    first.destroy()
+    // The page shows the list again, and leaves it again, while the first push waits.
+    createSync("todos", { fetch, interval: false, where: { listId: "l3" } }).destroy()
+    await clearSync()
+    server.user = null
+    release()
+    await expect(write).rejects.toMatchObject({ code: "SYNC_CLEARED" })
+    const again = createSync("todos", { fetch, interval: false, where: { listId: "l3" } })
+    stores.push(again)
+    await again.refresh()
+    expect(again.getState().rows).toEqual([])
+  })
+
   it("forgets every row and queued write on clearSync()", async () => {
     const server = createFakeSyncServer()
     server.write({ id: "a", ownerId: "ada", title: "Milk" })

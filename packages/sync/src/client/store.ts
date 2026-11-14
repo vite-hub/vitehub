@@ -360,11 +360,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   /** `true` while the store has writes that it may send: writes not stored yet, or stored writes of the account. */
   /**
-   * Whether a destroyed store still has work. It pulls once first: the stored account can be another one than the
-   * account of the session now, and only a pull tells which writes the session may send.
+   * Whether a destroyed store still has work. With queued writes, it pulls once first: the stored account can be
+   * another one than the account of the session now, and only a pull tells which writes the session may send.
    */
   function hasWork(): boolean {
-    return !pulled || local.length > 0 || writes.some(write => isActive(write, meta?.account))
+    return local.length > 0 || writes.some(write => isActive(write, meta?.account)) || (!pulled && writes.some(write => !write.error))
   }
 
   /** Shows `write` at once. It goes to storage at the end of the tick, with the other writes of the tick. */

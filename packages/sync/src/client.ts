@@ -21,8 +21,9 @@ interface SharedStore {
 }
 
 const shared = new Map<string, SharedStore>()
-// Destroyed stores that still send their writes, by store id. `clearSync()` must stop them too.
-const draining = new Map<string, SyncStoreWithReset<SyncRow>>()
+// Destroyed stores that still send their writes, with their store id. `clearSync()` must stop them too. One id can
+// have several, when a page opens and closes the same subset again.
+const draining = new Map<SyncStoreWithReset<SyncRow>, string>()
 let memoryStorage: SyncStorage | undefined
 let indexedDBStorage: SyncStorage | undefined
 // The storages whose stored writes this page sends, with the fetch of the last `createSync()` that used each one.
@@ -55,7 +56,7 @@ function routeOf(name: string, baseURL: string | undefined): string {
 async function sendStored(storage: SyncStorage): Promise<void> {
   const ids = await storage.queuedIds().catch(() => [])
   for (const id of ids) {
-    if (shared.has(id) || draining.has(id)) continue
+    if (shared.has(id) || [...draining.values()].includes(id)) continue
     // The id is the route, and `?` with the subset as JSON when there is one. See `createSyncStore()`.
     const split = id.indexOf("?")
     const url = split < 0 ? id : id.slice(0, split)
@@ -68,9 +69,9 @@ async function sendStored(storage: SyncStorage): Promise<void> {
       storage,
       environment: createBrowserEnvironment(),
       interval: false,
-      onStop: () => draining.delete(id),
+      onStop: () => draining.delete(store),
     })
-    draining.set(id, store)
+    draining.set(store, id)
     store.destroy()
   }
 }
@@ -146,7 +147,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
         environment: createBrowserEnvironment(),
         interval: options.interval ?? 30_000,
         onStop: () => {
-          if (draining.get(sharedKey) === entry?.store) draining.delete(sharedKey)
+          if (entry) draining.delete(entry.store)
         },
       }),
       users: 0,
@@ -192,7 +193,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
       owned.clear()
       if (--entry.users > 0) return
       shared.delete(sharedKey)
-      draining.set(sharedKey, store)
+      draining.set(store, sharedKey)
       store.destroy()
     },
   } as SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>>
@@ -207,7 +208,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
 async function clearSync(): Promise<void> {
   if (!isBrowser()) return
   for (const { store } of shared.values()) store.forget()
-  for (const store of draining.values()) store.forget()
+  for (const store of draining.keys()) store.forget()
   await Promise.all([memoryStorage?.clear(), indexedDBStorage?.clear()])
   postClear()
   for (const { store } of shared.values()) void store.refresh()

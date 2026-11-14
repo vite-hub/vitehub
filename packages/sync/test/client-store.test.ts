@@ -1095,6 +1095,16 @@ describe("persistence and tabs", () => {
     expect(h.server.rows.get(write.key)).toMatchObject({ title: "Ada's", ownerId: "ada" })
   })
 
+  it("stops a destroyed store with an empty queue at once, also offline", async () => {
+    const h = setup()
+    h.server.offline = true
+    const { store, browser } = h.open()
+    store.destroy()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(h.server.requests).toEqual([])
+    expect(browser.timers).toEqual([])
+  })
+
   it("shows in an open store the writes that a destroyed store sent", async () => {
     const h = setup()
     const other = h.open()
