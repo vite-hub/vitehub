@@ -102,7 +102,7 @@ function add() {
 </template>
 ```
 
-Start the dev server with `pnpm dev` and open `/todos`. Add a todo. It shows at once, and the server stores it a moment later.
+Start the dev server with `pnpm dev` and open `/todos`. Add a todo. It shows at once, and the server stores it a moment later. Open `/todos` in a second browser too: a todo that you add in one shows in the other within about a second.
 
 ::
 
@@ -127,7 +127,7 @@ vitehub sync list
 vitehub sync changes todos
 ```
 
-A change shows the key, `put` or `delete`, and the time. It does not show row data.
+A change shows the key, `put`, `delete` or `move`, and the time. It does not show row data.
 
 ::
 
@@ -147,5 +147,31 @@ export default defineSync({
 ```
 
 Each person now sees only their own todos. A new todo gets `ownerId` from the server, and the browser shows it with that value at once. Call `clearSync()` when a person signs out, so the next person on the device does not see the rows. See [Vue](/docs/sync/vue#sign-out).
+
+::
+
+::tutorial-step{title="Share rows with a team"}
+## Share rows with a team
+
+To share todos in a team, give the table a `teamId` column, keep who is in which team in a `members` table, and return the caller's teams as a list:
+
+```ts [teams/server/sync/todos.ts] fragment
+import { defineSync } from 'vite-hub/sync'
+import { useDatabase } from 'vite-hub/database'
+import { eq } from 'drizzle-orm'
+import { members, todos } from '../databases/default'
+
+export default defineSync({
+  table: todos,
+  // A list, such as ['design', 'web']: the caller sees the todos of each team
+  where: async ({ user }) => {
+    if (!user) return false
+    const teams = await useDatabase().db.select({ teamId: members.teamId }).from(members).where(eq(members.userId, user.id))
+    return { teamId: teams.map(team => team.teamId) }
+  },
+})
+```
+
+A new todo must say its team: `todos.insert({ title, teamId: 'design' })`. A todo of another team is refused with `SYNC_OUT_OF_SCOPE`. When a person moves a todo to another team with `todos.update(id, { teamId: 'web' })`, it leaves the devices of the old team and shows on the devices of the new team. See [Server API](/docs/sync/server-api#where).
 
 ::

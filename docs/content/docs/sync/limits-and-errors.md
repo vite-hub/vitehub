@@ -1,6 +1,6 @@
 ---
 title: Sync limits and errors
-description: What Sync v1 does not do, its fixed limits, and the SYNC error codes that a pull, a push, or one write can get.
+description: What Sync does not do, its fixed limits, and the SYNC error codes that a pull, a push, a live stream, or one write can get.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -12,17 +12,25 @@ icon: i-lucide-circle-alert
 | --- | --- |
 | Writes in one push | 100. The client sends a longer queue in parts. |
 | Changes in one pull | 500. The client pulls again until it has all. |
+| Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
+| Live stream | The server checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A write in the same server process wakes the stream at once. |
 | Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. |
 | Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |
 | Write ids that the server keeps | 7 days |
-| Deletes that the server keeps | 30 days. An older cursor gets every row again. |
+| Deletes and moves that the server keeps | 30 days. An older cursor gets every row again. |
 
-## Not in v1
+## Not in Sync yet
 
 - **Postgres.** Sync works with SQLite: libSQL, Cloudflare D1, and the local default Database.
-- **Server push.** The client pulls when the page shows, when the network comes back, on a timer, and after each write. Another person's change can take up to `interval` to show.
-- **Conflicts.** The last write wins for each column, in the order that the server got them. There is no merge of text.
-- **Queries.** The browser gets every row of its scope. There is no paging or filter beyond `where`.
+- **Relations across definitions.** Each definition syncs one table. Sync does not follow references to rows of another definition.
+- **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
+- **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
+- **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions.
+- **Moves that the writer cannot see.** A move reaches the old scope when the moved column is in the `where` of the caller that writes it, such as `teamId`, or when server code passes the row in `recordSyncChanges({ moved })`. If your `where` uses other columns for other callers, record those moves from server code.
+- **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
+- **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
+- **An app shell offline.** Sync keeps data. Loading the page itself offline needs a service worker, which Sync does not add.
+- **A SharedWorker.** Each tab runs its own store. One tab keeps the live stream, and the other tabs get its changes.
 - **Server-side rendering.** On the server, `rows` is empty and `status` is `idle`. The rows show after the page loads in the browser.
 - **Console section.** Use `vitehub sync list` and `vitehub sync changes`.
 
@@ -44,15 +52,15 @@ A pull or push error shows in `error` and `status`. A refused write shows in `fa
 
 ### SYNC_SCOPE_CHANGED
 
-The writes were made for another scope, such as before a sign-in as another person. They are never sent, and they show in `failures`. `retry()` keeps them there. Show them to the person, then `dismiss()` them.
+The push was made for another account, such as before a sign-in as another person. The server wrote nothing. The client keeps those writes for when that account signs in again. A push of the same account after a team change is not refused: it applies under the current `where`.
 
 ### SYNC_READ_ONLY
 
-The definition has `write: false`, or its `write` function returned `false` for this write.
+The definition has `write: false`, so the browser cannot insert, update, or delete rows. Actions still run. A `write` function that returns `false` gives `SYNC_FORBIDDEN`.
 
 ### SYNC_INVALID
 
-The row did not pass `schema`, or the write has a column that the table does not have. `issues` tells each problem. Fix the value, then write again or call `retry()`.
+The row did not pass `schema`, the write has a column that the table does not have, or the action name is unknown. `issues` tells each problem. Fix the value, then write again or call `retry()`.
 
 ### SYNC_NOT_FOUND
 
@@ -64,7 +72,11 @@ An insert used a key that a row already has. Let the client make the key.
 
 ### SYNC_OUT_OF_SCOPE
 
-A write set a `where` column to another value, such as `ownerId` of another person. Leave the scope columns out: the server writes them.
+A write set a `where` column to a value that `where` does not allow, such as `ownerId` of another person or a team that the caller is not in. Leave the single values of `where` out: the server writes them. For a column with a list in `where`, such as `teamId`, use one of its values. A pull or a live stream gets 403 with this code when its subset is outside `where`.
+
+### SYNC_ACTION_REFUSED
+
+An action threw, so none of its writes applied. The message is the message of the error when it is a ViteHub error, an error with an HTTP status below 500, or a schema error with `issues`. Else it is "The action failed.", and the server log has the error. Change the arguments, then call the action again.
 
 ### SYNC_TOO_MANY_MUTATIONS
 
@@ -72,7 +84,7 @@ A push had more than 100 writes. The client splits its queue, so only your own r
 
 ### SYNC_BAD_REQUEST
 
-The request is not a valid pull or push. The writes of a refused push go to `failures`, since sending them again gives the same answer.
+The request is not a valid pull or push, its subset is not single column values, or it asks for a live stream of a definition with `live: false`. The writes of a refused push go to `failures`, since sending them again gives the same answer.
 
 ### SYNC_NETWORK
 
