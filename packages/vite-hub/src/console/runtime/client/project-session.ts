@@ -448,6 +448,24 @@ export async function startConsoleAccount(options: {
 }
 
 /**
+ * The ticket link of a `site.link` answer, or `undefined` when it is not `<app>/_vitehub/rpc?ticket=vt1_...` of the app
+ * that the Console opened. The Console sends the browser to it, so a linked app must not pick another site.
+ */
+export function siteTicketUrl(value: unknown, projectUrl: string): string | undefined {
+  const app = comparableProjectUrl(projectUrl)
+  if (typeof value !== "string" || !app) return undefined
+  let url: URL
+  try {
+    url = new URL(value)
+  }
+  catch {
+    return undefined
+  }
+  if (`${url.origin}${url.pathname}` !== `${app}/_vitehub/rpc` || !/^vt1_[\w-]{43}$/.test(url.searchParams.get("ticket") ?? "")) return undefined
+  return url.href
+}
+
+/**
  * Sign the browser in to the app of a `/_vitehub` link: ask the app for a Site access link bound to the state of that
  * route, and replace this page with it, so Back does not open the used link again. A refusal shows why.
  */
@@ -459,8 +477,8 @@ export async function openConsoleSite(): Promise<void> {
   try {
     const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
     const answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
-    const url: unknown = Reflect.get(Object(answer), "url")
-    if (String(url) !== url) throw new Error("The app did not return a link.")
+    const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
+    if (!url) throw new Error("The app did not return a sign-in link of its own.")
     const location: unknown = Reflect.get(globalThis, "location")
     Reflect.apply(Reflect.get(Object(location), "replace"), location, [url])
   }

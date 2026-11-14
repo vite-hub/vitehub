@@ -236,7 +236,7 @@ describe("account Console", () => {
     const search = `?project=${encodeURIComponent("https://app.example.com/portal")}&site=${encodeURIComponent("/runs/42")}&state=${state}`
     let session: import("../src/console/runtime/client/account.ts").ConsoleAccount | undefined
     vi.doMock("../src/console/runtime/client/account.ts", () => ({ consoleInvitationOf: () => undefined, loadConsoleAccount: async () => session }))
-    const fetch = vi.fn(json(200, { ok: true, value: { url: "https://app.example.com/portal/_vitehub/rpc?ticket=vt1_x", expiresAt: "2026-11-14T00:00:00.000Z" } }))
+    const fetch = vi.fn(json(200, { ok: true, value: { url: `https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`, expiresAt: "2026-11-14T00:00:00.000Z" } }))
     vi.stubGlobal("fetch", operationRpcFetch(fetch))
     const replace = vi.fn()
     vi.stubGlobal("location", { replace })
@@ -256,7 +256,21 @@ describe("account Console", () => {
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe("/p/p-1/_vitehub/rpc")
     expect(JSON.parse(String(init.body))).toMatchObject({ m: "site.link", a: [{ path: "/runs/42", state }] })
-    expect(replace).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/rpc?ticket=vt1_x")
+    expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`)
+  })
+
+  it("follows only a ticket link of the app that it opened", async () => {
+    const { siteTicketUrl } = await import("../src/console/runtime/client/project-session.ts")
+    const ticket = `vt1_${"t".repeat(43)}`
+    expect(siteTicketUrl(`https://app.example.com/portal/_vitehub/rpc?ticket=${ticket}`, linked.url)).toBe(`https://app.example.com/portal/_vitehub/rpc?ticket=${ticket}`)
+    for (const url of [
+      `https://evil.example/portal/_vitehub/rpc?ticket=${ticket}`,
+      `https://app.example.com/_vitehub/rpc?ticket=${ticket}`,
+      `https://app.example.com/portal/elsewhere?ticket=${ticket}`,
+      "https://app.example.com/portal/_vitehub/rpc?ticket=short",
+      "javascript:alert(1)",
+      42,
+    ]) expect(siteTicketUrl(url, linked.url), String(url)).toBeUndefined()
   })
 
   it("says why a /_vitehub link did not sign the browser in", async () => {
