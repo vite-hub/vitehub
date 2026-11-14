@@ -142,6 +142,15 @@ The parts have no styles until you load a style family. A family is one CSS file
 - **Variants** are attributes: `data-variant="solid"` for the main action, `data-variant="ghost"` for toolbar and row actions, and `data-variant="destructive"`.
 - **Motion:** dialogs, toasts, and panels fade in through `data-starting-style` and `data-ending-style`. Menus, selects, popovers, and tooltips appear at once. Under `prefers-reduced-motion`, only the fades stay.
 
+## Registry
+
+`registry/` holds the `@vitehub` registry in the shadcn-vue format. `pnpm --filter @vite-hub/kit build:registry` writes it to `docs/public/r/`, which vitehub.dev serves at `/r/<name>.json`. A test fails when the files there are out of date, when an item does not match the vendored shadcn-vue 2.9.0 schema, or when an item depends on a registry item outside `@vitehub`, since stock shadcn-vue items install Reka UI.
+
+| Item | Type | What `shadcn-vue add` writes |
+| --- | --- | --- |
+| `vitehub` | `registry:style` | The tokens into the app's CSS, and the family to `styles/vitehub.css` |
+| `vitehub-ui-skill` | `registry:item` | `.agents/skills/vitehub-ui/SKILL.md` |
+
 ## Nuxt
 
 Add the ui-sdk module for the ui-sdk parts and helpers, and the kit module for the kit parts:
