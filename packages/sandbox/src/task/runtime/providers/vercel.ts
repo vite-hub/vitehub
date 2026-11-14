@@ -2,6 +2,12 @@ import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } f
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
 import { readEnv } from '@vite-hub/internal/env'
 
+/**
+ * The Vercel VM timeout starts at create, but the task timeout starts after the Sandbox opens.
+ * The VM gets this extra time so that ViteHub, not the VM, ends a run at the task timeout.
+ */
+const VERCEL_TASK_SANDBOX_HEADROOM_MS = 30_000
+
 type SandboxTaskOptions = {
   local: SandboxTaskDefinitionOptions
   provider: VercelSandboxTaskProviderOptions
@@ -46,7 +52,7 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const sandboxOptions = {
     runtime: options.provider.runtime || 'node24',
     timeout: typeof options.local.timeout === 'number'
-      ? options.local.timeout
+      ? options.local.timeout + VERCEL_TASK_SANDBOX_HEADROOM_MS
       : options.provider.timeout,
     cpu: options.provider.cpu,
     ports: options.provider.ports,
