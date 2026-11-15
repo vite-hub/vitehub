@@ -48,6 +48,7 @@ export function catalogPrompt(options: CatalogPromptOptions): string {
     surfaceNotes[options.surface],
     `Use at most ${maxSpecElements} elements and ${maxSpecDepth} levels.`,
     "Tell the Agent what the person chose with the event action, such as { \"action\": \"event\", \"params\": { \"name\": \"deploy.approve\", \"context\": { \"id\": \"dpl_81\" } } }.",
+    "Bind standalone actions only; onSuccess and onError continuations are not supported.",
     forms.length
       ? [
           "Ask for values only with a Form. Name one of these forms in its form prop, bind its value to a state path, and send that path in the context of on.submit:",

@@ -444,7 +444,7 @@ export function checkSpec(spec: unknown) {
 export const readInvite = (spec: CatalogSpec, values: unknown) => checkSpecForm(spec, "invite", values, { catalog })
 ```
 
-`catalogPrompt()` is json-render's own prompt for the catalog, the prompt that the evals measured, with the fields of each form that the surface can draw. Buttons and Forms tell the Agent what the person did with one action, `event`, which sends a name and a context.
+`catalogPrompt()` is json-render's own prompt for the catalog, the prompt that the evals measured, with the fields of each form that the surface can draw. Buttons and Forms tell the Agent what the person did with one action, `event`, which sends a name and a context. Action bindings are standalone; `onSuccess` and `onError` continuations are rejected.
 
 In a Vue page, render a spec with `@json-render/vue` and the default components of `@vite-hub/agent/ui/vue`. They use `@ui-sdk/vue` for Button and Tabs, and draw one native control for each field of a Form:
 

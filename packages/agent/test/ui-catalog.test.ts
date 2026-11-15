@@ -3,7 +3,7 @@
 import { JSONUIProvider, Renderer } from "@json-render/vue"
 import { checkForm } from "@vite-hub/forms"
 import { describe, expect, it } from "vitest"
-import { createSSRApp, h } from "vue"
+import { createRenderer, createSSRApp, h, nextTick } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { z } from "zod"
 
@@ -195,5 +195,52 @@ describe("@vite-hub/agent/ui/vue", () => {
     expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Send invite<\/button>/)
     expect(html).toMatch(/<button[^>]*type="button"[^>]*>Approve<\/button>/)
     expect(html).toContain("Deployments")
+  })
+})
+
+describe("form and action regressions", () => {
+  it.each(["onSuccess", "onError"])("rejects %s continuations, including nested actions and malformed shapes", (continuation) => {
+    for (const value of [{ action: "push", params: { screen: "private" } }, { ...event("next"), onSuccess: { action: "push" } }, "invalid", { set: { "/private": true } }]) {
+      const spec = one({ root: { type: "Button", props: { label: "Go" }, on: { press: { ...event("go"), [continuation]: value } } } })
+      expect(validateSpec(spec, { surface: "web" })).toMatchObject({ valid: false, diagnostics: [{ code: "AGENT_UI_SPEC_INVALID", path: "/elements/root/on/press" }] })
+    }
+  })
+
+  it("submits untouched required booleans and preserves optional, defaulted, and explicit values", async () => {
+    // Mount the real provider and renderer on Vue's host interface; no DOM emulation is needed for submission.
+    interface Node { type: string, props: Record<string, unknown>, children: Node[], parent?: Node }
+    const node = (type: string): Node => ({ type, props: {}, children: [] })
+    const renderer = createRenderer<Node, Node>({
+      createElement: node,
+      createText: node,
+      createComment: node,
+      setText: () => {},
+      setElementText: () => {},
+      patchProp: (el, key, _prev, next) => { el.props[key] = next },
+      insert: (el, parent) => { parent.children.push(el); el.parent = parent },
+      remove: el => { if (el.parent) el.parent.children = el.parent.children.filter(child => child !== el) },
+      parentNode: el => el.parent ?? null,
+      nextSibling: () => null,
+    })
+    const schema = z.object({ enabled: z.boolean(), explicit: z.boolean(), optional: z.boolean().optional(), defaulted: z.boolean().default(true), amount: z.number(), count: z.number().int() })
+    const forms = defineCatalog(viteHubCatalogEntries, { forms: { settings: schema } })
+    const spec = one({ root: { type: "Form", props: { form: "settings", value: { $bindState: "/values" } }, on: { submit: event("save", { values: { $state: "/values" } }) } } }, { values: { explicit: true, amount: 1.5, count: 2 } })
+    const registry = defineCatalogRegistry(forms, catalogComponents)
+    let sent: Record<string, unknown> | undefined
+    const app = renderer.createApp({ render: () => h(JSONUIProvider, { registry, initialState: spec.state, handlers: { event: (params: Record<string, unknown>) => { sent = params.context as Record<string, unknown> } } }, { default: () => h(Renderer, { spec, registry }) }) })
+    const root = node("root")
+    app.mount(root)
+    const all = (el: Node): Node[] => [el, ...el.children.flatMap(all)]
+    try {
+      const nodes = all(root)
+      expect(nodes.find(el => el.props.name === "amount")?.props.step).toBe("any")
+      expect(nodes.find(el => el.props.name === "count")?.props.step).toBe(1)
+      const submit = nodes.find(el => el.type === "form")!.props.onSubmit as (event: Event) => void
+      submit(new Event("submit", { cancelable: true }))
+      await nextTick()
+      expect(sent?.values).toEqual({ enabled: false, explicit: true, amount: 1.5, count: 2 })
+      await expect(checkSpecForm(spec, "root", sent?.values, { catalog: forms })).resolves.toEqual([undefined, { enabled: false, explicit: true, defaulted: true, amount: 1.5, count: 2 }])
+    }
+    finally { app.unmount() }
   })
 })

@@ -47,7 +47,8 @@ export type SpecValidation
 
 const specKeys = new Set(["version", "root", "elements", "state"])
 const elementKeys = new Set(["type", "props", "children", "on", "repeat", "visible"])
-const bindingKeys = new Set(["action", "params", "confirm", "onSuccess", "onError", "preventDefault"])
+// Continuations can dispatch handlers outside specActions; specs bind standalone actions only.
+const bindingKeys = new Set(["action", "params", "confirm", "preventDefault"])
 /** The actions a spec may bind: the Agent event, and json-render's own state actions. */
 export const specActions: readonly string[] = [agentEventAction, ...(schema.builtInActions ?? []).map(action => action.name)]
 
