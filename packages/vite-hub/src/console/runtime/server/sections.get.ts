@@ -32,7 +32,7 @@ async function emptySections(sections: readonly string[]): Promise<Set<string>> 
   return empty
 }
 
-interface ConsoleSectionsResponse {
+export interface ConsoleSectionsResponse {
   contributions?: readonly ConsoleContributedSection[]
   /** The registered operations that run app code (`console.invoke`) and that this request may run. The pages hide the others. */
   operations?: readonly string[]
