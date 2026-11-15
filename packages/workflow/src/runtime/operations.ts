@@ -3,6 +3,7 @@ import { isRecord } from "@vite-hub/internal/object"
 
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveWorkflowOperationSupport } from "../results.ts"
 import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./client.ts"
 import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
@@ -16,19 +17,33 @@ export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult
 
 const maxRememberedRuns = 1024
 
-/** A failure of a Workflow operation, with the status and code that every surface reports. */
-export class WorkflowOperationError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
+/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
+const operationStatus: Readonly<Record<string, number>> = {
+  VERCEL_WORKFLOW_SDK_LOAD_FAILED: 501,
+  WORKFLOW_DEFINITION_NOT_FOUND: 404,
+  WORKFLOW_DISABLED: 409,
+  WORKFLOW_NATIVE_ENTRY_INVALID: 501,
+  WORKFLOW_NATIVE_ENTRY_REQUIRED: 501,
+  WORKFLOW_OPERATION_FAILED: 500,
+  WORKFLOW_OPERATION_UNSUPPORTED: 501,
+  WORKFLOW_PROVIDER_OPERATION_FAILED: 502,
+  WORKFLOW_REGISTRY_MISSING: 409,
+  WORKFLOW_RUN_AMBIGUOUS: 400,
+  WORKFLOW_RUN_NOT_FOUND: 404,
+  WORKFLOW_RUN_UNKNOWN: 400,
+  WORKFLOW_RUNS_UNAVAILABLE: 409,
+}
 
-  constructor(message: string, status: number, code: string, fix?: string) {
-    super(message)
-    this.name = "WorkflowOperationError"
-    this.code = code
-    this.status = status
-    if (fix) this.fix = fix
-  }
+/** Gives an operation error the status of its code and the redacted message that the CLI and the Console report. */
+function failure<TError extends Error>(error: TError, message = error.message): TError {
+  return Object.defineProperties(error, {
+    status: { configurable: true, enumerable: false, value: operationStatus[errorCode(error) ?? ""] ?? 500, writable: true },
+    statusMessage: { configurable: true, enumerable: false, value: redactInspectionText(message), writable: true },
+  })
+}
+
+function hasStatus(error: unknown): error is Error {
+  return error instanceof Error && typeof Reflect.get(error, "status") === "number" && typeof Reflect.get(error, "code") === "string"
 }
 
 /**
@@ -128,29 +143,24 @@ export async function toWorkflowRunView(run: WorkflowRun<unknown, unknown>, work
   }
 }
 
-function runtimeFailure(operation: WorkflowOperationName, provider: string, error: unknown): WorkflowOperationError {
-  if (error instanceof WorkflowOperationError) return error
+function runtimeFailure(operation: WorkflowOperationName, provider: string, error: unknown): Error {
+  // An operation error of this module already has its status.
+  if (hasStatus(error)) return error
   const code = errorCode(error)
-  if (code === "WORKFLOW_OPERATION_UNSUPPORTED") {
-    return new WorkflowOperationError(`workflow ${operation} is not supported by the ${provider} provider for this run.`, 501, code)
+  if (code === "WORKFLOW_OPERATION_UNSUPPORTED") return failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ cause: error, operation, provider }))
+  if (code === "WORKFLOW_DISABLED") return failure(workflowErrorDiagnostics.WORKFLOW_DISABLED({ cause: error }))
+  if (code === "WORKFLOW_DEFINITION_NOT_FOUND") return failure(workflowErrorDiagnostics.WORKFLOW_DEFINITION_NOT_FOUND({ cause: error }))
+  if (error instanceof Error && (code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" || code === "WORKFLOW_NATIVE_ENTRY_INVALID" || code === "WORKFLOW_NATIVE_ENTRY_REQUIRED")) {
+    return failure(error, `workflow ${operation} needs the Vercel Workflow DevKit runtime, which the runtime could not load.`)
   }
-  if (code === "WORKFLOW_DISABLED") {
-    return new WorkflowOperationError("Workflow is disabled in this runtime.", 409, code, "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.")
-  }
-  if (code === "WORKFLOW_DEFINITION_NOT_FOUND") {
-    return new WorkflowOperationError("Workflow definition was not found.", 404, code)
-  }
-  if (code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" || code === "WORKFLOW_NATIVE_ENTRY_INVALID" || code === "WORKFLOW_NATIVE_ENTRY_REQUIRED") {
-    return new WorkflowOperationError(`workflow ${operation} needs the Vercel Workflow DevKit runtime, which the runtime could not load.`, 501, code)
-  }
-  if (code === "WORKFLOW_PROVIDER_OPERATION_FAILED") {
+  if (error instanceof Error && code === "WORKFLOW_PROVIDER_OPERATION_FAILED") {
     // The error message is generic. The cause says what the provider reported.
-    const cause = error instanceof Error ? error.cause : undefined
-    const reason = cause instanceof Error && cause.message ? ` ${redactInspectionText(cause.message)}` : ""
-    return new WorkflowOperationError(`workflow ${operation} failed in the ${provider} provider.${reason}`, 502, code)
+    const reason = error.cause instanceof Error && error.cause.message ? ` ${error.cause.message}` : ""
+    return failure(error, `workflow ${operation} failed in the ${provider} provider.${reason}`)
   }
+  if (error instanceof Error && code) return failure(error)
   const message = error instanceof Error ? error.message : String(error)
-  return new WorkflowOperationError(redactInspectionText(message || "The Workflow operation failed."), 500, code || "WORKFLOW_OPERATION_FAILED")
+  return failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_FAILED({ cause: error }), message || "The Workflow operation failed.")
 }
 
 // Workflows that the app can start by name: the registry that the runtime
@@ -187,18 +197,18 @@ export interface WorkflowOperationResults {
 
 /**
  * Runs one Workflow operation in the runtime of the app, so it uses the same Workflow state and registry as the app.
- * It redacts credentials in run data and error messages. Failures are `WorkflowOperationError`s.
+ * It redacts credentials in run data and error messages. Failures are catalog errors with an HTTP `status`.
  */
 export async function runWorkflowOperation<Name extends WorkflowOperationName>(operation: Name, input: WorkflowOperationInputs[Name]): Promise<WorkflowOperationResults[Name]> {
   const runtimeConfig = getWorkflowRuntimeConfig()
   if (runtimeConfig === false) {
-    throw new WorkflowOperationError("Workflow is disabled in this runtime.", 409, "WORKFLOW_DISABLED", "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_DISABLED())
   }
   // The runtime uses inline Vercel execution when the app installs no Workflow configuration.
   const provider = runtimeConfig?.provider ?? "vercel"
   const support = resolveWorkflowOperationSupport(provider)[operation]
   if (!support.supported) {
-    throw new WorkflowOperationError(`workflow ${operation} is not supported by the ${provider} provider. ${support.note}`, 501, "WORKFLOW_OPERATION_UNSUPPORTED")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ note: support.note, operation, provider }))
   }
   try {
     // SAFETY: Each branch narrows the generic `Name` by hand, so the result type is the one of the branch.
@@ -215,10 +225,10 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
     const workflows = startableWorkflows()
     if (!workflows.includes(workflow)) {
       if (!getWorkflowRuntimeRegistry()) {
-        throw new WorkflowOperationError(`Unknown Workflow: ${workflow}. The runtime has no Workflow registry.`, 409, "WORKFLOW_REGISTRY_MISSING", "Restart the dev server. In development the Workflow Vite plugin installs the registry with the Nitro plugin .vitehub/nitro/workflow/dev-plugin.mjs.")
+        throw failure(workflowErrorDiagnostics.WORKFLOW_REGISTRY_MISSING({ workflow }))
       }
       const available = workflows.length ? ` Available Workflows: ${workflows.join(", ")}.` : " The Workflow registry of the runtime is empty."
-      throw new WorkflowOperationError(`Unknown Workflow: ${workflow}.${available}`, 404, "WORKFLOW_DEFINITION_NOT_FOUND")
+      throw failure(workflowErrorDiagnostics.WORKFLOW_DEFINITION_NOT_FOUND({ available, workflow }))
     }
     const started = await startWorkflow(workflow, payload)
     rememberRun(started.id, workflow)
@@ -232,7 +242,7 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]
   const workflow = named ?? startedRuns.get(runId)
   if (!workflow) {
-    throw new WorkflowOperationError(`Run ${runId} was not started by \`workflow.start\` in this runtime.`, 400, "WORKFLOW_RUN_UNKNOWN", "Pass the name of the Workflow with `--workflow <name>`.")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId }))
   }
   const found = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
   return { run: await toWorkflowRunView(found, workflow) }
@@ -247,11 +257,11 @@ export interface WorkflowRunsListInput {
 /** The run history of `vite dev`. Hosted providers keep their own history, which ViteHub does not list. */
 function devRecorder(): WorkflowDevRecorder {
   if (getWorkflowRuntimeConfig() === false) {
-    throw new WorkflowOperationError("Workflow is disabled in this runtime.", 409, "WORKFLOW_DISABLED", "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_DISABLED())
   }
   const recorder = getWorkflowDevRecorder()
   if (!recorder) {
-    throw new WorkflowOperationError("This runtime keeps no Workflow run history. Only `vite dev` records runs.", 409, "WORKFLOW_RUNS_UNAVAILABLE", "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUNS_UNAVAILABLE())
   }
   return recorder
 }
@@ -293,10 +303,10 @@ export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<Wo
 export async function showWorkflowRun(input: { id: string, workflow?: string }): Promise<WorkflowRunsShowResult> {
   const matches = devRecorder().list().filter(record => record.id === input.id && (input.workflow === undefined || record.workflow === input.workflow))
   if (matches.length === 0) {
-    throw new WorkflowOperationError(`No recorded run has the id ${input.id}.`, 404, "WORKFLOW_RUN_NOT_FOUND", `Run \`vitehub workflow runs list\` for the ids. The dev server keeps the newest ${workflowDevRunLimit} runs until it restarts or \`vitehub workflow runs clear\` empties the history.`)
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_NOT_FOUND({ id: input.id }))
   }
   if (matches.length > 1) {
-    throw new WorkflowOperationError(`Runs of ${matches.map(record => record.workflow).join(", ")} have the id ${input.id}.`, 400, "WORKFLOW_RUN_AMBIGUOUS", "Pass the name of the Workflow with `--workflow <name>`.")
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: input.id, workflows: matches.map(record => record.workflow).join(", ") }))
   }
   const record = matches[0]!
   const run: WorkflowRunDetailView = { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) }

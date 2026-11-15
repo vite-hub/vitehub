@@ -3,6 +3,19 @@ import { defineDiagnostics } from "nostics"
 export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/content/diagnostics",
   codes: {
+    // Operation and schedule errors. The `content.*` operations and the schedule runner throw them.
+    CONTENT_FORBIDDEN: {
+      why: ({ action, target }: { action?: "edit" | "publish" | "read drafts of", target?: "collection" | "document" }) => action === undefined
+        ? "An Agent may not take over a document that a person is editing."
+        : `You cannot ${action} this ${target}.`,
+      fix: "Ask for access, or allow the action in `defineContent({ authorize })`. Without `authorize`, nobody can use Content outside `vite dev`. An Agent waits until the person who edits a document finishes, unless the app allows it with `operations({ overrideLeases: true })`.",
+    },
+    CONTENT_SCHEDULE_CANCELLED: {
+      why: "Content schedule was cancelled while publishing.",
+      fix: "No change is needed. `unschedule()` cancelled the schedule while it published, so the schedule runner skips it.",
+    },
+
+    // Published numbered errors.
     CONTENT_R0001: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },

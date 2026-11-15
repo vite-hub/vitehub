@@ -66,10 +66,8 @@
     "packages/content/src/field.ts": 3,
     "packages/content/src/index.ts": 4,
     "packages/content/src/live.ts": 1,
-    "packages/content/src/operations.ts": 1,
     "packages/content/src/realtime.ts": 2,
     "packages/content/src/runtime/console.ts": 1,
-    "packages/content/src/schedules.ts": 1,
     "packages/decisions/src/cli.ts": 1,
     "packages/docs/src/assistant-nuxt.ts": 1,
     "packages/docs/src/check-links.ts": 2,
@@ -133,13 +131,11 @@
     "packages/presets/src/labeller.ts": 28,
     "packages/rate-limit/src/limiter.ts": 1,
     "packages/rate-limit/src/runtime/operations.ts": 1,
-    "packages/realtime/src/server.ts": 2,
+    "packages/realtime/src/server.ts": 1,
     "packages/runtime/src/execution-budget.ts": 3,
     "packages/runtime/src/hosted-console.ts": 2,
     "packages/runtime/src/response.ts": 1,
-    "packages/schedule/src/runtime/operations.ts": 1,
     "packages/schedule/src/runtime/process.ts": 1,
-    "packages/schedule/src/runtime/store.ts": 1,
     "packages/shell/src/command/sh-syntax.ts": 1,
     "packages/source/src/core/collection-cursor.ts": 2,
     "packages/source/src/internal/content-types-writer.ts": 1,
@@ -192,7 +188,6 @@
     "packages/vite-hub/src/sandbox-cli.ts": 5,
     "packages/vite-hub/src/task/runtime.ts": 1,
     "packages/workflow/src/runtime/adapters.ts": 3,
-    "packages/workflow/src/runtime/operations.ts": 1,
     "packages/workspace/src/checkout.ts": 1,
     "packages/workspace/src/runtime/operations.ts": 1
   },
@@ -1132,5 +1127,9 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/content/src/ref-routes.ts": 1,
+    "packages/workflow/src/runtime/openworkflow.ts": 1,
+    "packages/workflow/src/vite.ts": 1
+  }
 }

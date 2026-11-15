@@ -9,6 +9,47 @@ const dynamicError = {
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
+    // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    WORKFLOW_DEFINITION_NOT_FOUND: {
+      why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
+      fix: "Pass the name of a Workflow Definition, the file name in `server/workflows/` without the extension.",
+    },
+    WORKFLOW_DISABLED: {
+      why: "Workflow is disabled in this runtime.",
+      fix: "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.",
+    },
+    WORKFLOW_OPERATION_FAILED: {
+      why: "The Workflow operation failed.",
+      fix: "Read `error.cause` for the error of the Workflow runtime. Check the Workflow handler and the provider, then retry.",
+    },
+    WORKFLOW_OPERATION_UNSUPPORTED: {
+      why: ({ note, operation, provider }: { note?: string, operation: string, provider: string }) => note === undefined
+        ? `workflow ${operation} is not supported by the ${provider} provider for this run.`
+        : `workflow ${operation} is not supported by the ${provider} provider. ${note}`,
+      fix: "Use an operation that the provider supports, or run the app with a Workflow provider that supports it. The message says what the provider cannot do.",
+    },
+    WORKFLOW_REGISTRY_MISSING: {
+      why: ({ workflow }: { workflow: string }) => `Unknown Workflow: ${workflow}. The runtime has no Workflow registry.`,
+      fix: "Restart the dev server. In development the Workflow Vite plugin installs the registry with the Nitro plugin .vitehub/nitro/workflow/dev-plugin.mjs.",
+    },
+    WORKFLOW_RUNS_UNAVAILABLE: {
+      why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
+      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.",
+    },
+    WORKFLOW_RUN_AMBIGUOUS: {
+      why: ({ id, workflows }: { id: string, workflows: string }) => `Runs of ${workflows} have the id ${id}.`,
+      fix: "Pass the name of the Workflow with `--workflow <name>`.",
+    },
+    WORKFLOW_RUN_NOT_FOUND: {
+      why: ({ id }: { id: string }) => `No recorded run has the id ${id}.`,
+      fix: "Run `vitehub workflow runs list` for the ids. The dev server keeps the newest 200 runs until it restarts or `vitehub workflow runs clear` empties the history.",
+    },
+    WORKFLOW_RUN_UNKNOWN: {
+      why: ({ runId }: { runId: string }) => `Run ${runId} was not started by \`workflow.start\` in this runtime.`,
+      fix: "Pass the name of the Workflow with `--workflow <name>`.",
+    },
+
+    // Published numbered errors.
     WORKFLOW_C0001: dynamicError,
     WORKFLOW_C0002: dynamicError,
     WORKFLOW_C0003: dynamicError,
