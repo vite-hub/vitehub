@@ -467,7 +467,11 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
       firstAcknowledgementUnknown = getWorkflowProviderStatus(error) === undefined
       return start()
     })
-  }, { acknowledgementUnknown: (_error, status) => firstAcknowledgementUnknown || status === undefined })
+  }, {
+    acknowledgement: (_error, status) => firstAcknowledgementUnknown || status === undefined
+      ? "unknown"
+      : status < 500 ? "rejected" : undefined,
+  })
   return await runWorkflowProviderOperation("openworkflow", "run", async () => {
     const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
     return {

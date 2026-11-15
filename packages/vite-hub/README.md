@@ -97,7 +97,7 @@ and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
-The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`.
+The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`. `vitehub deploy --host <host>` is the exception: it builds with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, and that host wins over `host`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare host uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
