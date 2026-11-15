@@ -8,6 +8,13 @@ const dynamicError = {
 export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/rate-limit/diagnostics",
   codes: {
+    // Operation errors. The `rate-limit.*` operations of the CLI, the Console, and Agents throw them.
+    RATE_LIMIT_OPERATION_FAILED: {
+      why: "The Rate Limit operation failed.",
+      fix: "Read `error.cause` for the driver error. Check that the store of the Rate Limit is reachable, then retry.",
+    },
+
+    // Published numbered errors.
     RATE_LIMIT_R0001: dynamicError,
     RATE_LIMIT_R0002: dynamicError,
     RATE_LIMIT_R0003: dynamicError,

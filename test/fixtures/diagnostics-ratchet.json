@@ -45,7 +45,6 @@
     "packages/agent/src/tool-schema.ts": 1,
     "packages/agent/src/trigger-runtime.ts": 13,
     "packages/auth/src/cli.ts": 5,
-    "packages/auth/src/console-runtime.ts": 1,
     "packages/channels/src/client.ts": 1,
     "packages/cli/src/setup/envelope.ts": 1,
     "packages/cms/src/build.ts": 1,
@@ -79,8 +78,6 @@
     "packages/docs/src/redirects.ts": 1,
     "packages/docs/src/seo-audit.ts": 1,
     "packages/email/src/drivers/resend.ts": 2,
-    "packages/email/src/preview.ts": 1,
-    "packages/email/src/runtime/operations.ts": 1,
     "packages/forge/src/provider.ts": 2,
     "packages/forms/src/client.ts": 1,
     "packages/forms/src/inbox.ts": 1,
@@ -132,7 +129,6 @@
     "packages/presets/src/github/install.ts": 13,
     "packages/presets/src/labeller.ts": 28,
     "packages/rate-limit/src/limiter.ts": 1,
-    "packages/rate-limit/src/runtime/operations.ts": 1,
     "packages/realtime/src/server.ts": 2,
     "packages/runtime/src/execution-budget.ts": 3,
     "packages/runtime/src/hosted-console.ts": 2,
@@ -192,9 +188,7 @@
     "packages/vite-hub/src/sandbox-cli.ts": 5,
     "packages/vite-hub/src/task/runtime.ts": 1,
     "packages/workflow/src/runtime/adapters.ts": 3,
-    "packages/workflow/src/runtime/operations.ts": 1,
-    "packages/workspace/src/checkout.ts": 1,
-    "packages/workspace/src/runtime/operations.ts": 1
+    "packages/workflow/src/runtime/operations.ts": 1
   },
   "codesWithoutFix": [
     "AGENT_B0002",
@@ -1132,5 +1126,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/auth/src/access-policy.ts": 1
+  }
 }
