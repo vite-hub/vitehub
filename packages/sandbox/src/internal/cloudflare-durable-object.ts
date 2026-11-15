@@ -239,6 +239,47 @@ export interface CloudflareExecOptions {
   timeout?: number;
 }
 
+export interface CloudflareSandboxOutboundDependencies {
+  WorkerEntrypoint: abstract new (ctx: any, env: any) => object;
+}
+
+/** What the Durable Object passes to each outbound intercept. */
+export interface CloudflareSandboxOutboundProps {
+  allow: readonly string[];
+}
+
+/**
+ * The Worker entrypoint that receives the intercepted HTTP and HTTPS requests of a Sandbox Container.
+ * Cloudflare picks an HTTPS intercept by TLS SNI, but the request URL comes from the Host header that the
+ * Container sends. So the entrypoint checks the URL against the allowlist again before it fetches.
+ */
+export function createCloudflareSandboxOutbound(
+  dependencies: CloudflareSandboxOutboundDependencies,
+): new (ctx: { readonly props?: Partial<CloudflareSandboxOutboundProps> }, env: unknown) => { fetch(request: Request): Promise<Response> } {
+  const { WorkerEntrypoint } = dependencies;
+  return class ViteHubCloudflareSandboxOutbound extends WorkerEntrypoint {
+    readonly #allow: readonly string[];
+
+    constructor(ctx: { readonly props?: Partial<CloudflareSandboxOutboundProps> }, env: unknown) {
+      super(ctx, env);
+      this.#allow = ctx.props?.allow ?? [];
+    }
+
+    async fetch(request: Request) {
+      const host = new URL(request.url).hostname;
+      if (!allowsHost(this.#allow, host))
+        return new Response(`[vitehub] ${host} is not in the Sandbox networkPolicy.\n`, { status: 403 });
+      return await fetch(request);
+    }
+  };
+}
+
+/** Whether an allowlist entry matches the host. `*.example.com` matches subdomains only. */
+export function allowsHost(allow: readonly string[], hostname: string) {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return allow.some(entry => entry.startsWith("*.") ? host.endsWith(entry.slice(1)) && host.length > entry.length - 1 : host === entry);
+}
+
 export function createCloudflareSandboxDurableObject(
   dependencies: CloudflareSandboxDurableObjectDependencies,
 ): new (ctx: CloudflareDurableObjectState, env: unknown) => CloudflareSandboxDurableObject {
@@ -421,17 +462,17 @@ export function createCloudflareSandboxDurableObject(
 
     async #running() {
       const container = this.#container();
-      if (!container.running) {
-        this.#starting ??= this.#start(container).finally(() => { this.#starting = undefined; });
-        await this.#starting;
-      }
+      // The Container reports running before its intercepts exist, so wait for a start in progress too.
+      if (!this.#starting && !container.running)
+        this.#starting = this.#start(container).finally(() => { this.#starting = undefined; });
+      if (this.#starting) await this.#starting;
       return container;
     }
 
     async #start(container: CloudflareContainer) {
       const configuration = await this.#readConfiguration();
       const network = configuration.networkPolicy ?? "allow-all";
-      const outbound = typeof network === "object" ? this.#outboundHandler(container) : undefined;
+      const outbound = typeof network === "object" ? this.#outboundHandler(container, network.allow) : undefined;
       // Without internet, only intercepted HTTP and HTTPS hosts leave the Container. Other traffic has no route.
       container.start({ enableInternet: network === "allow-all" });
       try {
@@ -449,13 +490,15 @@ export function createCloudflareSandboxDurableObject(
       }
     }
 
-    #outboundHandler(container: CloudflareContainer) {
-      const handler = outboundEntrypoint ? this.#ctx.exports?.[outboundEntrypoint] : undefined;
+    #outboundHandler(container: CloudflareContainer, allow: readonly string[]) {
+      const entrypoint = outboundEntrypoint ? this.#ctx.exports?.[outboundEntrypoint] : undefined;
       // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
-      if (!handler) throw new Error(`[vitehub] Cloudflare Sandbox networkPolicy { allow } needs the ${JSON.stringify(outboundEntrypoint ?? "SandboxOutbound")} entrypoint in ctx.exports. Set compatibility_date to 2025-11-17 or later, or add the enable_ctx_exports compatibility flag, and build the Worker with ViteHub.`);
+      if (typeof entrypoint !== "function") throw new Error(`[vitehub] Cloudflare Sandbox networkPolicy { allow } needs the ${JSON.stringify(outboundEntrypoint ?? "SandboxOutbound")} entrypoint in ctx.exports. Set compatibility_date to 2025-11-17 or later, or add the enable_ctx_exports compatibility flag, and build the Worker with ViteHub.`);
       // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
       if (!container.interceptOutboundHttp || !container.interceptOutboundHttps) throw new Error("[vitehub] This Workers runtime cannot intercept Container traffic, so Cloudflare Sandbox networkPolicy { allow } is not available. Update Wrangler.");
-      return handler;
+      const props: CloudflareSandboxOutboundProps = { allow: [...allow] };
+      // SAFETY: a ctx.exports entry for a WorkerEntrypoint is a function that binds props and returns its Fetcher.
+      return (entrypoint as (options: { props: CloudflareSandboxOutboundProps }) => unknown)({ props });
     }
 
     async #fileOperations() {

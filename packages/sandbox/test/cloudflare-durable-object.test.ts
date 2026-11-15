@@ -7,7 +7,9 @@ import { tmpdir } from "node:os";
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
 import {
+  allowsHost,
   createCloudflareSandboxDurableObject,
+  createCloudflareSandboxOutbound,
   parseDuration,
   type CloudflareContainer,
   type CloudflareContainerExecProcess,
@@ -189,7 +191,8 @@ function groupFile(execution: Execution) {
   return execution.command.at(-1);
 }
 
-const outbound = { name: "SandboxOutbound loopback" };
+/** The `ctx.exports` loopback of the outbound entrypoint: it binds props and returns a Fetcher. */
+const outbound = (options: { props: unknown }) => ({ fetcher: options.props });
 
 function setup(
   cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"],
@@ -615,11 +618,12 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(sandbox.plan.executionAuthority.network).toBe("restricted");
     await session.exec("curl", ["https://api.example.com"], { env: { NAME: "value" } });
     expect(container.starts).toEqual([{ enableInternet: false }]);
+    const fetcher = { fetcher: { allow: ["*.github.com", "api.example.com"] } };
     expect(container.intercepts).toEqual([
-      ["http", "*.github.com", outbound],
-      ["https", "*.github.com", outbound],
-      ["http", "api.example.com", outbound],
-      ["https", "api.example.com", outbound],
+      ["http", "*.github.com", fetcher],
+      ["https", "*.github.com", fetcher],
+      ["http", "api.example.com", fetcher],
+      ["https", "api.example.com", fetcher],
     ]);
     const ca = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
     const caEnv = { CURL_CA_BUNDLE: ca, GIT_SSL_CAINFO: ca, NODE_EXTRA_CA_CERTS: ca, REQUESTS_CA_BUNDLE: ca, SSL_CERT_FILE: ca };
@@ -629,6 +633,67 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(executions.at(-1)!.options?.env).toMatchObject(caEnv);
     await child.wait();
     await session.close();
+  });
+
+  it("holds commands until the intercepts of a starting Container exist", async () => {
+    const { container, executions } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    let release!: () => void;
+    const registered = new Promise<void>(resolve => release = resolve);
+    const intercept = container.interceptOutboundHttp!.bind(container);
+    container.interceptOutboundHttp = async (target, handler) => {
+      await registered;
+      await intercept(target, handler);
+    };
+    const configuration = { networkPolicy: { allow: ["example.com"] } };
+    const sandbox = new Sandbox({
+      container,
+      exports: { SandboxOutbound: outbound },
+      id: { name: "a", toString: () => "a" },
+      storage: { get: async <T>() => configuration as T, put: async () => {} },
+    }, {});
+
+    const first = sandbox.exec("true");
+    await vi.waitFor(() => expect(container.running).toBe(true));
+    const second = sandbox.exec("true");
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(executions).toEqual([]);
+
+    release();
+    await Promise.all([first, second]);
+    expect(container.starts).toHaveLength(1);
+    expect(container.intercepts.map(([protocol]) => protocol)).toEqual(["http", "https"]);
+    expect(executions).toHaveLength(2);
+  });
+
+  it("fetches only the hosts of the allowlist, whatever Host header the Container sends", async () => {
+    const Outbound = createCloudflareSandboxOutbound({ WorkerEntrypoint: FakeDurableObject });
+    const entrypoint = new Outbound({ props: { allow: ["*.github.com", "registry.npmjs.org"] } }, {});
+    const fetch = vi.fn(async () => new Response("upstream"));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      // HTTPS with SNI registry.npmjs.org and `Host: example.com` reaches the entrypoint as https://example.com/.
+      const denied = await entrypoint.fetch(new Request("https://example.com/"));
+      expect(denied.status).toBe(403);
+      expect(await denied.text()).toContain("example.com is not in the Sandbox networkPolicy");
+      expect((await entrypoint.fetch(new Request("https://github.com/"))).status).toBe(403);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await expect((await entrypoint.fetch(new Request("https://registry.npmjs.org/left-pad"))).text()).resolves.toBe("upstream");
+      await expect((await entrypoint.fetch(new Request("http://api.github.com/zen"))).text()).resolves.toBe("upstream");
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(allowsHost(["*.example.com"], "a.b.EXAMPLE.com.")).toBe(true);
+    expect(allowsHost(["*.example.com"], "example.com")).toBe(false);
+    expect(allowsHost(["*.example.com"], "badexample.com")).toBe(false);
   });
 
   it("restarts a running Container that started with another network policy", async () => {

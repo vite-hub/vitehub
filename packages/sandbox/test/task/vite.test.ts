@@ -808,7 +808,7 @@ describe("hubSandboxTask", () => {
     expect(exportsModule).toContain("import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'")
     expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
     expect(exportsModule)
-      .toContain("export class SandboxOutbound extends WorkerEntrypoint { fetch(request) { return fetch(request) } }")
+      .toContain("export class SandboxOutbound extends createCloudflareSandboxOutbound({ WorkerEntrypoint }) {}")
     expect(exportsModule)
       .toContain("export class Sandbox extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: 'SandboxOutbound', SandboxFileError })")
     expect(exportsModule).not.toContain("ContainerProxy")

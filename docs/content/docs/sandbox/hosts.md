@@ -79,7 +79,7 @@ export default defineConfig({
 
 On Vercel, the Sandbox matches HTTPS hosts by TLS SNI and does not decrypt the traffic.
 
-On Cloudflare, the generated Worker exports a `SandboxOutbound` entrypoint. Cloudflare sends HTTP on port 80 and HTTPS on port 443 to an allowed host through it, and decrypts that HTTPS traffic with its own CA. ViteHub sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` on every command, so Node.js, curl, Python, and Git trust that CA. Other tools must use one of these variables. Names of other hosts do not resolve. The list takes at most 64 hostnames and no IP addresses. The Worker needs a `compatibility_date` of `2025-11-17` or later.
+On Cloudflare, the generated Worker exports a `SandboxOutbound` entrypoint. Cloudflare sends HTTP on port 80 and HTTPS on port 443 to an allowed host through it, and decrypts that HTTPS traffic with its own CA. The entrypoint checks the request host against the list again and answers 403 for other hosts, so a `Host` header that differs from the TLS server name cannot reach them. ViteHub sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` on every command, so Node.js, curl, Python, and Git trust that CA. Other tools must use one of these variables. Names of other hosts do not resolve. The list takes at most 64 hostnames and no IP addresses. The Worker needs a `compatibility_date` of `2025-11-17` or later.
 
 Cloudflare applies the policy when the Container starts, so the policy belongs to the Sandbox, not to the container class. When a shared `sandboxId` opens with another policy, ViteHub stops its Container and starts a new one. Files and processes in the old Container are lost.
 

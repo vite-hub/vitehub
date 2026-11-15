@@ -158,10 +158,9 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
           return [
             `import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'`,
             `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
-            `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
+            `import { createCloudflareSandboxDurableObject, createCloudflareSandboxOutbound } from '${durableObjectModule}'`,
             ``,
-            // Cloudflare already matched the host against networkPolicy.allow before it called this entrypoint.
-            `export class ${outboundEntrypoint} extends WorkerEntrypoint { fetch(request) { return fetch(request) } }`,
+            `export class ${outboundEntrypoint} extends createCloudflareSandboxOutbound({ WorkerEntrypoint }) {}`,
             `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: '${outboundEntrypoint}', SandboxFileError }) {}`,
             ``,
           ].join('\n')

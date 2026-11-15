@@ -146,10 +146,16 @@ The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Clou
 Both hosted runtimes take the same `networkPolicy` option for outbound traffic:
 
 ```ts
-const sandbox = await resolveSandbox({
-  runtime: { kind: "cloudflare", namespace, networkPolicy: { allow: ["registry.npmjs.org", "*.github.com"] } },
-}, {});
-console.log(sandbox.plan.executionAuthority.network); // "restricted"
+import { resolveSandbox } from "@vite-hub/sandbox";
+import type { CloudflareDurableObjectNamespace } from "@vite-hub/sandbox";
+
+export async function openRestrictedSandbox(namespace: CloudflareDurableObjectNamespace) {
+  const sandbox = await resolveSandbox({
+    runtime: { kind: "cloudflare", namespace, networkPolicy: { allow: ["registry.npmjs.org", "*.github.com"] } },
+  }, {});
+  console.log(sandbox.plan.executionAuthority.network); // "restricted"
+  return sandbox;
+}
 ```
 
 | Value | Outbound traffic | `executionAuthority.network` |
@@ -158,7 +164,7 @@ console.log(sandbox.plan.executionAuthority.network); // "restricted"
 | `"deny-all"` | No traffic. | `"none"` |
 | `{ allow: [...] }` | HTTP and HTTPS to the listed hostnames only. Other hosts and protocols fail. | `"restricted"` |
 
-`"*.example.com"` matches subdomains of `example.com`, not `example.com` itself. Vercel matches HTTPS hosts by TLS SNI and does not decrypt the traffic. Vercel also takes `subnets` and its other policy forms. On Cloudflare, the generated Worker exports a `SandboxOutbound` entrypoint, and Cloudflare sends HTTP on port 80 and HTTPS on port 443 to an allowed host through it. Cloudflare decrypts that HTTPS traffic and signs it again with its own CA. ViteHub sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` on every command, so Node.js, curl, Python requests, and Git trust that CA. Names of other hosts do not resolve. The Cloudflare list takes at most 64 hostnames and no IP addresses. The Worker needs a `compatibility_date` of `2025-11-17` or later.
+`"*.example.com"` matches subdomains of `example.com`, not `example.com` itself. Vercel matches HTTPS hosts by TLS SNI and does not decrypt the traffic. Vercel also takes `subnets` and its other policy forms. On Cloudflare, the generated Worker exports a `SandboxOutbound` entrypoint, and Cloudflare sends HTTP on port 80 and HTTPS on port 443 to an allowed host through it. The entrypoint checks the request host against the list again, because a command can send a `Host` header that differs from the TLS server name. It answers 403 for other hosts. Cloudflare decrypts that HTTPS traffic and signs it again with its own CA. ViteHub sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` on every command, so Node.js, curl, Python requests, and Git trust that CA. Names of other hosts do not resolve. The Cloudflare list takes at most 64 hostnames and no IP addresses. The Worker needs a `compatibility_date` of `2025-11-17` or later.
 
 Cloudflare applies the policy when the Container starts, so each Sandbox ID has one policy at a time, not each container class. When a Sandbox ID that runs opens with another policy, ViteHub stops its Container and the next command starts a new one with the new policy. Files and processes in the old Container are lost. A custom `getSandbox` starts its own Container, so it cannot take `networkPolicy`. An invalid policy throws `SANDBOX_NETWORK_POLICY_INVALID`.
 

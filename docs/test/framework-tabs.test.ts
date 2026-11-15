@@ -33,6 +33,7 @@ const singleFramework: Record<string, string> = {
   "ui/installation.md vite/vite.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
   "ui/get-started.md nuxt.config.ts": "The tutorial uses the UI Nuxt module. Installation shows Vue with Vite.",
   "agents/process-hosts.md vite.config.ts": "processAgentHost() and agentHostRoutes() set Nitro up from a Vite plugin, which Nuxt does not read.",
+  "sandbox/hosts.md vite.config.ts": "Sandbox provider options such as networkPolicy go only in hubSandboxTask(). vitehub() and the Nuxt module accept only true or false for sandboxTask.",
   "agents/sandbox-tutorial.md vite.config.ts": "The tutorial runs @vite-hub/sandbox alone with plain Nitro.",
   "auth/configure.md vite.config.ts": "hubAuth(false) and the top-level auth key belong to the package plugin and have no vitehub() form.",
   "comments/configure.md vite.config.ts": "These Database strings belong to comments() used alone.",
