@@ -35,3 +35,8 @@ export function authDatabaseSchemaError(detail: string): Error {
 export function authDatabasePlacementError(): Error {
   return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches." })
 }
+
+/** Outside a development server, Auth keeps users in memory only when the Definition asks for it. */
+export function authMemoryDatabaseError(): Error {
+  return authErrorDiagnostics.AUTH_C0063({ message: "`defineAuth()` has no `database` or `preset`. Auth keeps users and sessions in memory only on a development server, because a restart or a second instance loses them." })
+}

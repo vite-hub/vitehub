@@ -34,26 +34,33 @@ export interface VerifiedFsRequest {
 const encoder = new TextEncoder()
 type HmacKey = ReturnType<typeof globalThis.crypto.subtle.importKey>
 
-let signingKey: { key: HmacKey, root: string } | undefined
+const signingKeys = new Map<string, { key: HmacKey, root: string }>()
 
-// Every instance derives the same key from the root secret, so a link that one instance signs works on another.
-// A key per process would break links after a restart and between instances.
-function hmacKey(): HmacKey {
+/**
+ * The HMAC key for one `purpose`, derived from the root secret. `feature` names what needs it in the error.
+ * Every instance derives the same key from the root secret, so a value that one instance signs verifies on another.
+ * A key per process would break signed values after a restart and between instances.
+ */
+export function blobHmacKey(purpose: string, feature: string): HmacKey {
   const root = readViteHubSecret({ ...globalThis.process?.env, ...getViteHubTestMode()?.env })
   if (!root || root.length < viteHubSecretMinimumLength) {
     throw blobErrorDiagnostics.BLOB_R0040({
       message: root
-        ? `The links of \`fs\` stores need a VITEHUB_SECRET of at least ${viteHubSecretMinimumLength} characters.`
-        : "The links of `fs` stores need VITEHUB_SECRET or NUXT_APP_SECRET in the runtime environment.",
+        ? `${feature} need a VITEHUB_SECRET of at least ${viteHubSecretMinimumLength} characters.`
+        : `${feature} need VITEHUB_SECRET or NUXT_APP_SECRET in the runtime environment.`,
     })
   }
-  if (signingKey?.root !== root) {
-    const key = deriveViteHubSecret(root, blobSignPurpose).then(secret => globalThis.crypto.subtle.importKey(
-      "raw", encoder.encode(secret), { hash: "SHA-256", name: "HMAC" }, false, ["sign", "verify"],
-    ))
-    signingKey = { key, root }
-  }
-  return signingKey.key
+  const cached = signingKeys.get(purpose)
+  if (cached?.root === root) return cached.key
+  const key = deriveViteHubSecret(root, purpose).then(secret => globalThis.crypto.subtle.importKey(
+    "raw", encoder.encode(secret), { hash: "SHA-256", name: "HMAC" }, false, ["sign", "verify"],
+  ))
+  signingKeys.set(purpose, { key, root })
+  return key
+}
+
+function hmacKey(): HmacKey {
+  return blobHmacKey(blobSignPurpose, "The links of `fs` stores")
 }
 
 // JSON keeps the parts apart, so a pathname cannot pass for another pathname followed by other parts.
@@ -61,7 +68,7 @@ function payload(link: SignedFsLink): Uint8Array<ArrayBuffer> {
   return encoder.encode(JSON.stringify(["v1", link.method, link.store, link.pathname, link.expires, link.contentType, link.maxSize]))
 }
 
-function hex(buffer: ArrayBuffer): string {
+export function hex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 

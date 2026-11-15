@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Switch, SwitchThumb } from "@vite-hub/kit/switch"
+import { Switch, SwitchThumb } from "@ui-sdk/vue/switch"
 </script>
 
 <template>

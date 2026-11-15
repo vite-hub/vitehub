@@ -5,7 +5,7 @@ import {
   ScrollAreaScrollbar,
   ScrollAreaThumb,
   ScrollAreaViewport,
-} from "@vite-hub/kit/scroll-area"
+} from "@ui-sdk/vue/scroll-area"
 
 const tags = Array.from(
   { length: 50 },

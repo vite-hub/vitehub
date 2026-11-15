@@ -57,8 +57,6 @@ export type EnvSource =
     names?: string[]
     /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
     canonical?: string | false
-    /** Treat empty host values as missing when reading the ordered names. */
-    skipEmpty?: boolean
     serializable: true
   }
   | {
@@ -259,6 +257,8 @@ export type ServerEnvInspectionStatus = "available" | "defaulted" | "error" | "i
 export interface ServerEnvInspectionEntry {
   /** The declaration is secret. Inspection never returns values. */
   masked: boolean
+  /** The host variable names of an env declaration, in read order. See `ServerEnvDescriptionEntry.names`. */
+  names?: readonly string[]
   path?: string
   /** Provider alias for provider-backed declarations. */
   provider?: string
@@ -273,8 +273,12 @@ export interface ServerEnvInspectionEntry {
 
 export interface ServerEnvDescriptionEntry {
   path?: string
-  /** The canonical variable name of an env declaration, such as `VITEHUB_CLIPROXY_API_KEY`. It is read first. */
-  canonicalName?: string
+  /**
+   * The host variable names of an env declaration, in read order: the canonical name such as `VITEHUB_CLIPROXY_API_KEY`
+   * first, unless `canonical: false` or `prefix: false` disables it, then the `env.source()` names or the unprefixed path
+   * name. The first name that is set supplies the value. Omitted for literal and provider declarations.
+   */
+  names?: readonly string[]
   source: "env" | "literal" | "provider"
   provider?: string
   secret: boolean

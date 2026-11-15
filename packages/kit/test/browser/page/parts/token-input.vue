@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { XIcon } from "../icons"
-import { Field, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
 import {
   TokenInput,
   TokenInputEditor,
   TokenInputToken,
   TokenInputTokenRemove,
-} from "@vite-hub/kit/token-input"
+} from "@ui-sdk/vue/token-input"
 import {
   type TriggerMenuDataItem,
   TriggerMenu,
   TriggerMenuContent,
   TriggerMenuItem,
   TriggerMenuList,
-} from "@vite-hub/kit/trigger-menu"
+} from "@ui-sdk/vue/trigger-menu"
 
 const people = [
   { value: "hollis", label: "Hollis Grant" },

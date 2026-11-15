@@ -8,7 +8,7 @@ import {
   PaginationList,
   PaginationNext,
   PaginationPrevious,
-} from "@vite-hub/kit/pagination"
+} from "@ui-sdk/vue/pagination"
 import { useLog } from "../log"
 
 const log = useLog()

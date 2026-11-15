@@ -9,6 +9,13 @@ export {
 export {
   browser,
 } from "./browser.ts"
+export {
+  page,
+} from "./page.ts"
+export type {
+  PageCallFailure,
+  PageCapabilityOptions,
+} from "./page.ts"
 export type {
   BrowserCapabilityOptions,
 } from "./browser.ts"

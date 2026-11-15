@@ -70,6 +70,11 @@ describe("tool approval grants", () => {
     expect(reportToolStep).toHaveBeenCalledWith(expect.objectContaining({ toolResults: [expect.objectContaining({ output: input })] }))
   })
 
+  it("does not wrap a policy-protected tool twice", () => {
+    const { tool } = approvalTool()
+    expect(applyAgentToolPolicies({ email_send: tool })!.email_send).toBe(tool)
+  })
+
   it("rejects forged requests and forged grants", async () => {
     const { execute, tool } = approvalTool()
     const request = await requestApproval(tool, { recipient: "team@example.com" })

@@ -6,7 +6,7 @@ import {
   AccordionItem,
   AccordionPanel,
   AccordionTrigger,
-} from "@vite-hub/kit/accordion"
+} from "@ui-sdk/vue/accordion"
 
 const items = [
   {

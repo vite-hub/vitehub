@@ -479,9 +479,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       if (runtimeValue.processEnv.fallback !== undefined) {
         defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
       }
-      // `||` also falls back for an empty value. An Env source with skipEmpty does the same.
-      if (runtimeValue.processEnv.operator === "||") field.skipEmpty = true
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}${field.skipEmpty ? ", and skips empty values as || did" : ""}.`, { env: field })
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
     else if (runtimeValue?.expression) {
       follow(`runtimeConfig.${label} is computed (${runtimeValue.expression}). It was not kept as a default. Set ${field.variable} or add a default by hand.`, { env: field })

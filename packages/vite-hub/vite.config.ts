@@ -66,6 +66,8 @@ const runtimeEntries = [
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
   "src/task/operations.ts",
+  "src/cache/operations.ts",
+  "src/skills/operations.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -284,6 +286,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-cache.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-site.vue",
           to: "dist/console/runtime/components",
         },
@@ -353,6 +359,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-agent-session.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-page-changes.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -597,6 +607,8 @@ export default defineConfig({
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./cache/operations"];
+          delete exports["./skills/operations"];
           delete exports["./durability/operations"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];

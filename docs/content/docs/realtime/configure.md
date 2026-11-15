@@ -216,6 +216,7 @@ continue, and at once when the last client leaves.
 import { defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
+  auth: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 1_000, maxWait: 5_000 },
 })

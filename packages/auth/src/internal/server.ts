@@ -3,7 +3,7 @@ import type { AuthConsoleHostOptions, AuthConsoleOptions } from "../console-type
 import abilities from "#vitehub/auth/abilities"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 import { resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
@@ -923,8 +923,9 @@ async function checkAuthAccessRequest(
 export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
   definition?: AuthDefinition,
+  publicRoutes: readonly string[] = [],
 ): (input: AuthRequestInput) => Promise<Response | undefined> {
-  const match = createAuthAccessRouteMatcher(routes)
+  const match = createAuthAccessRouteMatcher(routes, publicRoutes)
 
   return async (input) => {
     const matched = match(input)

@@ -1,11 +1,10 @@
-import { addComponent, defineNuxtModule, installModule } from "@nuxt/kit";
+import { addComponent, defineNuxtModule } from "@nuxt/kit";
 import type { ModuleSetupReturn } from "@nuxt/schema";
-import uiSdk from "@ui-sdk/vue/nuxt";
 
 import { ownEntries } from "./parts/own-entries.ts";
 
 export interface KitNuxtOptions {
-  /** Prefix for auto-imported component names, for example `Ui` registers `UiDialogTrigger`. Empty by default. */
+  /** Prefix for auto-imported component names, for example `Ui` registers `UiTagsInput`. Use the same one as `uiSdk.prefix`. Empty by default. */
   prefix?: string;
 }
 
@@ -33,34 +32,19 @@ declare module "nuxt/schema" {
   }
 }
 
-const uiSdkEntry = "@ui-sdk/vue/";
 const kitEntry = "@vite-hub/kit/";
 
-function toKitEntry(path: string): string {
-  return path.startsWith(uiSdkEntry) ? kitEntry + path.slice(uiSdkEntry.length) : path;
-}
-
 /**
- * Auto-imports ui-sdk parts and helpers and the kit’s own parts in a Nuxt app.
- * This module registers the kit parts and moves the import paths from `@ui-sdk/vue/<entry>` to `@vite-hub/kit/<entry>`. The app installs
- * `@vite-hub/kit`, and with pnpm it cannot resolve `@ui-sdk/vue`. The build still works, but the generated types of
- * `.nuxt/components.d.ts` and `.nuxt/imports.d.ts` do not resolve, so every part and helper has the type `any`.
+ * Auto-imports the kit's own parts in a Nuxt app, such as `<TagsInput>`. For every ui-sdk part, add `@ui-sdk/vue/nuxt`
+ * next to it and install `@ui-sdk/vue` and `@ui-sdk/core` in the app.
  */
 const kitNuxtModule: KitNuxtModule = defineNuxtModule<KitNuxtOptions>({
   meta: { configKey: "viteHubKit", name: "@vite-hub/kit" },
   defaults: { prefix: "" },
-  async setup({ prefix = "" }, nuxt) {
-    await installModule(uiSdk, { prefix }, nuxt);
+  setup({ prefix = "" }) {
     for (const [entry, names] of Object.entries(ownEntries)) {
       for (const name of names) addComponent({ name: prefix + name, export: name, filePath: kitEntry + entry });
     }
-    // These hooks run after the ones that ui-sdk added, so they see its registrations.
-    nuxt.hook("components:extend", (components) => {
-      for (const component of components) component.filePath = toKitEntry(component.filePath);
-    });
-    nuxt.hook("imports:sources", (sources) => {
-      for (const source of sources) if ("from" in source) source.from = toKitEntry(source.from);
-    });
   },
 });
 

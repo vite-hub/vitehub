@@ -313,6 +313,22 @@ Run `vitehub provision run --provider cloudflare` to write the D1 id to `.vitehu
 In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
+## Nuxt Content
+
+When a Nuxt app uses `@nuxt/content` and sets no `content.database`, a production build gives Content the default Database, as Content's NuxtHub preset does:
+
+| Default Database | Content `database` |
+| --- | --- |
+| `dialect: 'postgresql'` with `connection.url` | `{ type: 'postgresql', url }` |
+| SQLite with a remote or env `connection.url`, such as Turso | `{ type: 'libsql', url, authToken }` |
+| Local SQLite file, D1, or PGlite | Not changed. Content keeps its own SQLite file or D1 binding. |
+
+Content stores its tables in that database next to yours. Content's Postgres connector uses `pg`, so install it with `pnpm add pg`. Content's libSQL connector uses `@libsql/client`.
+
+A URL or token from `process.env.NAME` or `env()` is not built in. The build writes an empty string, and the server reads the variable when it starts. `NUXT_CONTENT_DATABASE_URL` and `NUXT_CONTENT_DATABASE_AUTH_TOKEN` still win. A string literal in the Definition is built in, as it is for your own queries.
+
+In `nuxt dev`, Content reads its local SQLite file, so nothing changes. On Cloudflare, Content keeps its D1 rule: set `content.database` or add a D1 binding named `DB`. Content keeps one database client for the whole Worker, and a Worker cannot reuse a Postgres socket across requests, so Content does not use Hyperdrive. To use another database for Content, set `content.database` yourself.
+
 ## Preview deployments
 
 > [!WARNING]

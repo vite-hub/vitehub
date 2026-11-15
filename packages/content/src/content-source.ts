@@ -105,6 +105,8 @@ export type ContentSourceInput =
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
 const contentSourceRouteKey = Symbol("vitehub.contentSourceRoute")
+/** Adapters whose input needs an explicit exposure choice. */
+const contentSourceExposureRequired = new WeakSet<ComarkContentSource>()
 /** The `@vite-hub/source` Source definition that each adapter reads. */
 const contentSourceDefinitions = new WeakMap<ComarkContentSource, Source<string, unknown, object>>()
 const typedArrayTag = Object.getOwnPropertyDescriptor(
@@ -361,6 +363,13 @@ export function contentSourceDefinition(input: ContentSourceInput): Source<strin
   return isComarkContentSource(input) ? contentSourceDefinitions.get(input) : undefined
 }
 
+/** Opaque readers may use server credentials; do not infer public access from missing provenance. */
+export function contentSourceNeedsExposureChoice(input: ContentSourceInput): boolean {
+  if (isSourceDefinition(input)) return input.name === "github"
+  if (isComarkContentSource(input)) return contentSourceExposureRequired.has(input)
+  return true
+}
+
 /** The `name` of the `@vite-hub/source` Source behind an input, such as `glob` or `files`, or undefined for other inputs. */
 export function contentSourceKind(input: ContentSourceInput): string | undefined {
   return contentSourceDefinition(input)?.name
@@ -399,6 +408,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   else {
     source = createContentSourceFactory(input, comarkOptions).create()
   }
+  if (contentSourceNeedsExposureChoice(input)) contentSourceExposureRequired.add(source)
   if (url !== undefined) {
     const route: ContentSourceRoute = { url, ...label === undefined ? {} : { label }, ...seo ? { seo } : {}, ...markdown ? { markdown } : {} }
     Object.defineProperty(source, contentSourceRouteKey, { value: route })

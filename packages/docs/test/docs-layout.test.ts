@@ -29,6 +29,7 @@ function middleware(client = true, ownsApp = true, startLinks: string[] = []) {
     exports,
     require: (id: string) => {
       if (id === "#docs/manifest") return { __esModule: true, default: manifest }
+      if (id === "#docs/panels") return { __esModule: true, default: {} }
       if (id === "#docs/navigation") return navigation
       if (id === "#docs/shell") return { ownsApp }
       if (id === "#imports") return {
@@ -44,11 +45,11 @@ function middleware(client = true, ownsApp = true, startLinks: string[] = []) {
   return { run: exports.default!, navigateTo, config }
 }
 
-it.each(["/", "/portal/"])("loads server-owned paths under the runtime app base %s", (baseURL) => {
+it.each(["/", "/portal/"])("loads server-owned paths under the runtime app base %s", async (baseURL) => {
   const { run, navigateTo, config } = middleware()
   config.app.baseURL = baseURL
   const path = "/play/?example=a%2Fb#code"
-  expect(run(route(path), route("/docs/kv"))).toBe(false)
+  expect(await run(route(path), route("/docs/kv"))).toBe(false)
   expect(navigateTo).toHaveBeenCalledWith(`${baseURL}play/?example=a%2Fb#code`, { external: true })
 })
 
@@ -58,36 +59,36 @@ it.each([
   ["/about", "docs-page", "default"],
   ["/", "docs-page", "default"],
   ["/play/", "play", undefined],
-])("keeps %s (%s) in the app", (path, name, layout) => {
+])("keeps %s (%s) in the app", async (path, name, layout) => {
   const { run, navigateTo } = middleware()
   const to = route(path, name)
-  run(to, route("/docs/kv"))
+  await run(to, route("/docs/kv"))
   expect(navigateTo).not.toHaveBeenCalled()
   expect(to.meta.layout).toBe(layout)
 })
 
-it("does not reload initial, server, or same-path navigations", () => {
+it("does not reload initial, server, or same-path navigations", async () => {
   const client = middleware()
-  client.run(route("/missing"), { ...route("/"), matched: [] })
-  client.run(route("/missing?query=changed#anchor"), route("/missing"))
+  await client.run(route("/missing"), { ...route("/"), matched: [] })
+  await client.run(route("/missing?query=changed#anchor"), route("/missing"))
   expect(client.navigateTo).not.toHaveBeenCalled()
   const server = middleware(false)
-  server.run(route("/missing"), route("/docs/kv"))
+  await server.run(route("/missing"), route("/docs/kv"))
   expect(server.navigateTo).not.toHaveBeenCalled()
 })
 
-it.each([false, true])("uses the article layout for the app owner and keeps start links in the docs shell (ownsApp: %s)", (ownsApp) => {
+it.each([false, true])("uses the article layout for the app owner and keeps start links in the docs shell (ownsApp: %s)", async (ownsApp) => {
   const { run, navigateTo } = middleware(true, ownsApp)
   for (const path of ["/about", "/"]) {
     const to = route(path)
-    run(to, route("/docs/kv"))
+    await run(to, route("/docs/kv"))
     expect(to.meta.layout).toBe(ownsApp ? "default" : "docs-article")
   }
   expect(navigateTo).not.toHaveBeenCalled()
 
   const start = middleware(true, ownsApp, ["/about"])
   const to = route("/about")
-  start.run(to, route("/docs/kv"))
+  await start.run(to, route("/docs/kv"))
   expect(to.meta.layout).toBe("docs")
   expect(start.navigateTo).not.toHaveBeenCalled()
 })

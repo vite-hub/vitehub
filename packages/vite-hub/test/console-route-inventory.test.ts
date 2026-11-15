@@ -34,7 +34,7 @@ function owner(root: string, path: string): string {
 async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
   const root = await createProject({
     "package.json": JSON.stringify({ name: "console-route-inventory", private: true, type: "module" }),
-    "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+    "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
     "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
     "server/connections-actor.ts": "export default () => ({ id: 'owner' })\n",
     "server/console-authorize.ts": "export default () => true\n",
@@ -55,7 +55,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       kv: true,
       host: "node",
       schedule: { providerOutput: false },
-      workflow: true,
+      workflow: { provider: "vercel" },
     }),
     root,
   }, "build", "production")

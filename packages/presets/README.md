@@ -132,14 +132,14 @@ records the request UUID and waits for GitHub to confirm a merge. Finished owner
 release their queue lease while preserving any unresolved merge attempt. Expired
 GitHub request results re-enter the current head's normal merge gates. An enqueued request retains its fence until the PR closes, merges, or changes head: queue absence and removal timeline commits do not identify the accepted request safely.
 
-`merge` defaults to `false`:
+`merge` defaults to `"direct"`:
 
 | Value | Behavior |
 | --- | --- |
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
+| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -150,6 +150,9 @@ add a policy, such as a required approval check; return `true` or a reason. Any
 other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
 PR from an author without write access only after a reviewer with write access
 approves its current head and no such reviewer's latest review requests changes.
+`trustedAuthors`, such as `["renovate[bot]"]`, lets those authors through that
+gate without an approval. A bot entry needs its `[bot]` suffix and matches only a
+bot account.
 
 A PR that is only `behind` a base requiring up-to-date branches, or whose base
 changed its files after its checks ran, gets a branch update instead of a merge
@@ -193,8 +196,10 @@ a PR waiting while they run. A comment-only review with an empty body does not
 wake a waiting PR; its inline comments do. `noFindingsReviews` lists body
 prefixes, such as `"> ✅ No new issues found."`, of comment-only reviews that
 report no findings; these do not wake it either. `ignoreFeedbackAuthors` lists
-logins, such as deployment preview bots, whose comments and reviews never need an
-assessment. Feedback that a pass assessed or answered with a repair push stays
+logins whose comments and reviews never need an assessment. It defaults to the
+deployment preview bots `pkg-pr-new[bot]`, `vercel[bot]`,
+`cloudflare-workers-and-pages[bot]` and `netlify[bot]`; a list replaces them, and
+`[...babysitter.options.ignoreFeedbackAuthors, "review-bot[bot]"]` extends them. Feedback that a pass assessed or answered with a repair push stays
 assessed on later heads, so a direct merge needs a model pass only for new
 feedback. Bot issue comments count by identity, not body. Without required
 checks on the base branch, the newest run of every current-head check must
@@ -299,8 +304,8 @@ The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID
 `VITEHUB_GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
 commits as the App's bot. `VITEHUB_GITHUB_INSTALLATION_ID` pins the installation for
 `VITEHUB_GITHUB_APP_OWNER`. `VITEHUB_GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
-names to installation IDs. Other owners resolve their own installation. The host
-ignores an environment installation ID without an owner.
+names to installation IDs. Other owners resolve their own installation. An
+installation ID without an owner fails at startup with `FORGE_INVALID_ENV`.
 A delivery without a configured webhook secret is rejected. Only the commit
 author and committer identity pass to the worker; credentials do not. On its
 first start, the host imports `.vitehub/pull-request-inbox.sqlite` from an

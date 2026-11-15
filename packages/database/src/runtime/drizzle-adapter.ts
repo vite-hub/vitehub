@@ -6,6 +6,7 @@ import { createCloudflareD1HttpResolver } from "./d1-http.ts"
 import { checkD1Limits, checkLibsqlD1Limits } from "./d1-limits.ts"
 import { useD1Session } from "./d1-sessions.ts"
 import { keepOwnClient, trackD1Database, trackLibsqlClient } from "./request-stats.ts"
+import { postgresConnectionUrl } from "./postgres-connection.ts"
 
 import type { Client } from "@libsql/client"
 import type { AnyRelations } from "drizzle-orm"
@@ -140,6 +141,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
 
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema, TRelations>, {
     get(_, prop) {
+      if (prop === postgresConnectionUrl) return undefined
       const instance = getDb()
       const value = instance[prop as keyof RuntimeDrizzleDatabase<TSchema, TRelations>]
       return typeof value === "function" ? value.bind(instance) : value

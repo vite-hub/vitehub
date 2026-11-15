@@ -1,6 +1,6 @@
 // Generated startup code imports this module. Keep it free of Better Auth imports: `@vite-hub/auth/server` loads
 // Better Auth, and startup code imports it only when a request needs an Auth instance.
-import { resolveAccessRoutePath } from "../application-path.ts"
+import { canonicalAccessPath, resolveAccessRoutePath } from "../application-path.ts"
 import { unwrapAuthRequest } from "../request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
@@ -44,8 +44,18 @@ export interface AuthAccessRouteMatch {
   authorize: boolean
 }
 
-/** Return a function that lists the access routes that match a request, in Definition order. */
-export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccessRoute[]): (input: AuthRequestInput) => AuthAccessRouteMatch[] {
+function matchesPath(rule: { path: string, recursive: boolean }, pathname: string): boolean {
+  return pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))
+}
+
+/**
+ * Return a function that lists the access routes that match a request, in Definition order. A request to a path of
+ * `publicRoutes` matches no access route.
+ */
+export function createAuthAccessRouteMatcher(
+  routes: readonly ResolvedAuthAccessRoute[],
+  publicRoutes: readonly string[] = [],
+): (input: AuthRequestInput) => AuthAccessRouteMatch[] {
   const rules = routes.map((route, index) => ({
     index,
     authorize: route.authorize === true,
@@ -53,16 +63,18 @@ export function createAuthAccessRouteMatcher(routes: readonly ResolvedAuthAccess
     // Request URLs keep the application base path, so match each route below it.
     ...resolveAccessRoutePath(route.route),
   }))
+  const exceptions = publicRoutes.map(route => resolveAccessRoutePath(route))
 
   return (input) => {
     if (routedToAccessHandler(input)) return []
     const request = unwrapAuthRequest(input)
-    const pathname = new URL(request.url).pathname
+    // Match the path that the Nitro router reads.
+    const pathname = canonicalAccessPath(new URL(request.url).pathname)
+    if (exceptions.some(rule => matchesPath(rule, pathname))) return []
     const method = request.method.toUpperCase()
     return rules
-      .filter(rule =>
-        (!rule.method || rule.method === method)
-        && (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))))
+      // H3 runs a GET handler for a HEAD request, so a GET rule also guards HEAD.
+      .filter(rule => (!rule.method || rule.method === method || (rule.method === "GET" && method === "HEAD")) && matchesPath(rule, pathname))
       .map(rule => ({ index: rule.index, authorize: rule.authorize }))
   }
 }
@@ -75,13 +87,14 @@ type AuthAccessHandler = (input: AuthRequestInput) => Promise<Response | undefin
  */
 export function createLazyAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
-  load: () => Promise<{ createAuthAccessHandler: (routes: readonly ResolvedAuthAccessRoute[]) => AuthAccessHandler }>,
+  load: () => Promise<{ createAuthAccessHandler: (routes: readonly ResolvedAuthAccessRoute[], definition?: undefined, publicRoutes?: readonly string[]) => AuthAccessHandler }>,
+  publicRoutes: readonly string[] = [],
 ): AuthAccessHandler {
-  const match = createAuthAccessRouteMatcher(routes)
+  const match = createAuthAccessRouteMatcher(routes, publicRoutes)
   let handler: Promise<AuthAccessHandler> | undefined
   return async (input) => {
     if (match(input).length === 0) return
-    handler ??= load().then(module => module.createAuthAccessHandler(routes)).catch((error: unknown) => {
+    handler ??= load().then(module => module.createAuthAccessHandler(routes, undefined, publicRoutes)).catch((error: unknown) => {
       handler = undefined
       throw error
     })

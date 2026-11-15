@@ -17,6 +17,8 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // This file defines the docs room.
 export default defineRealtime({
+  // Only signed-in users can read and edit
+  auth: true,
   // Save each document to the docs Workspace
   document: { workspace: 'docs' },
   // Let the editor save a version on request

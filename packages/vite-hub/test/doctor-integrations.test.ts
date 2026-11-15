@@ -13,6 +13,9 @@ import {
   sandboxRuntimeOptions,
   validViteHubOptions,
 } from "../src/doctor/rules/integrations.ts"
+import { runProjectFixture } from "vite-doctor/testkit"
+
+import vitehubDoctorExtension from "../src/doctor.ts"
 import { codes, doctorTestTimeout } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
@@ -56,15 +59,15 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 5000, maxWait: 1000 } })",
       ),
       "server/realtime/slow.ts": lines(
         "import { defineRealtime } from \"@vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 20000 } })",
       ),
       "server/realtime/text.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: \"2s\" } })",
       ),
     })).toEqual(["VHUB0025", "VHUB0025", "VHUB0025"])
   })
@@ -73,16 +76,16 @@ describe("vitehub/realtime-persistence", () => {
     expect(await codes(realtimePersistence, {
       "server/realtime/notes.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce: 500, maxWait: 5000 } })",
       ),
       "server/realtime/dynamic.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
         "const debounce = Number(\"9000\")",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: { debounce, maxWait: 1000 } })",
       ),
       "server/realtime/off.ts": lines(
         "import { defineRealtime } from \"vite-hub/realtime\"",
-        "export default defineRealtime({ document: { workspace: \"docs\" }, persistence: false })",
+        "export default defineRealtime({ auth: true, document: { workspace: \"docs\" }, persistence: false })",
       ),
     })).toEqual([])
   })
@@ -248,6 +251,40 @@ describe("vitehub/no-nuxthub-leftovers", () => {
       "server/api/images/[pathname].delete.ts": "import { blob } from \"vite-hub/blob\"\nexport default defineEventHandler(() => blob.delete(\"a.png\"))\n",
       "server/api/other.ts": "const files = { delete: (key: string) => key }\nexport default defineEventHandler(() => files.delete(\"a\"))\n",
     }, "nuxt")).toEqual([])
+  })
+
+  it("reports installed packages that need @nuxthub/core, and only those", async () => {
+    const installed = (name: string, fields: Record<string, Record<string, string>>) => ({ [`node_modules/${name}/package.json`]: JSON.stringify({ name, version: "1.0.0", ...fields }) })
+    let configText = ""
+    const run = (dependencies: Record<string, string>, modules: string) => runProjectFixture({
+      framework: "nuxt",
+      files: {
+        "package.json": JSON.stringify({ type: "module", dependencies: { nuxt: "^5.0.0", ...dependencies } }),
+        "nuxt.config.ts": configText = `export default defineNuxtConfig({ modules: [${modules}], vitehub: { host: "node", database: true } })\n`,
+        ...installed("@evlog/nuxthub", { peerDependencies: { "@nuxthub/core": "^0.10.12", "evlog": "^2.0.0" } }),
+        ...installed("hub-tools", { dependencies: { "@nuxthub/core": "^0.10.12" } }),
+        // False positives: a dev-only peer, a peer on another NuxtHub package, and a plain module.
+        ...installed("dev-peer", { devDependencies: { "@nuxthub/core": "^0.10.12" } }),
+        ...installed("kv-peer", { peerDependencies: { "@nuxthub/kv": "^1.0.0" } }),
+        ...installed("@nuxt/content", { peerDependencies: { "better-sqlite3": "*" } }),
+      },
+      extensions: [vitehubDoctorExtension],
+      run: { rules: noNuxtHubLeftovers.meta.id },
+    })
+    const result = await run({ "vite-hub": "*", "@evlog/nuxthub": "^1.0.0", "hub-tools": "^1.0.0", "dev-peer": "^1.0.0", "kv-peer": "^1.0.0", "@nuxt/content": "^3.0.0" }, "\"vite-hub/nuxt\", \"@evlog/nuxthub\", \"kv-peer\", \"@nuxt/content\"")
+    const found = result.diagnostics.filter(diagnostic => diagnostic.code === "VHUB0032")
+    expect(found.map(diagnostic => [diagnostic.message, diagnostic.why?.slice(0, 70)])).toEqual([
+      [expect.any(String), "`@evlog/nuxthub` lists `@nuxthub/core` in its peerDependencies, so the"],
+      [expect.any(String), "`hub-tools` lists `@nuxthub/core` in its dependencies, so the package "],
+    ])
+    // A listed module points at its entry, and a package outside `modules` at the `modules` key.
+    expect(found.map(diagnostic => diagnostic.range && configText.slice(diagnostic.range.start, diagnostic.range.end))).toEqual([
+      "\"@evlog/nuxthub\"",
+      expect.stringMatching(/^modules: \[/),
+    ])
+    // An app that does not use ViteHub yet gets no report.
+    const before = await run({ "@nuxthub/core": "^0.10.12", "@evlog/nuxthub": "^1.0.0" }, "\"@nuxthub/core\", \"@evlog/nuxthub\"")
+    expect(before.diagnostics.filter(diagnostic => diagnostic.code === "VHUB0032")).toEqual([])
   })
 
   it("accepts ViteHub config and apps that still use only NuxtHub", async () => {

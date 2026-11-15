@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { picture } from "../media"
-import { Avatar, AvatarFallback, AvatarImage } from "@vite-hub/kit/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@ui-sdk/vue/avatar"
 
 const person = {
   name: "shadcn",

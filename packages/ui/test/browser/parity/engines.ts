@@ -4,5 +4,5 @@ import type { Component } from "vue";
 // and each fixture renders the accessible content that `scripts/<component>.mjs` describes.
 export const engines: Record<string, Record<string, () => Promise<{ default: Component }>>> = {
   reka: import.meta.glob("./reka/*.vue"),
-  kit: import.meta.glob("./kit/*.vue"),
+  "ui-sdk": import.meta.glob("./ui-sdk/*.vue"),
 };

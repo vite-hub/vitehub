@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { MinusIcon } from "../icons"
-import { Field, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
 import {
   OTPInput,
   OTPInputGroup,
   OTPInputSeparator,
   OTPInputSlot,
-} from "@vite-hub/kit/otp-input"
+} from "@ui-sdk/vue/otp-input"
 </script>
 
 <template>

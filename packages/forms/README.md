@@ -37,7 +37,7 @@ For each `POST`, `handleFormRequest()`:
 
 A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=<name>.sent` or `?form=<name>.error`, such as `?form=contact.sent`.
 
-For Valibot object schemas, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
+For the fields that `formFields()` reads, from a Valibot object or a schema with a Standard JSON Schema such as Zod, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
 
 Two fields are not form data: `_page`, the app path of the form (default: the `Referer`), and `_anchor`, the part of the page that the sender pointed at: `{ selector, exact, prefix, suffix }`, the same text quote as a Comments text anchor, so `resolveAnchor({ kind: "text", ...anchor })` from `@vite-hub/comments/client` finds the sentence again.
 
@@ -47,12 +47,24 @@ Two fields are not form data: `_page`, the app path of the form (default: the `R
 
 | Service | Does | Without it |
 | --- | --- | --- |
-| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
+| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. In a ViteHub app, the Database is the store. Without it, a development server keeps submissions in memory, and a build fails with `FORMS_B0002` when a form stores submissions. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
 | `email` | Sends `notify.email`. | A stored submission is kept; without `store` the request gets 503. |
 | `rateLimit` | Decides each request. | No rate limit. |
 | `identify` | Returns the signed-in user. | Every sender is anonymous. |
 | `waitUntil` | Sends the email after the response. | The response waits for the email. |
 | `log` | Reports failures that do not change the response. | They are silent. |
+
+## Every surface
+
+One schema draws a web form, an MCP elicitation, and a Slack modal or Teams dialog, and the same values give the same errors on all of them. `formFields(form)` reads the fields of a flat form from a Valibot object, or from any Standard Schema with a Standard JSON Schema, such as the Zod input of an Agent tool. Each field is text, a number, a whole number, true or false, or a choice.
+
+| Surface | Draw it | Check the answer |
+| --- | --- | --- |
+| Web form | `AutoForm`, or `useFormAction()` | `handleFormRequest()` |
+| MCP elicitation | `toElicitation(form, { message })`: the params of `elicitation/create` in form mode | `readElicitation(form, result)` |
+| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })`: a Chat SDK modal, one input for each field, with the field name as its id | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
+
+Each check is `checkForm(form, values)`, the check of `handleFormRequest()`. It returns `[error, data]`, and `fieldErrors(error)` gives the error of each field by name. Form data, chat text, and checkbox values decode to the field types first. A nested object, a list, a union, or a root that is not an object throws `FORMS_FIELD_NOT_DRAWABLE` when a surface draws it. An MCP elicitation also refuses a choice of numbers, because MCP choices are text. The `@vite-hub/mcp` server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
 
 ## The Database
 
@@ -69,7 +81,7 @@ const [error, sent] = await submitForm("contact", { email, message })
 if (error) showFieldErrors(error.issues)
 ```
 
-`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence.
+`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
 
 ## Vue
 
@@ -88,7 +100,33 @@ import { ContactSchema } from "#shared/schemas"
 
 A string becomes a text, email, or url input, or a textarea when it is long or named like `message`. A number becomes a number input, a boolean a checkbox, and a picklist a select. `v.title()` sets the label.
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the values and puts each server issue under its field:
+For your own markup, use a native `<form>` and `useFormAction()`. It sends the controls by their `name`, keeps the server error of each field in `errors`, moves focus to the first field with an error, and resets the form after a success. With ui-sdk, a `Field` shows the error of its control:
+
+```vue fragment
+<script setup lang="ts">
+import { Field, FieldError, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+import { formRoute, useFormAction } from "@vite-hub/forms/vue"
+
+const { submit, errors, sent, clear } = useFormAction("contact")
+</script>
+
+<template>
+  <form method="post" :action="formRoute('contact')" @submit="submit">
+    <Field name="email" :invalid="errors.email ? true : undefined">
+      <FieldLabel>Email</FieldLabel>
+      <Input type="email" required @value-change="clear('email')" />
+      <FieldError v-if="errors.email" match>{{ errors.email }}</FieldError>
+    </Field>
+    <button>Send</button>
+    <p role="status">{{ sent ? "Thanks." : "" }}</p>
+  </form>
+</template>
+```
+
+`@vite-hub/forms/vue` still loads `@formisch/vue` for `AutoForm`, so install it too.
+
+With Formisch, use `useFormSubmit()`. It sends the values and puts each server issue under its field:
 
 ```vue fragment
 <script setup lang="ts">

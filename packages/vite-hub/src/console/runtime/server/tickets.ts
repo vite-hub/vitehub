@@ -4,7 +4,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
-import { consoleImpersonation, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
+import { consoleImpersonation, readConsoleAccessUser, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { consoleErrorResult, consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -189,13 +189,21 @@ async function ticketIdentifier(ticket: string, prefix = identifierPrefix): Prom
 
 /** The origin of the app for a request: `vitehub({ publicUrl })` when set, else the URL of the request. */
 export function appOrigin(request: Request): string {
-  return new URL(resolvePublicUrl({ request }) ?? request.url).origin
+  const origin = resolvePublicUrl({ request })
+  if (!origin) throw consoleRequestError(403, "The request host is not an origin of vitehub({ publicUrl }).", "CONSOLE_ORIGIN_REJECTED")
+  return new URL(origin).origin
 }
 
 /** The app mount of a Console RPC request: its path before `/_vitehub/rpc`. */
 export function appBase(request: Request): string {
   const { pathname } = new URL(request.url)
   return pathname.endsWith(operationRpcPath) ? pathname.slice(0, -operationRpcPath.length) : ""
+}
+
+/** Why a call without a person, such as a `vitehub` command against a deployed app, gets no ticket. */
+const noPerson: Partial<Record<ConsoleTicketPurpose, string>> = {
+  "page.member": "Opening the site signs the browser in as the app user with the email of the person who asks, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
+  "page.guest": "An invite records the Console member who made it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
 }
 
 /**
@@ -211,7 +219,7 @@ export async function issueConsoleTicket(
   const { request } = context
   if (!request) throw consoleRequestError(400, "A one-time link needs the request of the call.")
   const user = await readConsoleOperationUser(context.access)
-  if (!user?.id) throw consoleRequestError(403, "A one-time link opens the app as the person who asks for it, and this call names no person. Open it from the ViteHub Console.", "CONSOLE_ACCESS_DENIED")
+  if (!user?.id) throw consoleRequestError(403, noPerson[purpose] ?? consoleDiagnosticBody("CONSOLE_TICKET_NO_PERSON").message, "CONSOLE_TICKET_NO_PERSON")
   const [email, name, image]: unknown[] = ["email", "name", "image"].map(field => Reflect.get(user, field))
   const person = {
     id: user.id,
@@ -223,6 +231,8 @@ export async function issueConsoleTicket(
     throw consoleRequestError(403, "Impersonation checks that the browser is signed in to the app with the email of your Console account, and your Console account has no email. Sign in to the Console with GitHub.", "CONSOLE_ACCESS_DENIED")
   }
   if (purpose === "page.member" && !person.email) {
+    // Without a signed person, the caller is the local developer of a development server, who has no email.
+    if (!readConsoleAccessUser(context.access)) throw consoleRequestError(403, "Opening the site signs the browser in as the app user with your email, and the development server knows you only as the local developer, without an email.", "CONSOLE_TICKET_NO_PERSON")
     throw consoleRequestError(403, "Opening the site signs the browser in as the app user with the email of your Console account, and your Console account has no email. Sign in to the Console with GitHub.", "CONSOLE_ACCESS_DENIED")
   }
   const store = await ticketStore(request, isRequestEvent(context.event) ? context.event : undefined)

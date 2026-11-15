@@ -8,7 +8,7 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
   NavigationMenuViewport,
-} from "@vite-hub/kit/navigation-menu"
+} from "@ui-sdk/vue/navigation-menu"
 import {
   ArrowRightIcon,
   ChevronDownIcon,

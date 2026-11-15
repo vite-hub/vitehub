@@ -9,6 +9,11 @@ export const messageWorkspaceChange = 4
 /** Server-to-client JSON control frame: the room session on open, or a reset before closing. */
 export const messageRealtimeControl = 5
 export const messageAwareness = 1
+/**
+ * A JSON request from the server to the one browser in a room, or that browser's answer. Only rooms of a presence
+ * Definition with `requests: true` carry it. `kind` tells the direction, so a request from the browser can be added.
+ */
+export const messageRealtimeRequest = 6
 export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
 /**
@@ -116,4 +121,30 @@ export function readAwarenessClientIds(update: Uint8Array): number[] {
     decoding.readVarString(decoder)
   }
   return clients
+}
+
+export type RealtimeRequestFrame =
+  | { kind: "request", id: string, body: unknown }
+  | { kind: "answer", id: string, ok: true, body: unknown }
+  | { kind: "answer", id: string, ok: false, why: string }
+
+export function encodeRealtimeRequestFrame(frame: RealtimeRequestFrame): Uint8Array {
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, messageRealtimeRequest)
+  encoding.writeVarString(encoder, JSON.stringify(frame))
+  return encoding.toUint8Array(encoder)
+}
+
+/** Reads a request frame after its message type, or `undefined` when it is not one. */
+export function decodeRealtimeRequestFramePayload(decoder: decoding.Decoder): RealtimeRequestFrame | undefined {
+  try {
+    const value: unknown = JSON.parse(decoding.readVarString(decoder))
+    if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string" || !value.id || value.id.length > 128) return
+    if (!("kind" in value)) return
+    if (value.kind === "request") return { kind: "request", id: value.id, body: "body" in value ? value.body : undefined }
+    if (value.kind !== "answer" || !("ok" in value)) return
+    if (value.ok === true) return { kind: "answer", id: value.id, ok: true, body: "body" in value ? value.body : undefined }
+    if (value.ok === false && "why" in value && typeof value.why === "string") return { kind: "answer", id: value.id, ok: false, why: value.why }
+  }
+  catch {}
 }

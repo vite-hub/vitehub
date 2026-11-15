@@ -26,7 +26,7 @@ import { useConnectStore } from "./connect-store.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
-import { WorkspacePreview } from "./workspace-preview.ts";
+import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
@@ -163,6 +163,8 @@ const PlaygroundSession = defineComponent({
     const workspace = useWebContainer({
       files: props.files,
       port: props.port,
+      // The browser frame of the preview reads the page address and goes Back and Forward through this script.
+      previewScript: workspacePreviewScript,
       env: props.connect && store.env(props.connect),
       ...booted.snapshot && { snapshot: booted.snapshot, install: sameManifest ? false : "install" },
     });

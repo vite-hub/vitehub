@@ -193,6 +193,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   "vite-hub": {
     // `console.vite.config.ts` aliases `shiki/wasm` to this file by path.
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
+    // `test/agent-page.browser.mjs` writes fixture apps that import ui-sdk, as source text.
+    ignoreDependencies: ["@ui-sdk/core", "@ui-sdk/vue"],
   },
 };
 

@@ -16,14 +16,14 @@ const { adminAc, defaultStatements, userAc } = betterAuthAdminAccess
  * actions of `content.can()`, and `comment` for Comments. `comment:delete` removes threads of other people.
  */
 export type CmsStatements = typeof betterAuthAdminAccess.defaultStatements & {
-  readonly content: readonly ["read", "write", "publish"]
+  readonly content: readonly ["read", "read-draft", "write", "publish"]
   readonly comment: readonly ["read", "create", "resolve", "delete"]
 }
 
 /** The statements of `cmsAc`. */
 export const cmsStatements: CmsStatements = {
   ...defaultStatements,
-  content: ["read", "write", "publish"],
+  content: ["read", "read-draft", "write", "publish"],
   comment: ["read", "create", "resolve", "delete"],
 }
 
@@ -50,10 +50,10 @@ const comments: CmsStatements["comment"][number][] = ["read", "create", "resolve
 /** The CMS roles, for `admin({ roles })` of Better Auth. */
 export const cmsRoles: Readonly<Record<CmsRoleName, CmsRole>> = {
   user: cmsAc.newRole(userAc.statements),
-  viewer: cmsAc.newRole({ content: ["read"] }),
-  commenter: cmsAc.newRole({ content: ["read"], comment: comments }),
-  editor: cmsAc.newRole({ content: ["read", "write"], comment: comments }),
-  publisher: cmsAc.newRole({ content: ["read", "write", "publish"], comment: cmsStatements.comment }),
+  viewer: cmsAc.newRole({ content: ["read", "read-draft"] }),
+  commenter: cmsAc.newRole({ content: ["read", "read-draft"], comment: comments }),
+  editor: cmsAc.newRole({ content: ["read", "read-draft", "write"], comment: comments }),
+  publisher: cmsAc.newRole({ content: ["read", "read-draft", "write", "publish"], comment: cmsStatements.comment }),
   admin: cmsAc.newRole({ ...adminAc.statements, content: cmsStatements.content, comment: cmsStatements.comment }),
 }
 
@@ -94,6 +94,7 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
 /**
  * `defineContent({ authorize })` from the CMS roles: `content.can()` allows an action when a role of the user has
  * `content:<action>`. `defineContent({ extends: [cms, { access: "roles" }] })` uses it when the app sets no `authorize`.
+ * Only CMS roles have `content:read`, so `/api/content/**` needs `defineContent({ access: "public" })` to serve visitors.
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })
 
@@ -116,12 +117,12 @@ export function cmsCommentsAuthorize(context: Pick<CommentsAuthorizeContext, "us
 
 /**
  * `defineConsoleAuthorize()` from the CMS roles. `admin` uses every Console section. Other roles use the `content`
- * section with `content:read` and the `comments` section with `comment:read`. A user without either gets `403`.
+ * section with `content:read-draft` and the `comments` section with `comment:read`. A user without either gets `403`.
  */
 export function cmsConsoleAuthorize(context: { user?: CmsUser | null }): true | { sections: string[] } {
   if (cmsRolesOf(context.user).includes("admin")) return true
   const sections: string[] = []
-  if (cmsCan(context.user, { content: ["read"] })) sections.push("content")
+  if (cmsCan(context.user, { content: ["read-draft"] })) sections.push("content")
   if (cmsCan(context.user, { comment: ["read"] })) sections.push("comments")
   return { sections }
 }

@@ -205,7 +205,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]",
           "    },",
           "    handleMultipartUpload: (event, options) => handleBlobMultipartUpload(runtimeStorage, event, options),",
-          "    handleUpload: (event, options) => handleBlobUpload(runtimeStorage, event, options),",
+          "    handleUpload: (event, options) => handleBlobUpload(runtimeStorage, event, options, name),",
           "    async resumeMultipartUpload(pathname, uploadId) {",
           "      const [error, upload] = await storage.resumeMultipartUpload(pathname, uploadId)",
           "      return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]",

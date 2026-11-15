@@ -806,7 +806,7 @@ export default defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ sitemap: true, robots: { disallow: ["/admin"] }, rss: { title: "Example" }, mcp: true }`)
@@ -857,7 +857,7 @@ export default defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ markdown: true }`)
@@ -888,7 +888,7 @@ export default defineContent(${options})
     await mkdir(join(root, "server"), { recursive: true })
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ llms: { title: "Docs" } }`)

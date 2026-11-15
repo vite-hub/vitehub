@@ -219,7 +219,7 @@ it("adds Cloudflare Workflows to the Nitro Worker of a Vite build", async () => 
     const nuxtConfig = { nitro: {}, root: rootDir, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
     const nuxt = await runConfigHook(nuxtConfig, "cloudflare-module")
     expect(nuxt.cloudflare).toBeUndefined()
-    expect((await runConfigHook({ nitro: {}, root: rootDir }, "node-server")).cloudflare).toBeUndefined()
+    expect((await runConfigHook({ nitro: {}, root: rootDir }, "node-server", [], { provider: "openworkflow" })).cloudflare).toBeUndefined()
   }
   finally {
     await rm(rootDir, { force: true, recursive: true })

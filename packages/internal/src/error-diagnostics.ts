@@ -85,6 +85,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ field, generated, name, path, project, scope }: { field: string, generated: string, name: string, path: string, project: string, scope: string }) => `The Cloudflare ${path} entry "${name}"${scope} is written by ViteHub and by the project's Wrangler config with a different ${field}: ${generated} and ${project}.`,
       fix: "Remove the entry from the project's Wrangler config, since ViteHub writes it, or give one of them another name.",
     },
+    INTERNAL_B0052: {
+      why: ({ column, section }: { column: string, section: string }) => `The column "${column}" of the Console section "${section}" needs both \`format: "switch"\` and a \`switch\` operation name such as "skills.set".`,
+      fix: "Give a switch column `format: \"switch\"` and `switch: { operation, input }` with a registered operation name, or remove both.",
+    },
     INTERNAL_R0025: {
       fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),

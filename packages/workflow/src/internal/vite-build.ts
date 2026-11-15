@@ -133,9 +133,14 @@ interface VercelWorkflowBuilders {
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
-export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+/**
+ * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
+ * fails on import, as the missing package would.
+ */
+export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
-  const namespace = "vitehub-optional-vite-devtools"
+  const namespace = "vitehub-optional-package"
   return {
     name: namespace,
     setup(build) {
@@ -150,7 +155,17 @@ export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
           return { namespace, path: args.path }
         }
       })
-      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+      build.onResolve({ filter: /^@vite-hub\/kv$/ }, async (args) => {
+        if (args.pluginData === namespace) return
+        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
+        return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onLoad({ filter: /.*/, namespace }, args => ({
+        contents: optionalViteDevtoolsPattern.test(args.path)
+          ? "export {}"
+          : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${args.path}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`,
+        loader: "js",
+      }))
     },
   }
 }
@@ -601,22 +616,23 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "vercel-vite", factory: "createWorkflowVercelServer", hosting: "vercel" },
 ]
 
-function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
-  return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+function resolveWorkflowConfig(workflow: WorkflowOptions | undefined, hosting: string, inline = false): false | ResolvedWorkflowOptions {
+  return normalizeWorkflowOptions(workflow, { hosting, inline }) ?? false
 }
 
 /**
  * The Provider Output that a build writes. Without a host, both outputs are written.
- * Only Vercel deploys the Vercel output, so other hosts skip it.
+ * Only Vercel deploys the Vercel output, so other hosts skip it. `inline` lets a host without an inferable provider
+ * run Workflows inline instead of failing, as in `vite dev` and for the Workflow that only the Agent turns on.
  */
-export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string): {
+export function resolveWorkflowProviderOutputs(workflow: WorkflowOptions | undefined, hosting?: string, inline = false): {
   cloudflare: false | ResolvedWorkflowOptions
   vercel: false | ResolvedWorkflowOptions
 } {
   if (!hosting) {
     return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
   }
-  const config = resolveWorkflowConfig(workflow, hosting)
+  const config = resolveWorkflowConfig(workflow, hosting, inline)
   return {
     cloudflare: config && config.provider === "cloudflare" ? config : false,
     vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
@@ -641,6 +657,8 @@ interface GenerateProviderOutputsOptions {
   bundleDefines?: Record<string, string>
   hosting?: string
   importBase?: string
+  /** Run Workflows inline when the host has no inferable provider. See `resolveWorkflowProviderOutputs()`. */
+  inline?: boolean
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
   vercelRuntimePackages?: VercelFunctionRuntimePackage[]
@@ -795,7 +813,8 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
 export async function createCloudflareWorkflowNitroConfig(options: CloudflareWorkflowNitroOptions): Promise<Record<string, unknown>> {
   const preset = String(options.nitro.preset || "")
   if (options.workflow === undefined && !preset.includes("cloudflare")) return options.nitro
-  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset })
+  // Only a Cloudflare result matters here. Other hosts report a missing provider in the Workflow build.
+  const config = normalizeWorkflowOptions(options.workflow, { hosting: preset, inline: true })
   if (!config || config.provider !== "cloudflare") return options.nitro
 
   const artifacts = await writeProviderEntries(options.rootDir, options.workflow, {
@@ -1010,7 +1029,10 @@ export function createWorkflowRegistryContents(
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime ? importBases.workspaceDependencies : undefined
+  // Import the Workspace runtime only to install a loader. A Workflow-only app does not install `@vite-hub/workspace`.
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && Object.values(importBases.workspaceDependencies ?? {}).some(Boolean)
+    ? importBases.workspaceDependencies
+    : undefined
   const agent = importBases.agent
   if (needsAgentRuntime && !agent) throw workflowErrorDiagnostics.WORKFLOW_B0003()
   const imports = [
@@ -1326,7 +1348,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
-      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
+      plugins: [createOptionalPackagesPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -1386,7 +1408,7 @@ function createVercelOutput(
       format: "esm",
       platform: "node",
       plugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
+        createOptionalPackagesPlugin(rootDir),
         ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
       ],
     },
@@ -1540,7 +1562,7 @@ async function generateProviderOutputsWithinLock(
     workspaceRuntime: options.workspaceRuntimeModule,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

@@ -13,6 +13,7 @@ const frameworks = ["Nuxt", "Nitro", "Vite"]
 const singleFramework: Record<string, string> = {
   "development/testing.md vite.config.ts": "Vitest reads a Vite plugin config, including when the app uses Nuxt.",
   "frameworks-hosts/node-self-hosted.md vite.config.ts": "The systemd unit is checked for vitehub() in vite.config.ts builds only, not for the Nuxt module yet.",
+  "blob/media.md nuxt.config.ts": "The Nuxt Image section is about @nuxt/image, which is a Nuxt module.",
   "docs-site/assistant.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
   "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
@@ -21,6 +22,7 @@ const singleFramework: Record<string, string> = {
   "frameworks-hosts/nuxt-server-auto-imports.md nuxt.config.ts": "The page is about the Nuxt module's server auto-imports.",
   "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
+  "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
   "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
   "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",

@@ -35,10 +35,10 @@ describe("kv.store(name, { mode: \"read\" })", () => {
 
   it("has no write methods at runtime", () => {
     const reader = kv.store("default", { mode: "read" })
-    for (const method of ["set", "setIfAbsent", "delete", "clear", "getAndDelete", "increment", "store"]) {
+    for (const method of ["set", "setIfAbsent", "setMany", "delete", "clear", "getAndDelete", "increment", "store"]) {
       expect(method in reader).toBe(false)
     }
-    expect(Object.keys(reader).sort()).toEqual(["get", "has", "keys", "list"])
+    expect(Object.keys(reader).sort()).toEqual(["get", "getMany", "has", "keys", "list"])
   })
 
   it.each(["readonly", null])("rejects the invalid mode %j instead of returning a writable handle", (mode) => {
