@@ -266,7 +266,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
+    // Fails alike on Workers and Node, where fetch with redirect: "error" throws a TypeError.
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "redirect", status: response.status })
     return response
   }
   const scheduler = createRequestScheduler()
@@ -1397,7 +1398,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)
-      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
+      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
       issuedAt = claims.iat * 1000
     }
     catch { throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY() }
