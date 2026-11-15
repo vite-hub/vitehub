@@ -140,7 +140,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     KV_PROVISION_FAILED: {
       why: ({ problem }: { problem: string }) => `Cloudflare KV provisioning failed. ${problem}`,
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` and check the Cloudflare token permissions.",
     },
   },
 })
