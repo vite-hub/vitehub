@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 import { defineSync } from "../src/define.ts"
 import { liveResponse } from "../src/live.ts"
 import { syncLiveRoute } from "../src/protocol.ts"
-import { createSyncHandler, handleSyncRequest, recordSyncChanges } from "../src/runtime.ts"
+import { createSyncHandler, handleSyncRequest } from "../src/runtime.ts"
 import { createHarness, origin, readEvents, teamsOf } from "./handler-harness.ts"
 
 import type { SyncPullResponse, SyncWireError } from "../src/protocol.ts"
@@ -25,7 +25,7 @@ async function setup(live: SyncServices["live"], options: { live?: boolean } = {
     tasks: defineSync({ table: tasks, where: byTeam }),
     quiet: defineSync({ table: tasks, where: byTeam, live: false }),
   }
-  return { ...await createHarness({ name: "notes", definition, others, ddl: [ddl, tasksDdl], live }), definition, others }
+  return { ...await createHarness({ name: "notes", definition, definitions: others, ddl: [ddl, tasksDdl], live }), definition, others }
 }
 
 const as = (held: { scope: string, version: string, account: string, cursor: number }) => ({ scope: held.scope, version: held.version, cursor: held.cursor })
@@ -232,29 +232,53 @@ describe("live", () => {
   })
 })
 
-it("routes the live stream of the installed handler, and wakes it at once after recordSyncChanges()", async () => {
-  const app = await setup(undefined)
-  // The installed handler checks the change log every second, and has its own services object, as in a ViteHub app.
-  const handler = createSyncHandler({ definitions: { notes: app.definition }, db: () => app.db, session: app.services.identify! })
+it("streams a write of server code on the next check of the change log", async () => {
+  const app = await setup({ interval: 50, seconds: 30 })
   const held = await app.start(alice)
-  const controller = new AbortController()
-  const response = await handler.fetch(new Request(new URL(`/app${syncLiveRoute}`, origin), {
-    method: "POST",
-    signal: controller.signal,
-    headers: { "content-type": "application/json", origin, "x-user": "alice", "x-teams": "a" },
-    body: JSON.stringify({ pulls: [{ name: "notes", ...as(held) }] }),
-  }))
-  expect(response.status).toBe(200)
+  const { response, abort } = await app.live(alice, [as(held)])
   const events = readEvents(response)
   await opened(events)
   expect(await events.next(100)).toBe("timeout")
 
   const started = performance.now()
   await app.db.insert(notes).values({ id: "n1", teamId: "a", body: "From a job" })
-  expect(await recordSyncChanges("notes", { put: ["n1"] })).toEqual([undefined, { recorded: 1 }])
+  const event = await events.next(2000)
+  expect(performance.now() - started).toBeLessThan(1000)
+  expect(dataOf<PullData>(event).pull.rows).toEqual([{ id: "n1", teamId: "a", body: "From a job" }])
+  abort()
+  expect(await events.next(1000)).toBe("end")
+})
+
+it("routes the live stream of the installed handler, and wakes it at once after a push to another definition of the table", async () => {
+  const app = await setup(undefined)
+  // Two definitions of one table in one installed handler, which checks the change log every second and has its own
+  // services object, as in a ViteHub app.
+  const everyone = defineSync({ table: notes, where: () => ({}), write: false })
+  const handler = createSyncHandler({ definitions: { notes: app.definition, everyone }, db: () => app.db, session: app.services.identify! })
+  const first = await (await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/everyone", origin), { headers: { "x-user": "alice", "x-teams": "a" } }))).json() as SyncPullResponse
+  const controller = new AbortController()
+  const response = await handler.fetch(new Request(new URL(`/app${syncLiveRoute}`, origin), {
+    method: "POST",
+    signal: controller.signal,
+    headers: { "content-type": "application/json", origin, "x-user": "alice", "x-teams": "a" },
+    body: JSON.stringify({ pulls: [{ name: "everyone", cursor: first.cursor, scope: first.scope.id, version: first.version }] }),
+  }))
+  expect(response.status).toBe(200)
+  const events = readEvents(response)
+  await opened(events)
+  expect(await events.next(100)).toBe("timeout")
+
+  const held = await (await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/notes", origin), { headers: { "x-user": "bob", "x-teams": "a" } }))).json() as SyncPullResponse
+  const started = performance.now()
+  const pushed = await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/notes", origin), {
+    method: "POST",
+    headers: { "content-type": "application/json", origin, "x-user": "bob", "x-teams": "a" },
+    body: JSON.stringify({ account: held.account, mutations: [{ id: "m1", op: "insert", value: { id: "n1", teamId: "a", body: "Hello" } }] }),
+  }))
+  expect(pushed.status).toBe(200)
   const event = await events.next(2000)
   expect(performance.now() - started).toBeLessThan(500)
-  expect(dataOf<PullData>(event).pull.rows).toEqual([{ id: "n1", teamId: "a", body: "From a job" }])
+  expect(dataOf<PullData>(event)).toMatchObject({ name: "everyone", pull: { rows: [{ id: "n1", teamId: "a", body: "Hello" }] } })
   controller.abort()
   expect(await events.next(1000)).toBe("end")
 })
@@ -263,7 +287,7 @@ describe("live deadline", () => {
   async function ends(check: () => Promise<{ again?: boolean }>) {
     const controller = new AbortController()
     const started = performance.now()
-    const response = liveResponse({ key: {}, names: ["deadline"], signal: controller.signal, interval: 50, seconds: 0.2, check })
+    const response = liveResponse({ key: {}, tables: ["deadline"], signal: controller.signal, interval: 50, seconds: 0.2, check })
     const result = await readEvents(response).next(2000)
     const elapsed = performance.now() - started
     controller.abort()

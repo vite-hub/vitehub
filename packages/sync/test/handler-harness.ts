@@ -46,9 +46,9 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   name: string
   ddl: readonly string[]
   definition: SyncDefinition<TTable, TRow, TArgs>
-  /** More definitions for the live stream, by name. */
-  others?: Record<string, Pick<SyncDefinition, "~sync">>
   live?: SyncServices["live"]
+  /** The other definitions of the app, by name, for `sync(name)` in actions and for the live stream. */
+  definitions?: Record<string, Pick<SyncDefinition, "~sync">>
 }) {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${[...syncTables, ...options.ddl].join(";\n")};`)
@@ -76,7 +76,8 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     },
   })
   const db: SyncDatabase = drizzle({ client: counted })
-  const clock = { now: 1_000_000_000_000 }
+  // The real time: the triggers stamp the change log with the time of the Database, and compaction compares it.
+  const clock = { now: Date.now() }
   const services: SyncServices = {
     db,
     now: () => clock.now,
@@ -86,6 +87,7 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
       return id ? { user: { id, ...(teams !== null ? { teams: teams ? teams.split(",") : [] } : {}) }, session: null } : null
     },
     ...(options.live ? { live: options.live } : {}),
+    ...(options.definitions ? { definitions: options.definitions } : {}),
   }
   const route = `/api/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)
@@ -121,7 +123,7 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     return { status: response.status, body: await response.json() as SyncPushResponse & { code?: string, message?: string } }
   }
 
-  const definitions = { [options.name]: options.definition, ...options.others }
+  const definitions = { [options.name]: options.definition, ...options.definitions }
   const liveCall = (request: Request, using: SyncServices = services) => handleSyncLiveRequest(definitions, request, using)
 
   /** Opens a live stream for these stores. A store without `name` is a store of this definition. */

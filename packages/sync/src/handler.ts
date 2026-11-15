@@ -1,9 +1,10 @@
-import { and, asc, eq, getTableColumns, gt, lt, max, ne, or, sql } from "drizzle-orm"
+import { and, asc, eq, getTableColumns, gt, lt, max, ne, sql } from "drizzle-orm"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import * as v from "valibot"
 
 import { canonical, fingerprint, jsonReplacer, toJson } from "./canonical.ts"
+import { captureChanges } from "./capture.ts"
 import { syncChanges, syncMutations, syncState } from "./database.ts"
 import { describeSyncTable, isSyncDefinition, syncTableVersion } from "./define.ts"
 import { syncErrors } from "./errors.ts"
@@ -17,7 +18,7 @@ import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { SyncDatabase } from "./database.ts"
 import type { SyncTable } from "./define.ts"
 import type { SyncKey, SyncLiveEvent, SyncMutation, SyncMutationResult, SyncPullResponse, SyncRow, SyncScope, SyncValues, SyncWireError } from "./protocol.ts"
-import type { SyncActionContext, SyncContext, SyncDefinition, SyncUser } from "./types.ts"
+import type { SyncActionContext, SyncActionRows, SyncContext, SyncDefinition, SyncUser } from "./types.ts"
 
 /** The most changes in one pull. A pull with more answers `more: true`. */
 const pageSize = 500
@@ -50,6 +51,11 @@ export interface SyncServices {
    * `seconds` is the time until the server ends a stream (default 25, which fits the limits of Vercel and Netlify).
    */
   live?: { interval?: number, seconds?: number }
+  /**
+   * The Sync definitions of the app by name, so an action can write another one with `sync(name)`. A ViteHub app
+   * passes every definition of `server/sync/`. They all use the Database of `db`.
+   */
+  definitions?: Record<string, unknown>
 }
 
 interface Resolved {
@@ -59,6 +65,7 @@ interface Resolved {
   db: SyncDatabase
   now: number
   version: string
+  services: SyncServices
 }
 
 interface Scoped extends Resolved {
@@ -139,16 +146,8 @@ interface Stop {
  */
 async function resolveScope(resolved: Resolved, request: Request, services: SyncServices, subset: SyncValues): Promise<[Stop, undefined] | [undefined, Scoped]> {
   const context = await callerContext(resolved, request, services)
-  const where: unknown = await resolved.definition.options.where(context)
-  if (where === false) {
-    return context.user
-      ? [{ status: 403, error: syncErrors.SYNC_FORBIDDEN({ reason: "where" }) }, undefined]
-      : [{ status: 401, error: syncErrors.SYNC_UNAUTHORIZED() }, undefined]
-  }
-  if (!where || typeof where !== "object" || Array.isArray(where)) {
-    throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`where\` must return an object of column values, \`{}\`, or \`false\`.` })
-  }
-  const whereValues = readWhere(resolved.name, resolved.table, where)
+  const [refused, whereValues] = await whereOf(resolved, context)
+  if (refused) return [{ status: context.user ? 403 : 401, error: refused.error }, undefined]
   const subsets: readonly string[] = resolved.definition.options.subsets ?? []
   for (const name of Object.keys(subset)) {
     // A subset column needs an index, and a write that changes it must reach the subsets that held the row.
@@ -158,10 +157,52 @@ async function resolveScope(resolved: Resolved, request: Request, services: Sync
   }
   const [outside, values] = mergeSubset(whereValues, subset)
   if (outside !== undefined) return [{ status: 403, error: syncErrors.SYNC_OUT_OF_SCOPE({ column: outside }) }, undefined]
+  await captureScope(resolved, whereValues)
   const scope: SyncScope = { id: await fingerprint(`${resolved.name}\n${canonical(values)}`), values }
   const id = accountId(resolved, context, whereValues)
   const account = id === null ? scope.id : await fingerprint(`account\n${id}`)
   return [undefined, { ...resolved, context, scope, account }]
+}
+
+/** The values of `where` for the caller, or the refusal when `where` returns `false`. */
+async function whereOf(resolved: Resolved, context: SyncContext): Promise<[Refusal, undefined] | [undefined, SyncValues]> {
+  const where: unknown = await resolved.definition.options.where(context)
+  if (where === false) return [{ error: context.user ? syncErrors.SYNC_FORBIDDEN({ reason: "where" }) : syncErrors.SYNC_UNAUTHORIZED() }, undefined]
+  if (!where || typeof where !== "object" || Array.isArray(where)) {
+    throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${resolved.name}: \`where\` must return an object of column values, \`{}\`, or \`false\`.` })
+  }
+  return [undefined, readWhere(resolved.name, resolved.table, where)]
+}
+
+/** Before any rows go out or change, the triggers must record a move of each column that the scope uses. */
+async function captureScope(resolved: Resolved, whereValues: SyncValues): Promise<void> {
+  const { table } = resolved
+  const subsets: readonly string[] = resolved.definition.options.subsets ?? []
+  await captureChanges(resolved.services.db, resolved.db, table.name, column(table, table.key).name, [...new Set([...Object.keys(whereValues), ...subsets])].map(name => column(table, name).name))
+}
+
+/** The definition of a Sync name, for `sync(name)` in an action. */
+function definitionOf(scoped: Scoped, name: string): SyncDefinition {
+  const { definitions } = scoped.services
+  const found: unknown = name === scoped.name ? scoped.definition : definitions && Object.hasOwn(definitions, name) ? definitions[name] : undefined
+  if (!isSyncDefinition(found)) throw syncErrors.SYNC_UNKNOWN_NAME({ name })
+  return found
+}
+
+/**
+ * The scope of another definition for the caller of an action: its `where` without a subset. It uses the caller of the
+ * action when both definitions identify the caller the same way.
+ */
+async function otherScope(scoped: Scoped, name: string): Promise<[Refusal, undefined] | [undefined, Scoped]> {
+  const { services } = scoped
+  const found = definitionOf(scoped, name)
+  const table = describeSyncTable(found.options.table)
+  const resolved: Resolved = { name, definition: found, table, db: scoped.db, now: scoped.now, version: await syncTableVersion(table), services }
+  const context = found.options.identify === scoped.definition.options.identify ? scoped.context : await callerContext(resolved, scoped.context.request, services)
+  const [refused, values] = await whereOf(resolved, context)
+  if (refused) return [refused, undefined]
+  await captureScope(resolved, values)
+  return [undefined, { ...resolved, context, scope: { id: await fingerprint(`${name}\n${canonical(values)}`), values }, account: scoped.account }]
 }
 
 /** The caller: the user of the definition's `identify`, else the ViteHub Auth user and session. */
@@ -203,8 +244,8 @@ function accountId(resolved: Resolved, context: SyncContext, where: SyncValues):
   return null
 }
 
-function headQuery(db: SyncDatabase, name: string) {
-  return db.select({ seq: max(syncChanges.seq) }).from(syncChanges).where(eq(syncChanges.name, name))
+function headQuery(db: SyncDatabase, table: string) {
+  return db.select({ seq: max(syncChanges.seq) }).from(syncChanges).where(eq(syncChanges.tableName, table))
 }
 
 /**
@@ -212,12 +253,12 @@ function headQuery(db: SyncDatabase, name: string) {
  * another scope, or another version. Each read is one atomic batch, so the cursor and the rows match.
  */
 async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
-  const { db, name, scope, account, version } = scoped
-  const { table, key, defaults } = scoped.table
+  const { db, scope, account, version } = scoped
+  const { table, name, key, defaults } = scoped.table
   const keyColumn = column(scoped.table, key)
   const where = scopeSql(scoped.table, scope.values)
   const base = { key, scope, account, version, defaults }
-  const floor = db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.name, name))
+  const floor = db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.tableName, name))
   const { cursor } = held
   if (cursor !== undefined && held.scope === scope.id && held.version === version) {
     const [state, last, page, puts] = await db.batch([
@@ -227,19 +268,19 @@ async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
       db.select({ seq: syncChanges.seq, key: syncChanges.key, op: syncChanges.op, row: syncChanges.row, current: keyColumn })
         .from(syncChanges)
         .leftJoin(table, and(eq(keyColumn, syncChanges.key), where))
-        .where(and(eq(syncChanges.name, name), gt(syncChanges.seq, cursor)))
+        .where(and(eq(syncChanges.tableName, name), gt(syncChanges.seq, cursor)))
         .orderBy(asc(syncChanges.seq))
         .limit(pageSize + 1),
       // A join, not `key IN (...)`: the statement has a fixed number of parameters, so D1's limit of 100 never applies.
       // The first `pageSize` puts in scope cover every put in scope of the page above.
       db.select({ row: getTableColumns(table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
         .from(table)
-        .innerJoin(syncChanges, and(eq(syncChanges.name, name), eq(syncChanges.key, keyColumn)))
+        .innerJoin(syncChanges, and(eq(syncChanges.tableName, name), eq(syncChanges.key, keyColumn)))
         .where(and(gt(syncChanges.seq, cursor), eq(syncChanges.op, "put"), where))
         .orderBy(asc(syncChanges.seq))
         .limit(pageSize),
     ])
-    const stored = storedValues(scoped.table, scope.values)
+    const stored = exitValues(scoped.table, scope.values)
     const lowest = state[0]?.floor ?? 0
     const highest = Math.max(last[0]?.seq ?? 0, lowest)
     // A cursor below the floor missed removed exits. A cursor above the newest change comes from another Database.
@@ -279,24 +320,16 @@ function issuePath(path: readonly (PropertyKey | { key: PropertyKey })[] | undef
 
 type Statement = BatchItem<"sqlite">
 
-type Target = Pick<Resolved, "db" | "name" | "now" | "table">
-
-const changeColumns = sql`(${sql.identifier("name")}, ${sql.identifier("key")}, ${sql.identifier("op")}, ${sql.identifier("row")}, ${sql.identifier("created_at")})`
-
-function keyIs(table: SyncTable, key: SyncKey): SQL {
-  return eq(column(table, table.key), key)
-}
-
 /**
- * The SQL of a column in an exit row: the value that the column stores. A blob (JSON or bigint) is stored as its text,
- * because JSON cannot hold a blob.
+ * The SQL of a column in a row as JSON: the value that the column stores. A blob (JSON or bigint) is its text, because
+ * JSON cannot hold a blob. The triggers write exits the same way.
  */
 function storedSql(target: SQLiteColumn): SQL {
   if (target.getSQLType() === "blob" || target.columnType.startsWith("SQLiteNumeric")) return sql`cast(${target} as text)`
   return sql`${target}`
 }
 
-/** A JSON value of a column as an exit row stores it. See `storedSql()`. */
+/** A JSON value of a column as an exit stores it. See `storedSql()`. */
 function storedValue(table: SyncTable, name: string, value: unknown): unknown {
   if (value === null || value === undefined) return null
   const target = column(table, name)
@@ -307,14 +340,12 @@ function storedValue(table: SyncTable, name: string, value: unknown): unknown {
   return toJson(stored) ?? null
 }
 
-/** Scope values as an exit row stores them, so `rowInScope()` can compare them with an exit. */
-function storedValues(table: SyncTable, values: SyncValues): SyncValues {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, Array.isArray(value) ? value.map(item => storedValue(table, name, item)) : storedValue(table, name, value)]))
-}
-
-/** A row that server code passed, such as to `recordSyncChanges()`, as an exit stores it. */
-function storedRow(table: SyncTable, row: SyncRow): SyncRow {
-  return Object.fromEntries(Object.keys(table.columns).filter(name => row[name] !== undefined).map(name => [name, storedValue(table, name, row[name])]))
+/**
+ * Scope values as an exit stores them, by SQL column name, so `rowInScope()` can compare them with an exit. The
+ * triggers write exits, and they know the SQL names of the columns only.
+ */
+function exitValues(table: SyncTable, values: SyncValues): SyncValues {
+  return Object.fromEntries(Object.entries(values).map(([name, value]) => [column(table, name).name, Array.isArray(value) ? value.map(item => storedValue(table, name, item)) : storedValue(table, name, value)]))
 }
 
 function literal(text: string): SQL {
@@ -335,63 +366,55 @@ function rowObjectSql(table: SyncTable): SQL {
   return object ?? sql`json_object()`
 }
 
-/** Makes `key`'s `put` the newest change, when the row exists. Each key has one `put`. */
-function putStatements({ db, name, now, table }: Target, key: SyncKey): Statement[] {
-  return [
-    db.delete(syncChanges).where(and(eq(syncChanges.name, name), eq(syncChanges.key, key), eq(syncChanges.op, "put"))),
-    db.run(sql`INSERT INTO ${syncChanges} ${changeColumns} SELECT ${name}, ${key}, 'put', NULL, ${now} WHERE EXISTS (SELECT 1 FROM ${table.table} WHERE ${keyIs(table, key)})`),
-  ]
-}
-
-/** Removes `key`'s `put` when `condition` holds. */
-function dropPut({ db, name }: Target, key: SyncKey, condition: SQL): Statement {
-  return db.delete(syncChanges).where(and(eq(syncChanges.name, name), eq(syncChanges.key, key), eq(syncChanges.op, "put"), condition))
-}
-
-/**
- * Appends an exit: the row left the scopes that held it, because it was deleted or because a `where` column changed.
- * The statement reads the row from the table when the batch runs, and appends nothing when no row matches `condition`.
- * A row that the handler read before the batch can be old: a write that ran at the same time can have moved it.
- */
-function exitFromTable({ db, name, now, table }: Target, key: SyncKey, op: "delete" | "move", condition: SQL | undefined): Statement {
-  return db.run(sql`INSERT INTO ${syncChanges} ${changeColumns} SELECT ${name}, ${key}, ${op}, ${rowObjectSql(table)}, ${now} FROM ${table.table} WHERE ${and(keyIs(table, key), condition)}`)
-}
-
-/** Appends an exit with a row that server code passed, as it was before the change. */
-function exitFromRow({ db, name, now, table }: Target, key: SyncKey, op: "delete" | "move", row: SyncRow): Statement {
-  return db.insert(syncChanges).values({ name, key, op, row: JSON.stringify(storedRow(table, row), jsonReplacer), createdAt: now })
-}
-
-/** Whether the table's value of a column differs from `value`, in SQL. `IS NOT` treats two `NULL`s as equal. */
-function differs(table: SyncTable, name: string, value: unknown): SQL {
-  const target = column(table, name)
-  return value === null || value === undefined ? sql`${target} IS NOT NULL` : sql`${target} IS NOT ${sql.param(value, target)}`
-}
-
 /**
  * The rows that the checks of one mutation read, as JSON text, or `null` when no row was there. The batch applies only
  * when each of these reads gives the same answer, so a write that ran at the same time cannot pass a check that it
  * changed. See `guardSql()`.
  */
-type Reads = Map<string, { key: SyncKey, scopedOnly: boolean, json: string | null }>
+type Reads = Map<string, { scoped: Scoped, key: SyncKey, scopedOnly: boolean, json: string | null }>
 
 async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?: Reads): Promise<Record<string, unknown> | undefined> {
   const { db, table } = scoped
   const [found] = await db.select({ row: getTableColumns(table.table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
     .where(and(eq(column(table, table.key), key), scopedOnly ? scopeSql(table, scoped.scope.values) : undefined))
     .limit(1)
-  const read = `${scopedOnly ? "scoped" : "any"}:${key}`
-  if (reads && !reads.has(read)) reads.set(read, { key, scopedOnly, json: found?.json ?? null })
+  const read = `${scoped.name}:${scoped.scope.id}:${scopedOnly ? "scoped" : "any"}:${key}`
+  if (reads && !reads.has(read)) reads.set(read, { scoped, key, scopedOnly, json: found?.json ?? null })
   return found?.row
 }
 
-/** True in SQL while every read of `reads` gives the same answer as when the checks ran. */
-function guardSql(scoped: Scoped, reads: Reads): SQL | undefined {
-  const { table, scope } = scoped
-  const target: SQLiteTable = table.table
-  const guards = [...reads.values()].map(({ key, scopedOnly, json }) => json === null
-    ? sql`NOT EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), scopedOnly ? scopeSql(table, scope.values) : undefined)})`
-    : sql`EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), sql`${rowObjectSql(table)} = ${json}`)})`)
+/**
+ * True in SQL while every read of `reads`, of any table, gives the same answer as when the checks ran. The reads of one
+ * table go in one `json_each()` parameter, so the guard has the same number of parameters for any number of rows. D1
+ * allows at most 100 in a statement.
+ */
+function guardSql(reads: Reads): SQL | undefined {
+  // The rows that were there, by definition, as `[key, row JSON]`. The keys that were not, by table and scope.
+  const found = new Map<string, { table: SyncTable, rows: [SyncKey, string][] }>()
+  const missing = new Map<string, { table: SyncTable, values: SyncValues | undefined, keys: SyncKey[] }>()
+  for (const { scoped: { name, table, scope }, key, scopedOnly, json } of reads.values()) {
+    if (json !== null) {
+      // By definition, not by table: two definitions of one table can have other columns, so other row JSON.
+      let group = found.get(name)
+      if (!group) found.set(name, group = { table, rows: [] })
+      group.rows.push([key, json])
+      continue
+    }
+    const id = scopedOnly ? `${table.name}\n${scope.id}` : table.name
+    let group = missing.get(id)
+    if (!group) missing.set(id, group = { table, values: scopedOnly ? scope.values : undefined, keys: [] })
+    group.keys.push(key)
+  }
+  const read = sql.identifier("vitehub_read")
+  const guards: SQL[] = []
+  for (const { table, rows } of found.values()) {
+    const target: SQLiteTable = table.table
+    guards.push(sql`NOT EXISTS (SELECT 1 FROM json_each(${JSON.stringify(rows)}) AS ${read} WHERE NOT EXISTS (SELECT 1 FROM ${target} WHERE ${column(table, table.key)} = json_extract(${read}.value, '$[0]') AND ${rowObjectSql(table)} = json_extract(${read}.value, '$[1]')))`)
+  }
+  for (const { table, values, keys } of missing.values()) {
+    const target: SQLiteTable = table.table
+    guards.push(sql`NOT EXISTS (SELECT 1 FROM ${target} WHERE ${and(sql`${column(table, table.key)} IN (SELECT value FROM json_each(${JSON.stringify(keys)}))`, values ? scopeSql(table, values) : undefined)})`)
+  }
   return guards.length ? and(...guards) : undefined
 }
 
@@ -478,8 +501,9 @@ type Write =
   | { op: "delete", key: SyncKey }
 
 /**
- * Checks one write with the rules of the definition, and returns the statements that apply it with their change log
- * entries. `overlay` holds the rows that earlier writes of the same action changed, and gets this write.
+ * Checks one write with the rules of the definition, and returns the statements that apply it. The triggers of the
+ * table write its change log entries. `overlay` holds the rows that earlier writes of the same action changed, and
+ * gets this write.
  */
 async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads): Promise<[Refusal, undefined] | [undefined, Statement[]]> {
   const { db, table, scope } = scoped
@@ -500,7 +524,7 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
     const stopped = await check(scoped, "insert", row)
     if (stopped) return [stopped, undefined]
     overlay.set(key, row)
-    return [undefined, [db.insert(target).values(row), ...putStatements(scoped, key)]]
+    return [undefined, [db.insert(target).values(row)]]
   }
   const { key } = write
   if (typeof key !== "string" || !key) return [invalid("An update or a delete needs `key`."), undefined]
@@ -512,12 +536,7 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
     const stopped = await check(scoped, "delete", current)
     if (stopped) return [stopped, undefined]
     overlay.set(key, null)
-    // The exit and the removed `put` depend on the row that the delete removes, not on `current`.
-    return [undefined, [
-      exitFromTable(scoped, key, "delete", scopeSql(table, scope.values)),
-      dropPut(scoped, key, sql`EXISTS (SELECT 1 FROM ${target} WHERE ${inScope})`),
-      db.delete(target).where(inScope),
-    ]]
+    return [undefined, [db.delete(target).where(inScope)]]
   }
   if (!current) return [{ error: syncErrors.SYNC_NOT_FOUND({ message: `No row with the key ${JSON.stringify(key)} is in the scope of the caller.` }) }, undefined]
   const [refused, values] = readColumns(scoped, write.patch, key)
@@ -527,15 +546,8 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
   const stopped = await check(scoped, "update", row)
   if (stopped) return [stopped, undefined]
   if (!Object.keys(patch).length) return [undefined, []]
-  // A new value of a `where` or `subsets` column, such as another team, moves the row out of the scopes that held it.
-  // The exit comes before the update, so it reads the row as it was, and only when the row changes that column.
-  const moved = [...new Set([...Object.keys(scope.values), ...scoped.definition.options.subsets ?? []])].filter(name => name in patch)
   overlay.set(key, row)
-  return [undefined, [
-    ...moved.length ? [exitFromTable(scoped, key, "move", and(scopeSql(table, scope.values), or(...moved.map(name => differs(table, name, patch[name])))))] : [],
-    db.update(target).set(patch).where(inScope),
-    ...putStatements(scoped, key),
-  ]]
+  return [undefined, [db.update(target).set(patch).where(inScope)]]
 }
 
 /** The answer for a mutation id that the server applied before, with the stored result of an action, or `undefined`. */
@@ -594,31 +606,53 @@ function actionRefusal(name: string, error: unknown): Refusal {
 }
 
 /**
- * Runs an action: it collects the writes, checks each with the rules of browser writes, and applies them with the
- * ledger entry in one atomic batch. One refused write refuses the whole action.
+ * Runs an action: it collects the writes, checks each with the rules of browser writes of its definition, and applies
+ * them with the ledger entry in one atomic batch. One refused write refuses the whole action. `tables` has the other
+ * tables that the writes change.
  */
-async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "action" }>, reads: Reads): Promise<[Refusal, undefined] | [undefined, { statements: Statement[], result: unknown }]> {
+async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "action" }>, reads: Reads): Promise<[Refusal, undefined] | [undefined, { statements: Statement[], result: unknown, tables: Set<string> }]> {
   const actions: unknown = scoped.definition.options.actions
   const action: unknown = actions && typeof actions === "object" && Object.hasOwn(actions, mutation.name) ? Reflect.get(actions, mutation.name) : undefined
   if (!isAction(action)) return [invalid(`This Sync definition has no action named ${JSON.stringify(mutation.name)}.`), undefined]
-  const { table } = scoped
-  const writes: Write[] = []
+  // `undefined` is the definition of the action, with the subset of the push.
+  const writes: { target: string | undefined, write: Write }[] = []
+  // The scopes of other definitions, by name. Each one resolves once, when the action reads or writes it first.
+  const others = new Map<string, Promise<[Refusal, undefined] | [undefined, Scoped]>>()
+  const scopeOf = (target: string) => {
+    let found = others.get(target)
+    if (!found) others.set(target, found = otherScope(scoped, target))
+    return found
+  }
   let open = true
-  const collect = (write: Write) => {
-    if (!open) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] The Sync action "${mutation.name}" wrote after it returned. Await every write before the action returns.` })
-    writes.push(write)
+  const rows = (target: string | undefined, keyColumn: string, get: SyncActionRows<Record<string, unknown>>["get"]): SyncActionRows<Record<string, unknown>> => {
+    const collect = (write: Write) => {
+      if (!open) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] The Sync action "${mutation.name}" wrote after it returned. Await every write before the action returns.` })
+      writes.push({ target, write })
+    }
+    return {
+      get,
+      insert: (value) => {
+        const given: unknown = value[keyColumn]
+        const key = typeof given === "string" && given ? given : crypto.randomUUID()
+        collect({ op: "insert", value: { ...value, [keyColumn]: key } })
+        return key
+      },
+      update: (key, patch) => collect({ op: "update", key, patch }),
+      delete: key => collect({ op: "delete", key }),
+    }
   }
   const context: SyncActionContext<Record<string, unknown>> = {
     ...scoped.context,
-    get: async key => await readRow(scoped, key, true, reads),
-    insert: (value) => {
-      const given: unknown = value[table.key]
-      const key = typeof given === "string" && given ? given : crypto.randomUUID()
-      collect({ op: "insert", value: { ...value, [table.key]: key } })
-      return key
-    },
-    update: (key, patch) => collect({ op: "update", key, patch }),
-    delete: key => collect({ op: "delete", key }),
+    ...rows(undefined, scoped.table.key, async key => await readRow(scoped, key, true, reads)),
+    // SAFETY: the handler reads and writes every table with loose rows. The type of each name comes from its table.
+    sync: ((name: string) => {
+      const found = definitionOf(scoped, name)
+      return rows(name, describeSyncTable(found.options.table).key, async (key) => {
+        const [refused, other] = await scopeOf(name)
+        // The action cannot read rows that `where` hides from the caller. Its writes to them are refused later.
+        return refused ? undefined : await readRow(other, key, true, reads)
+      })
+    }) as SyncActionContext<Record<string, unknown>>["sync"],
     refuse: (message) => {
       throw new ActionRefusal(message)
     },
@@ -633,14 +667,23 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
   finally {
     open = false
   }
-  const overlay: Overlay = new Map()
+  // One overlay for each table, so two definitions of one table see the earlier writes of each other.
+  const overlays = new Map<string, Overlay>()
   const statements: Statement[] = []
-  for (const write of writes) {
-    const [refused, planned] = await plan(scoped, write, overlay, reads)
+  const tables = new Set<string>()
+  for (const { target, write } of writes) {
+    const [refused, into] = target === undefined ? [undefined, scoped] : await scopeOf(target)
     if (refused) return [refused, undefined]
+    // `write: false` stops the writes of the browser and of the actions of other definitions, not of its own actions.
+    if (into.name !== scoped.name && into.definition.options.write === false) return [{ error: syncErrors.SYNC_READ_ONLY() }, undefined]
+    let overlay = overlays.get(into.table.name)
+    if (!overlay) overlays.set(into.table.name, overlay = new Map())
+    const [stopped, planned] = await plan(into, write, overlay, reads)
+    if (stopped) return [stopped, undefined]
     statements.push(...planned)
+    if (into.table.name !== scoped.table.name) tables.add(into.table.name)
   }
-  return [undefined, { statements, result: toJson(result) }]
+  return [undefined, { statements, result: toJson(result), tables }]
 }
 
 /** Attempts of one mutation whose reads changed before its batch ran. Then the push fails, and the client retries. */
@@ -651,30 +694,33 @@ const maxConflicts = 3
  * the whole batch, and the rows stay as they are. When a write that ran at the same time changed a row that the checks
  * read, the batch fails, and the mutation is checked again from the start.
  */
-async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutationResult> {
+async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string>): Promise<SyncMutationResult> {
   const { id } = mutation
   const before = await duplicate(scoped, id)
   if (before) return before
-  // An action is server code, so `write: false` stops only the writes of the browser.
+  // An action is server code, so `write: false` does not stop the writes of the definition's own actions.
   if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
   for (let attempt = 1; ; attempt++) {
     const reads: Reads = new Map()
     let statements: Statement[]
     let result: unknown
+    let tables = new Set<string>()
     if (mutation.op === "action") {
       const [refused, done] = await runAction(scoped, mutation, reads)
       if (refused) return rejected(id, refused)
       statements = done.statements
       result = done.result
+      tables = done.tables
     }
     else {
       const [refused, planned] = await plan(scoped, mutation, new Map(), reads)
       if (refused) return rejected(id, refused)
       statements = planned
     }
-    const guard = guardSql(scoped, reads)
+    const guard = guardSql(reads)
     try {
       await scoped.db.batch([ledgerStatement(scoped, id, guard, result), ...statements])
+      for (const table of tables) touched.add(table)
       return result === undefined ? { id, status: "applied" } : { id, status: "applied", result }
     }
     catch (error) {
@@ -693,15 +739,17 @@ async function apply(scoped: Scoped, mutation: SyncMutation): Promise<SyncMutati
 }
 
 /**
- * Removes applied mutation ids after 7 days and exits after 30 days, and raises the floor to the highest removed
- * `seq`, so an older cursor gets a full snapshot.
+ * Removes applied mutation ids of the definition after 7 days and exits of its table after 30 days, and raises the
+ * floor of the table to the highest removed `seq`, so an older cursor gets a full snapshot. Exits have the time of the
+ * Database, because the triggers write them.
  */
 async function compact(scoped: Scoped): Promise<void> {
   const { db, name, now } = scoped
-  const removable = and(eq(syncChanges.name, name), ne(syncChanges.op, "put"), lt(syncChanges.createdAt, now - exitRetention))
+  const table = scoped.table.name
+  const removable = and(eq(syncChanges.tableName, table), ne(syncChanges.op, "put"), lt(syncChanges.createdAt, now - exitRetention))
   await db.batch([
     db.delete(syncMutations).where(and(eq(syncMutations.name, name), lt(syncMutations.createdAt, now - mutationRetention))),
-    db.run(sql`INSERT INTO ${syncState} (${sql.identifier("name")}, ${sql.identifier("floor")}) SELECT ${name}, max(${syncChanges.seq}) FROM ${syncChanges} WHERE ${removable} HAVING max(${syncChanges.seq}) IS NOT NULL ON CONFLICT (${sql.identifier("name")}) DO UPDATE SET ${sql.identifier("floor")} = max(${sql.identifier("floor")}, excluded.${sql.identifier("floor")})`),
+    db.run(sql`INSERT INTO ${syncState} (${sql.identifier("table_name")}, ${sql.identifier("floor")}) SELECT ${table}, max(${syncChanges.seq}) FROM ${syncChanges} WHERE ${removable} HAVING max(${syncChanges.seq}) IS NOT NULL ON CONFLICT (${sql.identifier("table_name")}) DO UPDATE SET ${sql.identifier("floor")} = max(${sql.identifier("floor")}, excluded.${sql.identifier("floor")})`),
     db.delete(syncChanges).where(removable),
   ])
 }
@@ -856,7 +904,8 @@ export async function handleSyncLiveRequest(definitions: Readonly<Record<string,
   return liveResponse({
     // `services.db`, not the Database of this request: a function makes a new Database object for each request.
     key: services.db,
-    names: [...new Set(entries.map(entry => entry.scoped.name))],
+    // By table, so a write through another definition of a table, or an action that wrote it, wakes the stream too.
+    tables: [...new Set(entries.map(entry => entry.scoped.table.name))],
     signal: request.signal,
     interval: services.live?.interval ?? 1000,
     seconds: services.live?.seconds ?? 25,
@@ -869,11 +918,11 @@ export async function handleSyncLiveRequest(definitions: Readonly<Record<string,
         seen = head?.seq ?? 0
       }
       else {
-        // One read for every store: the names with changes since the last check. `seq` is the primary key.
-        const changed = await db.select({ name: syncChanges.name, seq: max(syncChanges.seq) }).from(syncChanges).where(gt(syncChanges.seq, seen)).groupBy(syncChanges.name)
-        const names = new Set(changed.map(change => change.name))
+        // One read for every store: the tables with changes since the last check. `seq` is the primary key.
+        const changed = await db.select({ table: syncChanges.tableName, seq: max(syncChanges.seq) }).from(syncChanges).where(gt(syncChanges.seq, seen)).groupBy(syncChanges.tableName)
+        const tables = new Set(changed.map(change => change.table))
         for (const change of changed) seen = Math.max(seen, change.seq ?? 0)
-        due = entries.filter(entry => entry.more || names.has(entry.scoped.name))
+        due = entries.filter(entry => entry.more || tables.has(entry.scoped.table.name))
       }
       // The refusals, then `open`, so the client knows which stores are live before their first pull.
       const events: SyncLiveEvent[] = first ? [...refusals, { type: "open" }] : []
@@ -893,7 +942,7 @@ async function resolve(name: string, definition: unknown, services: SyncServices
   // The handler reads rows as plain objects. `where` and `write` get the rows that the table returns.
   if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
   const table = describeSyncTable(definition.options.table)
-  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table) }
+  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table), services }
 }
 
 /**
@@ -940,49 +989,12 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
   // rights. Writes of the same account apply under the current `where`, also after the caller joined or left a team.
   if (account !== scoped.account) return fail(409, syncErrors.SYNC_ACCOUNT_CHANGED())
   const results: SyncMutationResult[] = []
-  for (const mutation of mutations) results.push(await apply(scoped, mutation))
+  // Other tables that actions wrote.
+  const touched = new Set<string>()
+  for (const mutation of mutations) results.push(await apply(scoped, mutation, touched))
   if (results.some(result => result.status === "applied")) {
-    wakeLiveStreams(services.db, name)
+    for (const name of [table.name, ...touched]) wakeLiveStreams(services.db, name)
     await maybeCompact(scoped, services)
   }
   return json(200, { results, pull: await pull(scoped, { cursor, scope: clientScope, version }) })
-}
-
-/** The changes that server code made to a Sync table directly. */
-export interface SyncChanges {
-  /** Keys of rows that server code inserted or updated. */
-  put?: readonly SyncKey[]
-  /**
-   * Rows that server code deleted, as they were before the delete. The server sends each key only to callers whose
-   * `where` matches the row.
-   */
-  delete?: readonly SyncRow[]
-  /**
-   * Rows whose `where` column server code changed, such as a move to another team, as they were before the change.
-   * Callers who could see the old row get the key in `deleted`, and callers who can see the new row get the row.
-   */
-  moved?: readonly SyncRow[]
-}
-
-/** Writes change log entries for writes that server code made to the table itself. Returns the number of changes. */
-export async function recordChanges(name: string, definition: SyncDefinition, db: SyncDatabase, changes: SyncChanges, now: number): Promise<number> {
-  const table = describeSyncTable(definition.options.table)
-  const target: Target = { name, db, now, table }
-  const keyOf = (row: SyncRow, field: "delete" | "moved"): SyncKey => {
-    const key = row[table.key]
-    if (typeof key !== "string" || !key) throw syncErrors.SYNC_INVALID({ message: `[vitehub] recordSyncChanges("${name}"): each row in \`${field}\` needs its primary key \`${table.key}\`.` })
-    return key
-  }
-  const statements: Statement[] = []
-  for (const row of changes.delete ?? []) {
-    const key = keyOf(row, "delete")
-    // A row that server code inserted again keeps its `put`.
-    statements.push(exitFromRow(target, key, "delete", row), dropPut(target, key, sql`NOT EXISTS (SELECT 1 FROM ${table.table} WHERE ${keyIs(table, key)})`))
-  }
-  // The exit comes before the `put`, so a pull sees that the row is in the new scope after it left the old one.
-  for (const row of changes.moved ?? []) statements.push(exitFromRow(target, keyOf(row, "moved"), "move", row), ...putStatements(target, keyOf(row, "moved")))
-  for (const key of changes.put ?? []) statements.push(...putStatements(target, key))
-  const [first, ...rest] = statements
-  if (first) await db.batch([first, ...rest])
-  return (changes.put?.length ?? 0) + (changes.delete?.length ?? 0) + (changes.moved?.length ?? 0)
 }

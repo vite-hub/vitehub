@@ -3,12 +3,12 @@ import { jsonReplacer } from "./canonical.ts"
 import type { SyncLiveEvent } from "./protocol.ts"
 
 /**
- * The listeners of open live streams in this process, by Database and Sync name. The key is the `db` of the
+ * The listeners of open live streams in this process, by Database and synced table. The key is the `db` of the
  * `SyncServices`, the Database or the function that returns it, because it stays the same for every request.
  */
 const listeners = new WeakMap<object, Map<string, Set<() => void>>>()
 
-/** Wakes the live streams of a Sync name on this Database in this process, after a write committed. */
+/** Wakes the live streams of a table on this Database in this process, after a write committed. */
 export function wakeLiveStreams(key: object, name: string): void {
   for (const listener of listeners.get(key)?.get(name) ?? []) listener()
 }
@@ -31,8 +31,8 @@ const pingInterval = 15_000
 export interface LiveStream {
   /** The key of `wakeLiveStreams()`. */
   key: object
-  /** The Sync names whose writes in this process wake the stream. */
-  names: readonly string[]
+  /** The SQL names of the synced tables whose writes in this process wake the stream. */
+  tables: readonly string[]
   signal: AbortSignal
   /** Milliseconds between two checks of the change log. */
   interval: number
@@ -78,7 +78,7 @@ export function liveResponse(stream: LiveStream): Response {
           finish()
         }
       }
-      const unlisten = stream.names.map(name => listen(stream.key, name, wake))
+      const unlisten = stream.tables.map(table => listen(stream.key, table, wake))
       // Node sends the status and the headers with the first chunk of the body. Without this comment, a stream with
       // nothing to send has no answer until the first ping, and the client waits 15 seconds to know that it is live.
       send(": open\n\n")
@@ -130,7 +130,7 @@ export function liveResponse(stream: LiveStream): Response {
         }
         catch (error) {
           // The client opens a new stream after a pause, so a failed check ends this one.
-          console.error(`[vitehub] The live Sync stream of ${stream.names.map(name => `"${name}"`).join(", ")} failed.`, error)
+          console.error(`[vitehub] The live Sync stream of the tables ${stream.tables.map(table => `"${table}"`).join(", ")} failed.`, error)
         }
         finish()
       })()

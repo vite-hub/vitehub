@@ -187,8 +187,8 @@ export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { dat
         ])
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        // Not lazy: the handler installs the definitions when the server starts, so `recordSyncChanges()` and the
-        // operations work before the first Sync request.
+        // Not lazy: the handler installs the definitions when the server starts, so the operations work before the
+        // first Sync request.
         kit.addHandler({ handler, lazy: false, route: `${mount}${syncRouteBase}/**` })
         Reflect.set(config, "nitro", kit.config)
         await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)

@@ -11,7 +11,7 @@ import { syncErrors } from "./errors.ts"
 import type { SyncRow, SyncValues } from "./protocol.ts"
 import type { SyncLive } from "./client/live.ts"
 import type { SyncStorage } from "./client/storage.ts"
-import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
+import type { SyncOptimisticAction, SyncPage, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
 import type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
 
@@ -33,6 +33,8 @@ const senders = new Map<SyncStorage, typeof fetch>()
 // The live stream of this tab, for each `fetch` and live route. Every store of the tab shares it.
 const streams = new Map<typeof fetch, Map<string, SyncLive>>()
 const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init)
+// The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
+const page: SyncPage = { stores: new Set(), version: 0 }
 
 const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
@@ -161,6 +163,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
         environment: createBrowserEnvironment(),
         live: liveOf(options.baseURL, fetch),
         interval: options.interval ?? 30_000,
+        page,
         onStop: () => {
           if (entry) draining.delete(entry.store)
         },
