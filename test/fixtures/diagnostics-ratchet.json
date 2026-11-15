@@ -1132,5 +1132,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/web-container/src/snapshot.ts": 2
+  }
 }
