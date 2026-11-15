@@ -1,6 +1,6 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
 import { eventRequest } from "../internal/event-request.ts"
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { ensureBlob } from "../ensure.ts"
 import { blobError } from "../errors.ts"

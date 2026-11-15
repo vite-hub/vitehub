@@ -9,7 +9,7 @@ import type { AgentInput, AgentCallbackContext } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter } from "@vite-hub/agent/channels";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
-import { createProcessAgentHost } from "@vite-hub/agent/process";
+import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
 import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
@@ -151,6 +151,14 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
+  const capacity = {
+    ...agent.options.capacity,
+    ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
+    concurrency: agent.options.concurrency,
+  };
+  // Conflict preparation installs like a worker before its model pass starts, so it samples memory and
+  // pressure the same way. Its own sampler keeps the worker sampler's pause hysteresis intact.
+  const hostSample = createProcessAgentCapacity(capacity).adaptive!;
   const host = await createProcessAgentHost({
     name: context.agentName,
     dataDir: context.dataDir,
@@ -160,9 +168,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     // durable wait. Keep transient provider pressure in this host queue rather
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
-      ...agent.options.capacity,
-      ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
-      concurrency: agent.options.concurrency,
+      ...capacity,
       queue: {
         maxPending: agent.options.concurrency,
         timeout: 36e5,
@@ -205,6 +211,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error: host.error,
     wake: () => host.wake(),
     admission,
+    hostCapacity: async ({ active, signal }) => await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) }),
   });
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.

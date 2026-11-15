@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
+import type { ConsoleContributedSection, ConsoleOperationAction, ConsoleOperationView } from "../definitions";
 import { Status } from "@vite-hub/ui";
 
-import { loadOperationItems, operationCell, operationLink, operationStatus, operationSwitchCall, operationTime, operationValue } from "../client/operation-view";
+import { loadOperationItems, operationActionCall, operationActionQuestion, operationActions, operationActionUrl, operationCell, operationLink, operationStatus, operationSwitchCall, operationTime, operationValue } from "../client/operation-view";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { requestConsoleOperation } from "../client/request";
 import { useConsoleToast } from "../client/toast";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsoleCodeText from "./console-code-text.vue";
+import ConsoleConfirm from "./console-confirm.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -97,6 +98,50 @@ async function flip(item: Record<string, unknown>, column: ConsoleOperationView[
   }
 }
 
+// A row action calls its operation, then loads the list again. The row stays disabled until then.
+const acting = ref(new Set<string>());
+const asking = ref<{ action: ConsoleOperationAction, item: Record<string, unknown> }>();
+const askOpen = computed({ get: () => Boolean(asking.value), set: (open) => { if (!open) asking.value = undefined; } });
+const hasActions = computed(() => Boolean(view.value.actions?.length));
+
+function ask(item: Record<string, unknown>, action: ConsoleOperationAction): void {
+  if (action.confirm) asking.value = { action, item };
+  else void act(item, action);
+}
+
+async function act(item: Record<string, unknown>, action: ConsoleOperationAction): Promise<void> {
+  asking.value = undefined;
+  const call = operationActionCall(item, action);
+  const id = itemId(item);
+  if (!call || acting.value.has(id)) return;
+  // The tab opens during the click, so the browser does not block it while the operation runs.
+  const tab = action.tab ? window.open("about:blank", "_blank") : undefined;
+  if (tab) tab.opener = null;
+  if (action.tab && !tab) {
+    toast.error(`The browser blocked the new tab. Allow pop-ups for this site to ${action.label.toLowerCase()}.`);
+    return;
+  }
+  acting.value = new Set([...acting.value, id]);
+  try {
+    const result = await requestConsoleOperation(call.operation, call.input);
+    const url = tab ? operationActionUrl(result) : undefined;
+    if (tab && url) {
+      tab.location.href = url;
+      // The person finishes in the other tab. The list loads again when they come back.
+      window.addEventListener("focus", () => void load(), { once: true });
+    }
+    else tab?.close();
+    await load();
+  } catch (cause) {
+    tab?.close();
+    toast.error(cause instanceof Error && cause.message ? cause.message : `Couldn't ${action.label.toLowerCase()}. Try again.`);
+  } finally {
+    const next = new Set(acting.value);
+    next.delete(id);
+    acting.value = next;
+  }
+}
+
 const detail = computed(() => view.value.detail);
 // The row button holds the text of the item, such as the comment, so a screen reader names what it opens.
 const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
@@ -126,7 +171,7 @@ function choose(id: string): void {
 
 onMounted(() => {
   void load();
-  if (view.value.columns.some(column => column.format === "switch")) void isConsoleSectionReadOnly(props.sectionsBase, props.details.id).then((value) => { readOnly.value = value; });
+  if (hasActions.value || view.value.columns.some(column => column.format === "switch")) void isConsoleSectionReadOnly(props.sectionsBase, props.details.id).then((value) => { readOnly.value = value; });
 });
 watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
@@ -186,6 +231,7 @@ onBeforeUnmount(() => controller?.abort());
               <thead class="text-xs text-muted">
                 <tr>
                   <th v-for="column in view.columns" :key="column.key" class="px-2 py-1.5 font-medium">{{ column.label }}</th>
+                  <th v-if="hasActions && !readOnly" class="px-2 py-1.5"><span class="sr-only">Actions</span></th>
                   <th v-if="view.link" class="w-10 px-2 py-1.5"><span class="sr-only">{{ view.link.label ?? "Open" }}</span></th>
                 </tr>
               </thead>
@@ -226,6 +272,21 @@ onBeforeUnmount(() => controller?.abort());
                     <span v-else-if="column.format === 'datetime' && operationTime(item, column)" class="relative"><ConsoleRelativeTime :value="operationTime(item, column)!" /></span>
                     <template v-else>{{ operationCell(item, column) }}</template>
                   </td>
+                  <td v-if="hasActions && !readOnly" class="px-2 py-1 text-right align-top whitespace-nowrap">
+                    <!-- Above the row button, so an action does not open the item. -->
+                    <UButton
+                      v-for="action in operationActions(item, view)"
+                      :key="action.label"
+                      class="relative"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      :label="action.label"
+                      :disabled="acting.has(itemId(item))"
+                      :aria-label="`${action.label} ${operationCell(item, view.columns[0]!)}`"
+                      @click="ask(item, action)"
+                    />
+                  </td>
                   <td v-if="view.link" class="px-2 py-1 text-right align-top">
                     <!-- Above the row button, so the link still opens the page. One icon keeps the row on one line. -->
                     <UTooltip v-if="operationLink(item, view)" :text="view.link.label ?? 'Open'">
@@ -252,6 +313,14 @@ onBeforeUnmount(() => controller?.abort());
         </div>
       </template>
     </UDashboardPanel>
+    <ConsoleConfirm
+      v-model:open="askOpen"
+      :title="asking ? `${asking.action.label}?` : ''"
+      :description="asking ? operationActionQuestion(asking.item, asking.action) : undefined"
+      :confirm-label="asking?.action.label ?? ''"
+      destructive
+      @confirm="asking && act(asking.item, asking.action)"
+    />
     <ConsoleCommentThread
       ref="threadPanel"
       v-if="detail?.kind === 'comment-thread'"

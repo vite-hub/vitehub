@@ -4,6 +4,8 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
+type SshLaunchProblem = "command" | "connectRetryMs" | "environment" | "host" | "hostKey" | "identityFile" | "port" | "user"
+
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // Retired codes. Do not reuse them: SANDBOX_R0001 to SANDBOX_R0019, SANDBOX_R0021, and SANDBOX_R0065 to SANDBOX_R0087.
 export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
@@ -136,7 +138,37 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     // process signals
     SANDBOX_R0165: {
       why: ({ runtime, signal }: { runtime: string; signal: string }) => `${runtime} Sandbox cannot send the signal ${signal}.`,
-      fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number.",
+      fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number. On Cloudflare, use SIGALRM, SIGHUP, SIGINT, SIGKILL, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, or a signal number.",
+    },
+    // Named errors. Keep these codes in alphabetical order.
+    SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED: {
+      why: ({ detail }: { detail: string }) => `[vitehub] Cloudflare process log stream failed: ${detail}`,
+      fix: "Read the Container error in the message, and check the Container logs of the Sandbox Durable Object in the Cloudflare dashboard. Start the process again to retry.",
+    },
+    SANDBOX_SSH_DRAIN_TIMEOUT_INVALID: {
+      why: "[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.",
+      fix: "Pass `close({ drainTimeoutMs })` a whole number of milliseconds from 0 to 2147483647, or omit it to close at once.",
+    },
+    SANDBOX_SSH_LAUNCH_INVALID: {
+      why: ({ problem }: { problem: SshLaunchProblem }) => ({
+        command: "[vitehub] SSH command and cwd are required and cannot contain NUL.",
+        connectRetryMs: "[vitehub] SSH connectRetryMs must be a non-negative integer of milliseconds.",
+        environment: "[vitehub] SSH environment names must be uppercase shell identifiers.",
+        host: "[vitehub] SSH host is invalid.",
+        hostKey: "[vitehub] Select hostKeyFile or knownHostsFile.",
+        identityFile: "[vitehub] SSH identityFile is required.",
+        port: "[vitehub] SSH port must be between 1 and 65535.",
+        user: "[vitehub] SSH user is invalid.",
+      })[problem],
+      fix: "Fix the `sshLaunch()` option that the message names: a `host` and `user` without spaces, an `identityFile` path, a `port` from 1 to 65535, only one of `hostKeyFile` and `knownHostsFile`, and uppercase names such as `API_TOKEN` in `forwardEnvironment`.",
+    },
+    SANDBOX_SSH_POSIX_REQUIRED: {
+      why: "[vitehub] SSH command supervision requires a POSIX host.",
+      fix: "Run `serveSsh()` or `vitehub sandbox serve` on Linux or macOS, or in WSL on Windows.",
+    },
+    SANDBOX_TRUSTED_HOST_CLOSING: {
+      why: "Trusted host Sandbox session is closing.",
+      fix: "Await every command of the trusted-host Sandbox before you close it, and open a new Sandbox for more commands.",
     },
   },
 })
