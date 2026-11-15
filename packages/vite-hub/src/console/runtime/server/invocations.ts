@@ -86,7 +86,7 @@ export function getConsoleUsageIndex(invocations: AgentInvocations): ConsoleUsag
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
   if (!invocations) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] The Agent invocation console has not been installed for this runtime." })
+    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] This app has no Agent Invocation journal for the Console to read. The Console is off, or the app has no Agent Definition." })
   }
   return invocations
 }
