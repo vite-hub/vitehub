@@ -132,6 +132,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: ["test/browser-smoke-cleanup.test.mjs"],
     // The real SSH provider tests use the host's OpenSSH key generator.
     ignoreBinaries: ["ssh-keygen"],
+    // The storage regression test resolves unstorage from the KV package that owns it.
+    ignoreDependencies: ["unstorage"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },

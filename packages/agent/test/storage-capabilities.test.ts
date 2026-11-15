@@ -41,7 +41,7 @@ describe("storage capabilities", () => {
         () => tools.kv_edit!.execute?.({ key, operation: "put", value: "changed" }),
         () => tools.kv_edit!.execute?.({ key, operation: "delete" }),
       ]) {
-        await expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_R1056" })
+        await expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_STORAGE_PREFIX_OUTSIDE" })
       }
     }
     expect(store.get).not.toHaveBeenCalled()
@@ -64,7 +64,7 @@ describe("storage capabilities", () => {
       for (const addRandomSuffix of [false, true]) {
         await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({
           operation: "put", pathname, body: "x", options: { addRandomSuffix },
-        }))).rejects.toMatchObject({ code: "AGENT_R1056" })
+        }))).rejects.toMatchObject({ code: "AGENT_STORAGE_PREFIX_OUTSIDE" })
       }
     }
     expect(store.put).not.toHaveBeenCalled()
@@ -112,7 +112,7 @@ describe("storage capabilities", () => {
       set: vi.fn(async () => undefined),
     }
     const tools = await resolveTools([kv({ mode: "write", prefix: "support:" })], { kv: store })
-    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_R1056" })
+    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_STORAGE_PREFIX_OUTSIDE" })
 
     await expect(tools.kv_read!.execute?.({ key: "support:1" })).resolves.toBe("value")
     await expect(tools.kv_read!.execute?.({ key: "support/1" })).resolves.toBe("value")
@@ -134,7 +134,7 @@ describe("storage capabilities", () => {
     expect(store.set).toHaveBeenCalledWith("support:2", 1)
     expect(tools.kv_read!.description).toContain("support:")
 
-    expect(() => kv({ prefix: ":" })).toThrow(expect.objectContaining({ code: "AGENT_R1055" }))
+    expect(() => kv({ prefix: ":" })).toThrow(expect.objectContaining({ code: "AGENT_STORAGE_PREFIX_INVALID" }))
   })
 
   it("keeps Blob tools inside the configured prefix", async () => {
@@ -151,7 +151,7 @@ describe("storage capabilities", () => {
       put: vi.fn(async () => ({ pathname: "reports/a.txt" })),
     }
     const tools = await resolveTools([blob({ mode: "write", prefix: "/reports/" })], { blob: store })
-    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_R1056" })
+    const outside = (call: () => unknown) => expect(Promise.resolve().then(call)).rejects.toMatchObject({ code: "AGENT_STORAGE_PREFIX_OUTSIDE" })
 
     await tools.blob_read!.execute?.({ operation: "get", pathname: "reports/a.txt" })
     await tools.blob_read!.execute?.({ operation: "head", pathname: "/reports/a.txt" })
@@ -185,7 +185,7 @@ describe("storage capabilities", () => {
     expect(store.put).toHaveBeenCalledWith("a.txt", "x", { prefix: "reports" })
     expect(tools.blob_read!.description).toContain("reports/")
 
-    expect(() => blob({ prefix: "reports/../" })).toThrow(expect.objectContaining({ code: "AGENT_R1055" }))
+    expect(() => blob({ prefix: "reports/../" })).toThrow(expect.objectContaining({ code: "AGENT_STORAGE_PREFIX_INVALID" }))
   })
 
   it("selects configured KV and Blob stores from capability options", async () => {
