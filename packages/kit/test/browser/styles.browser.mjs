@@ -39,33 +39,11 @@ const unstyledSlots = new Set([
   // A link: web.css styles it through its rule on plain `a`.
   "hover-card-trigger",
 ])
-// Parts that ui-sdk ships and that web.css 0.1.0-beta.2 does not style. The old family styled them. Remove a name when
-// web.css or src/styles/default.css gets a rule for it.
-const webCssGaps = new Set([
-  "input-clear",
-  "input-group",
-  "number-input-scrub-area",
-  "select-label",
-  "timeline",
-  "timeline-description",
-  "timeline-item",
-  "timeline-time",
-  "timeline-title",
-  "waterfall",
-  "waterfall-axis",
-  "waterfall-cell",
-  "waterfall-column-header",
-  "waterfall-header-row",
-  "waterfall-mark",
-  "waterfall-row",
-  "waterfall-row-header",
-  "waterfall-tick",
-])
 
 // Each file in `page/open/` renders one popup open: menus, selects, popovers, tooltips, dialogs, and the drawer.
 const openViews = readdirSync(join(root, "open")).map(file => file.replace(/\.vue$/, "")).sort()
 
-// The family is ui-sdk's web.css, which default.css imports, and the rules in default.css itself.
+// The family is ui-sdk's web.css with the workspace patch, which default.css imports, and the rules in default.css itself.
 const webCss = fileURLToPath(import.meta.resolve("@ui-sdk/core/web.css"))
 const family = [webCss, join(styles, "default.css")].map(file => readFileSync(file, "utf8")).join("\n")
 const familySlots = new Set([...family.matchAll(/data-slot="([a-z-]+)"/g)].map(match => match[1]))
@@ -157,7 +135,7 @@ for (const width of widths) {
 }
 
 test("styles every part that renders", () => {
-  const missing = [...seen].filter(slot => !styled(slot) && !exampleSlots.has(slot) && !unstyledSlots.has(slot) && !webCssGaps.has(slot)).sort()
+  const missing = [...seen].filter(slot => !styled(slot) && !exampleSlots.has(slot) && !unstyledSlots.has(slot)).sort()
   assert.deepEqual(missing, [], "parts that render without a rule in web.css or src/styles/default.css")
 })
 

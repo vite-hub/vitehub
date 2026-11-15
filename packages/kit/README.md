@@ -126,7 +126,7 @@ What to use in ViteHub UI for each Reka UI 2.11 component.
 
 ## Styles
 
-The parts have no styles until you load a style family. A family is CSS that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. The `default` family is ui-sdk's own stylesheet, `@ui-sdk/core/web.css`, with the variables of `tokens.css` mapped onto its `--ui-*` variables. The variables use the names of shadcn/ui.
+The parts have no styles until you load a style family. A family is CSS that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. The `default` family is ui-sdk's own stylesheet, `@ui-sdk/core/web.css`, with the variables of `tokens.css` mapped onto its `--ui-*` variables and the ViteHub look: 6px controls, 12px menus and dialogs, 14px text, and a 2px focus ring. The variables use the names of shadcn/ui.
 
 ```css
 /* The app's global stylesheet. */
@@ -136,18 +136,18 @@ The parts have no styles until you load a style family. A family is CSS that sty
 
 `default.css` has three parts:
 
-1. `@import "@ui-sdk/core/web.css"`. Vite and Nuxt resolve it from the kit's own dependency, so you do not install anything else.
-2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`.
-3. The rules for the kit's `TagsInput`, and for `<span data-slot="visually-hidden">`, in web.css's `ui-sdk` cascade layer.
+1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.2.patch`, which we send to ui-sdk.
+2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
+3. The rules for the kit's `TagsInput`, the text field focus, and the dialog close button, in web.css's `ui-sdk` cascade layer.
 
 **Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components. See [Installation](https://vitehub.dev/docs/ui/installation).
 
 - **No Tailwind needed.** web.css is plain CSS in the `ui-sdk` cascade layer, so utility classes and your own CSS win over it. With Tailwind, put the `ui-sdk` layer after `base`, or Preflight resets the parts: `@layer theme, base, ui-sdk, components, utilities;` above the imports.
 - **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`.
-- **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, and menus and dialogs 2.25 times.
-- **Focus** is shadcn's: a border in `--ring` and a 4px halo at half of it.
+- **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, cards 2 times, and menus and dialogs 3 times.
+- **Focus** is a 2px ring in `--ring`, 2px outside the part. A text field turns its own frame blue instead.
 - Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
-- **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (13px by default), after the import.
+- **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (14px here), after the import.
 
 ## Nuxt
 
