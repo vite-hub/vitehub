@@ -204,7 +204,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0063: {
       ...dynamicError,
-      fix: "Add an Agent Definition, such as `server/agents/support/agent.ts`, and keep the Console on, so that ViteHub installs the Agent journal before `getConsoleInvocations()` runs.",
+      fix: "Turn the Console on with `console: true` in `vitehub()`, or in the `vitehub` key of `nuxt.config.ts`, and add an Agent Definition, such as `server/agents/support/agent.ts`. Without the Console, read the journal file with `vitehub agent invocations list --database .vitehub/data/agent-invocations.sqlite`.",
     },
     VITE_HUB_R0070: {
       ...dynamicError,
