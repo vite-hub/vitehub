@@ -10,6 +10,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1042",
   "AGENT_R1043",
   "AGENT_R1044",
+  "AGENT_STORAGE_PREFIX_INVALID",
+  "AGENT_STORAGE_PREFIX_OUTSIDE",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -3033,6 +3035,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] Provider Agent Drivers (codexDriver() and claudeCodeDriver()) cannot run in a Cloudflare Worker. A server module in this Worker build calls one.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
+    AGENT_INVOCATIONS_NO_DEV_SERVER: {
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
+    },
     AGENT_R0939: {
       why: "[vitehub] Observability is not configured.",
       fix: "Set vitehub({ observability: { service } }) in the Vite config.",
@@ -3349,6 +3355,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_REPLAY_TASK_OTHER_AGENT: {
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
+    },
+    AGENT_STORAGE_PREFIX_INVALID: {
+      why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,
+      fix: 'Pass a prefix such as "support:" for kv() or "reports/" for blob(), or remove the option to give the Agent the whole store.',
+    },
+    AGENT_STORAGE_PREFIX_OUTSIDE: {
+      why: ({ label, prefix, value }: { label: string, prefix: string, value: string }) => `[vitehub] ${label} ${JSON.stringify(value)} is outside the prefix ${JSON.stringify(prefix)} that this Capability allows.`,
+      fix: "Use a key or pathname that starts with the Capability prefix. To give the Agent more of the store, change the prefix option of the Capability.",
     },
     AGENT_UI_STREAM_MISSING: {
       why: "[vitehub] The Agent did not return a UI message stream.",
