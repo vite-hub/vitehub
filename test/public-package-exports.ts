@@ -52,7 +52,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
-  ["@vite-hub/forms/vue", { "@formisch/vue": "both" }],
+  // Only the Formisch entry needs Formisch. `@vite-hub/forms/vue` draws and sends forms without it.
+  ["@vite-hub/forms/formisch", { "@formisch/vue": "both", "vue": "both" }],
   ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   // The Nuxt module loads @nuxt/kit. Its declarations do not import it.
   ["@vite-hub/kit/nuxt", { "@nuxt/kit": "runtime", "@nuxt/schema": "declaration" }],
@@ -82,6 +83,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/env/database", { "drizzle-orm": "both" }],
+  ["vite-hub/forms/formisch", { "@formisch/vue": "both", "vue": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["vite-hub/logs", { "evlog": "declaration" }],

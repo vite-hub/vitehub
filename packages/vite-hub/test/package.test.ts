@@ -725,7 +725,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleRail).toContain("navigationFailed.value = true");
-    expect(consoleRail).toContain('<PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">');
+    expect(consoleRail).toContain('label="Retry loading primitives" icon="i-lucide-refresh-cw" @click="loadNavigation"');
     expect(consoleRail).toContain("open('vitehub-console')");
     expect(consoleRail).toContain("subscribeConsoleNavigation(props.sectionsBase");
     expect(consoleRail).toContain('import { defineShortcuts } from "@nuxt/ui/composables";');
@@ -784,6 +784,7 @@ describe("framework package contract", () => {
       // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

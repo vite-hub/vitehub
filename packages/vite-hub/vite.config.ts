@@ -142,6 +142,7 @@ const runtimeEntries = [
   "src/console/runtime/server/env.get.ts",
   "src/console/runtime/server/auth.ts",
   "src/console/runtime/server/tickets.ts",
+  "src/console/runtime/server/site-entry.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -421,6 +422,14 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-user-menu.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar-trigger.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar-item.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-logo.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-crumb.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
         // The copied invocation helpers import the formatters as TypeScript.
         { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
@@ -588,6 +597,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/env.get"];
           delete exports["./console/runtime/server/auth"];
           delete exports["./console/runtime/server/tickets"];
+          delete exports["./console/runtime/server/site-entry"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];
