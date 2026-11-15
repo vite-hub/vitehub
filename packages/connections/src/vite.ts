@@ -26,6 +26,7 @@ import { resolveActivityRetention } from "./internal/activity-retention.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
+import type { OperationContributions } from "@vite-hub/internal/operations";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
@@ -125,6 +126,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
     cli: () => Promise<ViteHubCliContributor>;
     /** The Database use that `@vite-hub/database` collects: the Database that keeps Connection data. */
     databases: () => ConnectionsDatabaseUse[];
+    /** The `connections.*` operations that the Console and MCP run. */
+    operations: OperationContributions;
   };
   nitro: {
     name: string;
@@ -205,9 +208,11 @@ function connectionMountBase(base: unknown): string {
  * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
-function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
-  kit.addHandler({ handler, method: "post", route });
-  kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+function addManagementHandlers(kit: NitroServerKit, handler: string, route: string, callbackOnly: boolean): void {
+  if (!callbackOnly) {
+    kit.addHandler({ handler, method: "post", route });
+    kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+  }
   kit.addHandler({ handler, method: "get", route: `${route}/callback` });
 }
 
@@ -298,6 +303,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
+      operations: [{
+        export: "connectionsOperations",
+        load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).connectionsOperations,
+        module: `${importBase}/operations`,
+      }],
       // Without a Database Definition, `@vite-hub/database` adds the `default` Database for this use, and
       // `vitehub inspect` shows the reason.
       databases: () => database
@@ -344,10 +354,13 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         Object.assign(nitro, kit.config);
       }
 
-      if (environment.command === "serve" || options.management) {
-        const actorModule =
-          (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
+      {
+        // Without the management API, production serves only the callback of flows that the Console starts.
+        const callbackOnly = environment.command !== "serve" && !options.management;
+        const actorModule = callbackOnly
+          ? undefined
+          : (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
+        if (!callbackOnly && isProductionBuild(config, environment) && !actorModule?.trim()) {
           throw connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "management-actor" });
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
@@ -360,9 +373,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
             // Without an actor module, only a development server allows management.
             // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
-            actorModule
-              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
+            `export default createConnectionsHandler({ ${actorModule ? "actor" : callbackOnly ? "actor: () => undefined" : 'actor: "development"'}, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -377,7 +388,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 !v.is(v.looseObject({ handler: v.literal(handlerFile) }), handler),
               ));
             }
-            addManagementHandlers(kit, handlerFile, route);
+            addManagementHandlers(kit, handlerFile, route, callbackOnly);
             return kit.config;
           };
           Reflect.set(config, "nitro", updateHandlers(Reflect.get(config, "nitro")));
@@ -389,7 +400,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           await writeManagementHandler(route);
         };
         const kit = createNitroServerKit(nitro);
-        addManagementHandlers(kit, handlerFile, managementRoute);
+        addManagementHandlers(kit, handlerFile, managementRoute, callbackOnly);
         Object.assign(nitro, kit.config);
       }
       Reflect.set(config, "nitro", nitro);
@@ -454,3 +465,5 @@ export function hubConnectionsTypesCleanup(): Plugin<{ prepareTypes: (options: {
     configResolved: config => prepareTypes({ projectRoot: resolveViteHubProjectRoot(config.root) }),
   }
 }
+
+export { connectionsConsoleSection } from "./console.ts"
