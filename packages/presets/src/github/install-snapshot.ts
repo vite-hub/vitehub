@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { chmod, cp, lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 const exec = promisify(execFile);
 const yarnOutputs = new Set(["cache", "unplugged", "install-state.gz"]);
@@ -40,7 +41,7 @@ export async function createGitHubInstallSnapshot(target: string): Promise<GitHu
           if (basename(source) === ".git"
             || rootOutputs.has(path) || parts[0] === ".yarn" && yarnOutputs.has(parts[1]!)) return false;
           const info = await lstat(source, { bigint: true });
-          if (path === ".yarn" && !info.isDirectory()) throw new Error("Yarn installation output must use a regular checkout directory.");
+          if (path === ".yarn" && !info.isDirectory()) throw presetsErrorDiagnostics.PRESETS_YARN_OUTPUT_INVALID();
           if (info.isDirectory()) identities.set(path, { dev: String(info.dev), ino: String(info.ino) });
           return true;
         },
@@ -68,7 +69,7 @@ export async function publishGitHubInstallSnapshot(snapshot: GitHubInstallSnapsh
   }
   async function publish(path: string, names: string[], yarn = false) {
     const identity = snapshot.identities.get(path);
-    if (!identity) throw new Error("Dependency output directory changed during installation.");
+    if (!identity) throw presetsErrorDiagnostics.PRESETS_INSTALL_OUTPUT_CHANGED();
     // Starting a child pins cwd before checking its identity. All destination
     // operations stay relative to that inode even if the provider renames it.
     await exec(process.execPath, ["--input-type=module", "--eval", `
@@ -76,6 +77,7 @@ export async function publishGitHubInstallSnapshot(snapshot: GitHubInstallSnapsh
       import { join } from "node:path";
       const [dev, ino, source, names, yarn] = process.argv.slice(1);
       const info = await lstat(".", { bigint: true });
+      // Internal invariant: this runs in a child Node process without the catalog. The install wraps its failure in GitHubWorkspaceInstallError.
       if (String(info.dev) !== dev || String(info.ino) !== ino) throw new Error("Dependency output directory changed during installation.");
       const outputs = JSON.parse(names);
       const present = await Promise.all(outputs.map(name => lstat(join(source, name)).then(() => true, error => {
@@ -89,9 +91,11 @@ export async function publishGitHubInstallSnapshot(snapshot: GitHubInstallSnapsh
         })) process.exit(0);
         await mkdir(".yarn").catch(error => { if (error.code !== "EEXIST") throw error; });
         const expected = await lstat(".yarn", { bigint: true });
+        // Internal invariant: this runs in a child Node process without the catalog. The install wraps its failure in GitHubWorkspaceInstallError.
         if (!expected.isDirectory()) throw new Error("Yarn output directory must not be a symbolic link.");
         process.chdir(".yarn");
         const actual = await lstat(".", { bigint: true });
+        // Internal invariant: this runs in a child Node process without the catalog. The install wraps its failure in GitHubWorkspaceInstallError.
         if (actual.dev !== expected.dev || actual.ino !== expected.ino) throw new Error("Yarn output directory changed during installation.");
       }
       for (const [index, name] of outputs.entries()) {
