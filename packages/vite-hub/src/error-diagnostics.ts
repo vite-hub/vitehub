@@ -35,10 +35,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
     },
-    VITE_HUB_R0145: {
-      ...dynamicError,
-      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
-    },
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
@@ -130,6 +126,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_B0024: {
       ...dynamicError,
       fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
+    },
+    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+      ...dynamicError,
+      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
   },
 })

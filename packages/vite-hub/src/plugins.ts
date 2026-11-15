@@ -590,7 +590,7 @@ export function resolveSandboxTaskProvider(sandboxTask: ViteHubOptions["sandboxT
   if (!sandboxTask) return
   const provider = sandboxTask === true ? undefined : sandboxTask.provider
   if (provider === "cloudflare" && plan.host !== "cloudflare") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0145({ message: `[vitehub] sandboxTask.provider "cloudflare" works with the "cloudflare" host only, because Cloudflare Sandbox needs the Container and Durable Object binding of a Worker. The "${plan.host}" host cannot provide them.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED({ message: `[vitehub] sandboxTask.provider "cloudflare" works with the "cloudflare" host only, because Cloudflare Sandbox needs the Container and Durable Object binding of a Worker. The "${plan.host}" host cannot provide them.` })
   }
   if (provider) return provider
   return plan.services.sandbox.supported ? plan.services.sandbox.adapter : undefined

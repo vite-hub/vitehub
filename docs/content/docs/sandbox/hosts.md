@@ -19,6 +19,38 @@ Choose the provider in app or host config, not in the task.
 
 To set provider options, give `sandboxTask` an object with the `provider` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'cloudflare',
+    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -30,6 +62,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 Apps that do not use `vite-hub` pass the same object to `hubSandboxTask()` from `@vite-hub/sandbox/task/vite`. Do not add `hubSandboxTask()` next to `vitehub()`: the `vite-hub` app then has no Sandbox Tasks.
 

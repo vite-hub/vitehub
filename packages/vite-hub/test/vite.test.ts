@@ -2120,7 +2120,7 @@ describe("vitehub", () => {
     }
     await expect(applyDeploymentConfig({ host: "node", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
     await expect(applyDeploymentConfig({ host: "node", sandboxTask: { name: "box" } })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
-    expect(() => vitehub({ host: "node", sandboxTask: { provider: "cloudflare" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0145" }))
+    expect(() => vitehub({ host: "node", sandboxTask: { provider: "cloudflare" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED" }))
     expect(() => vitehub({ host: "cloudflare", sandboxTask: { provider: "vercel" } })).not.toThrow()
   })
 
