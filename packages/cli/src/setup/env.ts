@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import process from "node:process"
@@ -8,7 +9,7 @@ import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { build, readBuildOutput } from "./deploy.ts"
+import { build, readBuildOutput } from "./build-output.ts"
 import { cloudflareEnv } from "./deploy/cloudflare.ts"
 import { denoEnv } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
@@ -71,8 +72,8 @@ export interface EnvDiffOutput {
   extra: string[]
 }
 
-/** Where a pushed value came from: the shell, or one of the stage env files. */
-export type EnvValueSource = "process" | `.env${string}`
+/** Where a pushed value came from: the shell, one of the stage env files, or `vitehub deploy`, which generated it. */
+export type EnvValueSource = "process" | "generated" | `.env${string}`
 
 /** What `vitehub env push --json` prints, after `schemaVersion: 1`. Never a value. */
 export interface EnvPushOutput {
@@ -183,12 +184,17 @@ function matchesPrefix(entry: DeploymentEnvEntry, name: string): boolean {
   return !!entry.prefix && name.startsWith(entry.prefix) && name.length > entry.prefix.length
 }
 
+/** True when one of `names` sets the entry: one of its names, or a name with its prefix. */
+function isSet(entry: DeploymentEnvEntry, names: ReadonlySet<string>): boolean {
+  return entry.names.some(name => names.has(name)) || [...names].some(name => matchesPrefix(entry, name))
+}
+
 /** Compares the names that the build lists with the names on the host. Hosts return no values, so it never says "changed". */
 export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[]): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
   const onHost = new Set(hostNames)
   const missing: EnvDiffOutput["missing"] = { optional: [], required: [] }
   for (const entry of entries) {
-    if (entry.names.some(name => onHost.has(name)) || hostNames.some(name => matchesPrefix(entry, name))) continue
+    if (isSet(entry, onHost)) continue
     missing[isRequired(entry) ? "required" : "optional"].push(diffEntry(entry))
   }
   const known = (name: string) => entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name))
@@ -293,13 +299,13 @@ function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<st
 }
 
 /** Refuses a secret whose value comes from a file that git tracks: pushing it would hide that the secret is in git. */
-async function assertUntracked(planned: readonly PlannedValue[], target: EnvTarget, env: NodeJS.ProcessEnv): Promise<void> {
+async function assertUntracked(planned: readonly PlannedValue[], root: string, run: DeployRun, env: NodeJS.ProcessEnv): Promise<void> {
   const byFile = new Map<string, string[]>()
   for (const item of planned) {
-    if (item.secret && item.source !== "process") byFile.set(item.source, [...byFile.get(item.source) ?? [], item.name])
+    if (item.secret && item.source !== "process" && item.source !== "generated") byFile.set(item.source, [...byFile.get(item.source) ?? [], item.name])
   }
   for (const [file, names] of byFile) {
-    const result = await target.run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: target.project.root, env }).catch(() => undefined)
+    const result = await run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: root, env }).catch(() => undefined)
     if (result?.exitCode === 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
   }
 }
@@ -318,9 +324,18 @@ function pushRerun(args: EnvArgs): string {
   return ["vitehub env push", ...(args.host ? [`--host ${args.host}`] : []), ...(args.stage === defaultStage ? [] : [`--stage ${args.stage}`]), ...args.only.map(name => `--only ${name}`), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
+/** Short plain values, such as "1", would hide host output that has nothing to do with them. */
+function addRedactions(planned: readonly PlannedValue[], secrets: string[]): void {
+  for (const item of planned) if (item.secret || item.value.length >= 4) secrets.push(item.value)
+}
+
+function sourceLabel(source: EnvValueSource): string {
+  return source === "process" ? "the shell" : source === "generated" ? "a generated value" : source
+}
+
 function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
   const lines = output.pushed.length
-    ? [`Pushed to ${targetLabel(output)}:`, ...output.pushed.map(item => `  ${item.name} from ${item.source === "process" ? "the shell" : item.source}${item.replaced ? ", replaced" : ""}`)]
+    ? [`Pushed to ${targetLabel(output)}:`, ...output.pushed.map(item => `  ${item.name} from ${sourceLabel(item.source)}${item.replaced ? ", replaced" : ""}`)]
     : [`Nothing to push to ${targetLabel(output)}.`]
   if (output.skipped.length) lines.push("No local value, so the host keeps what it has:", ...output.skipped.map(item => `  ${entryLabel(item)}${item.required ? " (required)" : ""}`))
   context.stdout.write(`${lines.join("\n")}\n`)
@@ -330,15 +345,14 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   const target = await openTarget(args, "vitehub env push", context)
   const values = await readLocalEnvValues(target.project.root, target.stage, context.env)
   const { planned, skipped } = planPush(target.entries, values, args.only)
-  // Short plain values, such as "1", would hide host output that has nothing to do with them.
-  for (const item of planned) if (item.secret || item.value.length >= 4) target.secrets.push(item.value)
+  addRedactions(planned, target.secrets)
   const output: EnvPushOutput = { host: target.host, project: target.link.project.name, pushed: [], skipped, stage: target.stage, target: target.target }
   if (!planned.length) {
     if (args.json) writeSetupJson(context, output)
     else writePush(output, context)
     return setupExitCodes.done
   }
-  await assertUntracked(planned, target, context.env)
+  await assertUntracked(planned, target.project.root, target.run, context.env)
   if (!args.yes) {
     const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
     if (!interactive) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub env push` changes host variables and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
@@ -352,6 +366,124 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   if (args.json) writeSetupJson(context, output)
   else writePush(output, context)
   return setupExitCodes.done
+}
+
+/** The name that ViteHub derives its own keys from. A deploy can generate it, because no one else has to know it. */
+const appSecretName = "VITEHUB_SECRET"
+
+/** What `vitehub deploy --json` prints in `env`. Names only, never a value. */
+export interface DeployEnvOutput {
+  /** `production`, or `preview` with `--preview`. It picks the `.env.<stage>` files. */
+  stage: string
+  /** Every name and prefix that the build lists. */
+  checked: string[]
+  /** Optional entries that neither the host nor a local value sets. Required ones stop the deploy. */
+  missing: EnvDiffEntry[]
+  /** Names that the deploy set on the host, or uploaded with the Cloudflare version. */
+  pushed: string[]
+  /** Names that the deploy generated, such as `VITEHUB_SECRET`. They are in `pushed` too. */
+  generated?: string[]
+}
+
+export interface DeployEnvOptions {
+  host: DeployHost
+  /** The link target of the host. Without it, the project does not exist on the host yet, so the host has no names. */
+  link: SetupLink | undefined
+  preview: boolean
+  /** `--push-env`: also replace names that the host has. */
+  pushEnv: boolean
+  /** `--yes`: generate `VITEHUB_SECRET` without the question. */
+  yes: boolean
+  interactive: boolean
+  root: string
+  entries: readonly DeploymentEnvEntry[]
+  context: ViteHubCliContext
+  run: DeployRun
+  /** The redaction list of the deploy runner. The gate adds the values that it reads. */
+  secrets: string[]
+}
+
+export interface DeployEnvPlan {
+  output: DeployEnvOutput
+  /** The values to upload with the Cloudflare version, by name. Empty on other hosts. */
+  upload: Record<string, string>
+  /** Sets the values on the host. Deploy calls it just before the host deploy. Does nothing on Cloudflare. */
+  apply: () => Promise<void>
+}
+
+async function confirmGenerate(label: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(?:es)?$/iu.test((await terminal.question(`${appSecretName} is not set on ${label} and has no local value. Generate one and set it? [y/N] `)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
+function entryNames(entries: readonly DeploymentEnvEntry[]): string[] {
+  return [...new Set(entries.flatMap(entry => [...entry.names, ...(entry.prefix ? [`${entry.prefix}*`] : [])]))]
+}
+
+/**
+ * The Env gate of `vitehub deploy`. It runs after the build and before any host write. Each required entry must be on
+ * the host or have a local value (the shell, then the stage env files, as `env push` reads them). Deploy sets every
+ * entry that the host lacks and that has a local value; `--push-env` also replaces the names that the host has.
+ * Cloudflare gets the values with the uploaded version, other hosts through their env CLI before the deploy.
+ */
+export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployEnvPlan> {
+  const { context, entries, host, link } = options
+  const stage = options.preview ? "preview" : defaultStage
+  const output: DeployEnvOutput = { checked: entryNames(entries), missing: [], pushed: [], stage }
+  if (!entries.length) return { apply: async () => {}, output, upload: {} }
+
+  // A Worker has one set of secrets, and a preview version starts from them.
+  const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
+  const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
+  const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
+  const values = await readLocalEnvValues(options.root, stage, context.env)
+  const candidates = options.pushEnv ? entries : entries.filter(entry => !isSet(entry, onHost))
+  const planned = planPush(candidates, values, []).planned
+  const label = `${link?.project.name ?? "the new project"} on ${host}`
+
+  const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...planned.map(item => item.name)])))
+  const appSecret = unset().find(entry => isRequired(entry) && entry.names.includes(appSecretName))
+  if (appSecret && (options.yes || (options.interactive && await confirmGenerate(label)))) {
+    planned.push({ name: appSecretName, secret: true, source: "generated", value: randomBytes(32).toString("base64") })
+    output.generated = [appSecretName]
+  }
+  addRedactions(planned, options.secrets)
+
+  const missing = unset()
+  const required = missing.filter(isRequired)
+  if (required.length) {
+    const names = required.map(entry => entryLabel(diffEntry(entry))).join(", ")
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
+      data: { env: { ...output, missing: missing.map(diffEntry) } },
+      missing: required.map(entry => ({ field: entry.names[0] ?? `${entry.prefix}*` })),
+    })
+  }
+  if (planned.length && !hostEnv && host !== "cloudflare") {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
+  }
+  await assertUntracked(planned, options.root, options.run, context.env)
+
+  output.missing = missing.map(diffEntry)
+  output.pushed = planned.map(item => item.name)
+  if (output.missing.length) context.stderr.write(`Warning: optional env not set on ${host}: ${output.missing.map(entryLabel).join(", ")}.\n`)
+  for (const item of planned) {
+    context.stderr.write(item.source === "generated"
+      ? `Generated ${item.name} and set it on ${host}.\n`
+      : `Setting ${item.name} on ${host}${host === "cloudflare" ? " with the new version" : ""} from ${sourceLabel(item.source)}${onHost.has(item.name) ? ", replaced" : ""}.\n`)
+  }
+  if (host === "cloudflare" || !hostEnv) return { apply: async () => {}, output, upload: host === "cloudflare" ? Object.fromEntries(planned.map(item => [item.name, item.value])) : {} }
+  return {
+    apply: async () => {
+      for (const item of planned) await hostEnv.setSecret(item.name, item.value, { secret: item.secret })
+    },
+    output,
+    upload: {},
+  }
 }
 
 /** Runs `vitehub env diff` or `vitehub env push`. `feature` gives the usage and description for `--help`. */

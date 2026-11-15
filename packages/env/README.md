@@ -89,7 +89,7 @@ export async function sync(event: ViteHubContext) {
 
 ## Set the values on the host
 
-The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. `vitehub deploy` checks the same names before it deploys, and stops when a required one has no value on the host or locally. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env) and [Check Env before a deploy](https://vitehub.dev/docs/development/cli#check-env-before-a-deploy).
 
 ## Derive secrets from one root secret
 

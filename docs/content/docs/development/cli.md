@@ -84,7 +84,7 @@ Available namespaces:
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to a project on a host in `.vitehub/link.json`. Each host is one target, and linking another host keeps the others. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`, or only one host target with `--host`. Does not load the project config. |
-| `vitehub deploy` | Available | ViteHub CLI | Build the app for the default host target, or the one of `--host`, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Build the app for the default host target, or the one of `--host`, check its env names, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. `--host` picks a target. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
@@ -457,15 +457,17 @@ The host has no project with that name. Run the command in `rerun`, which adds `
 pnpm vitehub deploy
 pnpm vitehub deploy --host vercel
 pnpm vitehub deploy --preview
+pnpm vitehub deploy --push-env
 pnpm vitehub deploy --temporary --yes --json
 ```
 
 - `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. Without it, the command uses the default target of `.vitehub/link.json`, else the only target, else the host that `vitehub status` reports. With several targets and no default, it exits with `SETUP_LINK_HOST_REQUIRED`.
 - `--preview`: a preview deploy instead of production. Deno has none. A preview does not push the checkout folders of `vitehub.lock`.
+- `--push-env`: set every env value that is available locally on the host, also the names that the host has. See [Check Env before a deploy](#check-env-before-a-deploy).
 - `--no-build`: deploy the build output that is there.
 - `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
-- `--yes`: deploy without the question. Without a terminal, the command needs it and exits with `2` and a `rerun`.
+- `--yes`: deploy without the question, and generate a missing `VITEHUB_SECRET`. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
 The build runs with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, so it uses the preset of that host even when `vitehub()` sets another `host`. A `nitro.preset`, `NITRO_PRESET`, or `SERVER_PRESET` for another host still fails the build. With `--no-build`, the build output must be for the same host.
 
@@ -473,7 +475,7 @@ The command runs each host CLI with an argument array and no shell. It runs only
 
 | Host | Deploy |
 | --- | --- |
-| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. `--preview` runs `wrangler versions upload` and applies no migrations. |
+| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit, and `--secrets-file` when deploy sets env values. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. `--preview` runs `wrangler versions upload` and applies no migrations. |
 | Vercel | `vercel deploy --prebuilt --prod --project <name>`, with `--meta vitehubCommit=<sha>` |
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` |
@@ -483,6 +485,45 @@ The credentials are the ones that `vitehub link` reads, and the host CLIs read t
 A temporary deploy has no account. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 
 After a first deploy to a host, `.vitehub/link.json` gets the target of that host with `verified: false`, so `vitehub status` finds it, and keeps the other targets. Run `vitehub link --host <host>` to verify it.
+
+### Check Env before a deploy
+
+After the build and before any write to the host, deploy checks the env names that the build wrote to `deployment.json`. The stage picks the local values and the host environment:
+
+| Command | Stage | Local values | Host environment |
+| --- | --- | --- | --- |
+| `vitehub deploy` | `production` | The shell, then `.env.production.local`, `.env.production`, `.env.local`, `.env` | Production |
+| `vitehub deploy --preview` | `preview` | The shell, then `.env.preview.local`, `.env.preview`, `.env.local`, `.env` | Preview. Cloudflare has one set of Worker secrets, and the preview version starts from it. |
+
+1. Deploy reads the names that the host has, as `vitehub env diff` does. It reads them only when the build lists env names.
+2. Each required name must be on the host or have a local value. When one has neither, nothing is deployed and the command exits with `SETUP_DEPLOY_ENV_MISSING`.
+3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it refuses a secret from a file that git tracks, never deletes a host variable, and prints names, never values.
+4. An optional name that is on neither prints one warning line.
+
+On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
+
+A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. Vercel, Netlify, and Deno need the project before deploy can set values: run `vitehub link --host <host> --create` first, or the command exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
+
+When the build lists `VITEHUB_SECRET` as required and neither the host nor a local value has it, deploy asks to generate one. `--yes` generates it without the question. Deploy sets it on the host and prints only that it did.
+
+`--json` returns the check in `env`, with names only:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "env": {
+    "stage": "production",
+    "checked": ["VITEHUB_SECRET", "API_KEY", "SENTRY_DSN"],
+    "missing": [{ "names": ["SENTRY_DSN"], "path": "env.server.sentryDsn", "secret": false }],
+    "pushed": ["VITEHUB_SECRET", "API_KEY"],
+    "generated": ["VITEHUB_SECRET"]
+  }
+}
+```
+
+`missing` lists the optional names without a value. `pushed` lists the names that deploy set.
 
 ### Push the checkout folders
 
@@ -553,6 +594,14 @@ A checkout folder of `vitehub.lock` has a file with conflict markers or an open 
 ### `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`
 
 The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/checkout`, but the module does not load: it has a syntax error, a missing dependency, an error when it starts, or no `localCheckoutStatus` and `pushWorkspaces` exports. Nothing was built or deployed. Reinstall the dependencies and use the same version of the Workspace package as the CLI. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_ENV_MISSING`
+
+A required env name is on neither the host nor a local value for the stage. Nothing was deployed. Run `vitehub env push --host <host>`, set the name in the host dashboard, or set it in the shell or `.env.<stage>`. On a first deploy, every required name needs a local value. `missing` lists the names, and `env` the check. The command exits with `2`.
+
+### `SETUP_DEPLOY_ENV_NOT_LINKED`
+
+Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. Run `vitehub link --host <host> --create`, then deploy again. The command exits with `2`.
 
 ### `SETUP_DEPLOY_PUSH_FAILED`
 
@@ -710,7 +759,7 @@ pnpm vitehub env push [--host <host>] [--stage <name>] [--only <NAME>]... [--yes
 - `--only`: push only these names. Repeat it for more names.
 - `--yes`: push without the question. Without a terminal, `env push` needs it and exits with `2` and a `rerun`.
 
-When the build output for the host is missing, both commands build first, as `vitehub deploy` does.
+When the build output for the host is missing, both commands build first, as `vitehub deploy` does. `vitehub deploy` runs the same check before it deploys: see [Check Env before a deploy](#check-env-before-a-deploy).
 
 `env diff` prints three lists: missing required names, missing optional names, and extra names on the host that no declaration reads. An entry with several names, such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN`, is set when one of them is. Hosts do not return values, so `env diff` compares names only and never says that a value changed. It exits with `1` when a required name is missing, so it can gate a deploy step.
 
@@ -718,7 +767,7 @@ When the build output for the host is missing, both commands build first, as `vi
 
 | Host | Names | Values | Stages |
 | --- | --- | --- | --- |
-| Cloudflare | `wrangler secret list --name <worker>` | `wrangler secret put <name> --name <worker>`. Every value becomes a Worker secret. The Worker gets the new secret at once. | `production` only. A Worker has one set of secrets for every version. |
+| Cloudflare | `wrangler secret list --name <worker>` | `wrangler secret put <name> --name <worker>`. Every value becomes a Worker secret. The Worker gets the new secret at once, with the code that runs now. `vitehub deploy` sends values with the new version instead. | `production` only. A Worker has one set of secrets for every version. |
 | Vercel | `vercel env ls --environment <target>` | `vercel env add <name> --environment <target> --force`, with `--sensitive` for a secret | `production` and `preview` |
 | Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
 | Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno decides from the name whether a value is secret; a plain declaration gets `--non-secrets`. | `production` only |

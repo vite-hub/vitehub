@@ -98,6 +98,8 @@ pnpm vitehub env diff --host vercel --stage preview
 
 `env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
 
+`vitehub deploy` runs the same check after the build and before it writes to the host. `vitehub deploy` reads stage `production`, and `vitehub deploy --preview` reads stage `preview`. A required name that is on neither the host nor a local value stops the deploy. Deploy sets the names that the host lacks from their local values, and `--push-env` also replaces the names that the host has. Cloudflare gets the values with the new version through `wrangler deploy --secrets-file`. With `--yes`, deploy generates a missing `VITEHUB_SECRET`. See [Check Env before a deploy](https://vitehub.dev/docs/development/cli#check-env-before-a-deploy).
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.

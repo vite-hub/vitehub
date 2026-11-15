@@ -422,16 +422,6 @@ export interface AgentOptions extends AgentPluginOptions {
   invocations?: AgentInvocationsDefault
 }
 
-/** Cloudflare options of `vitehub()`. */
-export interface CloudflareOptions {
-  /**
-   * A `.env` or JSON file, relative to the project root, whose values `nitro deploy --prebuilt` uploads as Worker secrets.
-   * ViteHub adds `--secrets-file` to the generated deploy command only when the file exists at build time.
-   * It never reads the file.
-   */
-  secretsFile?: string
-}
-
 /** `connections` options of `vitehub()`. */
 export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" | "databaseName" | "importBase"> & {
   /** The Database that stores grants, approvals, and activity, such as `"users"`. Defaults to `default`. */
@@ -493,8 +483,6 @@ export interface ViteHubOptions {
    */
   cache?: boolean | CacheOptions
   channels?: boolean | ChannelsOptions
-  /** Options for the `cloudflare` host. Other hosts ignore them. */
-  cloudflare?: CloudflareOptions
   /** Options for the `node` host. Other hosts ignore them. */
   node?: ViteHubNodeOptions
   /**
@@ -749,7 +737,6 @@ function deploymentNitroModule(
   services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxTaskRequested: boolean,
-  secretsFilePath: string | undefined,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
@@ -768,10 +755,7 @@ function deploymentNitroModule(
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
       const config = outputRelativeArgument(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json"))
-      // A Workers Builds or Deploy button build has no local secrets file, so its command must not name one.
-      const secretsFile = secretsFilePath && resolve(nitro.options.rootDir, secretsFilePath)
-      const secrets = secretsFile && existsSync(secretsFile) ? ` --secrets-file ${outputRelativeArgument(nitro.options.output.dir, secretsFile)}` : ""
-      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${secrets}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
+      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
     let serverPackages: DenoServerPackages | undefined
     if (plan.output.packaging === "deno-node-modules") {
@@ -1059,7 +1043,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,

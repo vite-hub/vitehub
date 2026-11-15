@@ -1698,40 +1698,6 @@ describe("vitehub", () => {
     ])
   })
 
-  it.each([".env", "config/prod secrets.env"])("uploads the Cloudflare secrets file %s through the prebuilt deploy command", async secretsFile => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-secrets-file-"))
-    try {
-      await mkdir(join(root, "config"))
-      await writeFile(join(root, secretsFile), "API_TOKEN=secret\n")
-      const { commands } = await cloudflareCommands(
-        { cloudflare: { secretsFile }, host: "cloudflare", sandboxTask: true },
-        {},
-        join(root, ".output/server"),
-        root,
-      )
-      // Apply Nitro's deploy --prebuilt rewrite, then run the command from the project root as Nitro does.
-      const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
-      const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { cwd: root, encoding: "utf8" })
-
-      expect(result.status).toBe(0)
-      expect(result.stdout.trim().split("\n")).toEqual([
-        "wrangler", "deploy", "--config", ".output/server/wrangler.json", "--secrets-file", `.output/../${secretsFile}`, "--containers-rollout=gradual",
-      ])
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("leaves the secrets file out of the Cloudflare deploy command when the file is missing at build time", async () => {
-    const { commands } = await cloudflareCommands(
-      { cloudflare: { secretsFile: ".env" }, host: "cloudflare" },
-      {},
-    )
-
-    expect(commands.deploy).toBe("npx wrangler deploy --config ./server/wrangler.json")
-  })
-
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
     const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
       nitro.options.commands.deploy = "node ./deploy.mjs"

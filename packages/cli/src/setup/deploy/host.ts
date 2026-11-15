@@ -60,6 +60,8 @@ export interface DeployContext {
   fetch: typeof fetch
   /** Values that no output may show, such as the Console hash. */
   secrets: readonly string[]
+  /** Values to upload with the new Cloudflare version, by name. Other hosts get theirs before the deploy. */
+  upload?: Readonly<Record<string, string>>
 }
 
 export interface DeployResult {
