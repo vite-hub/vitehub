@@ -10,12 +10,20 @@ import type { ConsoleNavigation } from "./sections"
 /** The `project.get` protocol that this Console reads. */
 export const consoleProjectProtocol = 1
 
+/** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
+export interface ConsoleProjectBuild {
+  time: string
+  commit?: { sha: string, message?: string, author?: string, branch?: string }
+}
+
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
 export interface ConsoleProjectInfo {
   protocol: typeof consoleProjectProtocol
   name?: string
   /** The `vite-hub` version of the app. */
   vitehub?: string
+  /** The build that serves the project. A development server and an older vite-hub send none. */
+  build?: ConsoleProjectBuild
   sections: string[]
   operations: string[]
   /** The answer of `sections.list`, which apps send to the Console page with `project.get`. Older apps leave it out. */
@@ -40,6 +48,27 @@ export type ConsoleProjectProbe =
   | { kind: "missing" }
   | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
 
+const field = (record: object, key: string): string | undefined => {
+  const value: unknown = Reflect.get(record, key)
+  return String(value) === value && value.trim() ? value.trim() : undefined
+}
+
+/** Read the `build` of a `project.get` answer. A value without a valid time is no build. */
+export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | undefined {
+  if (!(value instanceof Object)) return undefined
+  const time = field(value, "time")
+  if (!time || !Number.isFinite(Date.parse(time))) return undefined
+  const commitValue: unknown = Reflect.get(value, "commit")
+  const sha = commitValue instanceof Object ? field(commitValue, "sha") : undefined
+  if (!(commitValue instanceof Object) || !sha) return { time }
+  const commit: NonNullable<ConsoleProjectBuild["commit"]> = { sha }
+  for (const key of ["message", "author", "branch"] as const) {
+    const entry = field(commitValue, key)
+    if (entry) commit[key] = entry
+  }
+  return { time, commit }
+}
+
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []
 
 function parseProjectInfo(value: unknown): ConsoleProjectProbe {
@@ -52,12 +81,14 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
   if (protocol !== consoleProjectProtocol) {
     return { kind: "protocol", ...(Number.isInteger(protocol) ? { protocol: Number(protocol) } : {}), ...(version ? { vitehub: version } : {}) }
   }
+  const build = consoleProjectBuildOf(record ? Reflect.get(record, "build") : undefined)
   return {
     kind: "ready",
     info: {
       protocol,
       ...(String(name) === name && name.trim() ? { name: name.trim() } : {}),
       ...(version ? { vitehub: version } : {}),
+      ...(build ? { build } : {}),
       operations: strings(record ? Reflect.get(record, "operations") : undefined),
       sections: strings(record ? Reflect.get(record, "sections") : undefined),
       ...(navigation instanceof Object ? { navigation: parseConsoleNavigation(navigation) } : {}),
