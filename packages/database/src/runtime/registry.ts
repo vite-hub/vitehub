@@ -1,5 +1,6 @@
 import virtualSchema from "#vitehub/database/schema"
 import { ensureDatabaseMigrations } from "./migrate-on-start.ts"
+import { readPostgresConnectionUrl } from "./postgres-connection.ts"
 
 import { createAgentDatabase, createDatabaseBindingLookup, pingDatabaseEntries } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
@@ -145,6 +146,16 @@ export function pingDatabases(): Promise<Record<string, boolean>> {
 export const agentDb = createAgentDatabase(databases)
 
 /**
+ * The connection URL of the Postgres Database `name`, as its client resolves it outside a request: the Hyperdrive
+ * binding, then `connection.url`. It is `undefined` for a Database that is not Postgres, and for a Postgres Database
+ * that connects through PG* environment variables. It throws `DATABASE_MISSING_CONNECTION` when a Postgres Database
+ * has none of these. Use it in a package that opens its own Postgres client, so that it uses the same database.
+ */
+export function getPostgresConnectionUrl(name = "default"): string | undefined {
+  return readPostgresConnectionUrl(databases, name)
+}
+
+/**
  * Applies the pending migrations of the Database `name`, or of every Database, once in this process. It runs the same
  * path as the server start: a Postgres database migrates under the advisory lock, so other processes apply nothing
  * twice. Parallel calls share one run, and the server start shares it too. A failed run is forgotten, so the next call
@@ -158,4 +169,3 @@ export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string):
   const load = () => import("#vitehub/database/migrations").then(module => module.default)
   return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
 }
-
