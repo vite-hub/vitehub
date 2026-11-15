@@ -64,3 +64,16 @@ export function consoleAuthorizedSections(result: unknown): readonly ConsoleSect
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
 }
+
+/**
+ * The `grants` of a `console.authorize` result: the page tool roles that Site access gives. `undefined` without the
+ * field, and `false` when the field is not a list of role ids.
+ */
+export function consoleAuthorizedGrants(result: unknown): readonly string[] | undefined | false {
+  if (result === null || typeof result !== "object" || !("grants" in result)) return undefined
+  const value: unknown = Reflect.get(result, "grants")
+  if (!Array.isArray(value)) return false
+  const grants: unknown[] = value
+  if (!grants.every((grant): grant is string => typeof grant === "string" && grant.length > 0)) return false
+  return Object.freeze([...new Set(grants)])
+}
