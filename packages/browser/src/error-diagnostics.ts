@@ -19,7 +19,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0009: { ...dynamicError, fix: "Default-export `defineBrowser()` from the Browser Definition file that the message names, in `server/browsers/` or a `*.browser.ts` file." },
     BROWSER_R0010: { ...dynamicError, fix: "Pass a handler function to `defineBrowser()`, for example `defineBrowser(async (input, { browser }) => ...)`." },
     BROWSER_R0011: { ...dynamicError, fix: "In Workers, connect through a Cloudflare Browser binding. Run CDP providers, such as `localBrowser()`, on a Node.js host." },
-    BROWSER_B0001: dynamicError,
-    BROWSER_B0002: dynamicError,
+    BROWSER_B0001: { ...dynamicError, fix: "Set `browser: { binding }` in `vitehub()` to letters, digits, and `_` that do not start with a digit, such as `\"BROWSER\"`, or remove `binding`." },
+    BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
   },
 })
