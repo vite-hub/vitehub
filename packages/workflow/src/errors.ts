@@ -75,6 +75,7 @@ export function createWorkflowError<TCode extends WorkflowErrorCode>(
  * Throw it from a step or a handler to fail the run at once, with no more attempts, on every provider. Cloudflare reads
  * `isRetryable`, Workflow DevKit reads `fatal`, and ViteHub stops OpenWorkflow retries itself.
  */
+// Internal invariant: the developer throws this class with their own message. ViteHub never throws it, and providers read its fields.
 export class NonRetryableError extends Error {
   override name = "NonRetryableError"
   readonly isRetryable = false
