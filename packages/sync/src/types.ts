@@ -155,7 +155,10 @@ export type SyncActionsOf<TName extends string> = TName extends keyof ViteHubSyn
  * column is accepted.
  */
 export type SyncSubsetOf<TName extends string> = TName extends keyof ViteHubSyncMap
-  ? Partial<Pick<SyncRowOf<TName>, InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>>>
+  // `{}` would take any object, so a definition without `subsets` takes only an empty `where`.
+  ? [InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>] extends [never]
+      ? Record<string, never>
+      : Partial<Pick<SyncRowOf<TName>, InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>>>
   : Partial<SyncRowOf<TName>>
 
 /** A Sync name of the app, or any string when the map is empty. */

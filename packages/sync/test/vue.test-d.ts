@@ -14,6 +14,7 @@ declare global {
     todos: SyncDefinition<unknown, Todo, { complete: { id: string }, add: { id?: string, title: string } }>
     meetings: SyncDefinition<unknown, { id: string, at: Date, count: bigint }>
     comments: SyncDefinition<unknown, { id: string, issueId: string, body: string }, Record<string, never>, "issueId">
+    memos: SyncDefinition<unknown, { id: string, body: string }, Record<string, never>, never>
   }
 }
 
@@ -47,6 +48,11 @@ test("useSync() and createSync() take only the `subsets` columns in `where`", ()
   createSync("comments", { where: { body: "x" } })
   // @ts-expect-error A subset value has the type of its column.
   createSync("comments", { where: { issueId: 1 } })
+  useSync("memos")
+  // @ts-expect-error A definition without `subsets` takes no subset.
+  createSync("memos", { where: { body: "x" } })
+  // @ts-expect-error A definition without `subsets` takes no subset.
+  useSync("memos", { where: () => ({ body: "x" }) })
 })
 
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {
