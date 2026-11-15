@@ -3,7 +3,7 @@ import { defineCapability } from "@vite-hub/agent";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import type { GitHubPullRequestOperations } from "../github/index.ts";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
-import { GitHubWorkspaceInstallError, isGitHubLockfileDefect, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
+import { isGitHubLockfileDefect, isGitHubWorkspaceInstallError, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
@@ -37,7 +37,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       await workspace?.afterRefresh(context);
       return { refreshed: true as const };
     } catch (error) {
-      if (error instanceof GitHubWorkspaceInstallError && error.retryable && !isGitHubLockfileDefect(error)) refund?.();
+      if (isGitHubWorkspaceInstallError(error) && error.retryable && !isGitHubLockfileDefect(error)) refund?.();
       throw error;
     }
   };

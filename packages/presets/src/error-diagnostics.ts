@@ -91,5 +91,14 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ startLine, totalLines }: { startLine: number, totalLines: number }) => `startLine ${startLine} is past the log's ${totalLines} lines.`,
       fix: "Pick a startLine from the totalLines of an earlier readCheckLogs result, or pass tailLines to read the end of the log.",
     },
+    // Install errors. Keep these codes in alphabetical order.
+    PRESETS_GITHUB_DEPENDENCY_CONFLICT: {
+      why: ({ file }: { file: string }) => `Resolve dependency conflicts in ${file} and call refreshDependencies before validation.`,
+      fix: "Remove the merge conflict markers from the dependency file that the message names, then call `refreshDependencies` again.",
+    },
+    PRESETS_GITHUB_INSTALL_FAILED: {
+      why: ({ detail }: { detail: string }) => `Frozen dependency installation failed: ${detail}`,
+      fix: "Read error.cause for the package manager output. Fix the lockfile or package.json of the pull request when `kind` is `input`. A retry helps when `retryable` is true, such as for installer capacity or the network.",
+    },
   },
 })

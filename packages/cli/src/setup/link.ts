@@ -9,7 +9,7 @@ import {
   createCloudflareProvisionClient,
   createNetlifyApiClient,
   createVercelProvisionClient,
-  ProvisionRequestError,
+  isProvisionRequestError,
 } from "@vite-hub/internal/provision"
 import { isRecord } from "@vite-hub/internal/object"
 import { dirname, join } from "pathe"
@@ -172,7 +172,7 @@ async function unlessNotFound<T>(request: Promise<T>): Promise<T | undefined> {
     return await request
   }
   catch (error: unknown) {
-    if (error instanceof ProvisionRequestError && error.status === 404) return
+    if (isProvisionRequestError(error) && error.status === 404) return
     throw error
   }
 }

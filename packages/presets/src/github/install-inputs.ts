@@ -64,7 +64,10 @@ function validateNpmConfig(source: string): void {
   }
 }
 
-export class GitHubDependencyConflictError extends Error {}
+/** Whether `error` is a dependency file with merge conflict markers: `PRESETS_GITHUB_DEPENDENCY_CONFLICT`. */
+export function isGitHubDependencyConflictError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === "PRESETS_GITHUB_DEPENDENCY_CONFLICT";
+}
 
 /**
  * Validate decoded manifests and lockfiles before a package manager can read host paths.
@@ -240,7 +243,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       } else if (entry.isDirectory()) continue;
       else if (inputNames.has(entry.name)) {
         const source = await readFile(path, "utf8");
-        if (/^<{7} /m.test(source)) throw new GitHubDependencyConflictError(`Resolve dependency conflicts in ${relative(root, path)} and call refreshDependencies before validation.`);
+        if (/^<{7} /m.test(source)) throw presetsErrorDiagnostics.PRESETS_GITHUB_DEPENDENCY_CONFLICT({ file: relative(root, path) });
         hash.update(relative(root, path)).update("\0").update(source).update("\0");
         if (inputs) inputs[relative(root, path)] = createHash("sha256").update(source).digest("hex");
         if (entry.name === ".npmrc") { validateNpmConfig(source); continue; }
