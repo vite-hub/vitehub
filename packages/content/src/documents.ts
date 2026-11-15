@@ -747,14 +747,17 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  */
 export function normalizeFrontmatter(data: unknown): Record<string, unknown> {
   if (data === undefined) return {}
+  // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
   if (!isPlainRecord(data)) throw new TypeError("data must be a plain object of field values.")
   let normalized: unknown
   try {
     normalized = JSON.parse(JSON.stringify(data))
   }
   catch (cause) {
+    // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
     throw new TypeError(`data must be JSON-serializable: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
+  // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
   if (!isPlainRecord(normalized)) throw new TypeError("data must be a plain object of field values.")
   return normalized
 }

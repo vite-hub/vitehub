@@ -46,6 +46,7 @@ type ToolGrant = ReturnType<typeof toolGrant.issue>
 
 function spend(grant: ToolGrant, action: CommentAction, threadId: string): void {
   const allowed = toolGrant.consume(grant)
+  // Internal invariant: each Comments tool spends the grant that it issued for the same action and thread.
   if (allowed.action !== action || allowed.threadId !== threadId) throw new TypeError(`[vitehub] A Comments tool wrote ${action} with the grant of ${allowed.action}.`)
 }
 

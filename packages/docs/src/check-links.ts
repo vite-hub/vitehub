@@ -3,6 +3,8 @@ import { join, posix, relative, resolve, sep } from "node:path";
 
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml";
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts";
+
 export interface DocsLinkCheckOptions {
   dir: string;
   siteUrl: string;
@@ -18,6 +20,7 @@ export interface DocsLinkCheckOptions {
   redirect?: (url: URL) => string | undefined;
 }
 
+// Internal invariant: public error class with the list of problems. The build prints it and stops.
 export class DocsLinkError extends Error {
   readonly problems: string[];
 
@@ -53,7 +56,7 @@ function matcher(patterns: Array<string | RegExp> | undefined): (value: string) 
 /** Check built HTML against the files and fragment ids in the same output, without fetching remote URLs. */
 export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number } {
   const root = resolve(options.dir);
-  if (!existsSync(root)) throw new Error(`Docs output does not exist: ${root}`);
+  if (!existsSync(root)) throw docsErrorDiagnostics.DOCS_OUTPUT_MISSING({ root });
   const origin = new URL(options.siteUrl).origin;
   const appBase = `/${(options.appBase ?? "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
   const excludedPage = matcher(options.excludePages);

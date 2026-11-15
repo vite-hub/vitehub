@@ -36,6 +36,7 @@ async function writeClipboard(value: CopyValue): Promise<void> {
 
 async function writeClipboardApi(text: string | Promise<string>): Promise<void> {
   const clipboard = globalThis.navigator?.clipboard;
+  // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
   if (typeof clipboard?.writeText !== "function") throw new Error("The clipboard is not available.");
   if (typeof text === "string") return clipboard.writeText(text);
   // Safari allows a write only during the click. A ClipboardItem takes the pending text, so the write starts now.

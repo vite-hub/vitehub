@@ -45,6 +45,7 @@ export interface RestTransportOptions {
 }
 
 /** A failed request of the Comments API: the code, `why`, and `fix` of the error object, and the HTTP status. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 export class CommentsRestError extends Error {
   readonly code: string
   readonly why: string

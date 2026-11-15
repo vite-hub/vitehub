@@ -416,6 +416,7 @@ function renderDatabaseLookup(plan: CmsPresetPlan): string[] {
     "catch (error) {",
     "  database = new Proxy({}, {",
     "    get() {",
+    // Internal invariant: generated module source. It throws on first use of a Database that the runtime does not have.
     `      throw new Error(${JSON.stringify(missing)}, { cause: error })`,
     "    },",
     "  })",

@@ -19,6 +19,7 @@ export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => 
 export function blobUpload(route: string): MarkdownEditorUpload {
   return async (file, progress) => {
     const [object] = await uploadFiles(route, [file], { onProgress: (percent) => progress(percent / 100) });
+    // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
     if (!object?.url) throw new Error(`${route} stored ${file.name} without a URL. Serve the Blob store with \`blob.serve\` so the editor can link it.`);
     return object.url;
   };

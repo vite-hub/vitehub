@@ -70,6 +70,7 @@ function targetPath(to: string): string | undefined {
 }
 
 /** Redirect route rules that break links. The build stops on them while the link checker is on. */
+// Internal invariant: public error class with the list of problems. The build prints it and stops.
 export class DocsRedirectError extends Error {
   readonly problems: readonly string[]
 

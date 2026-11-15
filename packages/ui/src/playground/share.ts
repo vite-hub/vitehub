@@ -61,6 +61,7 @@ async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
     size += chunk.value.byteLength;
     if (size > inflatedLimit) {
       await reader.cancel();
+      // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
       throw new Error("The shared files are too big.");
     }
     text += decoder.decode(chunk.value, { stream: true });

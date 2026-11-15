@@ -109,5 +109,24 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file: string }) => `The \`database\` option of defineComments() in ${file} is not a string literal. The build reads it without running the file, so Comments would use the default Database.`,
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
+    // Named errors. Keep these codes in alphabetical order.
+    COMMENTS_GITHUB_REQUEST_FAILED: {
+      why: ({ path, status }: { path: string, status: number }) => `GitHub GET ${path} failed with ${status}`,
+      fix: "Sign in with GitHub again, because a status of 401 means that the token expired. For other statuses, check that the GitHub OAuth app of the Comments login is active and that GitHub is reachable.",
+    },
+    COMMENTS_MIGRATION_DATABASE_UNSUPPORTED: {
+      why: ({ dialect }: { dialect: "postgresql" | "sqlite" }) => dialect === "postgresql"
+        ? "[vitehub] migrateComments() needs a Postgres Drizzle database with transaction()."
+        : "[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.",
+      fix: "Pass `migrateComments()` the Drizzle database of `useDatabase()`, or of another driver with `transaction()` on Postgres, or `batch()` or `transaction()` on SQLite.",
+    },
+    COMMENTS_MIGRATION_LIVE_POSTGRES: {
+      why: "[vitehub] The live-site comments model had no Postgres tables, so there is nothing to move.",
+      fix: "Use `from: \"outdated\"` for a Postgres Database. Only SQLite, libSQL, and D1 have tables of the live-site model.",
+    },
+    COMMENTS_SECRET_TOO_SHORT: {
+      why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
+      fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
+    },
   },
 })

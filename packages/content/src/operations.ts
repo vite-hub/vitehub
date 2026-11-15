@@ -59,6 +59,7 @@ function isRuntime(value: unknown): value is ContentOperationsRuntime {
   return value !== null && Object(value) === value && runtimeMembers.every(member => Reflect.get(Object(value), member) instanceof Function)
 }
 
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class ContentOperationError extends Error {
   readonly code: string
   readonly details?: unknown

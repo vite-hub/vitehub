@@ -707,6 +707,7 @@ function defaultEditor(env: NodeJS.ProcessEnv): ((file: string) => Promise<void>
       child.once("error", reject)
       child.once("exit", resolve)
     })
+    // Internal invariant: caught by `vitehub content edit`, which prints the message.
     if (code !== 0) throw new Error(`The editor \`${command}\` exited with code ${code}.`)
   }
 }

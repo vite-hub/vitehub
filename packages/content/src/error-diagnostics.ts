@@ -224,5 +224,26 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `previews: true` in `defineContent()`, with one `github()` Source, so the app serves `/pr/<number>/<path>`.",
       why: () => "[vitehub] content.sources.previewLinks() needs defineContent({ previews: true }): without it, the app serves no /pr/<number> URLs.",
     },
+    // Named errors. Keep these codes in alphabetical order.
+    CONTENT_CACHE_KEY_UNKNOWN: {
+      why: ({ key }: { key: string }) => `Unknown content cache key ${JSON.stringify(key)}.`,
+      fix: "Pass `content.cache` a key that starts with the name of a Content source and a colon, such as `default:<path>`.",
+    },
+    CONTENT_RUNTIME_EXPORT_INVALID: {
+      why: "[vitehub] server/content.ts must default-export the defineContent() runtime.",
+      fix: "Default-export the result of `defineContent({ ... })` from `server/content.ts`.",
+    },
+    CONTENT_SOURCE_CONFLICT: {
+      why: "Define either source or sources, not both.",
+      fix: "Keep `source` for one Content source, or move it into `sources` beside the others, in `defineContent()`.",
+    },
+    CONTENT_SOURCE_MISSING: {
+      why: ({ name }: { name: string }) => `Content source ${JSON.stringify(name)} is missing.`,
+      fix: "Give the source that the message names a value in `defineContent({ sources })`, or remove its key.",
+    },
+    CONTENT_SOURCE_UNKNOWN: {
+      why: ({ name }: { name: string }) => `Unknown content source ${JSON.stringify(name)}.`,
+      fix: "Pass `content.from()` the name of a source that `defineContent({ sources })` declares, or `default` for `defineContent({ source })`.",
+    },
   },
 })

@@ -117,6 +117,7 @@ export function contentDocument(collection: AnyContentCollection, options: Conte
       }
       if (!result.editing && result.holder) {
         const holder = result.holder.user.name ?? result.holder.user.id
+        // Internal invariant: the realtime room refuses the join and shows the message to the editor. No app change fixes it.
         throw new Error(`${holder} is editing this document alone. Live edits save once they stop or someone takes over.`)
       }
     },
@@ -179,6 +180,7 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
   const adapters = new Map<string, RealtimeDocumentAdapter>()
   function target(context: RealtimeDocumentContext) {
     const found = contentLiveTarget(content, context.documentId)
+    // Internal invariant: the room id comes from the client, and the realtime room refuses the join.
     if (!found) throw new Error(`No Content Markdown document matches the live room ${JSON.stringify(context.documentId)}.`)
     return found
   }

@@ -17,6 +17,7 @@ const scope = globalThis as typeof globalThis & { [liveKey]?: ContentLiveInstall
 /** Install Content live editing for this process. Generated host output calls it; applications do not. */
 export function installContentLive(install: ContentLiveInstall): void {
   if (install === null || Object(install) !== install || String(install.definition) !== install.definition || !install.definition || !(install.refresh instanceof Function)) {
+    // Internal invariant: generated host output calls installContentLive() with the definition and refresh that it builds.
     throw new TypeError("[vitehub] installContentLive() requires { definition, refresh }.")
   }
   scope[liveKey] = Object.freeze({ definition: install.definition, refresh: install.refresh })

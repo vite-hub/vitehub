@@ -122,6 +122,7 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
 }
 
 /** Pages that search engines would flag. The build stops on them while the check is on. */
+// Internal invariant: public error class with the list of problems. The build prints it and stops.
 export class DocsSeoError extends Error {
   readonly problems: readonly string[]
 

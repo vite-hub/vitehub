@@ -16,6 +16,7 @@ function crc32(data: Uint8Array): number {
 
 /** A stored `.zip` of text files under `folder/`, with the same bytes for the same files. */
 export function zipFiles(files: Record<string, string>, folder: string): Uint8Array<ArrayBuffer> {
+  // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
   if (!isProjectPath(folder) || !Object.keys(files).every(isProjectPath)) throw new Error("ZIP files must use safe project-relative paths.");
   const encoder = new TextEncoder();
   const local: Uint8Array[] = [];

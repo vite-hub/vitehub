@@ -6,6 +6,7 @@ import { createSource, glob } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
@@ -68,12 +69,13 @@ export function resolveDocsSources(inputs: readonly DocsSourceInput[], rootDir: 
     const { source, ...options } = typeof input === "string" || isContentSource(input) ? { source: input } : input
     const mount = normalizeDocsBase(options.mount ?? "/")
     if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
-      throw new Error(`Invalid docs source mount: ${mount}`);
+      throw docsErrorDiagnostics.DOCS_SOURCE_MOUNT_INVALID({ mount });
     return typeof source === "string" ? { ...options, dir: resolve(rootDir, source) } : { ...options, source }
   })
 }
 
 /** A page whose frontmatter or section file does not match the schema. The build stops on it. */
+// Internal invariant: public error class with the list of problems. The build prints it and stops.
 export class DocsContentError extends Error {
   constructor(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
     const details = issues

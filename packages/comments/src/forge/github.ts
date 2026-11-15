@@ -3,6 +3,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import * as v from "valibot"
 
 /** A GitHub request that failed, with the status and GitHub's message. */
+// Internal invariant: carries the GitHub status. Callers check it with instanceof and status.
 export class GitHubRequestError extends Error {
   override name = "GitHubRequestError"
   constructor(readonly status: number, message: string) {

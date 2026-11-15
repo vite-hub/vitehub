@@ -20,10 +20,12 @@ export function parseGitHubArchive(bytes: Uint8Array) {
     const path = paxPath || [prefix, name].filter(Boolean).join("/")
     const sizeField = readTarString(header, 124, 12).trim()
     if (sizeField && !/^[0-7]+$/.test(sizeField)) {
+      // Internal invariant: shape check of the tar archive that GitHub serves. No app setting changes it.
       throw new Error("Invalid GitHub archive entry size.")
     }
     const size = sizeField ? Number.parseInt(sizeField, 8) : 0
     if (!Number.isSafeInteger(size) || size < 0) {
+      // Internal invariant: shape check of the tar archive that GitHub serves. No app setting changes it.
       throw new Error("Invalid GitHub archive entry size.")
     }
     const type = String.fromCharCode(header[156] || 0)
@@ -31,6 +33,7 @@ export function parseGitHubArchive(bytes: Uint8Array) {
     const contentEnd = contentStart + size
     const entryEnd = contentStart + Math.ceil(size / 512) * 512
     if (entryEnd > tar.length) {
+      // Internal invariant: shape check of the tar archive that GitHub serves. No app setting changes it.
       throw new Error("Invalid GitHub archive entry size.")
     }
     const content = tar.subarray(contentStart, contentEnd)

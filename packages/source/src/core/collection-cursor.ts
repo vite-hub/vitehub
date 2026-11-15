@@ -43,9 +43,11 @@ function encodeBase64Url(value: string): string {
 function decodeBase64Url(value: string): string {
   // Collection cursors are emitted as unpadded base64url. Reject malformed
   // padding and lengths before host-specific decoders can silently accept them.
+  // Internal invariant: decodeCursor() catches it and throws CollectionCursorError (SOURCE_R0023).
   if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) throw new TypeError("Malformed base64url cursor")
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+  // Internal invariant: decodeCursor() catches it and throws CollectionCursorError (SOURCE_R0023).
   if (btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") !== value) throw new TypeError("Noncanonical base64url cursor")
   return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
 }

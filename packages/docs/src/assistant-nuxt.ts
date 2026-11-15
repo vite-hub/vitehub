@@ -10,6 +10,7 @@ interface DocsAssistantNuxt extends ModuleOptionsNuxt {
 }
 
 /** The error that the build shows when the assistant cannot run. */
+// Internal invariant: this class puts the why and the fix in its message, and the build prints it.
 export class DocsAssistantSetupError extends Error {
   constructor(why: string, fix: string) {
     super(`[@vite-hub/docs] ${why} ${fix}`)

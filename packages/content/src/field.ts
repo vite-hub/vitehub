@@ -27,8 +27,11 @@ export function contentField(collection: string, idOrField: string, field?: stri
 
 /** Writes a field address as `collection[:id]#field`. Throws for a name or path that the format cannot hold. */
 export function formatContentField(address: ContentFieldAddress): string {
+  // Internal invariant: runs in the browser through @vite-hub/content/client, which does not load nostics.
   if (!collectionName.test(address.collection)) throw new TypeError(`[vitehub] ${JSON.stringify(address.collection)} is not a Content collection name.`)
+  // Internal invariant: runs in the browser through @vite-hub/content/client, which does not load nostics.
   if (!fieldPath.test(address.field)) throw new TypeError(`[vitehub] ${JSON.stringify(address.field)} is not a Content field path. Use dots between keys, such as hero.title.`)
+  // Internal invariant: runs in the browser through @vite-hub/content/client, which does not load nostics.
   if (address.id !== undefined && (!address.id || address.id.includes("#"))) throw new TypeError(`[vitehub] ${JSON.stringify(address.id)} is not a Content document id.`)
   return `${address.collection}${address.id === undefined ? "" : `:${address.id}`}#${address.field}`
 }

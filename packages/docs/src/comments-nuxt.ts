@@ -16,6 +16,7 @@ export interface DocsCommentsOptions {
 }
 
 /** The error that the build shows when Comments cannot run on the docs site. */
+// Internal invariant: this class puts the why and the fix in its message, and the build prints it.
 export class DocsCommentsSetupError extends Error {
   constructor(why: string, fix: string) {
     super(`[@vite-hub/docs] ${why} ${fix}`)

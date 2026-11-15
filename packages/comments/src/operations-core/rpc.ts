@@ -23,6 +23,7 @@ export interface RpcTransportOptions {
 }
 
 /** A failed operation, with the fields that every ViteHub surface reports. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 export class CommentsRpcError extends Error {
   readonly code: string
   readonly fix?: string

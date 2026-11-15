@@ -680,6 +680,7 @@ async function writeContentArtifact(
     "// A production build drops this branch, so the server does not load Content at startup.",
     "const write = async (declarations) => {",
     '  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })',
+    // Internal invariant: generated Nitro plugin source. This module does not throw it.
     '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
     "}",
     `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).default, write, { moduleName: ${importBase} }) : () => {}`,

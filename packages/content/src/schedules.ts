@@ -101,6 +101,7 @@ export interface ContentPublishDueResult {
 }
 
 /** Internal control flow used when an expired schedule is cancelled in flight. */
+// Internal invariant: internal control flow. The scheduler catches it when it cancels an expired schedule.
 export class ContentScheduleCancelled extends Error {
   constructor() {
     super("Content schedule was cancelled while publishing.")

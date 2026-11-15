@@ -57,6 +57,7 @@ async function startWriter(host: ContentTypesWriterHost, plugin: string): Promis
     server.closeAllConnections()
   }))
   const address = server.address()
+  // Internal invariant: the writer listens on a TCP host and port, so it always has a TCP address.
   if (!address || typeof address === "string") throw new Error("Content types writer has no TCP address.")
   host.options!.runtimeConfig ??= {}
   host.options!.runtimeConfig.vitehubContentTypesWriter = `http://127.0.0.1:${address.port}${path}`
