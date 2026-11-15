@@ -19,6 +19,7 @@ With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the
 | --- | --- |
 | **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own. |
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
+| **`/_vitehub`** | Add `/_vitehub` to the app address to sign in through the Console and return with the pill. Add `?page=/guide/day-2` to return to that page. In development it opens the page with `?vitehub` instead. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
 Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
@@ -31,7 +32,7 @@ A guest is an app user with a session, so routes that let in any signed-in user 
 
 | Operation | Does |
 | --- | --- |
-| `site.link` | Returns a one-time link that signs the browser in as you and opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
+| `site.link` | Returns a one-time link that signs the browser in as you and opens `path`, or the app home. `qr: true` makes it last 10 minutes. With the `state` of `/_vitehub`, it works only in the browser that opened `/_vitehub`. |
 | `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default) or 30. |
 | `site.invites`, `site.revoke-invite` | List unopened invites, and revoke one. |
 | `site.sessions`, `site.revoke-session` | List the browsers of members and guests, and sign one out. |
@@ -90,6 +91,19 @@ export default defineConsoleAuthorize((context) => {
 An `authorize` that returns `true` for every context shows the link to every visitor, so check `context.via` first.
 
 The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
+The link adds the [page tools script](/docs/comments/configure#turn-comment-mode-on-and-off) to every HTML page, about 320 bytes inline. To leave the link and the script out, set `pill: false`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { pill: false },
+  },
+})
+```
+
+The pages then have no page tools script, unless Comments is on. The Console has no **Site access** section, because Site access opens the app with the pill.
 
 ## Site access from the terminal
 

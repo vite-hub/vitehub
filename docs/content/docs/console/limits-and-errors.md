@@ -21,7 +21,7 @@ Find the symptom first, then the `code` that the failed call returned.
 | The Console cannot reach the app | Link it with the URL that serves it, on a public server. The Console cannot reach `vite dev` on your machine. |
 | The build fails with `VITE_HUB_B0020` and names a `console` option | The option is removed. Follow the fix in the message, or see [Move from earlier releases](/docs/console/migrate). |
 | `console.impersonation` fails with `VITE_HUB_B0005` | Set `auth: true` and add an Auth Definition with Better Auth's `admin` plugin, such as `server/auth.ts`. |
-| The server warns that `auth: false` takes unsigned calls | Remove `console.auth`, and set a `VITEHUB_CONSOLE_KEY_<NAME>` variable. |
+| The server warns that the Console endpoint takes unsigned calls | Remove `console.auth`, and set a `VITEHUB_CONSOLE_KEY_<NAME>` variable. |
 | Console routes return `500` with "console.authorize must return" | Return `true`, `false`, a global `Response`, or `{ sections: string[] }` from `authorize`. |
 | A call returns `401` | Sign the request. The `code` says what is wrong. |
 | A call returns `403` | `authorize` rejected the caller, or returned `{ sections }` without that section id. |

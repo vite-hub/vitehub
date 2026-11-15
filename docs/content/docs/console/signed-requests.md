@@ -59,7 +59,7 @@ A signature is valid for 5 minutes, and within them the same request can run aga
 VITEHUB_CONSOLE_PRIVATE_KEY_CI=<private key> vitehub kv list --url http://localhost:3000
 ```
 
-Without `--url`, a command calls its project's dev server unsigned, which a dev server with `console: true` rejects. Pass `--url` with the dev server's origin, put the public key in the dev server's environment, and on Node also set `publicUrl` to that origin. To skip keys in development, set `auth: false` for the [dev server](/docs/console/development) only.
+Without `--url`, a command calls its project's dev server unsigned. A dev server with `console: true` and no `VITEHUB_CONSOLE_KEY_<NAME>` answers it from this machine. Once a key is set, pass `--url` with the dev server's origin to sign the call, and on Node also set `publicUrl` to that origin. See [Development server](/docs/console/development).
 
 ## The signature format
 
@@ -94,4 +94,4 @@ The server checks in this order, and each refusal is `401` with a code and a fix
 | `CONSOLE_SIGNATURE_INVALID` | The signature does not match: another key, another path, another person, or a malformed header. |
 | `CONSOLE_SIGNATURE_BODY` | The body is not the body that was signed. |
 
-A `401` carries `WWW-Authenticate: VitehubSignature realm="vitehub-console"`. With no key variable set, every request gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`, and with one that is not a key, `500` with `CONSOLE_KEY_MALFORMED`, naming the variable.
+A `401` carries `WWW-Authenticate: VitehubSignature realm="vitehub-console"`. With no key variable set, every signed request and every request to a deployment gets `500` with `CONSOLE_KEY_NOT_CONFIGURED`, and with one that is not a key, `500` with `CONSOLE_KEY_MALFORMED`, naming the variable.

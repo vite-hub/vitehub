@@ -7,17 +7,17 @@ navigation.group: Secure it
 icon: i-lucide-shield-check
 ---
 
-Only signed callers reach your app's Console endpoint, and your `authorize` function decides what each one may do: use every section, a few, or only read.
+In production, only signed callers reach your app's Console endpoint, and your `authorize` function decides what each one may do: use every section, a few, or only read.
 
 ## Who can call the endpoint
 
 | Configuration | Who gets in |
 | --- | --- |
-| `console: true`, or an object without `auth` | Callers with a valid [Ed25519 signature](/docs/console/signed-requests) from a `VITEHUB_CONSOLE_KEY_<NAME>` key: the ViteHub Console and the CLI. Others get `401`. A cookie, session or bearer token never counts. |
+| `console: true`, or an object without `auth` | Callers with a valid [Ed25519 signature](/docs/console/signed-requests) from a `VITEHUB_CONSOLE_KEY_<NAME>` key: the ViteHub Console and the CLI. Others get `401`. A cookie, session or bearer token never counts. A development server without a key also answers unsigned calls from this machine. |
 | `console: { auth: false }` | Unsigned calls from this machine, in [development](/docs/console/development) only. |
 | `authorize` | Runs after either check, to reject the call or limit it to some sections. |
 
-With no key set, or a malformed one, every call gets `500`. The route checks access itself, so app Auth [access routes](/docs/auth/server-api#authorize-access-routes) such as `/_vitehub/**` or `/**` do not cover it. Without `console`, or with `console: false`, a production build has no Console route and the host answers not found.
+With no key set, every signed call and every call to a deployment gets `500`. A malformed key makes every call fail with `500`. The route checks access itself, so app Auth [access routes](/docs/auth/server-api#authorize-access-routes) such as `/_vitehub/**` or `/**` do not cover it. Without `console`, or with `console: false`, a production build has no Console route and the host answers not found.
 
 ::warning
 A production build with `auth: false` fails with `VITE_HUB_B0022`, even when `authorize` is set. Remove `auth` and set a `VITEHUB_CONSOLE_KEY_<NAME>` variable. Development, CLI discovery and `nuxi prepare` still accept it.

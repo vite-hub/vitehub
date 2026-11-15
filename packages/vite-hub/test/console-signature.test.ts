@@ -366,6 +366,10 @@ describe("calls of the ViteHub MCP in the Console", () => {
     const project = await callAsMcp("project.get", {})
     expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
     expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
+    // The sections of the Console page are for the page, not for MCP clients.
+    expect(project.ok && Object.hasOwn(Object(project.value), "navigation")).toBe(false)
+    const page = await callAsMcp("project.get", {}, person)
+    expect(page.ok && Object.hasOwn(Object(page.value), "navigation")).toBe(true)
     // The Console page still runs it.
     await expect(callAsMcp("test.hidden", {}, person)).resolves.toMatchObject({ ok: true, value: "ran" })
   })
