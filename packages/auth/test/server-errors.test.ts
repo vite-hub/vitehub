@@ -537,6 +537,7 @@ describe("server authentication provider boundaries", () => {
 
       await expect(guarded(imageRequest)).resolves.toBe("protected")
       expect(authorize).toHaveBeenCalledWith({
+        event: imageRequest,
         request: imageRequest,
         session: { id: "session-1" },
         user: { id: "user-1" },
@@ -612,8 +613,9 @@ describe("server authentication provider boundaries", () => {
       const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue(null)
 
-      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)(requestEvent(sharedRequest))).resolves.toBe("served")
-      expect(authorize).toHaveBeenCalledWith({ request: sharedRequest, session: null, user: null })
+      const event = requestEvent(sharedRequest)
+      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)(event)).resolves.toBe("served")
+      expect(authorize).toHaveBeenCalledWith({ event, request: sharedRequest, session: null, user: null })
       const authorization = anonymousAction.mock.calls[0]?.[1]
       expect(authorization).toEqual({ request: sharedRequest, session: null, user: null })
       expect(Object.isFrozen(authorization)).toBe(true)
@@ -638,7 +640,7 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAnonymousAuthorization(authorize, anonymousAction, definition)(request)).resolves.toBe("served")
-      expect(authorize).toHaveBeenCalledWith({ request, session: { id: "session-1" }, user: { id: "user-1" } })
+      expect(authorize).toHaveBeenCalledWith({ event: request, request, session: { id: "session-1" }, user: { id: "user-1" } })
     })
 
     it("returns a custom callback response as-is for a signed-out caller", async () => {
