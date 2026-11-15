@@ -641,7 +641,7 @@ async function addOptionalPeers(appDir: string) {
     "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
-    nuxt: await installedVersion(join(repoRoot, "packages/kit/node_modules/nuxt/package.json")),
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
