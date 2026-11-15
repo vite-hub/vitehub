@@ -57,7 +57,7 @@ try {
     await worker.stop()
     const completed = await getWorkflowRun("pipeline", run.id)
     assert.equal(completed.status, "completed", JSON.stringify(completed))
-    assert.equal(await completed.result.json(), 2)
+    assert.equal(completed.result, 2)
     assert.equal((await state.loadWorkflowDefinition("pipeline")).options.rootStep, false)
   } finally {
     await worker.stop()

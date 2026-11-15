@@ -1,11 +1,16 @@
-import { createRenderer, nextTick, ssrContextKey } from "vue"
+import { createRenderer, nextTick, reactive, ssrContextKey } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ push: vi.fn(), shortcuts: vi.fn() }))
+const mocks = vi.hoisted(() => ({ push: vi.fn(), shortcuts: vi.fn(), closeDrawer: vi.fn() }))
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: mocks.shortcuts }))
 vi.mock("@vite-hub/auth/vue", () => ({ createAuthClient: vi.fn() }))
+const route = reactive({ name: "vitehub-console", params: {}, fullPath: "/" })
+vi.mock("../src/console/runtime/client/sidebar", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/console/runtime/client/sidebar")>(),
+  closeConsoleSidebarDrawer: mocks.closeDrawer,
+}))
 vi.mock("vue-router", () => ({
-  useRoute: () => ({ name: "vitehub-console", params: {} }),
+  useRoute: () => route,
   useRouter: () => ({ push: mocks.push }),
 }))
 vi.mock("../src/console/runtime/client/request", () => ({
@@ -45,6 +50,12 @@ describe("Console Go to chord focus", () => {
     app.mount({})
     await nextTick()
     await nextTick()
+    mocks.closeDrawer.mockClear()
+    route.fullPath = "/auth"
+    await nextTick()
+    route.fullPath = "/" // Browser Back updates the route without calling the rail navigation helper.
+    await nextTick()
+    expect(mocks.closeDrawer).toHaveBeenCalledTimes(2)
     // Model Nuxt UI's matching boundary: it can invoke a matched g-a handler even
     // when g was typed in an editor. The rail must reject that callback itself.
     const shortcuts = mocks.shortcuts.mock.calls[0]![0] as { value: Record<string, () => void> }
@@ -57,7 +68,7 @@ describe("Console Go to chord focus", () => {
     }
     const body = document.activeElement
     try {
-      expect(Object.keys(shortcuts.value).sort()).toEqual(["g-a", "g-k", "g-o"])
+      expect(Object.keys(shortcuts.value).sort()).toEqual(["[", "g-a", "g-k", "g-o"])
       focus(editor)
       key("g")
       focus(body)

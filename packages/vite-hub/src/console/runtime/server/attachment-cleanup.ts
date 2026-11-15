@@ -1,6 +1,9 @@
 import * as v from "valibot"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
+import { invariant } from "@vite-hub/internal/invariant"
 import type { BlobStorage } from "@vite-hub/blob"
+
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consolePrefix = `${vitehubOwnedPrefix}console/`
 export const consoleAttachmentPrefix = `${consolePrefix}attachments/`
@@ -127,14 +130,14 @@ export async function isConsoleAttachmentPendingCleanup(storage: Pick<BlobStorag
         if (ids && ("corrupt" in ids || ids.includes(id))) return true
       }
       if (!result.hasMore) break
-      // Internal invariant: a Blob driver that returns the same cursor twice is a driver bug. This stops an endless cleanup loop.
-      if (!result.cursor || result.cursor === cursor) throw new Error("Attachment cleanup listing did not advance")
+      // A Blob driver that returns the same cursor twice would loop forever.
+      invariant(result.cursor && result.cursor !== cursor, "a Blob listing with more pages returns a new cursor")
       cursor = result.cursor
     } while (cursor)
     const [quarantineError, quarantine] = await storage.list({ prefix: quarantinePrefixes[index], limit: 1 })
     if (quarantineError) throw quarantineError
-    // Internal invariant: cleanup fails closed while a quarantined record exists. No app option changes it.
-    if (quarantine.blobs.length) throw new Error("Attachment cleanup ownership is quarantined")
+    // Cleanup fails closed while a quarantined record exists.
+    if (quarantine.blobs.length) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ATTACHMENT_CLEANUP_QUARANTINED()
   }
   return false
 }

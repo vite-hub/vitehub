@@ -3,6 +3,7 @@ import { createCommentsClient } from "@vite-hub/comments/client";
 import { type CommentAttachmentLink, type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
+import { consoleDiagnostic } from "../diagnostics";
 
 import type { CommentThread as CommentThreadModel } from "@vite-hub/comments/client";
 
@@ -134,8 +135,7 @@ async function load(): Promise<void> {
     const listed = isConsoleCommentThread(props.initial) && props.initial.id === id ? props.initial : undefined;
     const found = listed ?? (await client.get({ id }));
     if (current.signal.aborted) return;
-    // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
-    if (!found) throw new Error("This thread was deleted, or you may not read it.");
+    if (!found) throw consoleDiagnostic("CONSOLE_NOT_FOUND", "This thread was deleted, or you may not read it.");
     thread.value = found;
     const currentSession = await readConsoleCommentSession(found.subject, current.signal, found.id);
     if (current.signal.aborted) return;

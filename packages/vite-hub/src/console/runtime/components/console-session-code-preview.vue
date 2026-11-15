@@ -37,8 +37,11 @@ watch(
     try {
       const languageName = language.value;
       const loadLanguage = consoleHighlightLanguages[languageName];
-      // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
-      if (!loadLanguage) throw new Error(`No syntax highlighter is registered for ${languageName}.`);
+      // Plain text and languages without a highlighter show the plain lines.
+      if (!loadLanguage) {
+        if (id === renderId) highlightingFailed.value = true;
+        return;
+      }
       const instance = await loadHighlighter();
       if (!instance.getLoadedLanguages().includes(languageName)) await instance.loadLanguage((await loadLanguage()).default);
       const rendered = instance.codeToHtml(content, {
