@@ -1100,6 +1100,70 @@ describe("live", () => {
     expect(one.browser.timers).toEqual([])
   })
 
+  it("shows the stores of a stream as not live while a new stream with another store opens", async () => {
+    const h = live()
+    let opened = 0
+    let release = () => {}
+    const waiting = new Promise<void>(resolve => release = resolve)
+    // The second stream, with both stores, answers only after `release()`.
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (isLive(input) && ++opened === 2) await waiting
+      return await h.server.fetch(input, init)
+    }
+    const one = h.open({ fetch, interval: 30_000, where: { listId: "a" } })
+    await one.store.refresh()
+    await until(() => one.store.getState().live)
+    expect(one.browser.timers.map(timer => timer.ms)).toEqual([300_000])
+
+    const two = h.open({ tab: one, fetch, interval: 30_000, where: { listId: "b" } })
+    await two.store.refresh()
+    await until(() => one.browser.timers.some(timer => timer.ms === 100))
+    const pause = one.browser.timers.find(timer => timer.ms === 100)!
+    one.browser.timers.splice(one.browser.timers.indexOf(pause), 1)
+    pause.task()
+    await until(() => opened === 2)
+    // The first stream is gone, and the new one is not open yet: no store is live, and each pulls at its own interval.
+    expect(h.server.streams).toBe(0)
+    expect(one.store.getState().live).toBe(false)
+    expect(one.browser.timers.map(timer => timer.ms)).toEqual([30_000, 30_000])
+
+    release()
+    await until(() => one.store.getState().live && two.store.getState().live)
+    expect(h.server.streams).toBe(1)
+    expect(one.browser.timers.map(timer => timer.ms)).toEqual([300_000, 300_000])
+  })
+
+  it("shows the stores as not live while the stream waits for the backoff to open again", async () => {
+    const h = live()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Ada's" }])
+    const encoder = new TextEncoder()
+    let send: (pull: object) => void = () => undefined
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (!isLive(input)) return await h.server.fetch(input, init)
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("event: open\ndata: {}\n\n"))
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ name: "todos", pull })}\n\n`))
+        },
+      })
+      return new Response(body, { headers: { "content-type": "text/event-stream" } })
+    }
+    const { store, browser } = h.open({ fetch, interval: 30_000 })
+    await store.refresh()
+    await until(() => store.getState().live)
+    expect(browser.timers.map(timer => timer.ms)).toEqual([300_000])
+    // A pull of another account: the store pulls, and the stream opens again after the backoff.
+    send({ key: "id", scope: { id: scopeIdOf({ name: "todos", ownerId: "bob" }), values: { ownerId: "bob" } }, account: accountOf("bob"), version: "v1", defaults: {}, cursor: 2, reset: false, rows: [], deleted: [], more: false })
+    await until(() => browser.timers.length === 2)
+    expect(store.getState().live).toBe(false)
+    // The backoff, and the interval pull at its own rate again.
+    expect(browser.timers.map(timer => timer.ms)).toContain(30_000)
+    expect(browser.timers.map(timer => timer.ms)).not.toContain(300_000)
+    browser.fire()
+    await until(() => store.getState().live)
+    expect(browser.timers.map(timer => timer.ms)).toEqual([300_000])
+  })
+
   it("keeps the other stores live when the server refuses one store of the stream", async () => {
     const h = live()
     let teams = ["red", "blue"]

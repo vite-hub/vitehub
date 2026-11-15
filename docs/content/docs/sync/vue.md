@@ -33,7 +33,7 @@ Components that use one name share one store. It stops when the last of them unm
 | `queued` | The number of writes of the signed-in account that the server did not confirm yet. |
 | `failures` | Refused writes, oldest first. Each has `key`, `mutation`, and `error`. |
 | `persisted` | `true` when the rows and the queue are in IndexedDB. |
-| `live` | `true` while this tab holds the live stream. See [Live changes](#live-changes). |
+| `live` | `true` while the live stream of this tab is open for this table or subset. It is `false` while the stream opens again, such as after it ended or a store joined. See [Live changes](#live-changes). |
 
 | Method | Does |
 | --- | --- |

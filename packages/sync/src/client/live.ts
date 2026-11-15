@@ -71,7 +71,7 @@ interface SyncLiveEntry {
   where: SyncValues
   /** What the store holds now. A stream opens with it. `undefined` leaves the store out of that stream. */
   held: () => SyncLiveHeld | undefined
-  /** `true` when a stream with the store opened, `false` when it ended and opens again. */
+  /** `true` when a stream with the store opened. `false` when the stream ended, or the tab ended it to open another. */
   live: (open: boolean) => void
   /** A pull of the stream for the store, and the cursor that the pull starts from. */
   pull: (pull: SyncPullResponse, base: number) => void
@@ -120,7 +120,8 @@ function createSyncLive(options: { url: string, fetch: typeof fetch, environment
   const entries = new Set<SyncLiveEntry>()
   // Streams that failed or ended at once in a row. The next stream waits for the backoff of this count.
   let failures = 0
-  let current: AbortController | undefined
+  // The open stream, and its stores.
+  let current: { controller: AbortController, streamed: Map<string, Streamed> } | undefined
   let soon = false
   let cancelLater: (() => void) | undefined
 
@@ -128,6 +129,15 @@ function createSyncLive(options: { url: string, fetch: typeof fetch, environment
   environment.listen((event) => {
     if (event === "online" || event === "visible") failures = 0
   })
+
+  /** Ends the open stream. Its stores are not live until a new stream opens. */
+  function abortCurrent(): void {
+    const ended = current
+    current = undefined
+    if (!ended) return
+    ended.controller.abort()
+    for (const { entry } of ended.streamed.values()) entry.live(false)
+  }
 
   /** Opens the stream on the next microtask, with every store that joined until then. */
   function openSoon(): void {
@@ -152,8 +162,7 @@ function createSyncLive(options: { url: string, fetch: typeof fetch, environment
   }
 
   async function connect(): Promise<void> {
-    current?.abort()
-    current = undefined
+    abortCurrent()
     const streamed = new Map<string, Streamed>()
     const pulls: SyncLivePull[] = []
     for (const entry of entries) {
@@ -164,7 +173,7 @@ function createSyncLive(options: { url: string, fetch: typeof fetch, environment
     }
     if (!pulls.length) return
     const own = new AbortController()
-    current = own
+    current = { controller: own, streamed }
     const started = Date.now()
     const end = await read(own.signal, pulls, streamed)
     // A newer stream replaced this one, or every store left.
@@ -253,14 +262,12 @@ function createSyncLive(options: { url: string, fetch: typeof fetch, environment
         }
         cancelLater?.()
         cancelLater = undefined
-        current?.abort()
-        current = undefined
+        abortCurrent()
       }
     },
     reopen(failed = false) {
       if (failed) failures++
-      current?.abort()
-      current = undefined
+      abortCurrent()
       if (!entries.size) return
       if (failures) openLater(0)
       else openSoon()
