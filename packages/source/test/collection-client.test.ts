@@ -372,6 +372,7 @@ describe("useCollection", () => {
     expect(serialized).toEqual({
       code: "SOURCE_R0026",
       docs: "https://vitehub.dev/docs/source/diagnostics/source_r0026",
+      fix: expect.stringContaining("`authorize`"),
       name: "CollectionAccessError",
       status,
       why: status === 401

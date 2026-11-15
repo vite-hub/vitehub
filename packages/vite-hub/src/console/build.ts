@@ -140,6 +140,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
       view: { kind: "workspace-browser", notice: "Files, refs, and revisions come from the Workspace Store when you open them. Without retained history, the browser shows the mounted files." },
     }
   }
+  // `connections` runs the Connections operations, so the Console section lists and connects them through them.
+  const connectionsVite = ownerModules.connectionsVite
+  if (connectionsVite && sections.includes("connections")) {
+    content.connections = await readViteHubConsoleSection(connectionsVite.connectionsConsoleSection, undefined)
+    sectionOverrides.connections = describeViteHubConsoleSection(connectionsVite.connectionsConsoleSection)
+  }
   // `server/forms/` runs the forms operations, so the Console section lists submissions through them.
   const formsVite = ownerModules.formsVite
   if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {

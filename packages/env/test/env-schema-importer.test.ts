@@ -120,7 +120,7 @@ describe("envSchema()", () => {
           VITEHUB_TOKEN: "wrong-canonical",
         })),
     ).toMatchObject({ rawToken: "exact-raw", token: "exact-custom" });
-    expect(describeServerEnv(registry).entries.every((entry) => !entry.canonicalName)).toBe(true);
+    expect(describeServerEnv(registry).entries.map((entry) => entry.names)).toEqual([["RAW_TOKEN"], ["VITEHUB_CUSTOM_TOKEN"]]);
   });
 
   it("resolves typed defaults, optional empties, URL strings and secret wrappers", () => {
