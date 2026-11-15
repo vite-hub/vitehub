@@ -1,3 +1,4 @@
+import { invariant } from '@vite-hub/internal/invariant'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
@@ -297,9 +298,7 @@ async function writeSandboxTaskArtifactsLocked(
         ? resolve(generationDir, stableDst.slice(runtimeDir.length + 1))
         : stableDst
       const contents = artifact.contents ?? await artifact.getContents?.(emitted, { dst, stableDst })
-      if (typeof contents !== 'string')
-        // Internal invariant: the plan comes from ViteHub's Sandbox Task feature, and each of its artifacts returns a string.
-        throw new Error(`[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.`)
+      invariant(typeof contents === 'string', `the Sandbox Task plan artifact "${artifact.key}" returns string contents`)
 
       emitted.set(artifact.key, { ...artifact, contents, dst, stableDst })
     }
@@ -315,9 +314,7 @@ async function writeSandboxTaskArtifactsLocked(
     const generationFacadeFile = resolve(generationDir, 'sandbox-task.mjs')
     const activeFacadeFile = resolveSandboxTaskRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
-    if (!registryArtifact)
-      // Internal invariant: ViteHub's Sandbox Task feature always adds the registry artifact and its alias to the plan.
-      throw new Error('[vitehub] Sandbox runtime plan did not emit a registry artifact.')
+    invariant(registryArtifact, 'the Sandbox Task feature adds the registry artifact and its alias to the plan')
     const providerLoaderArtifact = emitted.get('sandbox-task-provider-loader')
     // The facade loads from the generation folder or through the `runtime` link. An absolute path reaches the
     // provider loader from both. On Windows the facade is a copy in the `runtime` folder.

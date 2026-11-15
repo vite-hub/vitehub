@@ -24,7 +24,8 @@ describe("Sandbox Task runtime error fixes", () => {
   it("gives each fixed Sandbox Task runtime code a fix and its own docs page", () => {
     expect(fixedCodes).toHaveLength(66)
     for (const fixedCode of fixedCodes) {
-      const error = sandboxTaskErrorDiagnostics[fixedCode as keyof typeof sandboxTaskErrorDiagnostics]({ message: "m" })
+      // SAFETY: the test reads only `fix` and `docs`, which do not depend on the params of the code.
+      const error = (sandboxTaskErrorDiagnostics[fixedCode as keyof typeof sandboxTaskErrorDiagnostics] as (input: { message: string }) => Error & { docs?: string, fix?: string })({ message: "m" })
       expect(error.fix, fixedCode).toMatch(/\S/)
       expect(error.docs, fixedCode).toBe(`https://vitehub.dev/docs/sandbox/diagnostics/${fixedCode.toLowerCase()}`)
     }

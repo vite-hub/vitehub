@@ -1,3 +1,4 @@
+import { invariant } from '@vite-hub/internal/invariant'
 import { randomUUID } from 'node:crypto'
 import { copyFile, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
@@ -507,9 +508,7 @@ export async function withSandboxTaskRuntimeGenerationLock<T>(
     throw cleanupErrors[0]
   if (cleanupErrors.length > 1)
     throw new AggregateError(cleanupErrors, `[vitehub] Failed to clean up the Sandbox runtime generation lock in ${generatedDir}.`)
-  if (!operationResult)
-    // Internal invariant: the operation either sets operationResult or sets operationFailed, which returns above.
-    throw new Error(`[vitehub] Sandbox runtime preparation completed without a result in ${generatedDir}.`)
+  invariant(operationResult, 'the Sandbox runtime preparation sets a result or a failure, and a failure returns earlier')
   return operationResult.value
 }
 

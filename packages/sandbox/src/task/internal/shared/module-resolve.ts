@@ -1,10 +1,6 @@
 import { resolveModule } from 'local-pkg'
 import { resolvePathSync } from 'mlly'
 
-export type ModuleResolveResult =
-  | [error: null, path: string]
-  | [error: Error, path: undefined]
-
 function normalizePaths(paths?: string[]) {
   if (paths?.length)
     return paths
@@ -28,33 +24,30 @@ function tryResolveFromRuntime(id: string): string | false | undefined {
   }
 }
 
-export function tryResolveModule(id: string, options: { paths?: string[] } = {}): ModuleResolveResult {
+/** The resolved path of `id`, or `undefined` when no resolver finds it. */
+export function tryResolveModule(id: string, options: { paths?: string[] } = {}): string | undefined {
   const paths = normalizePaths(options.paths)
 
   const runtimeResolved = tryResolveFromRuntime(id)
   if (runtimeResolved === false)
-    // Internal invariant: callers only check whether resolution failed, so this error never leaves ViteHub.
-    return [new Error(`Unable to resolve module "${id}" using the active runtime resolver`), undefined]
+    return undefined
   if (runtimeResolved)
-    return [null, runtimeResolved]
+    return runtimeResolved
 
   const resolved = resolveModule(id, { paths })
   if (resolved)
-    return [null, resolved]
+    return resolved
 
   for (const url of paths) {
     try {
-      return [null, resolvePathSync(id, { url })]
+      return resolvePathSync(id, { url })
     }
     catch {
       continue
     }
   }
 
-  // Internal invariant: callers only check whether resolution failed, so this error never leaves ViteHub.
-  return [new Error(paths.length > 0
-    ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
-    : `Unable to resolve module "${id}" without explicit resolution paths`), undefined]
+  return undefined
 }
 
 const resolveCache = new Map<string, boolean>()
@@ -64,8 +57,7 @@ export function canResolveModule(moduleName: string, options?: { paths?: string[
   const cached = resolveCache.get(key)
   if (cached !== undefined)
     return cached
-  const [error] = tryResolveModule(moduleName, options)
-  const resolved = error === null
+  const resolved = tryResolveModule(moduleName, options) !== undefined
   resolveCache.set(key, resolved)
   return resolved
 }
