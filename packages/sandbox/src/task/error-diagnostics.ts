@@ -139,5 +139,22 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0074: dynamicError,
     SANDBOX_TASK_R0075: dynamicError,
     SANDBOX_TASK_R0076: dynamicError,
+    // Named errors. Keep these codes in alphabetical order.
+    SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL: {
+      why: ({ className, instanceType, size }: { className: string, instanceType: string, size: string }) => `[vitehub] The Cloudflare containers entry of class ${className} sets the instance type ${instanceType}, which is smaller than the Sandbox Task size (${size}).`,
+      fix: "Remove `instance_type` from your `containers` entry so that ViteHub writes the size from `cpu` and `memory`, or set a larger `instance_type`, or lower `cpu` and `memory`. ViteHub never changes an instance type that you wrote.",
+    },
+    SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT: {
+      why: ({ className, configured, requested }: { className: string, configured: number, requested: number }) => `[vitehub] The Cloudflare containers entry of class ${className} sets max_instances ${configured}, but the Sandbox Task option maxInstances is ${requested}.`,
+      fix: "Set the instance limit in one place: remove `maxInstances` from the Sandbox Task options, or remove `max_instances` from your `containers` entry.",
+    },
+    SANDBOX_TASK_SIZE_INVALID: {
+      why: ({ key, value }: { key: string, value: string }) => `[vitehub] Sandbox Task option ${key} must be a positive number${key === 'maxInstances' ? ' and a whole number' : ''}. Received ${value}.`,
+      fix: "Set `cpu` to a number of vCPUs, such as `2` or `0.5`, `memory` to a number of MiB, such as `4096`, and `maxInstances` to a whole number, such as `20`.",
+    },
+    SANDBOX_TASK_SIZE_TOO_LARGE: {
+      why: ({ max, provider, size }: { max: string, provider: string, size: string }) => `[vitehub] ${provider} has no Sandbox size for ${size}. The largest size is ${max}.`,
+      fix: "Lower `cpu` or `memory` in the Sandbox Task options. On Cloudflare the largest Container has 4 vCPU and 12288 MiB memory. On Vercel the largest Sandbox has 32 vCPU and 65536 MiB memory, and your plan can allow fewer.",
+    },
   },
 })

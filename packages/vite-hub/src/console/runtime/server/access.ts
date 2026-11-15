@@ -5,6 +5,7 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleAuthorizedGrants, consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { consoleSignatureHeader } from "@vite-hub/internal/console-signature"
 
 import { checkConsoleSignature, consoleKeysMissing } from "./console-signature.ts"
@@ -109,13 +110,13 @@ export function consoleRequest(event: ConsoleRequestEvent | Request): Request {
 }
 
 function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if (!(routeScope instanceof Object)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_SCOPE_INVALID()
   if ("section" in routeScope) {
     const section = routeScope.section
     if (typeof section === "function" || (typeof section === "string" && section.length > 0)) return
   }
   if ("anySection" in routeScope && routeScope.anySection === true) return
-  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_SCOPE_INVALID()
 }
 
 /**
@@ -331,7 +332,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
   routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
-  if (typeof handler !== "function") throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
+  if (typeof handler !== "function") throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_HANDLER_INVALID()
   assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {

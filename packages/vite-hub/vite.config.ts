@@ -170,6 +170,7 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        { from: "src/console/runtime/diagnostics.ts", to: "dist/console/runtime" },
         {
           from: "src/console/runtime/components/console-lazy-views.ts",
           to: "dist/console/runtime/components",

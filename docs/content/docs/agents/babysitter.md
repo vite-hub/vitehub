@@ -293,7 +293,7 @@ A Babysitter Sandbox uses the host-prepared pull request checkout as its `cwd`. 
 To add capacity beyond one host, set `options.placement`:
 
 - `place({ repository, number })` runs before the host install and returns `{ sandbox?, release }`.
-- A pass with a `sandbox` runs there and skips the host install, for example on a custom SSH runtime with `network: "direct"`. The Sandbox installs dependencies through its session's `refreshDependencies`.
+- A pass with a `sandbox` runs there and skips the host install, for example on a custom SSH runtime with `network: "direct"`. The Sandbox installs dependencies through its session's `refreshDependencies`. It also skips this host's worker queue, so a host whose memory admits no pass still starts it.
 - A pass without a `sandbox` runs on this host.
 - `release()` runs once when the pass ends.
 - An optional `remoteActive()` function next to `place` counts remote passes toward `concurrency`. They reserve no local memory.

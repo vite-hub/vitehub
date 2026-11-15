@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
+import { consoleDiagnostic } from "../diagnostics";
 import {
   consoleFolderName,
   consoleFocalCropPosition,
@@ -415,7 +416,7 @@ async function confirmMove(destination: { folder: string, name?: string }): Prom
     }
     else if (state.files) {
       const result = await props.client.move(state.files.map(file => ({ from: file.pathname, to: join(destination.folder, state.files!.length === 1 && destination.name ? destination.name : file.name) })));
-      if (result.failed.length && !result.moved.length) throw new Error(result.failed[0]!.message);
+      if (result.failed.length && !result.moved.length) throw consoleDiagnostic("CONSOLE_REQUEST_FAILED", result.failed[0]!.message);
       for (const file of result.moved) known.set(file.pathname, file);
       if (result.failed.length) toast.error(`${result.failed.length} of ${state.files.length} files couldn't move. ${result.failed[0]!.message}`);
       else toast.show({ title: result.moved.length === 1 ? `Moved to ${result.moved[0]!.pathname}` : `${result.moved.length} files moved` });
