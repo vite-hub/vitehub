@@ -30,6 +30,11 @@ it("tells a Connections app to install the Connections and Database packages", (
   expect(missingFeaturePackagesError(["connections"]).message).toContain("The connections feature needs @vite-hub/connections, @vite-hub/database, drizzle-orm.")
 })
 
+it("installs every package that it names, also one that another dependency provides", () => {
+  // The repository installs both packages, as an app does when only drizzle-orm is missing.
+  expect(missingFeaturePackagesError(["console agents"]).message).toContain("The console agents feature needs @libsql/client, drizzle-orm. Install them in your app with: pnpm add @libsql/client drizzle-orm")
+})
+
 it.each([
   ["blob", "@vite-hub/blob"],
   ["kv", "@vite-hub/kv"],
