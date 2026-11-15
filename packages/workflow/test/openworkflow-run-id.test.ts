@@ -87,6 +87,6 @@ it("reuses a provider-assigned run id without redirecting inspection or cancella
   expect(second.id).toBe(first.id)
   expect((await runtime.backend.listWorkflowRuns({})).data).toHaveLength(1)
   await expect(getWorkflowRun("checkout", first.id)).resolves.toMatchObject({ id: first.id, payload: { order: 1 }, status: "queued" })
-  await cancelWorkflow("checkout", first.id)
-  await expect(runtime.backend.getWorkflowRun({ workflowRunId: first.id })).resolves.toMatchObject({ status: "cancelled" })
+  await expect(cancelWorkflow("checkout", first.id)).resolves.toMatchObject({ id: first.id, status: "cancelled" })
+  await expect(runtime.backend.getWorkflowRun({ workflowRunId: first.id })).resolves.toMatchObject({ status: "canceled" })
 })
