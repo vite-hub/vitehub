@@ -207,9 +207,20 @@ describe("form and action regressions", () => {
   })
 
   it("submits untouched required booleans and preserves optional, defaulted, and explicit values", async () => {
-    // Mount the real provider and renderer on Vue's host interface; no DOM emulation is needed for submission.
-    interface Node { type: string, props: Record<string, unknown>, children: Node[], parent?: Node }
-    const node = (type: string): Node => ({ type, props: {}, children: [] })
+    // Mount the real provider and renderer; the SDK button queries its native disabled state.
+    interface Node { type: string, props: Record<string, unknown>, children: Node[], parent?: Node, matches: (selector: string) => boolean }
+    const node = (type: string): Node => {
+      const el: Node = {
+        type,
+        props: {},
+        children: [],
+        matches: (selector) => {
+          expect(selector).toBe(":disabled")
+          return el.props.disabled === true || el.props.disabled === ""
+        },
+      }
+      return el
+    }
     const renderer = createRenderer<Node, Node>({
       createElement: node,
       createText: node,
@@ -217,10 +228,16 @@ describe("form and action regressions", () => {
       setText: () => {},
       setElementText: () => {},
       patchProp: (el, key, _prev, next) => { el.props[key] = next },
-      insert: (el, parent) => { parent.children.push(el); el.parent = parent },
+      insert: (el, parent, anchor) => {
+        if (el.parent) el.parent.children = el.parent.children.filter(child => child !== el)
+        const index = anchor ? parent.children.indexOf(anchor) : -1
+        if (index < 0) parent.children.push(el)
+        else parent.children.splice(index, 0, el)
+        el.parent = parent
+      },
       remove: el => { if (el.parent) el.parent.children = el.parent.children.filter(child => child !== el) },
       parentNode: el => el.parent ?? null,
-      nextSibling: () => null,
+      nextSibling: el => el.parent?.children[el.parent.children.indexOf(el) + 1] ?? null,
     })
     const schema = z.object({ enabled: z.boolean(), explicit: z.boolean(), optional: z.boolean().optional(), defaulted: z.boolean().default(true), amount: z.number(), count: z.number().int() })
     const forms = defineCatalog(viteHubCatalogEntries, { forms: { settings: schema } })
