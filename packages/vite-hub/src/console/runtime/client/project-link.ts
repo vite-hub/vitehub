@@ -2,8 +2,10 @@ import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@v
 
 import { consoleRpcHeader } from "../rpc"
 import { consoleErrorFields } from "./request"
+import { parseConsoleNavigation } from "./sections"
 
 import type { ConsoleProjectTarget } from "./projects"
+import type { ConsoleNavigation } from "./sections"
 
 /** The `project.get` protocol that this Console reads. */
 export const consoleProjectProtocol = 1
@@ -16,6 +18,8 @@ export interface ConsoleProjectInfo {
   vitehub?: string
   sections: string[]
   operations: string[]
+  /** The answer of `sections.list`, which apps send to the Console page with `project.get`. Older apps leave it out. */
+  navigation?: ConsoleNavigation
 }
 
 /**
@@ -43,6 +47,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
   const protocol: unknown = record ? Reflect.get(record, "protocol") : undefined
   const name: unknown = record ? Reflect.get(record, "name") : undefined
   const vitehub: unknown = record ? Reflect.get(record, "vitehub") : undefined
+  const navigation: unknown = record ? Reflect.get(record, "navigation") : undefined
   const version = String(vitehub) === vitehub && vitehub ? vitehub : undefined
   if (protocol !== consoleProjectProtocol) {
     return { kind: "protocol", ...(Number.isInteger(protocol) ? { protocol: Number(protocol) } : {}), ...(version ? { vitehub: version } : {}) }
@@ -55,6 +60,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
       ...(version ? { vitehub: version } : {}),
       operations: strings(record ? Reflect.get(record, "operations") : undefined),
       sections: strings(record ? Reflect.get(record, "sections") : undefined),
+      ...(navigation instanceof Object ? { navigation: parseConsoleNavigation(navigation) } : {}),
     },
   }
 }

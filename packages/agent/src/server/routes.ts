@@ -9720,7 +9720,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      if (!deliveryState) throw agentDiagnostics.AGENT_R0842({ message: "[vitehub] Agent Channel delivery state did not resolve." })
+      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
+      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
@@ -10181,17 +10182,18 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             receivedAt: new Date(webhookReceivedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
             webhookId,
-          })
+          }, webhookStartedAt + ackTimeoutMs)
         }
         catch (error) {
-          if (typeof error === "object" && error !== null && (error as { webhookStored?: boolean }).webhookStored === true) {
-            return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
-          }
           // Without a stored request, the route waits for admission as before.
           console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
           return await admitWebhook()
         }
         if (inbox.duplicate) {
+          // The first request has not stored its copy, and may never. The provider has to send it again.
+          if (!inbox.stored) {
+            return Response.json({ accepted: false, duplicate: true, ok: false }, { headers: { "cache-control": "no-store", "retry-after": "1", "x-vitehub-webhook-duplicate": "1" }, status: 503 })
+          }
           return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store", "x-vitehub-webhook-duplicate": "1" }, status: 202 })
         }
         return await acknowledgeWebhookAdmission(admitWebhook(), inbox, webhookStartedAt + ackTimeoutMs, inboxFields, waitUntil)
