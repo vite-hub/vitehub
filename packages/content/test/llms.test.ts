@@ -239,6 +239,20 @@ describe("Markdown copies of collections", { timeout: 30_000 }, () => {
     expect(await content.page("/es/thai")).toMatchObject({ content: "# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n" })
   })
 
+  it("does not discover or advertise a copy suppressed by the collection renderer", async () => {
+    const content = await guideSite()
+    for (const prefix of ["", "/raw"]) {
+      expect(await content.markdown(`${prefix}/later.md`)).toBeNull()
+      expect(await content.hasMarkdown(`${prefix}/later.md`)).toBe(false)
+      expect(await content.hasMarkdown(`${prefix}/thai.md`)).toBe(true)
+    }
+    const handler = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => new Response("<p>Later</p>", { headers: { "content-type": "text/html" } }))
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handler.request("https://example.com/later", { method })
+      expect(response.headers.get("link")).toBeNull()
+    }
+  })
+
   it("rejects a markdown option that is not a function, or that has no url", () => {
     expect(() => documents({ path: "guide/*.md", fields: { title: z.string() }, markdown: () => "" })).toThrow(/needs a url/)
     expect(() => singleton({ path: "home.md", fields: { title: z.string() }, url: "/", markdown: "copy" as never })).toThrow(/markdown must be a function/)

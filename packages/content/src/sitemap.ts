@@ -426,16 +426,18 @@ export type ContentDocumentCopyRenderer = (page: ContentDocumentCopyPage, footer
 const defaultDocumentCopy: ContentDocumentCopyRenderer = async page => await renderMarkdownCopy(page, page.site)
 
 /**
- * Whether the published document that a path plus `.md` names has a Markdown copy, without reading its body. A path
- * that `resolve()` misses checks the singletons only: every other document with a URL is in its index.
+ * Whether the published document that a path plus `.md` names has a Markdown copy. `available` checks custom
+ * renderers; otherwise this does not read the body. A path that `resolve()` misses checks the singletons only:
+ * every other document with a URL is in its index.
  */
-export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string): Promise<boolean> {
+export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, available?: (collection: string) => Promise<boolean>): Promise<boolean> {
   const page = contentMarkdownCopyPage(path)
   if (page === undefined) return false
   const resolved = await runtime.resolve(page, { ref: "published" })
   const collection = resolved ? runtime.collection(resolved.collection) : undefined
-  if (collection?.routable && collection.format === "markdown") return true
-  return await routedMarkdown(runtime.collections.values(), page, !resolved) !== null
+  if (collection?.routable && collection.format === "markdown") return available ? await available(collection.name) : true
+  const routed = await routedMarkdown(runtime.collections.values(), page, !resolved)
+  return routed !== null && (available ? await available(routed.collection) : true)
 }
 
 /**

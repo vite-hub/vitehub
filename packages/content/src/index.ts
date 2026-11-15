@@ -953,7 +953,11 @@ export function defineContent<
     },
     hasMarkdown: async (path: string) => {
       const prefix = markdownPrefix(seo)
-      if (documentsRuntime && await contentMarkdownCopyExists(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path)) return true
+      const copyPath = prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path
+      if (documentsRuntime && await contentMarkdownCopyExists(documentsRuntime, copyPath, async (collection) => {
+        if (!collectionEntries.find(([name]) => name === collection)?.[1].markdown) return true
+        return await contentMarkdownCopy(documentsRuntime, copyPath, configuredSite, documentCopy) !== null
+      })) return true
       return await sourceCopyPage(path, configuredSite) !== undefined
     },
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
