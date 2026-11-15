@@ -5,8 +5,8 @@ import { NodeRequest } from "srvx/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
-import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
-import { viteHubPageToolsInlineScript } from "../src/runtime/page-tools-shared.ts"
+import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageAccount, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
+import { readViteHubPageSession, viteHubPageToolsInlineScript } from "../src/runtime/page-tools-shared.ts"
 
 import type { IncomingMessage } from "node:http"
 
@@ -35,7 +35,7 @@ function tool(id: string, people: string[]): ViteHubPageTool {
 
 const comments = tool("comments", ["ada", "ben"])
 const pill = { ...tool("console", ["ada"]), hotkey: "k" }
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=20\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=21\" data-vitehub-page-tools></script>"
 const bootstrap = viteHubPageToolsInlineScript("")
 
 /**
@@ -134,7 +134,7 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers({ "content-security-policy": "script-src-elem 'nonce-elem'; script-src 'nonce-other'" }))).toBe("elem")
     expect(scriptNonce(new Headers())).toBeUndefined()
     const page = new Response("<body></body>", { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": policy } })
-    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=20\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=21\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
   })
 
   it.each([
@@ -148,7 +148,7 @@ describe("injectPageToolsLoader", () => {
       const response = streamed(chunks)
       response.headers.set("content-security-policy", policy)
       const html = await injectPageToolsLoader(response, "/portal").text()
-      expect(html).toBe(`<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=20"${nonce} data-vitehub-page-tools></script></body>`)
+      expect(html).toBe(`<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=21"${nonce} data-vitehub-page-tools></script></body>`)
     }
     // An external loader already in the response remains the sole loader.
     const external = streamed([loaderTag])
@@ -431,10 +431,10 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(html).toBe(`<html><body>App${viteHubPageToolsInlineScript("/docs/")}</body></html>`)
     expect(runBootstrap(html, "", "")).toEqual([])
     expect(runBootstrap(html, "", "theme=dark; vitehub-tools=0")).toEqual([])
-    expect(runBootstrap(html, "?vitehub", "")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=20"])
-    expect(runBootstrap(html, "", "vitehub-tools=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=20"])
+    expect(runBootstrap(html, "?vitehub", "")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=21"])
+    expect(runBootstrap(html, "", "vitehub-tools=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=21"])
     // Right after sign-in, Auth has set its marker and cleared the hint: the loader asks the session route once.
-    expect(runBootstrap(html, "", "vitehub_session=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=20"])
+    expect(runBootstrap(html, "", "vitehub_session=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=21"])
     expect(runBootstrap(html, "", "vitehub_session=1; vitehub-tools=0")).toEqual([])
   })
 
@@ -470,7 +470,7 @@ describe("GET /_vitehub/page/session", () => {
   const app = nitro3App()
   const session = async (cookie: string, headers: Record<string, string> = {}) => {
     const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }))
-    return { response, body: await response.json() as { tools?: unknown[], error?: { code: string } } }
+    return { response, body: await response.json() as { tools?: unknown[], account?: unknown, error?: { code: string } } }
   }
 
   it("returns the allowed tools with their display fields, and sets the hint cookie", async () => {
@@ -537,6 +537,45 @@ describe("GET /_vitehub/page/session", () => {
     await app.fetch(request)
     expect((await viteHubPageSessionHandler.fetch(request)).status).toBe(200)
     expect(seen).toEqual([request])
+  })
+
+  describe("the account of the pill", () => {
+    const ada = { name: "Ada Lovelace", email: "ada@example.com", via: "console" as const, signOut: "/portal/api/auth/sign-out" }
+    /** An account reader that signs in the person whose cookie names them, as Auth reads a session. */
+    const signedIn = async ({ request }: { request: Request }) => request.headers.get("cookie")?.includes("person=ada") ? ada : undefined
+
+    it("adds the signed-in person when a tool allows them, and never for an anonymous visitor", async () => {
+      registerViteHubPageTool(app, { ...comments, allowed: async () => true })
+      registerViteHubPageAccount(app, signedIn)
+      expect((await session("person=ada")).body).toEqual({ tools: [expect.objectContaining({ id: "comments" })], account: ada })
+      expect((await session("")).body).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
+    })
+
+    it("reads no account when no tool allows the visitor, so the pill stays away", async () => {
+      const read = vi.fn(signedIn)
+      registerViteHubPageTool(app, { ...comments, allowed: async () => false })
+      registerViteHubPageAccount(app, read)
+      expect((await session("person=ada")).body).toEqual({ tools: [] })
+      expect(read).not.toHaveBeenCalled()
+    })
+
+    it("gives no account when the reader fails, and keeps the tools", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      registerViteHubPageTool(app, comments)
+      registerViteHubPageAccount(app, async () => { throw new Error("session store down") })
+      expect((await session("person=ada")).body).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
+      expect(console.error).toHaveBeenCalledOnce()
+    })
+
+    it("never sends a sign-out to another site, and keeps only web pictures", async () => {
+      registerViteHubPageTool(app, comments)
+      for (const signOut of ["https://evil.test/sign-out", "//evil.test/sign-out", "/\\evil.test/sign-out", "api/auth/sign-out"]) {
+        registerViteHubPageAccount(app, async () => ({ ...ada, signOut }))
+        expect((await session("person=ada")).body.account).toBeUndefined()
+      }
+      expect(readViteHubPageSession({ tools: [], account: { ...ada, image: "javascript:alert(1)" } }).account).toEqual(ada)
+      expect(readViteHubPageSession({ tools: [], account: { ...ada, image: "https://avatars.example/ada.png" } }).account).toEqual({ ...ada, image: "https://avatars.example/ada.png" })
+    })
   })
 })
 

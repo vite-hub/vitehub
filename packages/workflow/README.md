@@ -172,7 +172,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
 To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`. Inspection queries the binding because existing instance ids can follow different rules.
 
@@ -252,7 +252,20 @@ async function transcribe(recordingId: string) {
 
 `code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A thrown error does not change the retry policy.
 
-A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry. ViteHub has no portable sleep: `context.step.sleep(name, duration)` exists on Cloudflare and OpenWorkflow only, a `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`.
+A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry.
+
+Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps. The run sleeps on Cloudflare and OpenWorkflow. A `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`. After a sleep, the provider runs `index.ts` again, and completed step files return their stored results.
+
+```ts fragment
+// server/workflows/remind-user/index.ts, next to 01.send-welcome.ts and 02.send-reminder.ts
+export default defineWorkflow("remind-user", async (payload: { email: string }, { step, steps }) => {
+  await steps.sendWelcome(payload);
+  await step?.sleep?.("wait-a-day", "1 day");
+  await steps.sendReminder(payload);
+});
+```
+
+A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.step.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry.
 
 ## Production checklist
 
