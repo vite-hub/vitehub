@@ -4,6 +4,7 @@ import type {
   AgentInvocationStore,
   AgentInvocationSummary,
 } from "../invocations.ts"
+import { invocationDiagnostics } from "../invocation-diagnostics.ts"
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
@@ -101,7 +102,7 @@ export async function readAgentInvocationWorkload(
     const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of active.invocations) records.set(invocation.id, invocation)
     if (active.cursor && seenCursors.has(active.cursor)) {
-      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+      throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
     }
     if (active.cursor) seenCursors.add(active.cursor)
     cursor = active.cursor

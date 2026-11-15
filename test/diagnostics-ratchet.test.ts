@@ -16,12 +16,16 @@ const update = process.env.VITEHUB_UPDATE_DIAGNOSTICS_BASELINE === "1"
 const rawErrors = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/g
 /** The comment that marks a plain error as an internal invariant. It must say why. */
 const internalMarker = /\/\/ Internal invariant: \S/
+/** A call of `invariant()` or `invariantError()` from `@vite-hub/internal/invariant`: a state that only a ViteHub bug can reach. */
+const invariantCalls = /\binvariant(?:Error)?\(/g
 
 interface Baseline {
   /** Plain errors by source file. */
   rawErrors: Record<string, number>
   /** Diagnostic codes without a `fix`. A list, so a fix for one code does not allow a new code without a fix. */
   codesWithoutFix: string[]
+  /** `INTERNAL_INVARIANT_FAILED` sites by source file, so each new one shows in review. */
+  invariants: Record<string, number>
 }
 
 function sourceFiles(dir: string): string[] {
@@ -46,6 +50,17 @@ function countRawErrors(): Record<string, number> {
   return sortKeys(counts)
 }
 
+function countInvariants(): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const pkg of readdirSync(join(repoRoot, "packages"))) {
+    for (const file of sourceFiles(join(repoRoot, "packages", pkg, "src"))) {
+      const count = readFileSync(file, "utf8").match(invariantCalls)?.length ?? 0
+      if (count && !file.endsWith(join("internal", "src", "invariant.ts"))) counts[relative(repoRoot, file)] = count
+    }
+  }
+  return sortKeys(counts)
+}
+
 function codesWithoutFix(): string[] {
   return readDiagnosticCodes(repoRoot).filter(code => !code.fix).map(code => code.code).sort()
 }
@@ -61,7 +76,7 @@ function changes(current: Record<string, number>, baseline: Record<string, numbe
     .map(key => ({ key, baseline: baseline[key] ?? 0, current: current[key] ?? 0 }))
 }
 
-const current: Baseline = { rawErrors: countRawErrors(), codesWithoutFix: codesWithoutFix() }
+const current: Baseline = { rawErrors: countRawErrors(), codesWithoutFix: codesWithoutFix(), invariants: countInvariants() }
 if (update) writeFileSync(baselineFile, `${JSON.stringify(current, null, 2)}\n`)
 const baseline: Baseline = JSON.parse(readFileSync(baselineFile, "utf8"))
 
@@ -70,8 +85,13 @@ it("adds no plain errors to package sources", () => {
   expect(added, [
     "These files throw more plain errors than test/fixtures/diagnostics-ratchet.json allows.",
     "Throw a code from the package catalog (src/error-diagnostics.ts) with a `why`, a `fix`, and its docs page.",
-    "Keep a plain error only for a ViteHub bug or a value caught in the same module, and put `// Internal invariant: <reason>` on the line above it.",
+    "For a state that only a ViteHub bug can reach, throw `invariantError(what)` or call `invariant(condition, what)` from `@vite-hub/internal/invariant`.",
   ].join(" ")).toEqual([])
+})
+
+it("adds no invariant without a baseline change", () => {
+  const added = changes(current.invariants, baseline.invariants ?? {}).filter(change => change.current > change.baseline)
+  expect(added, "These files raise INTERNAL_INVARIANT_FAILED more often than test/fixtures/diagnostics-ratchet.json lists. Use it only for a state that a developer cannot cause; otherwise throw a code from the package catalog. Then update the baseline with the command at the top of this test.").toEqual([])
 })
 
 it("adds no diagnostic codes without a fix", () => {

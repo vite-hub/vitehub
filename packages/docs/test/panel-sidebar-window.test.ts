@@ -20,6 +20,12 @@ const files: Record<string, string> = {
     `docs/lumen/diagnostics/lumen_b${String(index).padStart(4, "0")}.md`,
     `---\ntitle: LUMEN_B${String(index).padStart(4, "0")}\nnavigation.group: Build errors\n---\nBuild code ${index}.\n`,
   ])),
+  // A panel whose pages have no group: its one group does not fold.
+  "docs/lumen/events/index.md": "---\ntitle: Events\nnavigation.panel: true\n---\nEvery Lumen event.\n",
+  ...Object.fromEntries(Array.from({ length: 300 }, (_, index) => [
+    `docs/lumen/events/event-${String(index).padStart(4, "0")}.md`,
+    `---\ntitle: Event ${index}\nnavigation.order: ${index + 1}\n---\nEvent ${index}.\n`,
+  ])),
 }
 
 it("renders the links around the current page of a long panel group, and no links in a folded group", async () => {
@@ -48,6 +54,17 @@ it("renders the links around the current page of a long panel group, and no link
     // The Build errors group starts folded, so it renders its heading and count only.
     expect(links("lumen_b")).toBe(0)
     expect(nav).toContain("Build errors")
+
+    const eventsNav = (path: string) => readFile(join(root, `.output/public/docs/lumen/${path}.html`), "utf8")
+      .then(html => /<nav[^>]*aria-label="Events pages"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "")
+    const eventLinks = (html: string) => [...html.matchAll(/href="\/docs\/lumen\/events\/event-\d{4}"/g)].length
+    const onEvent = await eventsNav("events/event-0150")
+    expect(eventLinks(onEvent)).toBe(60)
+    expect(onEvent).toContain('href="/docs/lumen/events/event-0150"')
+    expect(onEvent).toContain("Show all 300")
+    const onOverview = await eventsNav("events")
+    expect(eventLinks(onOverview)).toBe(60)
+    expect(onOverview).toContain('href="/docs/lumen/events/event-0000"')
   }
   finally {
     await nuxt?.close()

@@ -29,7 +29,9 @@ A missing or empty `actor` fails with `CONNECTIONS_INVALID_ACTOR`. The managemen
 
 The routes are `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback`, after the Vite `base` if set.
 
-These routes are an API of your app, not of the Console. The development server mounts them with the `'development'` actor. A production build mounts them only with `connections: { management: { actor: './server/connections-actor.ts' } }`, a module whose default export is the actor policy below. Each route checks it before it reads or changes a Connection, and names the manager in activity.
+These routes are an API of your app. The development server mounts them with the `'development'` actor. A production build mounts them only with `connections: { management: { actor: './server/connections-actor.ts' } }`, a module whose default export is the actor policy below. Each route checks it before it reads or changes a Connection, and names the manager in activity.
+
+Without `management`, a production build mounts only `GET /_vitehub/connections/callback`, for the sign-ins that the [Console starts](/docs/development/console#manage-connections). It completes no other flow.
 
 A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. `createConnectionsHandler()` returns a Fetchable route, `{ fetch(request) }`. Nitro mounts it as a route, and you can call `fetch()` with a Web `Request`. With `createConnectionsHandler()`, pass `actor`: a function that gets the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the [Standard Context](/docs/reference/runtime-context#standard-context) of the event, so `getStandardContext(request)` and the Auth helpers accept it. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
 
