@@ -9,6 +9,7 @@ import { compileScript, parse } from "vue/compiler-sfc"
 import { renderToString } from "vue/server-renderer"
 
 import { createDocsManifest } from "../src/manifest.ts"
+import * as navigation from "../src/navigation.ts"
 import { docsPageIcon, type DocsIcons } from "../src/navigation.ts"
 
 const filename = resolve(import.meta.dirname, "../runtime/app/components/content/PageList.vue")
@@ -29,6 +30,33 @@ const icons: DocsIcons = {
   stroke: 1.5,
 }
 
+async function render(current: typeof section): Promise<string> {
+  const exports: { default?: vue.Component } = {}
+  runInNewContext(outputText, {
+    ...vue,
+    exports,
+    require: (name: string) => {
+      if (name === "vue") return vue
+      if (name === "#docs/navigation") return navigation
+      throw new Error(`Unexpected component import: ${name}`)
+    },
+    useDocsManifest: () => ({ ...manifest, sections: [current] }),
+    useDocsSection: () => vue.ref(current),
+    useDocsPage: () => vue.ref(null),
+    useDocsIcons: () => ({ page: (item: typeof page) => docsPageIcon(icons, item) }),
+  })
+  const app = vue.createSSRApp(exports.default!)
+  app.component("NuxtLink", vue.defineComponent({
+    props: ["to"],
+    setup: (props, { slots }) => () => vue.h("a", { href: props.to }, slots.default?.()),
+  }))
+  app.component("UIcon", vue.defineComponent({
+    props: ["name"],
+    setup: props => () => vue.h("span", { "data-icon": props.name }),
+  }))
+  return await renderToString(app)
+}
+
 describe("PageList", () => {
   it.each([
     { id: "mapped", icon: "i-lucide-code", expected: "i-ph-gear-light" },
@@ -37,32 +65,18 @@ describe("PageList", () => {
     { id: "default", icon: null, expected: "i-ph-file-light" },
     { id: "inside-family", icon: "i-ph-code-light", expected: "i-ph-code-light" },
   ])("renders the configured icon for $id pages", async ({ id, icon, expected }) => {
-    const current = { ...section, pages: [{ ...page, id, path: `/docs/kv/${id}`, icon }] }
-    const exports: { default?: vue.Component } = {}
-    runInNewContext(outputText, {
-      ...vue,
-      exports,
-      require: (name: string) => {
-        if (name === "vue") return vue
-        throw new Error(`Unexpected component import: ${name}`)
-      },
-      useDocsManifest: () => ({ ...manifest, sections: [current] }),
-      useDocsSection: () => vue.ref(current),
-      useDocsPage: () => vue.ref(null),
-      useDocsIcons: () => ({ page: (item: typeof page) => docsPageIcon(icons, item) }),
-    })
-    const app = vue.createSSRApp(exports.default!)
-    app.component("NuxtLink", vue.defineComponent({
-      props: ["to"],
-      setup: (props, { slots }) => () => vue.h("a", { href: props.to }, slots.default?.()),
-    }))
-    app.component("UIcon", vue.defineComponent({
-      props: ["name"],
-      setup: props => () => vue.h("span", { "data-icon": props.name }),
-    }))
-
-    const html = await renderToString(app)
+    const html = await render({ ...section, pages: [{ ...page, id, path: `/docs/kv/${id}`, icon }] })
     expect(html).toContain(`href="/docs/kv/${id}"`)
     expect(html).toContain(`data-icon="${expected}"`)
+  })
+
+  it("lists a panel's Overview but not the pages inside the panel", async () => {
+    const html = await render({ ...section, pages: [
+      { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },
+      { ...page, id: "diagnostics/kv_invalid_ttl", path: "/docs/kv/diagnostics/kv_invalid_ttl", group: "Runtime errors" },
+    ] })
+    expect(html).toContain('href="/docs/kv/diagnostics"')
+    expect(html).not.toContain("kv_invalid_ttl")
+    expect(html).not.toContain("Runtime errors")
   })
 })
