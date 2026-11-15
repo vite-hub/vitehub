@@ -28,10 +28,11 @@ export interface OpenDeviceOptions {
 }
 
 /**
- * `drop`: the copies of these keys are gone and must not show. `load`: copies for these keys came from the disk.
- * `reset`: every copy and every answer in memory is gone, so each read shows its default and calls its loader again.
+ * `load`: copies for these keys came from the disk. `named`: the page named its account, so every read calls its loader
+ * again and its next answer can be stored. `reset`: every copy and every answer in memory is gone, so each read shows
+ * its default and calls its loader again.
  */
-export type DeviceEvent = { type: "drop" | "load", keys: string[] } | { type: "reset" }
+export type DeviceEvent = { type: "load", keys: string[] } | { type: "named" } | { type: "reset" }
 
 /** The device of one page. `openDevice()` and `useStoredData()` use the device of the browser tab. */
 export interface Device {
@@ -42,15 +43,18 @@ export interface Device {
   clear: () => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   inspect: () => DeviceInspection
   /**
-   * Changes each time the copies and the answers in memory stop being valid: another account or a sign-out after the
-   * page named an account, a clear, or such a change in another tab. The answer of a loader call that started in an
-   * older epoch must not show.
+   * Changes when the page names an account, and each time the copies and the answers in memory stop being valid: another
+   * account or a sign-out, a clear, or a change of the disk by another tab. A loader call keeps the epoch in which it
+   * started, and `write()` stores its answer only in that same epoch.
    */
   epoch: () => number
   /** The stored copy of `key` that is at most `maxAge` milliseconds old. */
   read: (key: string, maxAge: number) => { value: unknown, storedAt: number } | undefined
-  /** Keeps `value` as the copy of `key`. It goes to the disk once an account is named. */
-  write: (key: string, value: unknown, maxAge: number) => void
+  /**
+   * Stores `value` as the copy of `key` when the loader call that got it started in this epoch (`since`) and the page
+   * named an account. The device keeps no other answer, in memory or on the disk.
+   */
+  write: (key: string, value: unknown, maxAge: number, since: number) => void
   subscribe: (listener: (event: DeviceEvent) => void) => () => void
   /** Resolves when every change that the device started is on the disk or failed. */
   settled: () => Promise<void>
@@ -68,9 +72,11 @@ export interface DeviceOptions {
 }
 
 interface MemoryEntry extends StoredEntry {
-  /** The account of the copy. `undefined` for an answer that this page got before it named an account. */
-  account: string | undefined
+  /** The account of the copy. */
+  account: string
 }
+
+type StorageResult = Result<void, "DEVICE_STORAGE_FAILED">
 
 /** The device keeps at most 5 MB of JSON. `openDevice()` reads all of it before the app mounts. */
 const maxDeviceBytes = 5 * 1024 * 1024
@@ -78,7 +84,7 @@ const maxDeviceBytes = 5 * 1024 * 1024
 const openTimeout = 1000
 
 const encoder = /*#__PURE__*/ new TextEncoder()
-const ok: Result<void, "DEVICE_STORAGE_FAILED"> = [undefined, undefined]
+const ok: StorageResult = [undefined, undefined]
 
 function describe(value: unknown): string {
   return typeof value === "string" ? JSON.stringify(value) : String(value)
@@ -106,23 +112,29 @@ function newGeneration(): string {
 export function createDevice(options: DeviceOptions): Device {
   const now = options.now ?? (() => Date.now())
   const maxBytes = options.maxBytes ?? maxDeviceBytes
+  /** The copies that new reads of this tab show: the copies of the disk, and the answers that the device stores. */
   const entries = new Map<string, MemoryEntry>()
-  /** Keys whose copy changed in memory and not yet on the disk. */
-  const dirty = new Set<string>()
+  /** The changes for the disk: a copy to put, or `undefined` to delete the key. */
+  const pending = new Map<string, StoredEntry | undefined>()
   const listeners = new Set<(event: DeviceEvent) => void>()
   const warned = new Set<string>()
   let storage: DeviceStorage | undefined
   let opening: Promise<void> | undefined
+  /** `true` when the device opened without a disk, so nothing waits to be written. */
+  let diskless = false
   let version = ""
-  /** The meta that this tab expects on the disk. A write applies only when the disk still has its generation. */
-  let stored: DeviceMeta | undefined
+  /**
+   * The meta that this tab expects on the disk. A change of this tab sets it in the queue, after its disk operation, so
+   * it follows the order of the operations. A message of another tab sets it at once.
+   */
+  let meta: DeviceMeta | undefined
   /** The account that this page named. `undefined` before it calls `setAccount()`, or after another tab named another account. */
   let named: string | null | undefined
   /** The account of the latest `setAccount()` call, also while the device opens. */
   let requested: string | null | undefined
   /**
-   * Changes each time the copies and the answers in memory stop being valid. Nothing that started in an older epoch
-   * reaches the screen or the disk: not a loader answer, and not the copies of a disk read.
+   * Changes when the page names an account, and when the copies and the answers in memory stop being valid. The device
+   * stores an answer only when its loader call started in the current epoch, after the page named an account.
    */
   let epoch = 0
   let queue: Promise<unknown> = Promise.resolve()
@@ -136,11 +148,11 @@ export function createDevice(options: DeviceOptions): Device {
   }
 
   function emit(event: DeviceEvent): void {
-    if (event.type !== "reset" && !event.keys.length) return
+    if (event.type === "load" && !event.keys.length) return
     for (const listener of listeners) listener(event)
   }
 
-  /** Runs storage changes one after another, in the order that the page made them. */
+  /** Runs disk operations, and the changes of `meta` that come with them, one after another in the order of the calls. */
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = queue.then(task)
     queue = run.catch(() => undefined)
@@ -148,7 +160,7 @@ export function createDevice(options: DeviceOptions): Device {
   }
 
   function persisting(): boolean {
-    return storage !== undefined && typeof named === "string" && stored?.account === named && stored.version === version
+    return storage !== undefined && typeof named === "string" && meta?.account === named && meta.version === version
   }
 
   function backgroundFailure(cause: unknown): void {
@@ -159,73 +171,68 @@ export function createDevice(options: DeviceOptions): Device {
   function invalidate(): void {
     epoch++
     entries.clear()
-    dirty.clear()
+    pending.clear()
     emit({ type: "reset" })
   }
 
-  /** Writes `change` when the disk still has the generation `expected`. */
+  /** Writes `change` when the disk still has the generation `expected`. Runs in the queue. */
   async function persist(target: DeviceStorage, expected: DeviceMeta, change: DeviceChange): Promise<void> {
     const found = await target.write(expected, change)
-    // The change applied, or this tab heard of the new generation in the meantime and dropped what it had.
-    if (found?.generation === expected.generation || stored?.generation !== expected.generation) return
-    // Another tab cleared the device, named an account, or opened another version, and this tab missed its message.
-    stored = found
-    // Another build owns the disk. The copies in memory still fit this build and its account, and this tab stops writing.
-    if (found && found.account === named && found.version !== version) return
-    // Another account: this tab writes again only after it names an account. The same account: it writes its next answers.
+    // The change applied, or a message of another tab changed `meta` in the meantime and dropped what this tab had.
+    if (found?.generation === expected.generation || meta !== expected) return
+    // Another tab changed the disk, and this tab missed its message. After another account, this tab stores again only
+    // after it names an account.
+    meta = found
     if (found?.account !== named) named = undefined
     invalidate()
   }
 
-  /** Writes the dirty keys in one change, after the changes that are already queued. */
+  /** Writes the pending changes in one write, after the operations that are already queued. */
   function flush(): void {
-    if (flushQueued || !dirty.size || !persisting()) return
+    if (flushQueued || !pending.size) return
     flushQueued = true
     enqueue(async () => {
       flushQueued = false
       const target = storage
-      const expected = stored
+      const expected = meta
+      // The changes wait for the disk to hold the account of the page.
       if (!target || !expected || !persisting()) return
-      const puts: StoredEntry[] = []
-      const deletes: string[] = []
-      for (const key of dirty) {
-        const entry = entries.get(key)
-        if (entry) puts.push({ key, json: entry.json, storedAt: entry.storedAt, expiresAt: entry.expiresAt, bytes: entry.bytes })
-        else deletes.push(key)
+      const change: DeviceChange = { puts: [], deletes: [], maxBytes, now: now() }
+      for (const [key, entry] of pending) {
+        if (entry) change.puts.push(entry)
+        else change.deletes.push(key)
       }
-      dirty.clear()
-      if (puts.length || deletes.length) await persist(target, expected, { puts, deletes, maxBytes })
+      pending.clear()
+      await persist(target, expected, change)
     }).catch(backgroundFailure)
   }
 
-  /** Deletes the oldest copies in memory until this tab is under the size cap. Returns their keys. */
-  function evict(keep?: string): string[] {
+  /** Deletes the expired copies on the disk, and the oldest ones over the cap. The disk picks them in its transaction. */
+  function trim(): void {
+    enqueue(async () => {
+      if (storage && meta) await persist(storage, meta, { puts: [], deletes: [], maxBytes, now: now() })
+    }).catch(backgroundFailure)
+  }
+
+  /** Drops the oldest copies in the memory of this tab until it is under the size cap. The disk keeps its own cap. */
+  function evict(keep?: string): void {
     let total = 0
     for (const entry of entries.values()) total += entry.bytes
-    if (total <= maxBytes) return []
-    const evicted: string[] = []
     for (const entry of [...entries.values()].sort((a, b) => a.storedAt - b.storedAt)) {
-      if (total <= maxBytes) break
+      if (total <= maxBytes) return
       if (entry.key === keep) continue
       entries.delete(entry.key)
       total -= entry.bytes
-      evicted.push(entry.key)
     }
-    return evicted
   }
 
   function receive(message: DeviceMessage): void {
-    // The disk changed: this tab writes with its new generation, or not at all.
-    if (message.meta) stored = message.meta
-    if (message.type === "account" && message.account === named && message.version === version) {
-      // Another tab started this tab's account over on the disk. This tab writes its copies again.
-      if (!message.meta) return
-      for (const key of entries.keys()) dirty.add(key)
-      return flush()
-    }
-    // Another tab signed in as another account, signed out, or cleared the device. This tab drops everything, also the
-    // answers of loader calls that still run. After another account, it writes again only after it names an account.
-    if (message.type === "account") named = undefined
+    // A tab without IndexedDB named the account of this page: the disk did not change.
+    if (message.type === "account" && !message.meta && message.account === named) return
+    // Another tab cleared the device, started it over, or named another account. Everything of this tab is old: its
+    // copies, its answers, and the loader calls that run. After another account, it stores again only after it names one.
+    if (message.meta) meta = message.meta
+    if (message.type === "account" && message.account !== named) named = undefined
     invalidate()
   }
 
@@ -251,148 +258,127 @@ export function createDevice(options: DeviceOptions): Device {
     clearTimeout(timer)
     // Without IndexedDB, or when it answers too late, the page keeps its copies in memory.
     if (!found) {
+      diskless = true
+      pending.clear()
       void connecting.then(late => late?.storage.close())
       return
     }
     storage = found.storage
-    if (epoch === started) publish(found.storage, found.meta, found.entries)
-    // Another tab cleared the device or named another account while this tab read the disk. The copies that this tab
-    // read are of an older generation. The message of the other tab has the meta, when it changed the disk.
-    else stored ??= found.meta
-    // The page named its account before it opened the device. The disk starts over when it holds another account.
-    if (named !== undefined && (stored?.account !== named || stored.version !== version)) {
-      void startOver({ account: named, version, generation: newGeneration() }).then(([error]) => error && warnOnce("storage", error))
-      return
-    }
-    flush()
+    if (epoch === started) take(found.meta, found.entries)
+    // Another tab changed the disk while this tab read it. The copies that this tab read are old. The message of the
+    // other tab has the new meta, when the disk changed.
+    else meta ??= found.meta
+    // The disk follows the page: the account that it named, or else the account of the disk, in the version of this build.
+    const account = named !== undefined ? named : meta?.account
+    if (account !== undefined) void enqueue(() => ensure(account, false)).then(([error]) => error && warnOnce("storage", error))
   }
 
   /** Takes the copies that the disk had when the device opened. */
-  function publish(target: DeviceStorage, meta: DeviceMeta | undefined, found: StoredEntry[]): void {
-    if (!meta) return
-    if (meta.version !== version) {
-      // Copies of another version can have another shape. The disk starts over for this version, and the account stays.
-      const next = { account: meta.account, version, generation: newGeneration() }
-      stored = next
-      enqueue(() => target.reset(next)).catch(backgroundFailure)
-      return
-    }
-    stored = meta
-    // Copies of an account other than the one that the page asked for would show for a moment. Leave them out.
-    const usable = meta.account !== null && (requested === undefined || requested === meta.account)
+  function take(found: DeviceMeta | undefined, stored: StoredEntry[]): void {
+    meta = found
+    // Copies of another version can have another shape, and copies of an account other than the one that the page asked
+    // for would show for a moment. Leave them out.
+    if (!found || found.version !== version || found.account === null || (requested !== undefined && requested !== found.account)) return
     const time = now()
     const loaded: string[] = []
-    const deletes: string[] = []
-    for (const entry of usable ? found : []) {
-      if (entry.expiresAt <= time) deletes.push(entry.key)
-      // An answer that this page got while the device opened is newer.
-      else if (!entries.has(entry.key)) {
-        entries.set(entry.key, { ...entry, account: meta.account ?? undefined })
+    let expired = false
+    let total = 0
+    for (const entry of stored) {
+      if (entry.expiresAt <= time) {
+        expired = true
+        continue
+      }
+      total += entry.bytes
+      // An answer that this page stored while the device opened is newer.
+      if (!entries.has(entry.key)) {
+        entries.set(entry.key, { ...entry, account: found.account })
         loaded.push(entry.key)
       }
     }
-    deletes.push(...evict())
-    if (deletes.length) enqueue(() => persist(target, meta, { puts: [], deletes, maxBytes })).catch(backgroundFailure)
+    evict()
+    if (expired || total > maxBytes) trim()
     emit({ type: "load", keys: loaded.filter(key => entries.has(key)) })
   }
 
-  /** Deletes every copy on the disk and gives it `meta`, then writes the copies of this page. Tells the other tabs. */
-  async function startOver(meta: DeviceMeta): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+  /**
+   * Brings the disk to `account` in the version of this build. When the disk holds another account or version, every copy
+   * goes and the disk gets a new generation, and the other tabs hear of it. Runs in the queue. In this tab it is not a
+   * reset: the tab raised the epoch when it named the account, and holds no copy of another account or version.
+   */
+  async function ensure(account: string | null, announce: boolean): Promise<StorageResult> {
     const target = storage
     if (!target) {
-      options.channel.post({ type: "account", account: meta.account, version: meta.version, meta: undefined })
+      if (announce) options.channel.post({ type: "account", account, meta: undefined })
       return ok
     }
-    stored = meta
-    for (const key of entries.keys()) dirty.add(key)
-    try {
-      await enqueue(() => {
-        const change = target.reset(meta)
-        // After the change starts, so that the writes of other tabs for the new generation come after it.
-        options.channel.post({ type: "account", account: meta.account, version: meta.version, meta })
-        return change
-      })
-    }
-    catch (cause) {
-      stored = undefined
-      return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
+    if (meta?.account !== account || meta.version !== version) {
+      const next = { account, version, generation: newGeneration() }
+      try {
+        await target.reset(next)
+      }
+      catch (cause) {
+        // The other tabs still drop what they have of another account.
+        options.channel.post({ type: "account", account, meta: undefined })
+        return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
+      }
+      meta = next
+      options.channel.post({ type: "account", account, meta: next })
     }
     flush()
-    await queue
     return ok
   }
 
-  /** The same account as before: its copies stay, and the answers of this page join them. */
-  async function keep(account: string | null): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
-    if (account === null) return ok
-    for (const entry of entries.values()) {
-      if (entry.account !== undefined) continue
-      entry.account = account
-      dirty.add(entry.key)
-    }
-    if (!storage) return ok
-    if (stored?.account !== account || stored.version !== version) return startOver({ account, version, generation: newGeneration() })
-    flush()
-    await queue
-    return ok
+  /** Names `account` in memory, at once, so that loader calls that started before it are never stored. */
+  function name(account: string | null): void {
+    const previous = named
+    named = account
+    // Another account or a sign-out after the page named one, or copies of another account on the screen: everything goes.
+    if (previous !== undefined || [...entries.values()].some(entry => entry.account !== account)) return invalidate()
+    // The first account of the page, and the screen shows nothing of another account. The answers that came before stay
+    // on the screen, and are never stored. Each read calls its loader again, so that its next answer can be stored.
+    if (account === null) return
+    epoch++
+    emit({ type: "named" })
   }
 
-  async function setAccount(account: string | null): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+  async function setAccount(account: string | null): Promise<StorageResult> {
     checkAccount(account)
     requested = account
     if (opening) await opening
     // A later call decides.
     if (requested !== account) return ok
-    const first = named === undefined
-    const same = first ? account !== null && account === stored?.account : account === named
-    named = account
-    if (same) return keep(account)
-    if (first) {
-      // The first account of this page. The answers that it got, and the loader calls that still run, came with the
-      // same session, so they are of this account. The copies of the last visit go.
-      const dropped: string[] = []
-      for (const entry of entries.values()) {
-        if (entry.account === undefined && account !== null) entry.account = account
-        else {
-          entries.delete(entry.key)
-          dropped.push(entry.key)
-        }
-      }
-      emit({ type: "drop", keys: dropped })
-    }
-    // Another account, or a sign-out, after this page named an account. Everything of the previous account goes, also
-    // the answers of loader calls that still run, and each read calls its loader again.
-    else invalidate()
-    return startOver({ account, version, generation: newGeneration() })
+    const changed = account !== named
+    if (changed) name(account)
+    return enqueue(() => ensure(account, changed))
   }
 
-  async function clear(): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+  async function clear(): Promise<StorageResult> {
     if (opening) await opening
     invalidate()
-    const target = storage
-    if (!target) {
-      options.channel.post({ type: "clear", meta: undefined })
-      return ok
-    }
-    try {
-      await enqueue(async () => {
-        const meta = await target.clear(newGeneration())
-        if (meta) stored = meta
+    return enqueue(async () => {
+      const target = storage
+      if (!target) {
+        options.channel.post({ type: "clear", meta: undefined })
+        return ok
+      }
+      try {
+        meta = await target.clear(newGeneration())
         options.channel.post({ type: "clear", meta })
-      })
-    }
-    catch (cause) {
-      // The other tabs still drop their copies.
-      options.channel.post({ type: "clear", meta: undefined })
-      return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the stored copies", cause }), undefined]
-    }
-    return ok
+        return ok
+      }
+      catch (cause) {
+        // The other tabs still drop their copies.
+        options.channel.post({ type: "clear", meta: undefined })
+        return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the stored copies", cause }), undefined]
+      }
+    })
   }
 
-  function write(key: string, value: unknown, maxAge: number): void {
-    // After a sign-out the device keeps nothing.
-    if (named === null) return
+  function write(key: string, value: unknown, maxAge: number, since: number): void {
     if (!opening) warnOnce("open", deviceErrors.DEVICE_NOT_OPEN())
+    // The rule of the device: it stores an answer only when the loader call started after the page named its account, and
+    // nothing made the answers old since then. Any other answer stays on the screen of this read, and nowhere else.
+    if (since !== epoch || typeof named !== "string") return
     let json: string | undefined
     try {
       json = JSON.stringify(value)
@@ -408,13 +394,15 @@ export function createDevice(options: DeviceOptions): Device {
     }
     // A value that the device cannot keep also removes the older copy, so a reload does not show it.
     if (json === undefined) {
-      if (entries.delete(key)) dirty.add(key)
+      entries.delete(key)
+      if (!diskless) pending.set(key, undefined)
       return flush()
     }
     const time = now()
-    entries.set(key, { key, json, storedAt: time, expiresAt: time + maxAge, bytes, account: named })
-    dirty.add(key)
-    for (const evicted of evict(key)) dirty.add(evicted)
+    const entry = { key, json, storedAt: time, expiresAt: time + maxAge, bytes }
+    entries.set(key, { ...entry, account: named })
+    if (!diskless) pending.set(key, entry)
+    evict(key)
     flush()
   }
 
@@ -433,7 +421,7 @@ export function createDevice(options: DeviceOptions): Device {
     setAccount,
     clear,
     inspect: () => ({
-      account: named !== undefined ? named : (stored?.account ?? null),
+      account: named !== undefined ? named : (meta?.account ?? null),
       persisted: persisting(),
       storage: storage ? "indexeddb" : "memory",
       entries: [...entries.values()]
@@ -453,7 +441,11 @@ export function createDevice(options: DeviceOptions): Device {
     },
     settled: async () => {
       if (opening) await opening
-      await queue
+      // A task can queue another one, such as a write after a start-over.
+      for (let current = queue; ; current = queue) {
+        await current
+        if (current === queue) return
+      }
     },
     close() {
       stopReceiving()

@@ -16,7 +16,7 @@ export interface StoredEntry {
   json: string
   /** When the answer was stored, in milliseconds since the epoch. */
   storedAt: number
-  /** After this time, the next `openDevice()` deletes the copy. */
+  /** After this time, the disk deletes the copy. */
   expiresAt: number
   /** The size of `json` in UTF-8. */
   bytes: number
@@ -26,8 +26,12 @@ export interface StoredEntry {
 export interface DeviceChange {
   puts: StoredEntry[]
   deletes: string[]
-  /** After the change, the disk deletes its oldest copies, also copies of other tabs, until it holds at most this many bytes. */
+  /**
+   * After the change, the disk deletes the copies that expired at `now`, then its oldest copies, also copies of other
+   * tabs, until it holds at most `maxBytes`. It picks them from what it holds, in the same transaction.
+   */
   maxBytes: number
+  now: number
 }
 
 /** Where the device keeps its copies across reloads. The browser uses IndexedDB, and the tests use a fake. */
@@ -52,7 +56,7 @@ export interface DeviceStorage {
 export type DeviceMessage
   = | { type: "clear", meta: DeviceMeta | undefined }
     /** A tab named `account`. */
-    | { type: "account", account: string | null, version: string, meta: DeviceMeta | undefined }
+    | { type: "account", account: string | null, meta: DeviceMeta | undefined }
 
 /** How tabs talk. The browser uses a BroadcastChannel, and the tests use a fake. */
 export interface DeviceChannel {

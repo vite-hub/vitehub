@@ -48,15 +48,18 @@ export function createFakeDisk() {
           entries.clear()
           meta = { ...next }
         },
-        async write(expected, { puts, deletes, maxBytes }) {
+        async write(expected, { puts, deletes, maxBytes, now }) {
           await fail()
           const found = meta && { ...meta }
           if (found?.generation !== expected.generation || found.account !== expected.account || found.version !== expected.version) return found
           for (const key of deletes) entries.delete(key)
           for (const entry of puts) entries.set(entry.key, structuredClone(entry))
-          // The cap counts the copies of every tab, and the oldest go first.
+          // The disk picks what goes from what it holds: the expired copies, then the oldest copies of every tab over the cap.
           let total = 0
-          for (const entry of entries.values()) total += entry.bytes
+          for (const entry of entries.values()) {
+            if (entry.expiresAt <= now) entries.delete(entry.key)
+            else total += entry.bytes
+          }
           for (const entry of [...entries.values()].sort((a, b) => a.storedAt - b.storedAt)) {
             if (total <= maxBytes) break
             entries.delete(entry.key)
@@ -81,11 +84,14 @@ export function createFakeDisk() {
 /** The BroadcastChannel of one browser: a message reaches every other tab, as with a real channel. */
 export function createFakeBrowser() {
   const tabs = new Set<{ listener: (message: DeviceMessage) => void }>()
-  return {
+  const browser = {
+    /** When it returns `true`, no tab gets the message, as a suspended tab misses it. */
+    drop: undefined as ((message: DeviceMessage) => boolean) | undefined,
     channel(): DeviceChannel {
       const tab = { listener: (_message: DeviceMessage) => undefined as void }
       return {
         post(message) {
+          if (browser.drop?.(message)) return
           for (const other of tabs) if (other !== tab) other.listener(structuredClone(message))
         },
         receive(listener) {
@@ -96,6 +102,7 @@ export function createFakeBrowser() {
       }
     },
   }
+  return browser
 }
 
 export type FakeDisk = ReturnType<typeof createFakeDisk>

@@ -86,6 +86,19 @@ const text = page => page.evaluate(() => window.deviceTest.text())
 const firstRender = page => page.evaluate(() => window.deviceTest.firstRender)
 const inspect = page => page.evaluate(() => window.deviceTest.inspectDevice())
 const storedKeys = page => page.evaluate(() => window.deviceTest.storedKeys())
+const storedPrefix = (page, key) => page.evaluate(key => window.deviceTest.storedPrefix(key), key)
+const store = (page, key, value) => page.evaluate(([key, value]) => window.deviceTest.store(key, value), [key, value])
+
+/** Delivers no sign-out message to this tab, as a suspended tab misses it. */
+function missSignOut() {
+  const add = BroadcastChannel.prototype.addEventListener
+  BroadcastChannel.prototype.addEventListener = function (type, listener, options) {
+    if (type !== "message") return add.call(this, type, listener, options)
+    return add.call(this, type, (event) => {
+      if (event.data?.type !== "account" || event.data.account !== null) listener(event)
+    }, options)
+  }
+}
 
 /** A first visit as `account` that stores the projects, then a reload with `/api/projects` held. */
 async function visitAndReload(profile, { account = "ada", projects = ["p1"], reload = {} } = {}) {
@@ -132,7 +145,8 @@ test("a null account and a page that names no account write nothing", { timeout:
   await profile.answer(["p1"])
   await mount(page, {})
   await until(async () => (await text(page)) === "p1 success")
-  assert.deepEqual(await inspect(page), { account: null, persisted: false, storage: "indexeddb", entries: [{ key: "projects", storedAt: (await inspect(page)).entries[0].storedAt, bytes: 6 }] })
+  // The answer shows, and the device keeps nothing of it: the loader call started before the page named an account.
+  assert.deepEqual(await inspect(page), { account: null, persisted: false, storage: "indexeddb", entries: [] })
   assert.deepEqual(await storedKeys(page), [])
   await page.evaluate(() => window.deviceTest.setDeviceAccount(null))
   await page.evaluate(() => window.deviceTest.store("settings", { theme: "dark" }))
@@ -178,6 +192,8 @@ test("the device keeps at most 5 MB, deletes the oldest copies first, and opens 
   const page = await profile.open()
   await profile.answer(["p1"])
   await mount(page, { account: "ada" })
+  // The loader call after the naming stores `projects`, so it is the oldest copy.
+  await until(async () => (await text(page)) === "p1 success" && (await storedKeys(page)).includes("projects"))
   // Six answers of 1,000,002 bytes each as JSON. 5 MB holds five of them.
   for (const key of ["a", "b", "c", "d", "e", "f"]) {
     await page.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
@@ -234,6 +250,62 @@ test("a tab that missed a clear does not fill the device again", { timeout: 120_
   assert.deepEqual((await inspect(deaf)).entries, [])
   await profile.answer(["p2"])
   await until(async () => (await text(deaf)) === "p2 success" && (await storedKeys(deaf)).join() === "projects")
+})
+
+test("the disk picks the oldest copies over the 5 MB cap, not the memory of a tab", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  await profile.answer(["p1"])
+  const writer = await profile.open()
+  await mount(writer, { account: "ada" })
+  for (const key of ["a", "b", "c", "d"]) await store(writer, key, key.repeat(1_000_000))
+  await until(async () => (await storedKeys(writer)).join() === "a,b,c,d,projects")
+  // This tab reads a, b, c, and d from the disk into its memory.
+  const reader = await profile.open()
+  await mount(reader, { account: "ada" })
+  await until(async () => (await text(reader)) === "p1 success")
+  assert.equal((await inspect(reader)).entries.length, 5)
+  // The first tab stores a newer `a`. The memory of the second tab still has the older one.
+  await store(writer, "a", "A".repeat(1_000_000))
+  await until(async () => (await storedPrefix(writer, "a")) === "\"AAA")
+  // `e` and `f` take the disk and the memory of the second tab over 5 MB.
+  for (const key of ["e", "f"]) await store(reader, key, key.repeat(1_000_000))
+  await until(async () => (await storedKeys(reader)).includes("f"))
+  // `b` is the oldest copy on the disk. The newer `a` stays.
+  assert.deepEqual(await storedKeys(reader), ["a", "c", "d", "e", "f", "projects"])
+  assert.equal(await storedPrefix(reader, "a"), "\"AAA")
+})
+
+test("a tab that missed a sign-out and then got a sign-in as the same account drops what it had", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  await profile.answer(["p1"])
+  const first = await profile.open("/", { pageScript: missSignOut })
+  await mount(first, { account: "ada" })
+  await until(async () => (await text(first)) === "p1 success" && (await storedKeys(first)).includes("projects"))
+  const second = await profile.open()
+  await mount(second, { account: "ada" })
+  await until(async () => (await text(second)) === "p1 success")
+  profile.hold()
+  await second.evaluate(() => window.deviceTest.setDeviceAccount(null))
+  await second.evaluate(() => window.deviceTest.setDeviceAccount("ada"))
+  // The first tab got only the sign-in. Its answer is from before the sign-out, so it goes, and nothing goes back to the disk.
+  await until(async () => (await text(first)) === "empty pending")
+  assert.deepEqual(await storedKeys(first), [])
+  await profile.answer(["p2"])
+  await until(async () => (await text(first)) === "p2 success" && (await storedKeys(first)).join() === "projects")
+})
+
+test("a clear and another account at the same time leave the device on the new account", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  await profile.answer(["p1"])
+  const page = await profile.open()
+  await mount(page, { account: "ada" })
+  await until(async () => (await text(page)) === "p1 success" && (await storedKeys(page)).includes("projects"))
+  const errors = await page.evaluate(() => Promise.all([window.deviceTest.clearDevice(), window.deviceTest.setDeviceAccount("grace")]).then(results => results.map(([error]) => error?.code ?? null)))
+  assert.deepEqual(errors, [null, null])
+  const { account, persisted } = await inspect(page)
+  assert.deepEqual({ account, persisted }, { account: "grace", persisted: true })
+  // The read calls its loader again, and its answer is stored for `grace`.
+  await until(async () => (await text(page)) === "p1 success" && (await storedKeys(page)).join() === "projects")
 })
 
 test("a sandboxed frame, where IndexedDB throws, keeps copies in memory", { timeout: 120_000 }, async (t) => {

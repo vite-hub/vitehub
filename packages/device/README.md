@@ -24,7 +24,7 @@ await openDevice({ version: '1' })
 createApp(App).mount('#app')
 ```
 
-Name the account when the app learns who is signed in. Until then, answers stay in memory and nothing goes to the disk:
+Name the account when the app learns who is signed in. The device stores only the answers of loader calls that start after that. If the app knows the account before it mounts, such as from the HTML, name it before `mount()`, so each read calls its loader once:
 
 ```ts
 // src/session.ts
@@ -60,7 +60,7 @@ On a reload, `projects` has the stored copy in the first render, `status` is `pe
 | Export | Does |
 | --- | --- |
 | `openDevice({ version? })` | Reads the stored copies into memory. Await it before `app.mount()`. It never fails: without IndexedDB, or when IndexedDB takes more than 1 second, the page keeps copies in memory. When `version` is not the version of the stored copies, it deletes them. |
-| `setDeviceAccount(id \| null)` | Names the signed-in account. Another account, or `null`, deletes every copy in every tab. Returns `[error, undefined]`, with `DEVICE_STORAGE_FAILED` when IndexedDB failed to delete the copies. |
+| `setDeviceAccount(id \| null)` | Names the signed-in account. The device stores only the answers of loader calls that start after it, so each read that runs calls its loader again. Another account, or `null`, deletes every copy in every tab. Returns `[error, undefined]`, with `DEVICE_STORAGE_FAILED` when IndexedDB failed to delete the copies. |
 | `clearDevice()` | Deletes every copy in this tab and in every other tab of the app. The account stays. Returns `[error, undefined]`. |
 | `inspectDevice()` | `{ account, persisted, storage, entries: [{ key, storedAt, bytes }] }`. `storage` is `indexeddb` or `memory`. |
 | `useStoredData(key, loader, options?)` | From `@vite-hub/device/vue`. Returns `{ data, status, error, refresh, storedAt }`. The key can be a string, a ref, or a getter. Reads of one key share one state and one loader call. `refresh()` aborts the older call, and so does the unmount of the last component of a read. |
@@ -68,23 +68,24 @@ On a reload, `projects` has the stored copy in the first render, `status` is `pe
 | Option | Default | Does |
 | --- | --- | --- |
 | `default` | `() => undefined` | The value when the device has no copy. |
-| `maxAge` | 7 days | A stored copy that is older does not show, and the next `openDevice()` deletes it. In milliseconds. |
+| `maxAge` | 7 days | A stored copy that is older does not show, and the disk deletes it at the next `openDevice()` or write. In milliseconds. |
 
 ## Rules
 
 - **One account.** The device holds the copies of one account. The account comes from your session, so call `setDeviceAccount()` each time the app learns who is signed in, and `setDeviceAccount(null)` on a sign-out. An app without accounts can name a fixed account, such as `'public'`.
-- **Nothing before an account.** A page that never names an account writes nothing to the disk. The answers that it gets before it names one join the account that it names.
+- **One rule for what is stored.** The device stores an answer only when its loader call started after the page named its account, and nothing made the answers old since then: another account, a sign-out, `clearDevice()`, or a change of the disk by another tab. Any other answer shows in its read and goes nowhere else, not to the disk and not to a new read of the key. A page that never names an account stores nothing.
+- **Naming starts the reads again.** When the page names its account, each read that runs calls its loader again, and the answer on the screen stays until the new one. A stored copy of another account goes back to the default at once.
 - **Old answers never show.** After another account, a sign-out, or `clearDevice()`, in this tab or in another tab, every read shows its default and calls its loader again, also a read whose loader answered. The answer of a loader call that started before the change does not show and does not go to the disk.
 - **Plain data.** The device keeps the answer as JSON. Return objects, arrays, strings, numbers, booleans, and null from the loader.
 - **Server rendering.** On the server, `useStoredData()` reads no storage and calls no loader: `data` is the default and `status` is `idle`. In an app that the server renders, call `openDevice()` after the app mounts. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
-- **Tabs.** `clearDevice()` and a change of account reach every tab through a BroadcastChannel. The values of a read do not move between tabs: each tab asks its own loader. Each start-over of the disk gets a new generation, and a write applies only when the disk still has the generation of the tab. So a tab that missed a message, such as a suspended tab, cannot fill the disk again. Its write fails, and the tab drops what it had.
+- **Tabs.** `clearDevice()` and a change of account reach every tab through a BroadcastChannel. The values of a read do not move between tabs: each tab asks its own loader. Each start-over of the disk gets a new generation, and a write applies only when the disk still has the generation of the tab. A new generation from another tab, also for the same account, is a reset in this tab: every read shows its default and calls its loader again. So a tab that missed a message, such as a suspended tab, cannot fill the disk again. Its write fails, and the tab drops what it had.
 
 ## Limits
 
 - **IndexedDB is not confidential.** Anyone who can use the browser profile, browser extensions, and malware on the computer can read the stored copies. Do not store secrets, tokens, or data that must not stay on the device.
 - **A shared computer shows the last account's copy until the server answers.** When the next person opens the app, the first render shows the copies of the last account. They go away when the app calls `setDeviceAccount()` with the new account. Call `setDeviceAccount(null)` on a sign-out, so the copies go then.
 - **The server still checks every request.** A stored copy only changes what the screen shows first. It gives no access, and the loader asks the server each time.
-- **5 MB.** The device keeps at most 5 MB of JSON for all tabs together, and deletes the oldest copies first, also copies of other tabs. It does not keep a single answer that is larger. `openDevice()` read 5 MB in 8 to 15 ms in headless Chromium.
+- **5 MB.** The device keeps at most 5 MB of JSON for all tabs together, and deletes the oldest copies first, also copies of other tabs. The disk picks them from what it holds, in the same transaction as the write. It does not keep a single answer that is larger. `openDevice()` read 5 MB in 8 to 15 ms in headless Chromium.
 - **1 second.** `openDevice()` waits at most 1 second for IndexedDB. A page that waited longer keeps its copies in memory.
 - **Private windows and sandboxed frames.** When IndexedDB fails, the copies stay in memory and `inspectDevice()` says `storage: "memory"`.
 

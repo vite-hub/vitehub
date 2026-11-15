@@ -5,9 +5,10 @@ import type { DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEnt
 
 const databaseName = "vitehub-device"
 // The version of the database format. A database of another format starts empty.
-const format = 2
+const format = 3
 const metaKey = "device"
-// The entries by age, with their size: `[storedAt, bytes]`. The size cap reads it without the values.
+// The entries by age, with their size and their end of life: `[storedAt, bytes, expiresAt]`. The trim of each write reads
+// it without the values.
 const ageIndex = "age"
 const channelName = "vitehub-device"
 
@@ -30,7 +31,7 @@ export function openIndexedDB(): Promise<DeviceStorage> {
       const database = request.result
       for (const name of Array.from(database.objectStoreNames)) database.deleteObjectStore(name)
       database.createObjectStore("meta")
-      database.createObjectStore("entries", { keyPath: "key" }).createIndex(ageIndex, ["storedAt", "bytes"])
+      database.createObjectStore("entries", { keyPath: "key" }).createIndex(ageIndex, ["storedAt", "bytes", "expiresAt"])
     }
     request.onsuccess = () => {
       const database = request.result
@@ -42,18 +43,24 @@ export function openIndexedDB(): Promise<DeviceStorage> {
   })
 }
 
-/** Deletes the oldest entries, of every tab, until the entries hold at most `maxBytes`. Runs inside the write. */
-function evict(entries: IDBObjectStore, maxBytes: number): void {
+/**
+ * Deletes the entries that expired at `now`, then the oldest entries of every tab until the entries hold at most
+ * `maxBytes`. Runs inside the write, so it picks from what the disk holds, not from what a tab remembers.
+ */
+function trim(entries: IDBObjectStore, maxBytes: number, now: number): void {
   const rows: { key: IDBValidKey, bytes: number }[] = []
   let total = 0
   const cursor = entries.index(ageIndex).openKeyCursor()
   cursor.onsuccess = () => {
     const row = cursor.result
     if (row) {
-      // SAFETY: the key of the age index is `[storedAt, bytes]`.
-      const [, bytes] = row.key as [number, number]
-      rows.push({ key: row.primaryKey, bytes })
-      total += bytes
+      // SAFETY: the key of the age index is `[storedAt, bytes, expiresAt]`.
+      const [, bytes, expiresAt] = row.key as [number, number, number]
+      if (expiresAt <= now) entries.delete(row.primaryKey)
+      else {
+        rows.push({ key: row.primaryKey, bytes })
+        total += bytes
+      }
       return row.continue()
     }
     for (const { key, bytes } of rows) {
@@ -79,7 +86,7 @@ function indexedDBStorage(database: IDBDatabase): DeviceStorage {
       transaction.objectStore("meta").put(meta, metaKey)
       await done(transaction)
     },
-    async write(meta, { puts, deletes, maxBytes }) {
+    async write(meta, { puts, deletes, maxBytes, now }) {
       const transaction = database.transaction(["meta", "entries"], "readwrite")
       const entries = transaction.objectStore("entries")
       const current = transaction.objectStore("meta").get(metaKey)
@@ -89,7 +96,7 @@ function indexedDBStorage(database: IDBDatabase): DeviceStorage {
         if (found?.generation !== meta.generation || found.account !== meta.account || found.version !== meta.version) return
         for (const key of deletes) entries.delete(key)
         for (const entry of puts) entries.put(entry)
-        if (puts.length) evict(entries, maxBytes)
+        trim(entries, maxBytes, now)
       }
       await done(transaction)
       return found
@@ -126,7 +133,7 @@ function isDeviceMessage(value: unknown): value is DeviceMessage {
   const type: unknown = Reflect.get(value, "type")
   if (type === "clear") return true
   const account: unknown = Reflect.get(value, "account")
-  return type === "account" && (account === null || typeof account === "string") && typeof Reflect.get(value, "version") === "string"
+  return type === "account" && (account === null || typeof account === "string")
 }
 
 /** The tabs of the browser, through a BroadcastChannel. Without one, each tab works alone. */

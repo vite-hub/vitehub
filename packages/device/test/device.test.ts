@@ -10,12 +10,17 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** The answer of a loader call that starts and answers now. */
+function answer(page: Device, key: string, value: unknown, maxAge = day): void {
+  page.write(key, value, maxAge, page.epoch())
+}
+
 /** A page that opened the device and named `ada`, with one stored answer. */
 async function pageWithProjects(disk = createFakeDisk(), browser = createFakeBrowser()) {
   const page = openPage(disk, browser)
   await page.open()
   await page.setAccount("ada")
-  page.write("projects", [{ id: "p1", name: "Docs" }], day)
+  answer(page, "projects", [{ id: "p1", name: "Docs" }])
   await page.settled()
   return page
 }
@@ -33,25 +38,44 @@ describe("stored copies", () => {
     expect(reload.read("projects", day)?.value).toEqual([{ id: "p1", name: "Docs" }])
   })
 
-  it("writes nothing to the disk until the page names an account, then keeps the answers of the page", async () => {
+  it("stores only the answers of loader calls that start after the page names its account", async () => {
     const disk = createFakeDisk()
     const page = openPage(disk)
     await page.open()
-    page.write("projects", ["p1"], day)
+    // A loader call that starts and answers before the page names an account.
+    answer(page, "projects", ["p1"])
     await page.settled()
     expect(disk.keys).toEqual([])
-    expect(page.inspect()).toMatchObject({ account: null, persisted: false })
-    expect(page.read("projects", day)?.value).toEqual(["p1"])
+    expect(page.inspect()).toMatchObject({ account: null, persisted: false, entries: [] })
+    expect(page.read("projects", day)).toBeUndefined()
+    // A loader call that starts before the page names its account and answers after it.
+    const started = page.epoch()
     await page.setAccount("ada")
+    page.write("projects", ["p1"], day, started)
+    await page.settled()
     expect(disk.meta).toMatchObject({ account: "ada", version: "" })
-    expect(disk.keys).toEqual(["projects"])
+    expect(disk.keys).toEqual([])
+    answer(page, "projects", ["p2"])
+    await page.settled()
+    expect(disk.entry("projects")?.json).toBe("[\"p2\"]")
+  })
+
+  it("does not keep the answer of a loader call that started before a clear", async () => {
+    const disk = createFakeDisk()
+    const page = await pageWithProjects(disk)
+    const started = page.epoch()
+    await page.clear()
+    page.write("projects", ["old"], day, started)
+    await page.settled()
+    expect(page.read("projects", day)).toBeUndefined()
+    expect(disk.keys).toEqual([])
   })
 
   it("keeps nothing for a page that never names an account", async () => {
     const disk = createFakeDisk()
     const page = openPage(disk)
     await page.open()
-    page.write("projects", ["p1"], day)
+    answer(page, "projects", ["p1"])
     await page.settled()
     const reload = openPage(disk)
     await reload.open()
@@ -59,7 +83,7 @@ describe("stored copies", () => {
     expect(disk.keys).toEqual([])
   })
 
-  it("empties the device for another account, and keeps the answers that came with the new session", async () => {
+  it("empties the device for another account, and stores nothing that came before the page named it", async () => {
     const disk = createFakeDisk()
     await pageWithProjects(disk)
     const reload = openPage(disk)
@@ -67,13 +91,14 @@ describe("stored copies", () => {
     reload.subscribe(event => events.push(event))
     await reload.open()
     // The session check answers after another read.
-    reload.write("settings", { theme: "dark" }, day)
+    answer(reload, "settings", { theme: "dark" })
     expect(await reload.setAccount("grace")).toEqual([undefined, undefined])
-    expect(events).toEqual([{ type: "load", keys: ["projects"] }, { type: "drop", keys: ["projects"] }])
+    await reload.settled()
+    expect(events).toEqual([{ type: "load", keys: ["projects"] }, { type: "reset" }])
     expect(reload.read("projects", day)).toBeUndefined()
-    expect(reload.inspect()).toMatchObject({ account: "grace", persisted: true, entries: [{ key: "settings" }] })
+    expect(reload.inspect()).toMatchObject({ account: "grace", persisted: true, entries: [] })
     expect(disk.meta).toMatchObject({ account: "grace", version: "" })
-    expect(disk.keys).toEqual(["settings"])
+    expect(disk.keys).toEqual([])
   })
 
   it("never shows the copies of another account when the page names its account while the device opens", async () => {
@@ -87,7 +112,7 @@ describe("stored copies", () => {
     await opening
     expect(reload.read("projects", day)).toBeUndefined()
     await named
-    expect(events).toEqual([])
+    expect(events.filter(event => event.type === "load")).toEqual([])
     expect(disk.keys).toEqual([])
   })
 
@@ -107,7 +132,7 @@ describe("stored copies", () => {
     const disk = createFakeDisk()
     const page = await pageWithProjects(disk)
     await page.setAccount(null)
-    page.write("projects", ["p2"], day)
+    answer(page, "projects", ["p2"])
     await page.settled()
     expect(page.read("projects", day)).toBeUndefined()
     expect(page.inspect()).toMatchObject({ account: null, persisted: false, entries: [] })
@@ -120,7 +145,7 @@ describe("stored copies", () => {
     const first = openPage(disk)
     await first.open({ version: "1" })
     await first.setAccount("ada")
-    first.write("projects", ["p1"], day)
+    answer(first, "projects", ["p1"])
     await first.settled()
     const next = openPage(disk)
     await next.open({ version: "2" })
@@ -130,7 +155,7 @@ describe("stored copies", () => {
     expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
     // The account stays, so the new build keeps writing for it.
     await next.setAccount("ada")
-    next.write("projects", ["p1", "p2"], day)
+    answer(next, "projects", ["p1", "p2"])
     await next.settled()
     expect(disk.keys).toEqual(["projects"])
   })
@@ -150,8 +175,8 @@ describe("age and size", () => {
     const page = openPage(disk, undefined, { now: () => time })
     await page.open()
     await page.setAccount("ada")
-    page.write("projects", ["p1"], 7 * day)
-    page.write("feed", ["f1"], day)
+    answer(page, "projects", ["p1"], 7 * day)
+    answer(page, "feed", ["f1"], day)
     await page.settled()
     time += 2 * day
     expect(page.read("projects", day)).toBeUndefined()
@@ -170,12 +195,39 @@ describe("age and size", () => {
     const page = openPage(disk, undefined, { maxBytes: 25, now: () => time++ })
     await page.open()
     await page.setAccount("ada")
-    page.write("a", "x".repeat(8), day)
-    page.write("b", "x".repeat(8), day)
-    page.write("c", "x".repeat(8), day)
+    answer(page, "a", "x".repeat(8))
+    answer(page, "b", "x".repeat(8))
+    answer(page, "c", "x".repeat(8))
     await page.settled()
     expect(page.inspect().entries.map(entry => entry.key)).toEqual(["b", "c"])
     expect(disk.keys).toEqual(["b", "c"])
+  })
+
+  it("lets the disk pick the oldest copies over the cap, not the memory of a tab", async () => {
+    let time = 1
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    // Each value is 10 bytes of JSON. The disk holds two of them.
+    const first = openPage(disk, browser, { maxBytes: 25, now: () => time++ })
+    await first.open()
+    await first.setAccount("ada")
+    const second = openPage(disk, browser, { maxBytes: 25, now: () => time++ })
+    await second.open()
+    await second.setAccount("ada")
+    answer(first, "a", "x".repeat(8))
+    answer(first, "b", "x".repeat(8))
+    await first.settled()
+    answer(second, "c", "x".repeat(8))
+    await second.settled()
+    // The second tab stores a newer `a`. The first tab still has its older `a` in memory.
+    answer(second, "a", "y".repeat(8))
+    await second.settled()
+    expect(disk.keys).toEqual(["a", "c"])
+    answer(first, "d", "x".repeat(8))
+    await first.settled()
+    // `c` is the oldest copy on the disk. The newer `a` of the second tab stays.
+    expect(disk.keys).toEqual(["a", "d"])
+    expect(disk.entry("a")?.json).toBe(JSON.stringify("y".repeat(8)))
   })
 
   it("does not keep a value over the size cap, or a value that JSON cannot store, and removes the older copy", async () => {
@@ -184,12 +236,12 @@ describe("age and size", () => {
     const page = openPage(disk, undefined, { maxBytes: 25 })
     await page.open()
     await page.setAccount("ada")
-    page.write("report", "small", day)
-    page.write("report", "x".repeat(40), day)
+    answer(page, "report", "small")
+    answer(page, "report", "x".repeat(40))
     const cycle: Record<string, unknown> = {}
     cycle.self = cycle
-    page.write("tree", cycle, day)
-    page.write("tree", cycle, day)
+    answer(page, "tree", cycle)
+    answer(page, "tree", cycle)
     await page.settled()
     expect(page.read("report", day)).toBeUndefined()
     expect(disk.keys).toEqual([])
@@ -213,7 +265,7 @@ describe("tabs", () => {
     expect(second.read("projects", day)).toBeUndefined()
     expect(disk.keys).toEqual([])
     // The account stays, so the next answers are stored again.
-    second.write("projects", ["p2"], day)
+    answer(second, "projects", ["p2"])
     await second.settled()
     expect(disk.keys).toEqual(["projects"])
   })
@@ -228,9 +280,38 @@ describe("tabs", () => {
     expect(first.read("projects", day)).toBeUndefined()
     expect(first.inspect()).toMatchObject({ account: "grace", persisted: false })
     // A late answer in the first tab came with the old session. It stays out of the disk.
-    first.write("projects", [{ id: "p1", name: "Docs" }], day)
+    answer(first, "projects", [{ id: "p1", name: "Docs" }])
     await first.settled()
     expect(disk.keys).toEqual([])
+  })
+
+  it("drops everything of a tab that missed a sign-out and then got a sign-in as the same account", async () => {
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    const first = await pageWithProjects(disk, browser)
+    const second = openPage(disk, browser)
+    await second.open()
+    await second.setAccount("ada")
+    const events: DeviceEvent[] = []
+    first.subscribe(event => events.push(event))
+    // A loader call of the first tab, before the sign-out.
+    const started = first.epoch()
+    browser.drop = message => message.type === "account" && message.account === null
+    await second.setAccount(null)
+    browser.drop = undefined
+    await second.setAccount("ada")
+    await first.settled()
+    expect(events).toEqual([{ type: "reset" }])
+    expect(first.epoch()).not.toBe(started)
+    expect(first.read("projects", day)).toBeUndefined()
+    expect(disk.keys).toEqual([])
+    first.write("settings", { theme: "dark" }, day, started)
+    await first.settled()
+    expect(disk.keys).toEqual([])
+    // The account on the disk is the account of the tab, so its next answers are stored.
+    answer(first, "projects", ["p2"])
+    await first.settled()
+    expect(disk.keys).toEqual(["projects"])
   })
 
   it("refuses a write for an account that is no longer on the disk, also without a channel between the tabs", async () => {
@@ -239,7 +320,7 @@ describe("tabs", () => {
     const second = openPage(disk)
     await second.open()
     await second.setAccount("grace")
-    first.write("secrets", ["ada only"], day)
+    answer(first, "secrets", ["ada only"])
     await first.settled()
     expect(disk.meta).toMatchObject({ account: "grace", version: "" })
     expect(disk.keys).toEqual([])
@@ -255,13 +336,13 @@ describe("tabs", () => {
     const second = openPage(disk)
     await second.open()
     await second.setAccount("grace")
-    first.write("settings", { theme: "dark" }, day)
+    answer(first, "settings", { theme: "dark" })
     await first.settled()
     // The copies of `ada` must not seed a new read of this tab.
     expect(first.read("projects", day)).toBeUndefined()
     expect(first.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
     expect(events).toEqual([{ type: "reset" }])
-    first.write("settings", { theme: "light" }, day)
+    answer(first, "settings", { theme: "light" })
     await first.settled()
     expect(disk.keys).toEqual([])
   })
@@ -281,13 +362,13 @@ describe("tabs", () => {
     await second.setAccount("ada")
     await change(second)
     expect(disk.keys).toEqual([])
-    first.write("projects", [{ id: "p1", name: "Docs" }], day)
+    answer(first, "projects", [{ id: "p1", name: "Docs" }])
     await first.settled()
     expect(disk.keys).toEqual([])
     expect(first.read("projects", day)).toBeUndefined()
     // The account on the disk is still the account of the tab, so its next answers are stored.
     expect(first.inspect()).toMatchObject({ account: "ada", persisted: true, entries: [] })
-    first.write("projects", [], day)
+    answer(first, "projects", [])
     await first.settled()
     expect(disk.keys).toEqual(["projects"])
   })
@@ -325,13 +406,24 @@ describe("tabs", () => {
     const second = openPage(disk, browser, { maxBytes: 25, now: () => time++ })
     await second.open()
     await second.setAccount("ada")
-    first.write("a", "x".repeat(8), day)
-    second.write("b", "x".repeat(8), day)
-    first.write("c", "x".repeat(8), day)
-    second.write("d", "x".repeat(8), day)
+    answer(first, "a", "x".repeat(8))
+    answer(second, "b", "x".repeat(8))
+    answer(first, "c", "x".repeat(8))
+    answer(second, "d", "x".repeat(8))
     await first.settled()
     await second.settled()
     expect(disk.keys).toEqual(["c", "d"])
+  })
+
+  it("names the account of the last call when a clear and another account run together", async () => {
+    const disk = createFakeDisk()
+    const page = await pageWithProjects(disk)
+    expect(await Promise.all([page.clear(), page.setAccount("grace")])).toEqual([[undefined, undefined], [undefined, undefined]])
+    expect(disk.meta).toMatchObject({ account: "grace" })
+    expect(page.inspect()).toMatchObject({ account: "grace", persisted: true })
+    answer(page, "projects", ["grace"])
+    await page.settled()
+    expect(disk.keys).toEqual(["projects"])
   })
 })
 
@@ -342,7 +434,7 @@ describe("storage failures", () => {
     const page = openPage(disk)
     await page.open()
     await expect(page.setAccount("ada")).resolves.toEqual([undefined, undefined])
-    page.write("projects", ["p1"], day)
+    answer(page, "projects", ["p1"])
     expect(page.read("projects", day)?.value).toEqual(["p1"])
     expect(page.inspect()).toMatchObject({ account: "ada", persisted: false, storage: "memory" })
   })
@@ -374,8 +466,8 @@ describe("storage failures", () => {
   it("prints DEVICE_NOT_OPEN once when the app stores an answer without openDevice()", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const page = openPage(createFakeDisk())
-    page.write("projects", ["p1"], day)
-    page.write("settings", {}, day)
+    answer(page, "projects", ["p1"])
+    answer(page, "settings", {})
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]?.[0])).toMatch(/^\[vitehub\] DEVICE_NOT_OPEN: /)
   })

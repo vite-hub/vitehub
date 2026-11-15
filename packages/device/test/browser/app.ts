@@ -50,24 +50,28 @@ const deviceTest = {
     })
   },
   /** The keys in IndexedDB, read with the browser API, not with the device. */
-  storedKeys(): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open("vitehub-device")
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const database = request.result
-        if (!database.objectStoreNames.contains("entries")) {
-          database.close()
-          return resolve([])
-        }
-        const keys = database.transaction("entries").objectStore("entries").getAllKeys()
-        keys.onsuccess = () => {
-          database.close()
-          resolve(keys.result.map(String).sort())
-        }
+  storedKeys: () => readEntries(entries => entries.getAllKeys(), keys => keys.map(String).sort(), [] as string[]),
+  /** The first characters of the JSON of `key` in IndexedDB, read with the browser API. */
+  storedPrefix: (key: string) => readEntries(entries => entries.get(key), (entry: { json: string } | undefined) => entry?.json.slice(0, 4), undefined),
+}
+
+function readEntries<T, R>(request: (entries: IDBObjectStore) => IDBRequest<T>, map: (result: T) => R, empty: R): Promise<R> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("vitehub-device")
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const database = open.result
+      if (!database.objectStoreNames.contains("entries")) {
+        database.close()
+        return resolve(empty)
       }
-    })
-  },
+      const read = request(database.transaction("entries").objectStore("entries"))
+      read.onsuccess = () => {
+        database.close()
+        resolve(map(read.result))
+      }
+    }
+  })
 }
 
 Object.assign(window, { deviceTest })

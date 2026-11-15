@@ -17,8 +17,8 @@ icon: i-lucide-circle-alert
 | Limit | Value |
 | --- | --- |
 | Accounts | One. Another account deletes the copies of the previous one. |
-| Size | 5 MB of JSON for all tabs together. When a new copy goes over, the oldest copies go first, also copies of other tabs. A single answer over 5 MB is not kept. |
-| Age | A copy older than `maxAge` (7 days by default) does not show. `openDevice()` deletes it. |
+| Size | 5 MB of JSON for all tabs together. When a new copy goes over, the oldest copies on the disk go first, also copies of other tabs. A single answer over 5 MB is not kept. |
+| Age | A copy older than `maxAge` (7 days by default) does not show. The disk deletes it at the next `openDevice()` or write. |
 | Wait for IndexedDB | 1 second in `openDevice()`. A page that waited longer keeps its copies in memory. |
 | Time to open | 1 to 3 ms for one copy, and 8 to 15 ms for 5 MB, in headless Chromium on a desktop computer. |
 | Values | JSON only. A `Date` becomes a string, and a value that JSON cannot store is not kept. |
