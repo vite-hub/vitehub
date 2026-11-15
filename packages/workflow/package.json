@@ -76,7 +76,9 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
+    "openworkflow": "catalog:workflow",
     "pathe": "catalog:unjs",
+    "postgres": "catalog:database",
     "semver": "^7.8.5",
     "valibot": "catalog:runtime"
   },
@@ -84,7 +86,6 @@
     "@types/node": "catalog:tooling",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
-    "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -95,7 +96,6 @@
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/database": "workspace:*",
     "@workflow/builders": "catalog:workflow",
-    "openworkflow": "catalog:workflow",
     "vite": "catalog:vite-compat",
     "workflow": "catalog:workflow"
   },
@@ -107,9 +107,6 @@
       "optional": true
     },
     "@workflow/builders": {
-      "optional": true
-    },
-    "openworkflow": {
       "optional": true
     },
     "vite": {
