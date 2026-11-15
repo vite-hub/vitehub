@@ -43,7 +43,7 @@ export function isProvisionHost(value: string | undefined): value is ProvisionPr
   return PROVISION_HOSTS.some(host => host === value)
 }
 
-/** The ids of a host link that provision can use when the environment does not set them. */
+/** The ids of the selected deploy target, which take precedence over environment scope. */
 export interface ProvisionLinkIds {
   accountId?: string
   projectId?: string
@@ -55,17 +55,27 @@ function setVariable(env: NodeJS.ProcessEnv, name: string, value: string | undef
 
 /**
  * The environment of a Provision Step: `env` with the host credentials that `resolveHostCredentials` found, such as a
- * `wrangler login` token, and the account and project ids of the host link. A value that `env` sets wins.
+ * `wrangler login` token, and the account and project ids of the host link. The selected deploy link wins over
+ * environment scope; standalone provision has no link.
  */
 export function provisionEnv(env: NodeJS.ProcessEnv, credentials: HostCredentials, link: ProvisionLinkIds = {}): NodeJS.ProcessEnv {
   if (!credentials.ok) return env
   if (credentials.host === "cloudflare") {
-    return setVariable(setVariable(env, "CLOUDFLARE_API_TOKEN", credentials.token), "CLOUDFLARE_ACCOUNT_ID", credentials.accountId ?? link.accountId)
+    return {
+      ...setVariable(setVariable(env, "CLOUDFLARE_API_TOKEN", credentials.token), "CLOUDFLARE_ACCOUNT_ID", credentials.accountId),
+      ...(link.accountId ? { CLOUDFLARE_ACCOUNT_ID: link.accountId } : {}),
+    }
   }
   if (credentials.host === "vercel") {
     // A Vercel link stores the project owner, which is a user id on a personal account. Only a team id is a team.
-    const teamId = credentials.teamId ?? (link.accountId?.startsWith("team_") ? link.accountId : undefined)
-    return setVariable(setVariable(setVariable(env, "VERCEL_TOKEN", credentials.token), "VERCEL_TEAM_ID", teamId), "VERCEL_PROJECT_ID", link.projectId)
+    const teamId = credentials.teamId
+    const resolved = setVariable(setVariable(env, "VERCEL_TOKEN", credentials.token), "VERCEL_TEAM_ID", teamId)
+    if (!link.accountId && !link.projectId) return resolved
+    return {
+      ...resolved,
+      ...(link.accountId ? { VERCEL_TEAM_ID: link.accountId.startsWith("team_") ? link.accountId : undefined, VERCEL_ORG_ID: undefined } : {}),
+      ...(link.projectId ? { VERCEL_PROJECT_ID: link.projectId } : {}),
+    }
   }
   return env
 }

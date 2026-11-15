@@ -6,6 +6,7 @@ import process from "node:process"
 import { describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
+import { provisionEnv } from "../src/provision.ts"
 import { buildOutput, builtProject, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { runSetup } from "./setup-helpers.ts"
 
@@ -242,5 +243,18 @@ describe("vitehub deploy provisions the host", () => {
     expect(exitCode, stdout).toBe(0)
     expect(hostsSeen).toEqual([["cloudflare", "cli", "build"]])
     expect((JSON.parse(stdout) as DeployJson).provision?.ids).toEqual({ d1: { DB: "d1-1" } })
+  })
+})
+
+describe("linked deploy provision scope", () => {
+  it("uses the linked Cloudflare account instead of the environment account", () => {
+    expect(provisionEnv({ CLOUDFLARE_ACCOUNT_ID: "env" }, { ok: true, host: "cloudflare", source: "env", token: "token", accountId: "env" }, { accountId: "link" }).CLOUDFLARE_ACCOUNT_ID).toBe("link")
+  })
+
+  it.each(["team_link", "user_link"])("uses the linked Vercel project and owner %s", (accountId) => {
+    const env = provisionEnv({ VERCEL_TEAM_ID: "team_env", VERCEL_ORG_ID: "team_env", VERCEL_PROJECT_ID: "prj_env" }, { ok: true, host: "vercel", source: "env", token: "token", teamId: "team_env" }, { accountId, projectId: "prj_link" })
+    expect(env.VERCEL_PROJECT_ID).toBe("prj_link")
+    expect(env.VERCEL_TEAM_ID).toBe(accountId.startsWith("team_") ? accountId : undefined)
+    expect(env.VERCEL_ORG_ID).toBeUndefined()
   })
 })
