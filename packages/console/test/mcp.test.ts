@@ -53,7 +53,7 @@ let linkVariable = ""
 async function migrate() {
   const client = createClient({ url: ":memory:" })
   const folder = resolve(import.meta.dirname, "../server/databases/default/migrations")
-  const db = drizzle({ client, schema })
+  const db = drizzle({ client })
   await migrateDatabase(db, { migrationsFolder: folder })
   return db
 }
