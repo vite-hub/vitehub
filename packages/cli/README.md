@@ -98,6 +98,13 @@ pnpm vitehub env diff --host vercel --stage preview
 
 `env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
 
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host, for a deploy that your own workflow runs. It does not set up CI deploy. The repository comes from `--repo owner/name` or the git remote `origin`, `--environment <name>` targets a GitHub deployment environment, and the token comes from `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`, or the GitHub App of `@vite-hub/forge`. Each value is sealed with the repository public key before it leaves the CLI.
+
+```sh
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --environment production --yes
+```
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.
