@@ -38,6 +38,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("PromptInput submission with Nuxt UI", () => {
   it("blocks custom submit buttons and form submission while read-only, then resumes", async () => {
     const wrapper = mount(PromptInput, {
+      // Native submit-button clicks only submit forms connected to the document.
+      attachTo: document.body,
       props: { attachments: false, modelValue: "Sending", readonly: true },
       slots: {
         submit: ({ canSubmit }) => h("button", { disabled: !canSubmit, type: "submit" }, "Publish"),
