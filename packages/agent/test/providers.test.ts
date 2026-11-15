@@ -2681,7 +2681,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain(
         "return await handler(toWebhookRequest(request), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event: request, waitUntil })",
       )
-      expect(webhookRoute).toContain("return createAgentWebhookRequest({ body: request.body ?? undefined, headers, method, signal, url })")
+      expect(webhookRoute).toContain("return createAgentWebhookRequest({ body: request.body ?? undefined, from: request, headers, method, signal, url })")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
 
       // A Fetchable gets no router parameters. The patterns read them from the end of the path and keep percent-encoding.

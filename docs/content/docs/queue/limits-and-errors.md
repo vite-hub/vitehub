@@ -254,6 +254,6 @@ On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, b
 
 - A successful `sendQueue()` means the provider accepted the job. Track results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - A job can arrive more than once. Make handlers safe to rerun after a partial side effect.
-- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --provider cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
+- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --host cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
 - The local provider keeps jobs on one host. See [Local delivery](#local-delivery).
 - Vercel needs the generated topic, the `@vercel/queue` runtime, and a region if your SDK version needs one.
