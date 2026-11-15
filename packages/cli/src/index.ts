@@ -14,8 +14,9 @@ import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces 
 import { createProvisionNamespace } from "./provision.ts"
 
 import type { InlineConfig } from "vite"
-import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliProvision } from "@vite-hub/internal/cli"
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
+import type { ProvisionProvider } from "@vite-hub/internal/provision"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
@@ -80,8 +81,10 @@ export interface RunViteHubCliOptions {
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
   /** Replaces `fetch` in commands that call a running app or a host API. */
   fetch?: typeof fetch
-  /** Replaces the host CLI runner of setup commands, such as for `wrangler auth token`. */
+  /** Replaces the host CLI runner of setup and provision commands, such as for `wrangler auth token`. */
   runHostCli?: HostCliRun
+  /** Replaces how `vitehub deploy` loads the Provision Steps of the project config for a host. */
+  loadProvision?: (host: ProvisionProvider) => Promise<ViteHubCliProvision>
   loadConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
@@ -250,28 +253,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
-  const loadCommands = async () => options.commands ?? [...await loadSetupCommands(), drainCommand]
-  // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
-  const setupCommand = options.commands || setupCommandNames.includes(args[0] ?? "")
-    ? (await loadCommands()).find(item => item.name === args[0])
-    : undefined
-  if (setupCommand) {
-    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
-  }
-  const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
-  if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
-  const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
-  if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
-    return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
-  }
-
-  // Provider Output and host resources must match what a production build deploys.
-  const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources") ? "build" : "serve"
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
   const stageIndex = args[0] === "channels" && (args[1] === "sync" || args[1] === "history") ? args.lastIndexOf("--stage") : -1
   const stageValue = stageIndex === -1 ? undefined : args[stageIndex + 1]
   const stage = stageValue && !stageValue.startsWith("-") ? stageValue : undefined
-  const loadProject = () => withStdoutOnStderr(async () => {
+  const loadProject = (command: "build" | "serve") => withStdoutOnStderr(async () => {
     const loadConfig = options.loadConfig || loadViteConfig
     const loadNuxtConfig = options.loadNuxtViteConfig || loadNuxtViteConfig
     const config = await (stage ? loadConfig(cwd, command, stage) : loadConfig(cwd, command))
@@ -286,7 +272,29 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       rootDir: resolve(nuxtConfig?.root || config.root || cwd),
     }
   }, stderr)
-  const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
+  // The steps of a production build for `host`, as `vitehub deploy` builds it: VITEHUB_HOST wins over `host` in vitehub().
+  const loadProvision = options.loadProvision ?? (async (host: ProvisionProvider): Promise<ViteHubCliProvision> => {
+    const loaded = await withViteStageEnvironment({ ...env, VITEHUB_HOST: host, VITEHUB_HOST_SOURCE: "cli" }, () => loadProject("build"))
+    return { rootDir: loaded.rootDir, steps: loaded.contribution.provision }
+  })
+  const loadCommands = async () => options.commands ?? [...await loadSetupCommands(), drainCommand]
+  // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
+  const setupCommand = options.commands || setupCommandNames.includes(args[0] ?? "")
+    ? (await loadCommands()).find(item => item.name === args[0])
+    : undefined
+  if (setupCommand) {
+    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), loadProvision, rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
+  }
+  const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
+  const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
+  if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
+    return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
+  }
+
+  // Provider Output and host resources must match what a production build deploys.
+  const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources") ? "build" : "serve"
+  const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
   const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
   const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
@@ -303,6 +311,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(contribution.publicUrl ? { publicUrl: contribution.publicUrl } : {}),
     rootDir,
+    ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}),
     spawn,
     stderr,
     stdout,

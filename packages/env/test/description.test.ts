@@ -91,7 +91,7 @@ describe("Server Env declaration inventory", () => {
     // A dotted declaration key must not report its status under the nested path.
     expect(inspection.entries).toEqual([
       { masked: false, names: ["VITEHUB_NESTED_TOKEN", "NESTED_TOKEN"], path: "env.server.nested.token", required: true, source: "env", status: "missing" },
-      { masked: false, names: ["DOTTED_TOKEN"], required: true, source: "env", status: "available" },
+      { masked: false, name: "DOTTED_TOKEN", names: ["DOTTED_TOKEN"], required: true, source: "env", status: "available" },
     ])
   })
 
@@ -104,9 +104,9 @@ describe("Server Env declaration inventory", () => {
     })
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" }))
     expect(inspection.entries).toEqual([
-      { masked: true, names: ["VITEHUB_API_KEY", "VENDOR_API_KEY"], path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
-      { masked: false, names: ["VITEHUB_REGION", "REGION"], path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
-      { masked: false, names: ["VITEHUB_URL", "URL"], path: "env.server.url", required: true, source: "env", status: "available", via: "conventional" },
+      { masked: true, name: "VITEHUB_API_KEY", names: ["VITEHUB_API_KEY", "VENDOR_API_KEY"], path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
+      { masked: false, name: "VITEHUB_REGION", names: ["VITEHUB_REGION", "REGION"], path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
+      { masked: false, name: "URL", names: ["VITEHUB_URL", "URL"], path: "env.server.url", required: true, source: "env", status: "available", via: "conventional" },
     ])
     expect(JSON.stringify(inspection)).not.toContain("secret")
   })
@@ -118,7 +118,7 @@ describe("Server Env declaration inventory", () => {
     })
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ CHANNEL_TOKEN: "token" }))
     expect(inspection.entries).toEqual([
-      { masked: false, names: ["CHANNEL_TOKEN"], path: "env.server.channel", required: true, source: "env", status: "available" },
+      { masked: false, name: "CHANNEL_TOKEN", names: ["CHANNEL_TOKEN"], path: "env.server.channel", required: true, source: "env", status: "available" },
     ])
   })
 })

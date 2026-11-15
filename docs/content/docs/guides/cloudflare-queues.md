@@ -176,8 +176,8 @@ Wrangler runs them through Miniflare. See Cloudflare's [Queues local development
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token must be allowed to create Queues and deploy Workers. Preview, then create the queues:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again and deploy with Nitro:

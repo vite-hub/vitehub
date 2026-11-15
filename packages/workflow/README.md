@@ -179,7 +179,7 @@ To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, 
 The other runtime helpers are:
 
 - `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
-- `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
+- `cancelWorkflow()` cancels a Cloudflare run with `instance.terminate()`, a native Vercel run, or a pending or running OpenWorkflow run. A finished run keeps its status, and a missing run reports `unknown`.
 - `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
 - `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 
@@ -252,9 +252,19 @@ async function transcribe(recordingId: string) {
 }
 ```
 
-`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A thrown error does not change the retry policy.
+`code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A `ViteHubError` does not change the retry policy.
 
 A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry.
+
+Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `metadata` for inline and OpenWorkflow runs, Cloudflare keeps the error in its status record in `metadata`, and a Vercel `native` run reports the message on the failed step in `steps`.
+
+```ts fragment
+import { NonRetryableError } from "@vite-hub/workflow";
+
+throw new NonRetryableError("The card was declined.", { cause });
+```
+
+Cloudflare gets its own `NonRetryableError` from ViteHub. Workflow DevKit reads `fatal: true`, as for its `FatalError`. OpenWorkflow has no such error, so ViteHub ends the step with the error as its result and fails the run outside the step. A replay reads that result and throws the same error. ViteHub finds the error by `isRetryable === false` or by its name, so an error from another bundle also works.
 
 Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps. The run sleeps on Cloudflare and OpenWorkflow. A `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`. After a sleep, the provider runs `index.ts` again, and completed step files return their stored results.
 

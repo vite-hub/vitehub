@@ -22,6 +22,7 @@ import { callerActor, callerInheritedActors, decide, decisionActor, envActor } f
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
+import type { EnvStoreRotation } from "@vite-hub/env/database"
 import type { ConnectionState, ConnectionStore } from "./store.ts"
 import type {
   ConnectionAccount,
@@ -153,6 +154,12 @@ export interface ConnectionsRuntime {
   inspect: (name: string) => Promise<ConnectionInspection>
   list: () => Promise<ConnectionInspection[]>
   revoke: (input: { actor: string, name: string }) => Promise<ConnectionInspection>
+  /**
+   * Re-encrypt every stored token with the current key, the first of `VITEHUB_CONNECTIONS_KEYS`. Run it after you add
+   * a new current key, then remove the previous key. A token that a refresh replaces during the rotation keeps the
+   * refresh.
+   */
+  rotateKey: () => Promise<EnvStoreRotation>
   /** Store the key of an API key Connection. The provider `verify` check runs first. */
   setKey: (input: { actor: string, key: string, name: string }) => Promise<ConnectionInspection>
 }
@@ -259,7 +266,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
+    // Fails alike on Workers and Node, where fetch with redirect: "error" throws a TypeError.
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "redirect", status: response.status })
     return response
   }
   const scheduler = createRequestScheduler()
@@ -1390,7 +1398,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)
-      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
+      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
       issuedAt = claims.iat * 1000
     }
     catch { throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY() }
@@ -1488,6 +1496,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     inspect,
     list,
     revoke,
+    async rotateKey() {
+      const store = await getStore()
+      if (!store.rotate) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "rotation" })
+      return await store.rotate()
+    },
     setKey,
   }
   registerChatGPTCredentialUse(runtime, useChatGPT)

@@ -24,10 +24,12 @@ export function defineInternalTool<TInput = unknown, TOutput = unknown>(
   tool: AgentToolDefinition<TInput, TOutput>,
 ): AgentToolDefinition {
   if (!tool || typeof tool !== "object") {
-    throw agentDiagnostics.AGENT_R0105({ message: "[vitehub] tool definitions must be objects." })
+    // Internal invariant: only ViteHub Capabilities call defineInternalTool(), always with a tool object.
+    throw new TypeError("[vitehub] tool definitions must be objects.")
   }
   if (!tool.name || typeof tool.name !== "string") {
-    throw agentDiagnostics.AGENT_R0106({ message: "[vitehub] tool definitions require a tool name." })
+    // Internal invariant: only ViteHub Capabilities call defineInternalTool(), always with a validated tool name.
+    throw new TypeError("[vitehub] tool definitions require a tool name.")
   }
   // SAFETY: The runtime validation above ensures the erased definition has a valid tool shape.
   return tool as AgentToolDefinition
