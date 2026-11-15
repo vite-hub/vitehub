@@ -320,6 +320,7 @@ function serialize(value: JsonValue, style: CodeStyle): string {
   if (value === null) return "null"
   if (typeof value === "string") return quoteString(value, style)
   if (typeof value === "number") {
+    // Internal invariant: callers write JSON values that ViteHub builds, and JSON has no Infinity or NaN.
     if (!Number.isFinite(value)) throw new TypeError(`Cannot write ${value} to a config file.`)
     return Object.is(value, -0) ? "0" : String(value)
   }

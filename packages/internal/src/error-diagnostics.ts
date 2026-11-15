@@ -110,5 +110,42 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_R0009: dynamicError,
     INTERNAL_R0010: dynamicError,
     INTERNAL_R0011: dynamicError,
+    // Named errors. Keep these codes in alphabetical order.
+    INTERNAL_CONSOLE_KEY_NAME_INVALID: {
+      why: ({ name }: { name: string }) => `[vitehub] The Console key name ${JSON.stringify(name)} must be 1 to 64 of A-Z, 0-9, and _.`,
+      fix: "Name the Console key with 1 to 64 characters from A-Z, 0-9, and _, such as `CI`. The app reads its public key from `VITEHUB_CONSOLE_KEY_<NAME>`.",
+    },
+    INTERNAL_CONSOLE_PRIVATE_KEY_INVALID: {
+      why: "[vitehub] A Console private key is the 32-byte Ed25519 seed as base64url (43 characters). `vitehub secret console-key` makes one.",
+      fix: "Run `vitehub secret console-key` and use the 43-character private key that it prints, without spaces or quotes.",
+    },
+    INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLES_MULTIPLE: {
+      why: ({ prefix, variables }: { prefix: string, variables: string }) => `[vitehub] Set one ${prefix}<NAME> variable. This environment has ${variables}.`,
+      fix: "Keep one `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` variable in the environment of the command, and unset the others that the message names.",
+    },
+    INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLE_INVALID: {
+      why: ({ variable }: { variable: string }) => `[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`,
+      fix: "Set the variable that the message names to the private key that `vitehub secret console-key` prints, and name it `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` with A-Z, 0-9, and _ in `<NAME>`.",
+    },
+    INTERNAL_PRESET_OPTION_UNKNOWN: {
+      why: ({ key, label }: { key: string, label: string }) => `[vitehub] Unknown ${label} option "${key}".`,
+      fix: "Remove the option that the message names from the preset options, or correct its spelling to an option that the preset declares.",
+    },
+    INTERNAL_PRESET_TUPLE_INVALID: {
+      why: ({ owner }: { owner: string }) => `[vitehub] ${owner} extends tuple requires [preset, options] with an options object.`,
+      fix: "Set `extends` to a preset, or to a two-item tuple `[preset, { ...options }]` whose second item is a plain object.",
+    },
+    INTERNAL_SECRET_PURPOSE_MISSING: {
+      why: "[vitehub] A derived secret requires a purpose.",
+      fix: "Pass a non-empty purpose to `deriveSecret()`, such as `deriveSecret(\"my-module:session\")`.",
+    },
+    INTERNAL_SECRET_TOO_SHORT: {
+      why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
+      fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
+    },
+    INTERNAL_VALIBOT_JSON_SCHEMA_TARGET_UNSUPPORTED: {
+      why: ({ target }: { target: string }) => `[vitehub] Valibot cannot convert a schema to the ${target} JSON Schema target.`,
+      fix: "Ask for the `draft-07`, `draft-2020-12`, or `openapi-3.0` JSON Schema target, or pass one of them as `withValibotJsonSchema(schema, { target })`.",
+    },
   },
 })

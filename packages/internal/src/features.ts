@@ -573,6 +573,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost: ViteHu
 export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteHubHost): HostSupport {
   const definition = features[id]
   if (host !== "dev") return definition.hosts[host]
+  // Internal invariant: the overload requires appHost for the dev host, and every caller passes the resolved host.
   if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
   if (id === "workflow" && appHost === "deno") return native("vercel", "Inline", "Development runs each Workflow inline unless OpenWorkflow storage or a provider is configured.", "process-local")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]

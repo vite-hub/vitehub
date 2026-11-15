@@ -445,6 +445,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
         try {
           bar.setAttribute("aria-busy", "true")
           const start = startOf(await preload())
+          // Internal invariant: runs in the browser page, where nostics does not load. The page shows the message.
           if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
           if (signal.aborted) return false
           // Tools own their segment's shadow root; discard the loader's launch control before startup.

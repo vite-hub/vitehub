@@ -45,6 +45,7 @@ function findPackageDir(file: string): string {
   let dir = start
   while (!existsSync(resolve(dir, "package.json"))) {
     const parent = dirname(dir)
+    // Internal invariant: callers pass files that a package resolver found, so a package.json is above them.
     if (parent === dir) throw new Error(`[vitehub] No package.json above ${file}.`)
     dir = parent
   }

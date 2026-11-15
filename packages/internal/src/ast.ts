@@ -42,11 +42,13 @@ export function walk(root: Node, visit: (node: Node, ancestors: readonly Node[])
 }
 
 export function start(node: Node): number {
+  // Internal invariant: the parser gives every node a start position.
   if (typeof node.start !== "number") throw new TypeError(`Node ${node.type} has no start position`)
   return node.start
 }
 
 export function end(node: Node): number {
+  // Internal invariant: the parser gives every node an end position.
   if (typeof node.end !== "number") throw new TypeError(`Node ${node.type} has no end position`)
   return node.end
 }

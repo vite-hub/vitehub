@@ -122,6 +122,7 @@ function readModule(value: string): string {
   // `fileURLToPath` normalizes relative spellings such as `file:../x` to an
   // absolute path, so validate the original URL form before converting it.
   const url = value.slice("file:".length)
+  // Internal invariant: caught by the caller, which reports the definition.module error.
   if (!url.startsWith("/")) throw new TypeError("relative file URL")
   return fileURLToPath(`file:${url}`)
 }

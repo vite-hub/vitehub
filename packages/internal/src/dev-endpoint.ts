@@ -97,6 +97,7 @@ function rejectDevRequest(rejection: Response): ViteHubDevRequestCheck {
  */
 export function assertViteHubDevRequestGrant(grant: ViteHubDevRequestGrant, request: IncomingMessage | Request): void {
   if (devRequestGrants.get(grant) !== request) {
+    // Internal invariant: owner packages pass the grant of the dev request that they checked.
     throw new TypeError("[vitehub] This dev-only operation requires the grant of a checked dev request.")
   }
 }
@@ -530,6 +531,7 @@ export interface ViteHubNitroDevHandlerSource {
  */
 export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSource): string {
   if (!/^[A-Za-z_$][\w$]*$/.test(source.export)) {
+    // Internal invariant: owner packages pass a literal export name.
     throw new TypeError(`[vitehub] Nitro dev handler export ${JSON.stringify(source.export)} must be an identifier.`)
   }
   const contextModules = Object.entries(source.contextModules ?? {})

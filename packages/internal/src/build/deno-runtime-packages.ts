@@ -932,6 +932,7 @@ const region = process.env.DENO_DEPLOY_REGION || "global"
 const entrypoint = ${JSON.stringify(entrypoint)}
 
 if (!organization || !app) {
+  // Internal invariant: generated deploy script source. It runs without ViteHub packages, so it cannot load the catalog.
   throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
 }
 
@@ -984,6 +985,7 @@ for (const signal of signals) process.once(signal, handleSignal)
 
 try {
   if (contains(sourceRoot, uploadRoot) || await enclosingGitRoot(uploadRoot)) {
+    // Internal invariant: generated deploy script source. It runs without ViteHub packages, so it cannot load the catalog.
     throw new Error("Deno deployment staging must be outside the generated output and any enclosing Git repository. Set TMPDIR to an external directory.")
   }
   await cp(sourceRoot, uploadRoot, { recursive: true })
@@ -992,11 +994,13 @@ try {
     const common = ["--allow-node-modules", "--org", organization, "--app", app]
     const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
     if (creation.signal != null && !interrupted) {
+      // Internal invariant: generated deploy script source. It runs without ViteHub packages, so it cannot load the catalog.
       throw new Error("deno deploy create exited with " + creation.signal)
     }
     if (!interrupted && creation.code !== 0) {
       const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
       if (deployment.code !== 0) {
+        // Internal invariant: generated deploy script source. It runs without ViteHub packages, so it cannot load the catalog.
         throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
       }
     }
