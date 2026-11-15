@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin } from "vite"
 
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
+
 /** The headers that make a page cross-origin isolated, which a WebContainer needs. */
 export const webContainerHeaders: Readonly<Record<string, string>> = Object.freeze({
   "Cross-Origin-Embedder-Policy": "credentialless",
@@ -35,9 +37,9 @@ export function matchesWebContainerRoute(pathname: string, routes: readonly stri
  */
 export function hubWebContainer(options: WebContainerVitePluginOptions): Plugin {
   const routes = [...options.routes]
-  if (!routes.length) throw new TypeError("hubWebContainer() needs at least one route, such as \"/playground/**\".")
+  if (!routes.length) throw webContainerErrorDiagnostics.WEB_CONTAINER_ROUTES_MISSING()
   for (const route of routes) {
-    if (!route.startsWith("/")) throw new TypeError(`hubWebContainer() route "${route}" must start with "/".`)
+    if (!route.startsWith("/")) throw webContainerErrorDiagnostics.WEB_CONTAINER_ROUTE_INVALID({ route })
   }
 
   function setHeaders(request: IncomingMessage, response: ServerResponse, next: () => void) {
