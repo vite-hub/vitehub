@@ -186,7 +186,7 @@
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@better-auth/oauth-provider": {
