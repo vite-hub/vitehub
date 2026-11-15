@@ -94,7 +94,7 @@
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
