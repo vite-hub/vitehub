@@ -300,7 +300,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
+    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`, "import { defineHandler } from 'nitro/h3'"] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
@@ -370,10 +370,11 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "",
     ...(serve.authorize
       ? [
-          "// Authorize before the store read and before conditional request handling.",
+          // `defineHandler()` also gives the route a `fetch()` that makes an H3 event for a direct call.
+          "// Authorize before the store read and before conditional request handling. `authorize` gets the H3 event.",
           serve.anonymous
-            ? "export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }"
-            : `export default { fetch: withAuthorization(${authorizeModule ? "authorize" : "true"}, (request: Request) => serveBlob(request)) }`,
+            ? "export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))"
+            : `export default defineHandler(event => withAuthorization(${authorizeModule ? "authorize" : "true"}, () => serveBlob(event.req))(event))`,
         ]
       : ["export default { fetch: serveBlob }"]),
     "",

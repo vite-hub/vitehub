@@ -32,7 +32,7 @@ async function devConsoleRoutes(value: ViteHubOptions["console"]): Promise<strin
 describe("console option in development", () => {
   it("serves only the operation RPC when console is unset", async () => {
     const routes = await devConsoleRoutes(undefined)
-    expect(routes).toEqual(["/_vitehub/rpc"])
+    expect(routes).toEqual(["/_vitehub/rpc", "/_vitehub"])
   })
 
   it("serves no /_vitehub route with console: false", async () => {
@@ -42,7 +42,7 @@ describe("console option in development", () => {
   it("serves the operation RPC when the Console is on", async () => {
     const routes = await devConsoleRoutes({ auth: false })
     // The page tools session is for the Console link of the page tools pill.
-    expect(routes).toEqual(["/_vitehub/rpc", "/_vitehub/page/session"])
+    expect(routes).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/page/session"])
   })
 
   it.each([[undefined, 1], [false, 0], [true, 1]] as const)("installs the Console plugin with console: %o (%i)", (value, count) => {
