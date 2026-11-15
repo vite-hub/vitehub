@@ -9,12 +9,14 @@ import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { defaultServerConditions } from "vite"
 
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
+import { describeServerEnv } from "@vite-hub/env/server"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -671,6 +673,13 @@ function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
   return [...names]
 }
 
+/** The host variable names of each env-backed Server Env declaration, for `deployment.json`. Never values. */
+function deploymentEnvEntries(registry: EnvRuntimeRegistry): DeploymentEnvEntry[] {
+  return describeServerEnv(registry).entries.flatMap(entry => entry.source === "env" && entry.names
+    ? [{ ...(entry.path ? { path: entry.path } : {}), names: entry.names, required: entry.required, secret: entry.secret, hasDefault: entry.hasDefault }]
+    : [])
+}
+
 function findEnvPlugin(options: unknown): EnvVitePlugin | undefined {
   if (Array.isArray(options)) {
     for (const option of options) {
@@ -744,6 +753,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
+  envPlugin: () => EnvVitePlugin | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -782,7 +792,8 @@ function deploymentNitroModule(
         if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
-      await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
+      const env = envPlugin()?.api.getServerEnvRegistry()
+      await finalizeDeploymentPlanOutput({ ...(env ? { env: deploymentEnvEntries(env) } : {}), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -1041,7 +1052,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
