@@ -1,0 +1,1 @@
+`vitehub database drop` cannot drop the tables. `error.why` has the reason, such as a remote database without `--remote`, missing credentials, or a database error. The drop runs in one transaction, so nothing was dropped.
