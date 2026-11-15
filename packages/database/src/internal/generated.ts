@@ -292,6 +292,22 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
 }
 
 /**
+ * The nearest `tsconfig.json` of the app. A Nuxt app's `tsconfig.json` can extend `./.nuxt/tsconfig.json`, which
+ * `nuxt prepare` writes after this generation runs, such as in the `postinstall` of a fresh install. That config has no
+ * `paths` to inherit yet, and the host aliases come from `alias`.
+ */
+function readInheritedTsconfig(dir: string): ReturnType<typeof getTsconfig> {
+  try {
+    return getTsconfig(dir)
+  }
+  catch (error) {
+    // get-tsconfig throws "File '<extends>' not found." for an `extends` file that does not exist.
+    if (error instanceof Error && /^File '.+' not found\.$/.test(error.message)) return null
+    throw error
+  }
+}
+
+/**
  * Drizzle Kit loads the generated schema with jiti and takes import aliases only from the `paths` of the nearest
  * `tsconfig.json`. A Nuxt 5 root `tsconfig.json` has only project references, so a Definition that imports
  * `~~/server/tables` or `#layers/...` loads in `vite dev` but not in `vitehub database generate`. This file sits beside
@@ -306,7 +322,7 @@ async function writeGeneratedAliasTsconfig(dir: string, alias: Record<string, st
   }
   // Start above our own generated file, including when rewriting an existing generation.
   // The matcher preserves the base of paths inherited through extends, with or without baseUrl.
-  const inherited = getTsconfig(dirname(dir))
+  const inherited = readInheritedTsconfig(dirname(dir))
   const matchPaths = inherited && createPathsMatcher(inherited)
   const paths: Record<string, string[]> = Object.fromEntries(
     Object.keys(inherited?.config.compilerOptions?.paths ?? {}).map(key => [key, matchPaths?.(key) ?? []]),
