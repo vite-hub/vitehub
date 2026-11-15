@@ -280,7 +280,10 @@ describe("hubConnections", () => {
       command: "build",
       mode: "production",
     });
-    expect((build.nitro as { handlers?: unknown[] }).handlers ?? []).toEqual([]);
+    // Without the management API, production serves only the callback of flows that the Console starts.
+    const callbackOnly = (build.nitro as { handlers: Array<{ handler: string, method: string, route: string }> }).handlers;
+    expect(callbackOnly.map(({ method, route }) => ({ method, route }))).toEqual([{ method: "get", route: "/_vitehub/connections/callback" }]);
+    expect(await readFile(callbackOnly[0]!.handler, "utf8")).toContain('export default createConnectionsHandler({ actor: () => undefined, basePath: "/_vitehub/connections" })');
     await expect(
       (hubConnections({ management: true }).config as unknown as ConfigHook)(
         { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true },

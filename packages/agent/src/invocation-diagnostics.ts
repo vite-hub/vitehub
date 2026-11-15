@@ -16,5 +16,10 @@ export const invocationDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AGENT_R0615: dynamicAgentError,
     AGENT_R0616: dynamicAgentError,
     AGENT_R0617: dynamicAgentError,
+    // Named errors. Keep these codes in alphabetical order.
+    AGENT_INVOCATION_CURSOR_REPEATED: {
+      why: "[vitehub] Agent Invocation listing returned a repeated pagination cursor.",
+      fix: "Make the `list()` method of the custom Invocations store return a new cursor for each page and no cursor on the last page.",
+    },
   },
 })
