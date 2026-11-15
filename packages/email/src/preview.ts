@@ -13,6 +13,7 @@ export interface EmailPreview {
 }
 
 /** A template that the roots do not hold. */
+// Internal invariant: this class already carries a code, a fix, and a status.
 export class EmailTemplateNotFoundError extends Error {
   readonly code = "EMAIL_TEMPLATE_NOT_FOUND"
   readonly status = 404

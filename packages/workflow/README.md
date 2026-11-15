@@ -120,16 +120,26 @@ export function installWorkflowRuntime() {
 }
 ```
 
+For a standalone Vite app, install Nitro 3 before adding its server plugin:
+
+```sh
+pnpm add -D nitro@^3.0.261103-rc
+```
+
 ```ts fragment
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow(workflowConfig)],
+  nitro: { serverDir: "./server" },
+  plugins: [hubWorkflow(workflowConfig), nitro()],
 });
 ```
+
+`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the provider config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
 
 The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a provider.
 
@@ -179,7 +189,7 @@ To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, 
 The other runtime helpers are:
 
 - `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
-- `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
+- `cancelWorkflow()` cancels a Cloudflare run with `instance.terminate()`, a native Vercel run, or a pending or running OpenWorkflow run. A finished run keeps its status, and a missing run reports `unknown`.
 - `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
 - `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 

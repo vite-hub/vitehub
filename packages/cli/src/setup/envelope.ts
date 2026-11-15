@@ -34,7 +34,7 @@ function isDiagnostic(error: unknown): error is DiagnosticLike {
 }
 
 function toSetupError(error: unknown): SetupError {
-  const diagnostic = isDiagnostic(error) ? error : cliErrorDiagnostics.CLI_R0001({ message: error instanceof Error ? error.message : String(error) })
+  const diagnostic = isDiagnostic(error) ? error : cliErrorDiagnostics.CLI_SETUP_FAILED({ message: error instanceof Error ? error.message : String(error) })
   const why = diagnostic.why.replace(/^\[vitehub\] /u, "")
   return {
     code: diagnostic.code,
@@ -69,6 +69,7 @@ export interface SetupFailureDetails {
 }
 
 /** A setup diagnostic with its exit code and the input that is missing. `writeSetupError` reports it. */
+// Internal invariant: setup failure with its exit code and details. writeSetupError() reports it.
 export class SetupFailure extends Error {
   override readonly cause: Error
   readonly exitCode: number
