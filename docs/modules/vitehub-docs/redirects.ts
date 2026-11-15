@@ -244,6 +244,14 @@ export const docsLegacyFragmentRedirects = {
   },
   // The CLI page moved to its own section and split into one page per command group. The old page redirect keeps the hash.
   "/docs/cli": {
+    "check-and-push-host-env": "/docs/cli/primitives",
+    "setup-env-file-tracked": "/docs/cli/primitives",
+    "setup-env-name-unknown": "/docs/cli/primitives",
+    "setup-env-stage-unsupported": "/docs/cli/primitives",
+    "setup-env-value-unsupported": "/docs/cli/primitives",
+    "create-the-host-resources": "/docs/cli/project",
+    "setup-deploy-provision-unchecked": "/docs/cli/project",
+    "setup-deploy-provision-needs-build": "/docs/cli/project",
     "seed-a-database": "/docs/cli/primitives",
     "read-and-invalidate-the-cache": "/docs/cli/primitives",
     troubleshooting: "/docs/cli/troubleshooting",

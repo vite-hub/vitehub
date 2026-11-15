@@ -1,7 +1,7 @@
 import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
-import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
@@ -13,6 +13,21 @@ declare global {
   }
 }
 
+/** What the production build of the app recorded about its source. A development server has none. */
+export interface ConsoleProjectBuild {
+  /** When the build ran, as an ISO time. */
+  time: string
+  /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
+  commit?: {
+    sha: string
+    /** The first line of the commit message. */
+    message?: string
+    /** The name of the commit author, without the email. */
+    author?: string
+    branch?: string
+  }
+}
+
 /** The answer of `project.get`: what this project runs, and what this caller may use in it. */
 export interface ConsoleProject {
   /** The version of this answer. A Console stops when the major version is one that it does not know. */
@@ -21,6 +36,8 @@ export interface ConsoleProject {
   name?: string
   /** The `vite-hub` version that the app runs. */
   vitehub: string
+  /** The production build that serves this answer. */
+  build?: ConsoleProjectBuild
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -48,6 +65,7 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
+  const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations, ...(navigation ? { navigation } : {}) }
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }

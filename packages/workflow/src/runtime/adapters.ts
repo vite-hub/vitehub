@@ -102,22 +102,27 @@ function resolveCloudflareInspectionBinding(event: unknown, binding: string | un
   return resolveCloudflareBinding(event, binding, name, getWorkflowRuntimeRegistry()?.[name])
 }
 
+/** The start can have reached Cloudflare, so the acknowledgement is unknown. */
+function invalidCloudflareWorkflowStart(cause?: unknown) {
+  return createWorkflowError({
+    ...(cause === undefined ? {} : { cause }),
+    code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+    details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare", reason: "Cloudflare Workflow provider returned an invalid workflow instance." },
+  })
+}
+
 function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): { id: string } {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
-  }
+  if (typeof value !== "object" || value === null) throw invalidCloudflareWorkflowStart()
 
   let id: unknown
   try {
     id = Reflect.get(value, "id")
   }
   catch (cause) {
-    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.", { cause })
+    throw invalidCloudflareWorkflowStart(cause)
   }
 
-  if (typeof id !== "string" || !id || id !== expectedId) {
-    throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
-  }
+  if (typeof id !== "string" || !id || id !== expectedId) throw invalidCloudflareWorkflowStart()
 
   return { id }
 }

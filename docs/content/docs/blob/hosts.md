@@ -324,7 +324,7 @@ A Cloudflare Preview uses only the bindings in the Wrangler `previews` block. Tw
 
 For a separate preview Worker, set `BLOB_BUCKET_NAME` in its build and leave `bucketName` unset, or set `bucketName` to the preview bucket. `bucketName` wins over `BLOB_BUCKET_NAME`.
 
-On Vercel, a preview uses the Blob store connected in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production files. To separate them, connect a second store to Preview in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+On Vercel, a preview uses the Blob store connected in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --host vercel` connects one store to Production, Preview, and Development, so previews share production files. To separate them, connect a second store to Preview in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Related guides
 

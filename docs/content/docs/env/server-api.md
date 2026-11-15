@@ -274,8 +274,10 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
 
-`inspectServerEnv()` loads providers the same way. It reports only paths, variable names, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
+`inspectServerEnv()` loads providers the same way. It reports only paths, variable names, the variable `name` that supplied an env value, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 
 From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/cli/primitives#inspect-server-env) for options. In the Console Env section, **Check status** shows the same.
+
+To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, and an overall `ok`, never values.
 
 Provider reads are read-only and get the caller's abort signal. [Env Bridge](/docs/env/bridge) adds safe replacement, scoped access, and stored activity for managed credentials. Env adds no watches, leases, or caches between requests. A provider must not import the generated Server Env module. Use the `env` snapshot that `read()` gets for its first credential.
