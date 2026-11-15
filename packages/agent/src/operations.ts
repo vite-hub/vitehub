@@ -27,6 +27,7 @@ import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
 
+// Internal invariant: this error class already carries a code and a fix for the CLI and Console.
 class ChannelsOperationError extends Error {
   readonly code: string
   readonly fix?: string

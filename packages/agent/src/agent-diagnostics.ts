@@ -432,6 +432,29 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0929",
   "AGENT_R0938",
   "AGENT_R1039",
+  // Named codes that replace TypeErrors keep their input-error status.
+  "AGENT_BUDGET_CAPACITY_UNSUPPORTED",
+  "AGENT_BUDGET_LIMIT_INVALID",
+  "AGENT_BUDGET_LIMIT_MISSING",
+  "AGENT_BUDGET_USD_INVALID",
+  "AGENT_MCP_RETRIES_INVALID",
+  "AGENT_MCP_TOOLS_LIST_INVALID",
+  "AGENT_OBSERVABILITY_INSTALLED",
+  "AGENT_OBSERVABILITY_MAX_PENDING_INVALID",
+  "AGENT_OPENAPI_CONNECTION_BODY_INVALID",
+  "AGENT_PAPERCUTS_BACKEND_MISSING",
+  "AGENT_PAPERCUTS_CLI_INVALID",
+  "AGENT_PAPERCUTS_DEDUPE_INVALID",
+  "AGENT_PAPERCUT_DELIVERY_INVALID",
+  "AGENT_PAPERCUT_IDENTITY_MISSING",
+  "AGENT_PAPERCUT_INDEX_OPTION_INVALID",
+  "AGENT_PAPERCUT_INDEX_SIMILARITY_INVALID",
+  "AGENT_PAPERCUT_INVALID",
+  "AGENT_POSTHOG_API_KEY_MISSING",
+  "AGENT_POSTHOG_HOST_INVALID",
+  "AGENT_POSTHOG_PAPERCUTS_API_KEY_MISSING",
+  "AGENT_SKILL_NAME_INVALID",
+  "AGENT_TIMER_DURATION_INVALID",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -2161,6 +2184,187 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
+    },
+    // Named errors. Keep these codes in alphabetical order.
+    AGENT_BROWSER_CACHE_UNTRUSTED: {
+      why: ({ path }: { path: string | undefined }) => path === undefined
+        ? "[vitehub] Managed browser cache ownership cannot be verified on this host."
+        : `[vitehub] Managed browser cache requires trusted ownership and permissions: ${path}`,
+      fix: "Make the managed browser cache directory and its parents owned by the server user and not writable by other users, or use `browser({ runtime: \"external\" })`.",
+    },
+    AGENT_BROWSER_INSTALL_FAILED: {
+      why: ({ step }: { step: "executable" | "validation" }) => step === "executable"
+        ? "[vitehub] Browser runtime installation did not produce a Chrome executable."
+        : "[vitehub] Browser runtime cache validation failed after installation.",
+      fix: "Delete the managed browser cache directory and run again. Check that the host can download Chrome and has free disk space.",
+    },
+    AGENT_BROWSER_MANAGED_WITH_LAUNCH: {
+      why: ({ explicit }: { explicit: boolean }) => explicit
+        ? "[vitehub] browser({ runtime: \"managed\" }) cannot be used with driver.launch because the launcher may run on another filesystem. Remove runtime, or use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher."
+        : "[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.",
+      fix: "Use `browser({ runtime: \"external\" })` with a browser runtime that the launcher prepares, or remove `driver.launch`.",
+    },
+    AGENT_BROWSER_PLATFORM_UNSUPPORTED: {
+      why: ({ arch }: { arch: boolean }) => arch
+        ? "[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures."
+        : "[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.",
+      fix: "Run the managed browser on Linux x64 or macOS, or use `browser({ runtime: \"external\" })` with a browser that you prepare.",
+    },
+    AGENT_BROWSER_SOCKET_DIRECTORY_UNSAFE: {
+      why: ({ ancestors }: { ancestors: boolean }) => ancestors
+        ? "[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories."
+        : "[vitehub] Browser socket directory must be a private directory owned by the current user.",
+      fix: "Put the browser socket directory under a path that the server user owns, with no write access for other users, such as a private temporary directory.",
+    },
+    AGENT_BUDGET_CAPACITY_UNSUPPORTED: {
+      why: "[vitehub] budget capability does not support capacity; configure it on defineAgent({ budget }).",
+      fix: "Remove `capacity` from the `budget()` Capability and set it in `defineAgent({ budget })`.",
+    },
+    AGENT_BUDGET_LIMIT_INVALID: {
+      why: ({ name }: { name: string }) => `[vitehub] budget ${name} must be a finite, non-negative number.`,
+      fix: "Set each `budget()` limit that the message names to a finite number of 0 or more.",
+    },
+    AGENT_BUDGET_LIMIT_MISSING: {
+      why: "[vitehub] budget requires tokens or usd.",
+      fix: "Pass `tokens` or `usd` to `budget()`, such as `budget({ usd: \"0.50\" })`.",
+    },
+    AGENT_BUDGET_USD_INVALID: {
+      why: "[vitehub] budget usd must be a non-negative decimal.",
+      fix: "Set `budget({ usd })` to a decimal of 0 or more, such as `\"0.50\"` or `2`.",
+    },
+    AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED: {
+      why: "[vitehub] Execution budgets require AI SDK wrapLanguageModel support.",
+      fix: "Upgrade the `ai` package to a version that exports `wrapLanguageModel`, or turn the execution budget off.",
+    },
+    AGENT_MAX_RETRIES_INVALID: {
+      why: "maxRetries must be a non-negative integer",
+      fix: "Set `maxRetries` of the model call settings to an integer of 0 or more.",
+    },
+    AGENT_MCP_RETRIES_INVALID: {
+      why: "[vitehub] callMcpTool({ retries }) must be a non-negative integer.",
+      fix: "Set `retries` in the `callMcpTool()` options to an integer of 0 or more.",
+    },
+    AGENT_MCP_TOOLS_LIST_INVALID: {
+      why: "[vitehub] MCP tools/list must return a tools array.",
+      fix: "Check that the MCP server answers `tools/list` with a `tools` array, and update the server if it does not.",
+    },
+    AGENT_OBSERVABILITY_INSTALLED: {
+      why: "[vitehub] Observability is already installed. Close its host before installing another instance.",
+      fix: "Install observability once per server through `vitehub({ observability })`, and close the old host before you install it again.",
+    },
+    AGENT_OBSERVABILITY_MAX_PENDING_INVALID: {
+      why: "[vitehub] evlog maxPending must be a positive integer.",
+      fix: "Set `vitehub({ observability: { maxPending } })` to an integer of 1 or more.",
+    },
+    AGENT_OPENAPI_CONNECTION_BODY_INVALID: {
+      why: "[vitehub] OpenAPI requests through a Connection require a string body. Serialize the request hook body before dispatch.",
+      fix: "Return a string body from the OpenAPI request hook, such as `JSON.stringify(body)`, when the request goes through a Connection.",
+    },
+    AGENT_PAPERCUTS_BACKEND_MISSING: {
+      why: "[vitehub] papercuts() requires a report callback or backend.",
+      fix: "Pass `report` or `backend` to `papercuts()`, such as `papercuts({ backend: posthogPapercuts({ apiKey }) })`.",
+    },
+    AGENT_PAPERCUTS_CLI_INVALID: {
+      why: "[vitehub] papercuts({ cli }) must be a boolean.",
+      fix: "Set `papercuts({ cli })` to `true` or `false`, or omit it.",
+    },
+    AGENT_PAPERCUTS_DEDUPE_INVALID: {
+      why: "[vitehub] papercuts({ dedupe }) must be a boolean or a papercut index.",
+      fix: "Set `papercuts({ dedupe })` to `true`, `false`, or an index from `createPapercutIndex()`.",
+    },
+    AGENT_PAPERCUT_DELIVERY_INVALID: {
+      why: "[vitehub] Invalid papercut delivery envelope.",
+      fix: "Pass a papercut report event, or a delivery that `createPapercutDelivery()` returns, to the reporter `report()`.",
+    },
+    AGENT_PAPERCUT_IDENTITY_MISSING: {
+      why: "[vitehub] Papercut reporting requires a persistent invocation identity.",
+      fix: "Report papercuts from an Agent run that has a run ID and an Agent name, such as through the `report_papercut` tool.",
+    },
+    AGENT_PAPERCUT_INDEX_OPTION_INVALID: {
+      why: ({ name }: { name: "maxEntries" | "windowMs" }) => `[vitehub] createPapercutIndex({ ${name} }) must be a positive number.`,
+      fix: "Set `windowMs` and `maxEntries` of `createPapercutIndex()` to numbers above 0, or omit them.",
+    },
+    AGENT_PAPERCUT_INDEX_SIMILARITY_INVALID: {
+      why: "[vitehub] createPapercutIndex({ similarity }) must be greater than 0 and at most 1.",
+      fix: "Set `createPapercutIndex({ similarity })` to a number above 0 and at most 1, such as `0.4`.",
+    },
+    AGENT_PAPERCUT_INVALID: {
+      why: "[vitehub] A papercut requires an ID, timestamp and message of 1–1000 characters.",
+      fix: "Give the papercut an `id`, a `createdAt` timestamp, and a `message` of 1 to 1000 characters.",
+    },
+    AGENT_PAPERCUT_NOT_PERSISTED: {
+      why: ({ step }: { step: "acknowledgement" | "report" }) => step === "acknowledgement"
+        ? "[vitehub] Papercut delivery acknowledgement was not persisted."
+        : "[vitehub] Papercut must be persisted before delivery.",
+      fix: "Check that the Invocations store of the Agent is reachable and can write. The reporter retries pending papercuts on its next replay.",
+    },
+    AGENT_PAPERCUT_REPORTER_CLOSED: {
+      why: "[vitehub] Papercut reporter is closed.",
+      fix: "Create a new reporter with `createPapercutReporter()` after `stop()`. A stopped reporter cannot start again.",
+    },
+    AGENT_POSTHOG_API_KEY_MISSING: {
+      why: "[vitehub] PostHog requires an API key.",
+      fix: "Pass the project API key to `posthog({ apiKey })`, such as `process.env.POSTHOG_API_KEY`.",
+    },
+    AGENT_POSTHOG_DELIVERY_UNACKNOWLEDGED: {
+      why: "[vitehub] PostHog did not acknowledge event delivery.",
+      fix: "Check that the `posthog({ apiKey, host })` key and host are right and that PostHog is reachable. The exporter already retried rate limits and server errors.",
+    },
+    AGENT_POSTHOG_HOST_INVALID: {
+      why: "[vitehub] PostHog requires an HTTP(S) host.",
+      fix: "Set `posthog({ host })` to an `https:` or `http:` URL, such as `\"https://eu.i.posthog.com\"`, or omit it.",
+    },
+    AGENT_POSTHOG_PAPERCUTS_API_KEY_MISSING: {
+      why: "[vitehub] posthogPapercuts() requires an apiKey.",
+      fix: "Pass the PostHog API key to `posthogPapercuts({ apiKey })`, such as `process.env.POSTHOG_API_KEY`.",
+    },
+    AGENT_POSTHOG_PAPERCUT_DELIVERY_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] PostHog papercut delivery failed (${status}).`,
+      fix: "Check the `posthogPapercuts({ apiKey, host })` key and host for the HTTP status in the message.",
+    },
+    AGENT_PROVIDER_CHECKOUT_HEAD_CHANGED: {
+      why: "Host-prepared provider checkout HEAD changed during launch.",
+      fix: "Run the Agent again. Another process changed the pull request checkout while the provider started.",
+    },
+    AGENT_PROVIDER_FILES_CONFLICTED: {
+      why: ({ files }: { files: string[] }) => `Cannot overwrite conflicted generated provider files: ${files.join(", ")}`,
+      fix: "Resolve the merge conflict of the files that the message names in the pull request checkout, then run the Agent again.",
+    },
+    AGENT_SKILL_NAME_INVALID: {
+      why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,
+      fix: "Name each Skill in `agentWithSkills(agent, skills)` with letters, digits, `.`, `_`, or `-`.",
+    },
+    AGENT_STATE_ATOMIC_LOCK_MISSING: {
+      why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",
+      fix: "Use an Agent State provider that has `mutateWithLock()`, such as SQLite, libSQL, or the Cloudflare State.",
+    },
+    AGENT_STATE_LOCK_EXPIRED: {
+      why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
+      fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_TELEMETRY_QUEUE_FULL: {
+      why: "[vitehub] Agent telemetry queue is full.",
+      fix: "Raise `vitehub({ observability: { maxPending } })`, or check that the exporter answers in time. The event is dropped.",
+    },
+    AGENT_TELEMETRY_UNAVAILABLE: {
+      why: "[vitehub] Agent telemetry delivery is unavailable.",
+      fix: "Configure an exporter in `vitehub({ observability })`, and capture events before the server closes.",
+    },
+    AGENT_TIMER_DURATION_INVALID: {
+      why: ({ option }: { option: "Papercut deliveryTimeoutMs" | "Papercut replay interval" | "evlog deliveryTimeoutMs" }) => `[vitehub] ${option} must be a positive timer duration.`,
+      fix: "Set the option that the message names to a whole number of milliseconds from 1 to 2147483647, or omit it to use the default.",
+    },
+    AGENT_TOOL_SCHEMA_ASYNC_VALIBOT: {
+      why: "[vitehub] Async Valibot Agent tool schemas cannot be converted to JSON Schema.",
+      fix: "Use a synchronous Valibot schema or a JSON Schema as the tool `inputSchema`.",
+    },
+    AGENT_WORKSPACE_COMMAND_CWD_OUTSIDE: {
+      why: "[vitehub] Workspace command cwd must stay inside the provider checkout.",
+      fix: "Pass a `cwd` inside `/workspace` to the Workspace command, or omit it to run at the checkout root.",
+    },
+    AGENT_WORKSPACE_GIT_INIT_FAILED: {
+      why: "Unable to initialize workspace Git repository",
+      fix: "Check that `git` is installed in the Workspace runtime and that the Workspace root can be written.",
     },
   },
 })

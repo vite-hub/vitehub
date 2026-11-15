@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
@@ -225,6 +226,7 @@ try {
         }
       }
       if (!running) break
+      // Internal invariant: generated smoke check script that runs without the Agent catalog; its caller reports the failed check.
       if (Date.now() >= deadline) throw new Error('Chromium helpers did not exit; retaining profile ' + profile)
       await delay(10)
     }
@@ -322,8 +324,8 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
 }
 
 async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void, signal?: AbortSignal): Promise<PreparedBrowserRuntime> {
-  if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
-  if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
+  if (platform !== "linux" && platform !== "darwin") throw agentDiagnostics.AGENT_BROWSER_PLATFORM_UNSUPPORTED({ arch: false })
+  if (platform === "linux" && process.arch !== "x64") throw agentDiagnostics.AGENT_BROWSER_PLATFORM_UNSUPPORTED({ arch: true })
   await assertTrustedBrowserCache(root)
   const stagingPrefix = `${basename(root)}.install-`
   for (const entry of await readdir(dirname(root))) {
@@ -349,7 +351,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
     const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
     if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
-      throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
+      throw agentDiagnostics.AGENT_BROWSER_SOCKET_DIRECTORY_UNSAFE({ ancestors: true })
     }
     const parent = dirname(ancestor)
     if (parent === ancestor) break
@@ -360,7 +362,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     await chmod(socketRoot, 0o700)
     const socketStat = await lstat(socketRoot)
     if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
-      throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
+      throw agentDiagnostics.AGENT_BROWSER_SOCKET_DIRECTORY_UNSAFE({ ancestors: false })
     }
     const skillPath = join(root, "core.SKILL.md")
     const marker = join(root, "ready.json")
@@ -428,7 +430,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
         await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv, signal })
         stagingChrome = await findChrome(stagingBrowserCache)
       }
-      if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
+      if (!stagingChrome) throw agentDiagnostics.AGENT_BROWSER_INSTALL_FAILED({ step: "executable" })
       await normalizePrivateModes(staging)
       const noSandbox = await smokeChrome(stagingChrome, {
         ...installEnv,
@@ -454,7 +456,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
       await rm(staging, { force: true, recursive: true })
       await mkdir(socketRoot, { mode: 0o700, recursive: true })
       const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
-      if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")
+      if (!prepared) throw agentDiagnostics.AGENT_BROWSER_INSTALL_FAILED({ step: "validation" })
       return prepared
     }
     catch (error) {

@@ -242,6 +242,7 @@ async function handleRelayConnection(
   })
   let child: SandboxProcess
   try {
+    // Internal invariant: the catch below writes this message to the provider stderr with exit code 127.
     if (!sandboxWorkingDirectory) throw new Error("[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout.")
     const environment = Object.fromEntries(Object.entries(options.environment(env)).map(([name, value]) => [name, mapText(value)]))
     child = await options.sandbox.spawn(options.command, selectedArgs.map(mapText), {

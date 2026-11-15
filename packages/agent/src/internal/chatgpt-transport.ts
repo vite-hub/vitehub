@@ -102,6 +102,7 @@ export async function startChatGPTTransport(credential: ChatGPTCredential, signa
     signal?.addEventListener("abort", abort, { once: true })
     signal?.throwIfAborted()
     const address = server.address()
+    // Internal invariant: a TCP server that listens on 127.0.0.1 always reports an address object.
     if (!address || typeof address === "string") throw new Error("ChatGPT transport did not bind a loopback port.")
     return { url: `http://127.0.0.1:${address.port}`, key, close }
   }

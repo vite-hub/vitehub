@@ -2088,7 +2088,7 @@ async function prepareWorkspace(
   const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
   if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
-    throw new Error("Unable to initialize workspace Git repository")
+    throw agentDiagnostics.AGENT_WORKSPACE_GIT_INIT_FAILED()
   }
   return {
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
@@ -3103,7 +3103,7 @@ async function* runProvider<
         const requested = execOptions?.cwd || "/workspace"
         const suffix = requested.replace(/^\/workspace(?:\/|$)/, "")
         const cwd = resolve(root, suffix)
-        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
+        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_WORKSPACE_COMMAND_CWD_OUTSIDE()
         const { abortSignal, ...hostOptions } = execOptions || {}
         const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
@@ -3231,7 +3231,7 @@ async function* runProvider<
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
     if (options.sandbox) assertProviderSandboxInvocation(options.sandbox, context, Boolean(capabilityEnvironment?.PATH))
     if (options.launch !== undefined && capabilityEnvironment?.PATH) {
-      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: false })
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
@@ -3328,7 +3328,7 @@ async function* runProvider<
           workspaceSession.exec("git", ["rev-parse", "--verify", "HEAD"], { abortSignal: effectiveSignal }),
           effectiveSignal,
         )
-        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw new Error("Host-prepared provider checkout HEAD changed during launch.")
+        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw agentDiagnostics.AGENT_PROVIDER_CHECKOUT_HEAD_CHANGED()
         pullRequestRoot = true
       }
     }
@@ -4209,6 +4209,7 @@ export function createProviderAgentAdapter<
     stream: async function* (context) {
       for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
+        // Internal invariant: rethrows the error text of a failed provider stream; the provider message names the failure.
         if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
       }
     },

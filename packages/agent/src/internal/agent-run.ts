@@ -60,6 +60,7 @@ export interface AgentRunners {
 }
 
 function notLoaded(): never {
+  // Internal invariant: every Agent entry point imports @vite-hub/agent, which installs these runners first.
   throw new Error("[vitehub] Import @vite-hub/agent before its internal Agent runners.")
 }
 

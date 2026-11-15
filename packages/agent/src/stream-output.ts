@@ -44,6 +44,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
 
 export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
   const normalized = normalizeUIMessageStreamResponse(response)
+  // Internal invariant: callers pass a Response that isUIMessageStreamResponse() accepted, and a Response status is always 200 to 599.
   if (!normalized) throw new TypeError("Expected a readable UI message stream Response")
   const streamBody = hostReadableStream(normalized.body)
   const decoder = new TextDecoder()

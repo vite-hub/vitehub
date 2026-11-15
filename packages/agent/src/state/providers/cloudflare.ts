@@ -66,6 +66,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
 
   async mutateWithLock(lock: Lock, mutations: readonly AgentStateCacheMutation[]): Promise<boolean> {
     if (this.shardKey && this.shardKey(lock.threadId) !== this.defaultName) {
+      // Internal invariant: only a ViteHub caller that skips forCacheLocks() on a sharded State reaches this.
       throw new Error("[vitehub] Cache lease mutations require forCacheLocks() when State locks are sharded.")
     }
     return await this.stub().cacheMutateWithLock(lock.threadId, lock.token, mutations)
