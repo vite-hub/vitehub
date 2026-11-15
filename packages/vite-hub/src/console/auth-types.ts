@@ -73,9 +73,11 @@ export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSigne
  * - `true` allows every Console section.
  * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
  *   that section that read. `"blob:media"` allows the Blob operations on the `media` store only. An empty list is `403`.
+ *   `grants` lists the page tool roles, such as `comments-read`, that Site access gives the person when they open the
+ *   site from the Console. Without `grants`, they get the roles of every page tool.
  * - `false` is `403`. A `Response` is returned as-is.
  */
-export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
+export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[], grants?: readonly string[] }
 
 /** Decides whether one Console request may continue, and which Console sections it may use. */
 export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuthorizeResult | Promise<ConsoleAuthorizeResult>

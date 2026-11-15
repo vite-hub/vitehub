@@ -10,7 +10,7 @@ import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions,
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
-import { normalizeRoute } from "h3"
+import { normalizeRoute } from "nitro/h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
@@ -247,8 +247,11 @@ async function resolveImageModule(config: ResolvedConfig, root: string, blob: Bl
   if (!blob || blob.images === false) return undefined
   const transformer = blob.images?.transformer ?? "auto"
   if (transformer === "photon") {
-    // Use the project's resolver, including Plug'n'Play, from the generated import's location.
-    const entry = await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+    // Use the project's resolver, including Plug'n'Play, from the generated import's location. The Nitro build of
+    // `vite-hub/nuxt` replays this hook with a config that has no resolver, so it looks in node_modules, like sharp.
+    const entry = typeof config.createResolver === "function"
+      ? await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+      : isPackageInstalled(root, "@cf-wasm/photon") ? "@cf-wasm/photon" : undefined
     // Vite's missing optional-peer placeholder is a resolved ID, but cannot load Photon.
     if (entry && !entry.startsWith("__vite-optional-peer-dep:")) return "photon"
     throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
@@ -290,6 +293,9 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   // Authorized objects belong to one user, so shared caches must not store them unless the app sets its own policy.
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
+  // Error responses keep only the CORS headers, like the error responses of `serve()`.
+  const cors = Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => name.toLowerCase().startsWith("access-control-")))
+  const errorInit = (status: number) => Object.keys(cors).length ? `{ headers: ${JSON.stringify(cors)}, status: ${status} }` : `{ status: ${status} }`
   // A `:name` segment matches any one segment, like the Nitro route.
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
@@ -340,7 +346,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "async function serveBlobResponse(request: Request): Promise<Response> {",
     "  const url = new URL(request.url)",
     "  const pathname = blobPathname(request, url)",
-    "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
+    `  if (!pathname) return Response.json({ error: 'Blob not found.' }, ${errorInit(404)})`,
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,
     "  try {",
@@ -348,7 +354,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
-    "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
+    `    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, ${errorInit(400)})`,
     "  }",
     ...(serve.authorize
       ? [
