@@ -41,11 +41,14 @@ async function configureNitroVercelBuild(root: string, workflow: WorkflowOptions
   const nitroPlugin = { name: "nitro:main" }
   const config: Record<string, unknown> = { nitro: { preset: "vercel" }, plugins: [nitroPlugin], root }
   await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
+  // Nitro's Vite plugin creates Nitro in its config hook and runs the `nitro` module of each plugin.
+  const nitroOptions: Record<string, unknown> = {}
+  plugin.nitro?.setup({ options: nitroOptions })
   const resolvedConfig = { ...config, plugins: [plugin, nitroPlugin], resolve: { alias: [] } }
   await (plugin.configResolved as (config: unknown) => Promise<void>)(resolvedConfig)
   // SAFETY: The config hook adds its startup plugin to the Nitro config above.
   const [startupPlugin] = (config.nitro as { plugins: string[] }).plugins
-  return { config, plugin, startupPlugin: startupPlugin! }
+  return { nitroOptions, plugin, startupPlugin: startupPlugin! }
 }
 
 const nitroServerStubs: EsbuildPlugin = {
@@ -156,14 +159,30 @@ it("leaves Nitro's Vercel server function to Nitro", async () => {
   await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ routes: [{ dest: "/__server", src: "/(.*)" }], version: 3 })
 })
 
-it("gives Nitro the Workflow DevKit webhook route, because Nitro writes the Vercel config last", async () => {
-  const root = await createApp({ "server/workflows/welcome.ts": "export default async () => 'ok'\n" })
-  const { config } = await configureNitroVercelBuild(root)
+it("gives Nitro the Workflow DevKit webhook route of a native entry, because Nitro writes the Vercel config last", async () => {
+  const native = [
+    "import { defineWorkflow } from '@vite-hub/workflow'",
+    "",
+    "async function durableOnboard() {",
+    "  \"use workflow\"",
+    "  return { ok: true }",
+    "}",
+    "",
+    "export default defineWorkflow('onboard', async () => ({ ok: true }), { native: durableOnboard })",
+    "",
+  ].join("\n")
+  const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/workflows/onboard.ts": native }))
 
   // Nitro writes `vercel.config.routes` before its own routes, as the native Workflow build does.
-  expect((config.nitro as { vercel?: unknown }).vercel).toEqual({
+  expect(nitroOptions.vercel).toEqual({
     config: {
       routes: [{ dest: "/.well-known/workflow/v1/webhook/[token]", src: "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$" }],
     },
   })
+})
+
+it("adds no webhook route without a native entry, because only a native entry has a webhook function", async () => {
+  const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/workflows/welcome.ts": "export default async () => 'ok'\n" }))
+
+  expect(nitroOptions.vercel).toBeUndefined()
 })

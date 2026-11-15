@@ -282,6 +282,18 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   let devRootDir: string | undefined
+  // The options of the Nitro instance that builds this app, and whether its Vercel build has a native Workflow entry.
+  let nitroOptions: Record<string, unknown> | undefined
+  let vercelNativeEntry = false
+
+  /**
+   * Nitro writes the Vercel routes after the native Workflow build, so Nitro must also write the Workflow DevKit
+   * webhook route. Only a native entry can create a webhook. Nitro reads its options when it writes the config, after
+   * this plugin knows whether the app has a native entry.
+   */
+  function addVercelWorkflowWebhookRoute(): void {
+    if (startupBuild && vercelNativeEntry && nitroOptions) addVercelWorkflowNitroRoutes(nitroOptions)
+  }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
 
@@ -308,7 +320,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   /** On Vercel, Nitro writes the server function that runs the routes. Workflow then writes no server function. */
-  function nitroOwnsVercelServer(config: ResolvedConfig | UserConfig, workflowOptions: WorkflowOptions | undefined): boolean {
+  function nitroOwnsVercelServer(config: ResolvedConfig, workflowOptions: WorkflowOptions | undefined): boolean {
     return Boolean(resolveOutputs(workflowOptions).vercel) && resolveNitroVercelFunctionName(config, "workflow") !== undefined
   }
 
@@ -361,8 +373,6 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
-        // Nitro writes the Vercel routes last, so it must also write the Workflow DevKit webhook route.
-        if (startupBuild && nitroOwnsVercelServer(config, workflow)) addVercelWorkflowNitroRoutes(kit.config)
         Reflect.set(config, "nitro", kit.config)
         if (process.env.VITEST) {
           const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
@@ -465,6 +475,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const vercel = startupBuild && devWorkflow && nitroOwnsVercelServer(config, workflow)
           ? await prepareVercelNitroRegistry(config)
           : undefined
+        vercelNativeEntry = vercel?.native === true
+        addVercelWorkflowWebhookRoute()
         await writeDevRegistry(devRootDir, startupBuild
           ? devWorkflow && (buildNeedsStartupRegistry() || vercel) ? devWorkflow : undefined
           : devWorkflow ?? false, vercel)
@@ -548,7 +560,14 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
     },
     buildApp: providerOutputEnvironment.buildApp,
-    nitro: providerOutputEnvironment.nitro,
+    nitro: {
+      name: providerOutputEnvironment.nitro.name,
+      setup(nitro) {
+        providerOutputEnvironment.nitro.setup(nitro)
+        nitroOptions = nitro.options
+        addVercelWorkflowWebhookRoute()
+      },
+    },
     buildStart() {
       if (shouldSkipProviderOutputEnvironment(this)) return
       const context = buildEnvironment(this)
