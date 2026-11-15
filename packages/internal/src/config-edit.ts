@@ -1,4 +1,5 @@
 import MagicString from "magic-string"
+import { invariant } from "./invariant.ts"
 
 import { detectStyle, end, indentAt, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "./ast.ts"
 
@@ -320,8 +321,7 @@ function serialize(value: JsonValue, style: CodeStyle): string {
   if (value === null) return "null"
   if (typeof value === "string") return quoteString(value, style)
   if (typeof value === "number") {
-    // Internal invariant: callers write JSON values that ViteHub builds, and JSON has no Infinity or NaN.
-    if (!Number.isFinite(value)) throw new TypeError(`Cannot write ${value} to a config file.`)
+    invariant(Number.isFinite(value), `ViteHub writes only finite numbers to a config file (${value})`)
     return Object.is(value, -0) ? "0" : String(value)
   }
   if (typeof value === "boolean") return String(value)

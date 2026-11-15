@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 import type { Database, PreparedStatement, SqlValue } from "@sqlite.org/sqlite-wasm"
 
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+
 /**
  * A libSQL-compatible client on SQLite WASM, for runtimes that cannot load native SQLite, such as a StackBlitz WebContainer.
  *
@@ -78,7 +80,8 @@ export const wasmSqliteTraceDeps = ["@sqlite.org/sqlite-wasm", "@libsql/libsql-w
 const durability = "Each database lives in memory. ViteHub writes the whole file after each committed write. There is no WAL and no lock with other processes, so a write from another process at the same time can be lost."
 const busyTimeoutMs = 5_000
 
-// Internal invariant: LibsqlError of the libSQL client contract. Database code reads its code and rawCode.
+// The LibsqlError of the libSQL client contract. Database code reads its SQLite `code` and `rawCode`, so it stays a
+// plain error class instead of a catalog code.
 class WasmSqliteError extends Error {
   override readonly name = "LibsqlError"
   readonly code: string
@@ -187,14 +190,12 @@ function openDatabase(sqlite3: Sqlite3, path: string | undefined): { db: Databas
 
 function valueToSql(value: InValue, intMode: IntMode): SqlValue {
   if (typeof value === "number") {
-    // Internal invariant: RangeError of the libSQL client contract for argument values.
-    if (!Number.isFinite(value)) throw new RangeError("Only finite numbers (not Infinity or NaN) can be passed as arguments")
+    if (!Number.isFinite(value)) throw internalErrorDiagnostics.INTERNAL_SQLITE_ARGUMENT_INVALID({ value: "non-finite" })
     return value
   }
   if (typeof value === "boolean") return intMode === "bigint" ? (value ? 1n : 0n) : intMode === "string" ? (value ? "1" : "0") : (value ? 1 : 0)
   if (value instanceof Date) return value.valueOf()
-  // Internal invariant: TypeError of the libSQL client contract for argument values.
-  if (value === undefined) throw new TypeError("undefined cannot be passed as argument to the database")
+  if (value === undefined) throw internalErrorDiagnostics.INTERNAL_SQLITE_ARGUMENT_INVALID({ value: "undefined" })
   return value
 }
 
@@ -203,8 +204,7 @@ function valueFromSql(value: unknown, intMode: IntMode): unknown {
     if (intMode === "bigint") return value
     if (intMode === "string") return `${value}`
     if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
-      // Internal invariant: RangeError of the libSQL client contract for integer results.
-      throw new RangeError("Received integer which cannot be safely represented as a JavaScript number")
+      throw internalErrorDiagnostics.INTERNAL_SQLITE_INTEGER_UNSAFE()
     }
     return Number(value)
   }

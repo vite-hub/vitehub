@@ -112,7 +112,11 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: vi.fn(async () => response) } }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    await expect(runBrowserContent("https://example.com")).rejects.toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      fix: expect.stringContaining("runBrowserAction(\"content\", input)"),
+      message: "Browser content request failed with status 500",
+    })
     expect(cancel).toHaveBeenCalledOnce()
   })
 

@@ -12,6 +12,9 @@ export const siteAccessOperations = {
   grants: "site.grants",
 } as const
 
+/** The cookie of `GET /_vitehub` that binds a Site access link to the browser that opened that route. */
+export const siteStateCookie = "__Host-vitehub-site-state"
+
 /** A browser signed in to the app through Site access: a Better Auth session of a Console member or a guest. */
 export interface SiteSession {
   id: string

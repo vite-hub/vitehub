@@ -28,6 +28,7 @@ import ConsoleAuthDetail from "./console-auth-detail.vue";
 import ConsoleAuthOverview from "./console-auth-overview.vue";
 import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleSection from "./console-section.vue";
@@ -246,32 +247,23 @@ onBeforeUnmount(() => {
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="auth">
       <template #header>
-        <UDashboardNavbar title="Auth" :toggle="false"
-          ><template #right
-            ><UButton
-              aria-label="Refresh Auth"
-              icon="i-lucide-refresh-cw"
-              size="xs"
-              variant="ghost"
-              :disabled="loading"
-              @click="refresh" /></template
-        ></UDashboardNavbar>
-        <!-- On a narrow screen the tab list keeps its labels and scrolls sideways. The tab list draws its line 1px
-             below itself, so the scroller makes room for it and overlaps the bottom border: the two are one line. -->
-        <div class="border-b border-default">
-          <div class="-mb-px overflow-x-auto pb-px">
-            <div class="mx-auto max-w-6xl px-4 sm:px-6">
-              <UTabs
-                :model-value="page"
-                :items="pageItems"
-                :content="false"
-                aria-label="Auth pages"
-                class="w-max min-w-full"
-                @update:model-value="choosePage"
-              />
-            </div>
-          </div>
-        </div>
+        <ConsolePageHeader title="Auth" :toggle="false">
+          <template #tabs>
+            <UTabs
+              :model-value="page"
+              :items="pageItems"
+              :content="false"
+              aria-label="Auth pages"
+              class="w-max"
+              @update:model-value="choosePage"
+            />
+          </template>
+          <template #right>
+            <UTooltip text="Refresh">
+              <UButton aria-label="Refresh Auth" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :disabled="loading" @click="refresh" />
+            </UTooltip>
+          </template>
+        </ConsolePageHeader>
         <div v-if="impersonating" class="border-b border-warning/25 bg-warning/10">
           <div
             class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
