@@ -256,7 +256,7 @@ async function transcribe(recordingId: string) {
 
 A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry.
 
-Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider, and `getWorkflowRun()` reports the error `message` and `name` in `metadata`.
+Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `metadata` for inline and OpenWorkflow runs, Cloudflare keeps the error in its status record in `metadata`, and a Vercel `native` run reports the message on the failed step in `steps`.
 
 ```ts fragment
 import { NonRetryableError } from "@vite-hub/workflow";

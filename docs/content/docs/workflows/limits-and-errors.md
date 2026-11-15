@@ -69,7 +69,13 @@ It works in a step file, in a single-file Workflow, and in a `native` entry:
 | OpenWorkflow | OpenWorkflow has no such error. ViteHub ends the step with the error as its result, then fails the run outside the step. A replay reads the result and throws the same error. |
 | Inline | An inline run does not retry. |
 
-`getWorkflowRun()` reports `status: 'failed'`, and `metadata` has the error `message` and `name`. On OpenWorkflow, the step reports `failed` with the message.
+`getWorkflowRun()` reports `status: 'failed'`. Where the error shows:
+
+| Provider | Error in `getWorkflowRun()` |
+| --- | --- |
+| Inline, OpenWorkflow | `metadata` has the error `message` and `name`. On OpenWorkflow, the step also reports `failed` with the message. |
+| Cloudflare | `metadata` is the Cloudflare status record, which has the error. |
+| Vercel `native` | `metadata` is `{ workflow }`. The failed step in `steps` has the message. |
 
 ViteHub finds the error by `isRetryable === false` or by the name `NonRetryableError`, so an error from another copy of the package also works. In a folder `index.ts` on OpenWorkflow, a `catch` gets a new `NonRetryableError` with the same `name`, `message`, and `code`, not the original object.
 
