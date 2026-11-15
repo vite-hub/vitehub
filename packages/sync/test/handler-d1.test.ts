@@ -22,6 +22,16 @@ const columns = {
 const issues = sqliteTable("issues", columns)
 const labeled = sqliteTable("issues", { ...columns, label: text("label") })
 
+const counted = { id: text("id").primaryKey(), teamId: text("team_id").notNull(), count: integer("count").notNull().default(0) }
+const cards = sqliteTable("cards", counted)
+const notes = sqliteTable("notes", counted)
+
+declare global {
+  interface ViteHubSyncMap {
+    d1Notes: SyncDefinition<typeof notes>
+  }
+}
+
 let worker: Miniflare
 let d1: Awaited<ReturnType<Miniflare["getD1Database"]>>
 
@@ -35,29 +45,31 @@ afterAll(async () => {
 })
 
 /** One server process: a services object, as `createSyncHandler()` makes once. */
-function processOf<TTable, TRow, TArgs>(definition: SyncDefinition<TTable, TRow, TArgs>) {
+function processOf<TTable, TRow, TArgs>(definition: SyncDefinition<TTable, TRow, TArgs>, name = "issues", definitions?: SyncServices["definitions"]) {
+  const route = `/api/_vitehub/sync/${name}`
   const services: SyncServices = {
     db: () => drizzle(d1),
     identify: async (request) => {
       const id = request.headers.get("x-user")
       return id ? { user: { id, teams: (request.headers.get("x-teams") ?? "").split(",") }, session: null } : null
     },
+    ...(definitions ? { definitions } : {}),
   }
   const headers = (caller: { user: string, teams: string[] }) => ({ "x-user": caller.user, "x-teams": caller.teams.join(",") })
   return {
     async pull(caller: { user: string, teams: string[] }, held: { cursor?: number, scope?: string, version?: string, where?: Record<string, unknown> } = {}) {
-      const url = new URL("/api/_vitehub/sync/issues", origin)
+      const url = new URL(route, origin)
       if (held.cursor !== undefined) url.searchParams.set("cursor", String(held.cursor))
       if (held.scope) url.searchParams.set("scope", held.scope)
       if (held.version) url.searchParams.set("version", held.version)
       if (held.where) url.searchParams.set("where", JSON.stringify(held.where))
       // SAFETY: the test reads the documented answer of a pull.
-      return await (await handleSyncRequest("issues", definition, new Request(url, { headers: headers(caller) }), services)).json() as SyncPullResponse
+      return await (await handleSyncRequest(name, definition, new Request(url, { headers: headers(caller) }), services)).json() as SyncPullResponse
     },
     async push(caller: { user: string, teams: string[] }, account: string, mutations: unknown[]) {
-      const request = new Request(new URL("/api/_vitehub/sync/issues", origin), { method: "POST", headers: { "content-type": "application/json", origin, ...headers(caller) }, body: JSON.stringify({ account, mutations }) })
+      const request = new Request(new URL(route, origin), { method: "POST", headers: { "content-type": "application/json", origin, ...headers(caller) }, body: JSON.stringify({ account, mutations }) })
       // SAFETY: the test reads the documented answer of a push.
-      return await (await handleSyncRequest("issues", definition, request, services)).json() as SyncPushResponse
+      return await (await handleSyncRequest(name, definition, request, services)).json() as SyncPushResponse
     },
   }
 }
@@ -106,3 +118,34 @@ it("captures every write on a local D1 with triggers, also after a migration add
   const { results } = await d1.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name").all()
   expect(results).toEqual([{ name: "vitehub_sync_issues_delete" }, { name: "vitehub_sync_issues_insert" }, { name: "vitehub_sync_issues_replace_insert" }, { name: "vitehub_sync_issues_replace_update" }, { name: "vitehub_sync_issues_update" }])
 })
+
+it("applies an action that reads 60 rows of two definitions on D1, which allows 100 parameters in a statement", async () => {
+  await d1.batch(["cards", "notes"].map(table => d1.prepare(`CREATE TABLE \`${table}\` (\`id\` text PRIMARY KEY NOT NULL, \`team_id\` text NOT NULL, \`count\` integer DEFAULT 0 NOT NULL)`)))
+  const ids = Array.from({ length: 30 }, (_, index) => `k${index}`)
+  // One parameter for all rows: D1 refuses a statement with more than 100.
+  await d1.batch(["cards", "notes"].map(table => d1.prepare(`INSERT INTO \`${table}\` (\`id\`, \`team_id\`) SELECT value, 'a' FROM json_each(?)`).bind(JSON.stringify(ids))))
+  const db = drizzle(d1)
+  const noteSync = defineSync({ table: notes, where: ({ user }) => user ? { teamId: teamsOf(user) } : false })
+  const cardSync = defineSync({
+    table: cards,
+    where: ({ user }) => user ? { teamId: teamsOf(user) } : false,
+    actions: {
+      /** Counts each card and each note of `ids`, from the rows as the action read them. */
+      bump: async ({ get, update, sync }, { ids: keys }: { ids: string[] }) => {
+        for (const key of keys) {
+          const card = await get(key)
+          if (card) update(key, { count: card.count + 1 })
+          const note = await sync("d1Notes").get(key)
+          if (note) sync("d1Notes").update(key, { count: note.count + 1 })
+        }
+      },
+    },
+  })
+  const server = processOf(cardSync, "cards", { cards: cardSync, d1Notes: noteSync })
+  const { account } = await server.pull(alice)
+  const pushed = await server.push(alice, account, [{ id: "b1", op: "action", name: "bump", args: { ids: [...ids, "gone"] } }])
+  expect(pushed.results).toEqual([{ id: "b1", status: "applied" }])
+  expect((await db.select().from(cards)).every(row => row.count === 1)).toBe(true)
+  expect((await db.select().from(notes)).every(row => row.count === 1)).toBe(true)
+  // Each read of the action is a request to the local D1, which is slow on a busy machine.
+}, 30_000)

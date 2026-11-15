@@ -314,10 +314,6 @@ function issuePath(path: readonly (PropertyKey | { key: PropertyKey })[] | undef
 
 type Statement = BatchItem<"sqlite">
 
-function keyIs(table: SyncTable, key: SyncKey): SQL {
-  return eq(column(table, table.key), key)
-}
-
 /**
  * The SQL of a column in a row as JSON: the value that the column stores. A blob (JSON or bigint) is its text, because
  * JSON cannot hold a blob. The triggers write exits the same way.
@@ -381,14 +377,37 @@ async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?
   return found?.row
 }
 
-/** True in SQL while every read of `reads`, of any table, gives the same answer as when the checks ran. */
+/**
+ * True in SQL while every read of `reads`, of any table, gives the same answer as when the checks ran. The reads of one
+ * table go in one `json_each()` parameter, so the guard has the same number of parameters for any number of rows. D1
+ * allows at most 100 in a statement.
+ */
 function guardSql(reads: Reads): SQL | undefined {
-  const guards = [...reads.values()].map(({ scoped: { table, scope }, key, scopedOnly, json }) => {
+  // The rows that were there, by table, as `[key, row JSON]`. The keys that were not, by table and scope.
+  const found = new Map<string, { table: SyncTable, rows: [SyncKey, string][] }>()
+  const missing = new Map<string, { table: SyncTable, values: SyncValues | undefined, keys: SyncKey[] }>()
+  for (const { scoped: { table, scope }, key, scopedOnly, json } of reads.values()) {
+    if (json !== null) {
+      let group = found.get(table.name)
+      if (!group) found.set(table.name, group = { table, rows: [] })
+      group.rows.push([key, json])
+      continue
+    }
+    const id = scopedOnly ? `${table.name}\n${scope.id}` : table.name
+    let group = missing.get(id)
+    if (!group) missing.set(id, group = { table, values: scopedOnly ? scope.values : undefined, keys: [] })
+    group.keys.push(key)
+  }
+  const read = sql.identifier("vitehub_read")
+  const guards: SQL[] = []
+  for (const { table, rows } of found.values()) {
     const target: SQLiteTable = table.table
-    return json === null
-      ? sql`NOT EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), scopedOnly ? scopeSql(table, scope.values) : undefined)})`
-      : sql`EXISTS (SELECT 1 FROM ${target} WHERE ${and(keyIs(table, key), sql`${rowObjectSql(table)} = ${json}`)})`
-  })
+    guards.push(sql`NOT EXISTS (SELECT 1 FROM json_each(${JSON.stringify(rows)}) AS ${read} WHERE NOT EXISTS (SELECT 1 FROM ${target} WHERE ${column(table, table.key)} = json_extract(${read}.value, '$[0]') AND ${rowObjectSql(table)} = json_extract(${read}.value, '$[1]')))`)
+  }
+  for (const { table, values, keys } of missing.values()) {
+    const target: SQLiteTable = table.table
+    guards.push(sql`NOT EXISTS (SELECT 1 FROM ${target} WHERE ${and(sql`${column(table, table.key)} IN (SELECT value FROM json_each(${JSON.stringify(keys)}))`, values ? scopeSql(table, values) : undefined)})`)
+  }
   return guards.length ? and(...guards) : undefined
 }
 
@@ -648,6 +667,8 @@ async function runAction(scoped: Scoped, mutation: Extract<SyncMutation, { op: "
   for (const { target, write } of writes) {
     const [refused, into] = target === undefined ? [undefined, scoped] : await scopeOf(target)
     if (refused) return [refused, undefined]
+    // `write: false` stops the writes of the browser and of the actions of other definitions, not of its own actions.
+    if (into.name !== scoped.name && into.definition.options.write === false) return [{ error: syncErrors.SYNC_READ_ONLY() }, undefined]
     let overlay = overlays.get(into.table.name)
     if (!overlay) overlays.set(into.table.name, overlay = new Map())
     const [stopped, planned] = await plan(into, write, overlay, reads)
@@ -670,7 +691,7 @@ async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string
   const { id } = mutation
   const before = await duplicate(scoped, id)
   if (before) return before
-  // An action is server code, so `write: false` stops only the writes of the browser.
+  // An action is server code, so `write: false` does not stop the writes of the definition's own actions.
   if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
   for (let attempt = 1; ; attempt++) {
     const reads: Reads = new Map()

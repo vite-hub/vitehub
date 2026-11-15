@@ -217,7 +217,7 @@ export default defineSync({
 ```
 
 - Every Sync definition uses the default Database, so all writes of the action apply in one atomic batch with its id: the issue and the comment, or neither.
-- Each write has the checks of its own definition for the same caller: `where` (without a subset), `write`, and `schema`. One refused write refuses the whole action.
+- Each write has the checks of its own definition for the same caller: `where` (without a subset), `write`, and `schema`. A definition with `write: false` refuses the write with `SYNC_READ_ONLY`. One refused write refuses the whole action.
 - `sync(name).get(key)` reads a row of that definition when the caller may see it. When another write changes that row before the batch applies, the action runs again, as for its own table.
 - The rows have the type of that definition. A name that is not a file of `server/sync/` is a type error, and throws `SYNC_UNKNOWN_NAME` at run time, which refuses the action.
 - The browsers of the other table get the change as for any write. A live stream in the same server process gets it at once.

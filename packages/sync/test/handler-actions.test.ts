@@ -35,6 +35,7 @@ const activityDdl = "CREATE TABLE `activity` (`id` text PRIMARY KEY NOT NULL, `t
 declare global {
   interface ViteHubSyncMap {
     activity: SyncDefinition<typeof activity>
+    cards: SyncDefinition<typeof cards>
   }
 }
 
@@ -207,23 +208,29 @@ describe("actions", () => {
 })
 
 describe("actions across definitions", () => {
-  /** Activity rows of the caller's teams, written by the caller. Eve may not see activity. `write` runs `race` once. */
-  async function crossSetup() {
+  /**
+   * Activity rows of the caller's teams, written by the caller. Eve may not see activity. `write` runs `race` once.
+   * `readOnly` gives both definitions `write: false`.
+   */
+  async function crossSetup({ readOnly = false } = {}) {
     let race: (() => Promise<void>) | undefined
     const activityDefinition = defineSync({
       table: activity,
       where: ({ user }) => user && user.id !== "eve" ? { teamId: teamsOf(user), by: user.id } : false,
       schema: v.looseObject({ text: v.pipe(v.string(), v.minLength(2, "Write at least 2 letters.")) }),
-      write: async ({ row }) => {
-        const run = race
-        race = undefined
-        await run?.()
-        return row.text !== "locked"
-      },
+      write: readOnly
+        ? false
+        : async ({ row }) => {
+          const run = race
+          race = undefined
+          await run?.()
+          return row.text !== "locked"
+        },
     })
     const board = defineSync({
       table: cards,
       where: ({ user }) => user ? { teamId: teamsOf(user) } : false,
+      ...(readOnly ? { write: false } : {}),
       actions: {
         /** Moves a card to another team and logs it in the same batch. */
         move: async ({ get, update, sync, refuse }, { id, teamId, noteId, text, by }: { id: string, teamId: string, noteId: string, text: string, by?: string }) => {
@@ -241,6 +248,24 @@ describe("actions across definitions", () => {
         unknown: ({ sync }) => {
           // @ts-expect-error The app has no Sync definition with this name.
           sync("nope").delete("x")
+        },
+        /** Renames a card through its own definition, by both ways. */
+        rename: ({ update, sync }, { id, title }: { id: string, title: string }) => {
+          update(id, { title })
+          sync("cards").update(id, { reviews: 1 })
+        },
+        /** Adds a note when the caller sees no note with this key. */
+        note: async ({ sync }, { id, cardId }: { id: string, cardId: string }) => {
+          if (!await sync("activity").get(id)) sync("activity").insert({ id, teamId: "a", cardId, text: "Once" })
+        },
+        /** Reads each card and each note of `ids`, and counts the read. */
+        bulk: async ({ get, update, sync }, { ids }: { ids: string[] }) => {
+          for (const id of ids) {
+            const card = await get(id)
+            if (card) update(id, { reviews: card.reviews + 1 })
+            const note = await sync("activity").get(id)
+            if (note) sync("activity").update(id, { text: `${note.text}!` })
+          }
         },
       },
     })
@@ -315,5 +340,45 @@ describe("actions across definitions", () => {
     const { body } = await app.push(dave, { ...as(held), mutations: [action("m1", "shout", { id: "n1" })] })
     expect(body.results).toEqual([{ id: "m1", status: "applied" }])
     expect(await app.activity()).toMatchObject([{ id: "n1", text: "Edited!" }])
+  })
+
+  it("runs the action again when a row that it did not find appears before its batch applies", async () => {
+    const app = await crossSetup()
+    const held = await app.start(dave)
+    app.race(async () => {
+      await app.db.insert(activity).values({ id: "n1", teamId: "a", cardId: "c1", by: "dave", text: "Other" })
+    })
+    const { body } = await app.push(dave, { ...as(held), mutations: [action("m1", "note", { id: "n1", cardId: "c1" })] })
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    expect(await app.activity()).toMatchObject([{ id: "n1", text: "Other" }])
+  })
+
+  it("refuses a write into another definition with `write: false`, and lets an action write its own read-only table", async () => {
+    const app = await crossSetup({ readOnly: true })
+    await app.db.insert(cards).values({ id: "c1", teamId: "a", title: "Card" })
+    const held = await app.start(dave)
+    const { body } = await app.push(dave, { ...as(held), mutations: [action("m1", "move", { id: "c1", teamId: "b", noteId: "n1", text: "Moved" }), action("m2", "rename", { id: "c1", title: "Renamed" })] })
+    expect(body.results).toEqual([
+      { id: "m1", status: "rejected", error: expect.objectContaining({ code: "SYNC_READ_ONLY" }) },
+      { id: "m2", status: "applied" },
+    ])
+    expect(await app.rows()).toMatchObject([{ id: "c1", teamId: "a", title: "Renamed", reviews: 1 }])
+    expect(await app.activity()).toEqual([])
+    expect((await app.db.select().from(syncMutations)).map(row => row.id)).toEqual(["m2"])
+  })
+
+  it("keeps the guard of many read rows below the D1 limit of 100 parameters", async () => {
+    const app = await crossSetup()
+    const ids = Array.from({ length: 100 }, (_, index) => `k${index}`)
+    await app.db.insert(cards).values(ids.map(id => ({ id, teamId: "a", title: id })))
+    await app.db.insert(activity).values(ids.map(id => ({ id, teamId: "b", cardId: id, by: "dave", text: "Hi" })))
+    const held = await app.start(dave)
+    const start = app.parameters.length
+    // 200 rows that are there, and 2 keys of each table that are not.
+    const { body } = await app.push(dave, { ...as(held), mutations: [action("m1", "bulk", { ids: [...ids, "gone", "lost"] })] })
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    expect((await app.rows()).every(row => row.reviews === 1)).toBe(true)
+    expect((await app.activity()).every(row => row.text === "Hi!")).toBe(true)
+    expect(Math.max(...app.parameters.slice(start))).toBeLessThanOrEqual(100)
   })
 })

@@ -53,7 +53,7 @@ What the server guarantees:
 - The change log keeps the key and the scope columns of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
 - An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them. This includes its writes to other definitions with `sync(name)`: each one has the `where`, `write`, and `schema` of its own definition for the same caller. Every definition uses the one default Database, so one batch holds them all.
 - Unknown columns and a changed primary key are refused with `SYNC_INVALID`.
-- A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams.
+- A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams. The check that the rows a write read did not change has one `json_each()` parameter for each table, also when an action reads hundreds of rows.
 - `POST` needs a JSON body of at most 1 MB from the app's own origin. Every answer has `Cache-Control: private, no-store`.
 
 Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify, definitions })` from your own route. `definitions` has the other definitions by name, for `sync(name)` in actions. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.

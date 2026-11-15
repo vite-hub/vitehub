@@ -69,7 +69,7 @@ The push had writes of another account, such as after a sign-in as another perso
 
 ### SYNC_READ_ONLY
 
-The definition has `write: false`, so the browser cannot insert, update, or delete rows. Actions still run. A `write` function that returns `false` gives `SYNC_FORBIDDEN`.
+The definition has `write: false`, so the browser cannot insert, update, or delete rows. The actions of the definition still run. An action of another definition that writes it with `sync(name)` is refused with this code. A `write` function that returns `false` gives `SYNC_FORBIDDEN`.
 
 ### SYNC_INVALID
 
