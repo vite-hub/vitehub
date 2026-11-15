@@ -628,7 +628,6 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
-  const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
     "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
@@ -642,12 +641,12 @@ async function addOptionalPeers(appDir: string) {
     "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
-    nuxt: await installedVersion(join(repoRoot, "packages/kit/node_modules/nuxt/package.json")),
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
-    "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
+    "reka-ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/reka-ui/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     "vite-doctor": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/vite-doctor/package.json")),
     vitest: agentManifest.peerDependencies!.vitest!,

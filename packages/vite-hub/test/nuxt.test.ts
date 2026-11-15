@@ -1089,6 +1089,31 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
   })
 
+  it("initializes Workflow and forwards its server transform in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    const transform = vi.fn(() => ({ code: "native-with-workflow-id" }))
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/workflow/vite",
+      configResolved,
+      transform: { filter: { code: /use workflow/ }, handler: transform },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ workflow: true, host: "vercel" }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/workflow/vite")
+    const hook = resolver?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered Workflow transform.")
+    expect(hook.filter).toEqual({ code: /use workflow/ })
+    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts", { moduleType: "ts" }])
+    expect(result).toEqual({ code: "native-with-workflow-id" })
+    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
+    await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
@@ -2880,6 +2905,20 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/"')
   })
 
+  it("leaves the Console link and the page tools script out of the pages with console.pill false", async () => {
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ console: { ...productionConsole, pill: false }, host: "node" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
+    expect(plugin).not.toContain("installConsolePageTool")
+    expect(plugin).toContain("export default function viteHubConsolePlugin() {}")
+  })
+
+  it("rejects console.pill true", async () => {
+    await expect(viteHubNuxtModule({ console: { ...productionConsole, pill: true as never }, host: "node" }, createNuxt(false).nuxt)).rejects.toThrow("console.pill must be false")
+  })
+
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {
     const application = createNuxt(auth === false)
     const applicationHandlers = [
@@ -4244,6 +4283,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(options.imports.imports).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/forms/vue", name: "useFormAction" },
+      { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
       { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
@@ -4475,6 +4516,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/agent/vue", name: "useChat" },
       { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/forms/vue", name: "useFormAction" },
+      { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
     ])
   })
 
@@ -4507,10 +4550,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(imports(withBlob.nuxt)).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
       { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/forms/vue", name: "useFormAction" },
+      { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
       { from: "vite-hub/blob/vue", name: "useMultipartUpload" },
       { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
-    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }])
+    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }])
   })
 
   it("rejects a configured Nuxt composable that would bind a different useChat", async () => {
@@ -4597,7 +4642,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       imports: { imports: Array<{ from: string; name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(6)
+    expect(options.imports.imports).toHaveLength(8)
     expect(options.imports.imports).toContainEqual({ from: "vite-hub/auth/vue", name: "useAbility" })
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({})
