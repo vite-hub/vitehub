@@ -7,14 +7,41 @@ import { agentDocsBase, dynamicAgentError } from "./agent-diagnostic-options.ts"
 export const invocationDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: agentDocsBase,
   codes: {
-    AGENT_R0609: dynamicAgentError,
-    AGENT_R0610: dynamicAgentError,
-    AGENT_R0611: dynamicAgentError,
-    AGENT_R0612: dynamicAgentError,
-    AGENT_R0613: dynamicAgentError,
-    AGENT_R0614: dynamicAgentError,
-    AGENT_R0615: dynamicAgentError,
-    AGENT_R0616: dynamicAgentError,
-    AGENT_R0617: dynamicAgentError,
+    AGENT_R0609: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0610: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0611: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0612: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0613: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0614: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0615: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0616: {
+      ...dynamicAgentError,
+      fix: "Set useAgentInvocations({ baseURL }) to the Agent Invocations route of a ViteHub app that uses the same vite-hub version as the page, and reload the page after a deploy.",
+    },
+    AGENT_R0617: {
+      ...dynamicAgentError,
+      fix: "Load the older Agent Invocations again. The request stopped before it finished.",
+    },
   },
 })
