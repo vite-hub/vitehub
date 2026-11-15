@@ -47,6 +47,7 @@ const fixtureRoutes: Record<string, string> = {
   "databases.browse": "database",
   "definitions.list": "definitions",
   "env.get": "env",
+  "env.inspect": "env-inspect",
   "invocations.capabilities": "invocation-capabilities",
   "invocations.list": "invocations",
   "kv.list": "kv",

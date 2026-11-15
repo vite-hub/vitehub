@@ -344,11 +344,11 @@ const documentsPreview = defineConsoleOperation({
 })
 
 const envGet = defineConsoleOperation({
-  description: "Read the Server Env declarations, or the status of their values.",
-  input: v.strictObject({ status: v.optional(v.boolean()) }),
+  description: "Read the Server Env declarations. `env.inspect` reads the status of their values.",
+  input: v.strictObject({}),
   kind: "read",
   name: "env.get",
-  run: async ({ status }, context) => (await import("./env.get.ts")).default(legacyEvent("env", "GET", { query: { status: status ? "1" : undefined } }, context)),
+  run: async (_input, context) => (await import("./env.get.ts")).default(legacyEvent("env", "GET", {}, context)),
   section: "env",
 })
 
