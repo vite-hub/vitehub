@@ -1089,6 +1089,31 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
   })
 
+  it("initializes Workflow and forwards its server transform in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    const transform = vi.fn(() => ({ code: "native-with-workflow-id" }))
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/workflow/vite",
+      configResolved,
+      transform: { filter: { code: /use workflow/ }, handler: transform },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ workflow: true, host: "vercel" }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/workflow/vite")
+    const hook = resolver?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered Workflow transform.")
+    expect(hook.filter).toEqual({ code: /use workflow/ })
+    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts", { moduleType: "ts" }])
+    expect(result).toEqual({ code: "native-with-workflow-id" })
+    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
+    await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
@@ -2878,6 +2903,20 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(config.publicAssets).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
     const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
     expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/"')
+  })
+
+  it("leaves the Console link and the page tools script out of the pages with console.pill false", async () => {
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ console: { ...productionConsole, pill: false }, host: "node" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
+    expect(plugin).not.toContain("installConsolePageTool")
+    expect(plugin).toContain("export default function viteHubConsolePlugin() {}")
+  })
+
+  it("rejects console.pill true", async () => {
+    await expect(viteHubNuxtModule({ console: { ...productionConsole, pill: true as never }, host: "node" }, createNuxt(false).nuxt)).rejects.toThrow("console.pill must be false")
   })
 
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {
