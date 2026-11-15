@@ -38,7 +38,6 @@
     "packages/agent/src/runtime/invocations-dev.ts": 1,
     "packages/agent/src/runtime/process.ts": 2,
     "packages/agent/src/server/console-delivery.ts": 2,
-    "packages/agent/src/server/invocation-health.ts": 1,
     "packages/agent/src/server/routes.ts": 17,
     "packages/agent/src/state/providers/cloudflare.ts": 1,
     "packages/agent/src/state/sqlite.ts": 1,
