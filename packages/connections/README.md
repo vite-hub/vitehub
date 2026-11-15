@@ -176,7 +176,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity, one event per provider request: 14 days and 10,000 events. Each limit is a positive integer. `false` keeps all activity. |
-| `actor` | none | Module whose default export is the access policy of the management API, in development and production. `vite-hub` sets it to the Console actor module when the Console shows Connections. |
+| `actor` | none | Module whose default export is the access policy of the management API, in development and production. |
 | `database` | `false` | Module that exports the SQLite Drizzle database as `db`. |
 | `management` | `false` | Mount the management API in production. Production requires an actor module, from `actor` or `management: { actor }`. |
 | `projectRoot` | Vite root | Project root for discovery. |
@@ -186,9 +186,11 @@ The actor module default-exports one of these policies:
 - A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
 - The string `"development"`. It allows a request from this machine as `user:local`, but only when `NODE_ENV` is `development`. A request from another machine, such as a LAN address of `vite --host` or a tunnel, returns `403` with `CONNECTIONS_FORBIDDEN`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
-Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
+Without an actor module, the development server uses `"development"`. `management: true` in a production build without an actor module fails.
 
 The management API belongs to the app, not to the Console. With `vite-hub`, set `connections: { management: { actor: "./server/connections-auth.ts" } }` to mount it in production. It does not need the Console.
+
+Without `management`, a production build mounts only `GET /_vitehub/connections/callback`. It finishes the sign-ins that the ViteHub Console starts with the `connections.connect` operation, from `@vite-hub/connections/operations`: the signed Console call names the manager, and the callback needs no app session. The Console's Connections section lists, connects, reconnects, and revokes Connections with `connections.list`, `connections.connect`, and `connections.revoke`.
 
 ```ts
 import { hubConnections } from "@vite-hub/connections/vite";

@@ -15,6 +15,7 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentInvocationReference, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { invocationDiagnostics } from "./invocation-diagnostics.ts"
 import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
@@ -429,6 +430,7 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
+// Internal invariant: Channel replay and the Workflow dispatch catch this conflict and skip the duplicate run.
 export class AgentInvocationClaimConflict extends Error {
   constructor() {
     super("Invocation already exists or is claimed.")
@@ -2101,7 +2103,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       throw error
     })
     const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
-    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+    if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store open", ms: STORE_OPEN_TIMEOUT_MS })
   })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
     if (openStore) {
@@ -2119,7 +2121,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
     const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
-      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store operation", ms: storeTimeoutMs })
     }
     return result as T
   }
@@ -3081,7 +3083,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
         const result = await storeOperation(operation, storeTimeoutMs, true)
-        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "cancellation store operation", ms: storeTimeoutMs })
         return result
       }
       const timestamp = new Date().toISOString()
@@ -3163,7 +3165,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
@@ -3185,7 +3187,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
@@ -3208,7 +3210,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {

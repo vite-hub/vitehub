@@ -113,7 +113,7 @@ export interface ConsoleNitroPluginOptions {
 }
 
 /** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
-export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=1"
+export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
 
 function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
   if (!pageTool) return "export default function viteHubConsolePlugin() {}"

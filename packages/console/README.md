@@ -82,6 +82,7 @@ The `/api/projects` routes and the forward need a session. They act on the sessi
 
 | Route | Use |
 | --- | --- |
+| `GET /api/account` | The person, their teams, their roles in the session's team, and its projects, with one session check. The page HTML starts this read with `<link rel="preload">` when the request has a session cookie. Signed out, it answers `401`. |
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
 | `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |

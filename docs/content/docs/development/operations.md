@@ -220,7 +220,7 @@ The RPC checks the section with `console.authorize` before it runs the operation
 In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
 
 ::warning
-A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
+A dev RPC without signed calls (`local` access, `console: { auth: false }`, or `console: true` before a `VITEHUB_CONSOLE_KEY_<NAME>` is set) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth` and set a `VITEHUB_CONSOLE_KEY_<NAME>`, so it takes only signed calls.
 ::
 
 In `vite dev`, a call without a signed user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments and Content see the same user. A build never adds it: a production call from the CLI has `context.user` unset, and a call from the Console has the person that the Console signed.

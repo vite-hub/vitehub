@@ -63,6 +63,11 @@ function toProject(row: typeof consoleProjects.$inferSelect): ConsoleProject {
   return { id: row.id, teamId: row.teamId, url: row.url, label: row.label, publicKey: row.publicKey, keyVariable: `VITEHUB_CONSOLE_KEY_${projectKeyName(row.id)}`, createdBy: row.createdBy, createdAt: row.createdAt }
 }
 
+/** The linked projects of a team, the oldest first. Listing needs no secret: it never opens a private key. */
+export async function listConsoleProjects(db: ConsoleDatabase, teamId: string): Promise<ConsoleProject[]> {
+  return (await db.select().from(consoleProjects).where(eq(consoleProjects.teamId, teamId)).orderBy(asc(consoleProjects.createdAt), asc(consoleProjects.id))).map(toProject)
+}
+
 /** The linked projects of one team. Each method sees only the projects of that team. */
 export interface ConsoleProjectStore {
   list(): Promise<ConsoleProject[]>
@@ -79,9 +84,7 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
   const inTeam = eq(consoleProjects.teamId, teamId)
   const row = async (id: string) => (await db().select().from(consoleProjects).where(and(inTeam, eq(consoleProjects.id, id))).limit(1))[0]
   return {
-    async list() {
-      return (await db().select().from(consoleProjects).where(inTeam).orderBy(asc(consoleProjects.createdAt), asc(consoleProjects.id))).map(toProject)
-    },
+    list: () => listConsoleProjects(db(), teamId),
     async get(id) {
       const found = await row(id)
       return found ? toProject(found) : undefined

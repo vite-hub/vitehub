@@ -241,7 +241,7 @@ export default defineAuth({
 })
 ```
 
-The callback receives the signed-in `user`, `session`, and request. ViteHub defines no admin role, so check your own roles or permissions here.
+The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no admin role, so check your own roles or permissions here.
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
@@ -275,16 +275,20 @@ export default defineAuth({
 `access.policy` decides who can use the app. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
-import { defineAuth, isGitHubOrgMember } from 'vite-hub/auth'
+import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'
 
 const members = ['ada@example.com', 'grace@example.com']
 
 export default defineAuth({
   access: {
     policy: {
-      allow: async ({ user, accessToken }) =>
-        (user.emailVerified && members.includes(user.email))
-        || await isGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 }),
+      allow: async ({ user, accessToken }) => {
+        if (user.emailVerified && members.includes(user.email)) return true
+        const [error] = await checkGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 })
+        // During a GitHub outage, fail the request and keep the session.
+        if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw error
+        return !error
+      },
       recheck: 300_000,
     },
   },
@@ -298,6 +302,7 @@ export default defineAuth({
 | Throws | The request fails. The session stays, and Auth asks again on the next request. |
 
 - `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
+- Use [`checkGitHubOrgMember()`](#github-organization-membership), which tells a refusal from a GitHub outage. `isGitHubOrgMember()` returns `false` for both, so a recheck while GitHub is down ends every session.
 - `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.

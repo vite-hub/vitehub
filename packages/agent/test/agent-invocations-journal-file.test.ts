@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -40,8 +40,8 @@ function invocation(id: string, status: AgentInvocationStoreCreateInput["status"
 }
 
 /** A journal written by the SQLite store. The running record keeps its appended observation in the observations table. */
-async function storeJournal() {
-  const path = join(await temporaryDirectory(), "console.sqlite")
+async function storeJournal(file?: string) {
+  const path = file ?? join(await temporaryDirectory(), "console.sqlite")
   const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
   await store.create(invocation("first", "completed"))
   await store.create(invocation("second", "running"))
@@ -52,12 +52,12 @@ async function storeJournal() {
   return path
 }
 
-async function run(args: string[], env: NodeJS.ProcessEnv = {}, sleep: (milliseconds: number) => Promise<void> = async () => undefined) {
+async function run(args: string[], env: NodeJS.ProcessEnv = {}, sleep: (milliseconds: number) => Promise<void> = async () => undefined, rootDir?: string) {
   const stdout = stream()
   const stderr = stream()
   const fetch = vi.fn()
   // SAFETY: The mock only proves that a journal file read sends no request.
-  const exitCode = await runAgentInvocationsCli(args, { env, stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep })
+  const exitCode = await runAgentInvocationsCli(args, { env, ...(rootDir ? { rootDir } : {}), stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep })
   expect(fetch).not.toHaveBeenCalled()
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
@@ -171,5 +171,41 @@ describe("vitehub agent invocations --database", () => {
     const stderr = stream()
     expect(await runWithoutSqlite(["list", "--database", path], { env: {}, stderr, stdout: stream() })).toBe(1)
     expect(stderr.output()).toBe("--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.\n")
+  })
+})
+
+describe("vitehub agent invocations without --url", () => {
+  /** A project with records in its default journal file. */
+  async function project() {
+    const rootDir = await temporaryDirectory()
+    await mkdir(join(rootDir, ".vitehub/data"), { recursive: true })
+    await storeJournal(join(rootDir, ".vitehub/data/agent-invocations.sqlite"))
+    return rootDir
+  }
+
+  it("reads the default journal file of the project for list, show, tail, export, and wait-idle", async () => {
+    const rootDir = await project()
+    const read = async (args: string[]) => await run(args, {}, async () => undefined, rootDir)
+
+    const list = await read(["list", "--json"])
+    expect(list.exitCode, list.stderr).toBe(0)
+    expect(JSON.parse(list.stdout).invocations.map((record: { id: string }) => record.id)).toEqual(["second", "first"])
+    expect(JSON.parse((await read(["show", "second", "--json"])).stdout)).toMatchObject({ id: "second", status: "running" })
+    expect(await read(["tail", "first"])).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
+    expect((await read(["export"])).stdout.trim().split("\n").map(line => JSON.parse(line).id)).toEqual(["first", "second"])
+    expect(JSON.parse((await read(["wait-idle", "--json"])).stdout)).toMatchObject({ event: "invocations.idle", stale: [{ id: "second" }] })
+  })
+
+  it("reads the file that VITEHUB_AGENT_INVOCATIONS_DATABASE_URL names", async () => {
+    const path = await storeJournal()
+    const result = await run(["list"], { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: `file:${path}` }, async () => undefined, await temporaryDirectory())
+    expect(result).toMatchObject({ exitCode: 0, stdout: "second running 2026-10-06T10:01:00.000Z\nfirst completed 2026-10-06T10:01:00.000Z\n" })
+  })
+
+  it("names --database and --url when the project has no journal file", async () => {
+    const rootDir = await temporaryDirectory()
+    const result = await run(["list"], {}, async () => undefined, rootDir)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toBe(`No Agent Invocation journal exists at ${join(rootDir, ".vitehub/data/agent-invocations.sqlite")}. Pass --database with the journal file, or --url with the app URL.\n`)
   })
 })

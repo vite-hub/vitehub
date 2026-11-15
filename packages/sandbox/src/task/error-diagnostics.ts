@@ -16,15 +16,42 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0006: dynamicError,
     SANDBOX_TASK_R0007: dynamicError,
     SANDBOX_TASK_R0008: dynamicError,
-    SANDBOX_TASK_C0001: dynamicError,
-    SANDBOX_TASK_C0002: dynamicError,
-    SANDBOX_TASK_C0003: dynamicError,
-    SANDBOX_TASK_C0004: dynamicError,
-    SANDBOX_TASK_C0005: dynamicError,
-    SANDBOX_TASK_C0006: dynamicError,
-    SANDBOX_TASK_C0007: dynamicError,
-    SANDBOX_TASK_C0008: dynamicError,
-    SANDBOX_TASK_C0009: dynamicError,
+    SANDBOX_TASK_C0001: {
+      ...dynamicError,
+      fix: "Write each array item in the `defineSandboxTask()` options as a literal value, without spread items or empty slots.",
+    },
+    SANDBOX_TASK_C0002: {
+      ...dynamicError,
+      fix: "Write each object in the `defineSandboxTask()` options with `key: value` pairs only, without spread, shorthand properties, methods, or accessors.",
+    },
+    SANDBOX_TASK_C0003: {
+      ...dynamicError,
+      fix: "Write each key in the `defineSandboxTask()` options as a name or a string literal, such as `env: { API_URL: \"https://example.com\" }`. Do not use computed or numeric keys.",
+    },
+    SANDBOX_TASK_C0004: {
+      ...dynamicError,
+      fix: "Write each option value in `defineSandboxTask()` as a literal: a string, number, boolean, `null`, array, or object. Do not use variables, calls, or `process.env` reads.",
+    },
+    SANDBOX_TASK_C0005: {
+      ...dynamicError,
+      fix: "Pass one object literal to `defineSandboxTask()` in the default export, such as `export default defineSandboxTask({ handler })`.",
+    },
+    SANDBOX_TASK_C0006: {
+      ...dynamicError,
+      fix: "Write each option of `defineSandboxTask()` as `key: value` with a name or string key, without spread, computed keys, or accessors. Only `handler` can be a shorthand property or a method.",
+    },
+    SANDBOX_TASK_C0007: {
+      ...dynamicError,
+      fix: "Write `timeout`, `env`, and `project` in `defineSandboxTask()` as `key: value` with a literal value. Only `handler` can be a method.",
+    },
+    SANDBOX_TASK_C0008: {
+      ...dynamicError,
+      fix: "Set `project` in `defineSandboxTask()` to the literal `true` or `false`, or remove it to detect project use automatically.",
+    },
+    SANDBOX_TASK_C0009: {
+      ...dynamicError,
+      fix: "Add a `handler` function to `defineSandboxTask()`, such as `defineSandboxTask({ handler: async (payload) => { ... } })`.",
+    },
     SANDBOX_TASK_R0009: dynamicError,
     SANDBOX_TASK_R0010: dynamicError,
     SANDBOX_TASK_R0011: dynamicError,
@@ -63,10 +90,22 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0044: dynamicError,
     SANDBOX_TASK_R0045: dynamicError,
     SANDBOX_TASK_R0046: dynamicError,
-    SANDBOX_TASK_C0010: dynamicError,
-    SANDBOX_TASK_C0011: dynamicError,
-    SANDBOX_TASK_C0012: dynamicError,
-    SANDBOX_TASK_C0013: dynamicError,
+    SANDBOX_TASK_C0010: {
+      ...dynamicError,
+      fix: "Set `handler` in `defineSandboxTask()` to a function, such as `handler: async (payload) => { ... }`.",
+    },
+    SANDBOX_TASK_C0011: {
+      ...dynamicError,
+      fix: "Pass one options object to `defineSandboxTask()`, such as `defineSandboxTask({ handler })`.",
+    },
+    SANDBOX_TASK_C0012: {
+      ...dynamicError,
+      fix: "Use only the `handler`, `timeout`, `env`, and `project` options in `defineSandboxTask()`. Remove the other keys that the message lists.",
+    },
+    SANDBOX_TASK_C0013: {
+      ...dynamicError,
+      fix: "Install TypeScript in the app, for example with `pnpm add -D typescript`.",
+    },
     SANDBOX_TASK_C0014: {
       ...dynamicError,
       fix: "Rename `run` to `handler`: `defineSandboxTask({ handler })`. Run `npx @vite-hub/codemods define-forms` to rename it in every Sandbox Task.",
