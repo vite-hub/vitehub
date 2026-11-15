@@ -2,6 +2,8 @@ import * as v from "valibot";
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts";
 
+import type { Diagnostic } from "nostics";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export interface LogEntry {
   id: string;
@@ -74,7 +76,7 @@ export interface LogSource {
 }
 
 /** The error that a `LogSource` throws when a cursor points to events it no longer keeps: `LOGS_CURSOR_EXPIRED`. */
-export function logCursorExpiredError() {
+export function logCursorExpiredError(): Diagnostic {
   return viteHubErrorDiagnostics.LOGS_CURSOR_EXPIRED();
 }
 

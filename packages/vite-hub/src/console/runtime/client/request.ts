@@ -4,7 +4,7 @@ import { Diagnostic } from "nostics"
 import { consoleRpcHeader } from "../rpc"
 import { projectFetch } from "./project"
 
-import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
+import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode, type ConsoleDiagnosticData } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/_vitehub/api/"
@@ -236,7 +236,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
 }
 
 /** A fetch failure known to originate at the network boundary: `CONSOLE_UNAVAILABLE` with the message and cause of the fetch error. */
-export function consoleNetworkError(cause: unknown) {
+export function consoleNetworkError(cause: unknown): Diagnostic<ConsoleDiagnosticData> {
   return Object.assign(consoleDiagnostic("CONSOLE_UNAVAILABLE", cause instanceof Error ? cause.message : "Console network request failed."), { cause })
 }
 
