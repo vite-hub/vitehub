@@ -56,7 +56,8 @@ function wrapCloudflareWorkflowStep(
         }
       })))
     },
-    ...(step.sleep ? { sleep: async (name: string, duration: string) => await step.sleep!(name, duration) } : {}),
+    ...(step.sleep ? { sleep: async (name: string, milliseconds: number) => await step.sleep!(name, milliseconds) } : {}),
+    ...(step.sleepUntil ? { sleepUntil: async (name: string, date: Date) => await step.sleepUntil!(name, date) } : {}),
   }
 }
 

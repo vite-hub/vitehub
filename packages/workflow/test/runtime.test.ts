@@ -1241,8 +1241,8 @@ describe("workflow runtime", () => {
         default: {
           // A folder Workflow orchestrator: only it may sleep.
           options: { rootStep: false },
-          handler: async (payload, { step }) => {
-            await step?.sleep?.("settle", "1 second")
+          handler: async (payload, context) => {
+            await context.sleep("1 second")
             return { payload }
           },
         },
@@ -1270,7 +1270,7 @@ describe("workflow runtime", () => {
       })
       expect(completed?.result).toEqual({ payload: { message: "hello" } })
     })
-    expect(openWorkflowMock.sleepCalls).toEqual([["settle", "1 second"]])
+    expect(openWorkflowMock.sleepCalls).toEqual([["sleep-1", "1000ms"]])
   })
 
   it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
