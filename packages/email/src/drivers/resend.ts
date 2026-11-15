@@ -243,17 +243,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   const request = configuredFetch ?? globalThis.fetch;
   if (typeof request !== "function")
     throw emailProviderError("resend", "NOT_CONFIGURED", "fetch is unavailable.");
-  let endpoint: string;
+  let url: URL;
   try {
     const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
-    const url = new URL(configuredEndpoint ?? "https://api.resend.com");
-    if (url.protocol !== "http:" && url.protocol !== "https:")
-      // Internal invariant: caught below and thrown again as a coded Resend provider error.
-      throw new TypeError("Unsupported protocol");
-    if (url.username || url.password || url.search || url.hash)
-      // Internal invariant: caught below and thrown again as a coded Resend provider error.
-      throw new TypeError("Unsupported URL components");
-    endpoint = url.href.replace(/\/+$/, "");
+    url = new URL(configuredEndpoint ?? "https://api.resend.com");
   } catch (cause) {
     throw emailProviderError(
       "resend",
@@ -262,6 +255,15 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       { cause },
     );
   }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw emailProviderError("resend", "NOT_CONFIGURED", "endpoint must be a valid HTTP or HTTPS URL.");
+  const endpoint = url.href.replace(/\/+$/, "");
   return {
     name: "resend",
     async send(message, context) {

@@ -1,3 +1,5 @@
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
   readonly body: {
@@ -156,8 +158,7 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
-  // Internal invariant: the record comes from serializeResponse(). deserializeResponse() documents this TypeError, and its tests check the class.
-  if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
+  if (!isSerializedResponse(value)) throw runtimeErrorDiagnostics.RUNTIME_SERIALIZED_RESPONSE_INVALID()
   if (value.type !== undefined) return createStatusZeroResponse(value.type, value.url)
   const bytes = base64ToBytes(value.body.data)
   const body = value.body.isNull === true || ([204, 205, 304].includes(value.status) && bytes.length === 0) ? null : bytes

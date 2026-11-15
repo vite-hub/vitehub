@@ -42,17 +42,20 @@ function addTagCounts(target: TagCounts, counts: TagCounts) {
   }
 }
 
-/** Read ICU arguments and rich-text components from the messages that Lingui will render. */
-function messagePlaceholders(message: string) {
+/** Read ICU arguments and rich-text components from the messages that Lingui will render, or the tag problem. */
+function messagePlaceholders(message: string): { names: Set<string>, tags: TagCounts } | { problem: string } {
   const names = new Set<string>()
+  let problem: string | undefined
   const visit = (tokens: CompiledMessage, parents: string[]): { parents: string[], tags: TagCounts } => {
     const tags: TagCounts = new Map()
     for (const token of tokens) {
       if (typeof token === "string") {
         for (const [, closing, name, empty] of token.matchAll(/<(\/?)(\d+)(\/?)>/g)) {
           if (closing) {
-            // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
-            if (empty || parents.pop() !== name) throw new Error(`Unpaired rich-text tag </${name}>`)
+            if (empty || parents.pop() !== name) {
+              problem = `Unpaired rich-text tag </${name}>`
+              return { parents, tags }
+            }
           }
           else {
             const placeholder = empty ? `Rich-text tag <${name}/>` : `Rich-text tag <${name}>...</${name}>`
@@ -70,8 +73,11 @@ function messagePlaceholders(message: string) {
         for (const branch of Object.values(token[2] as CompiledIcuChoices)) {
           if (!Array.isArray(branch)) continue
           const result = visit(branch, [...parents])
-          // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
-          if (next && next.join(",") !== result.parents.join(",")) throw new Error("Unbalanced rich-text tags across ICU choices")
+          if (problem) return { parents, tags }
+          if (next && next.join(",") !== result.parents.join(",")) {
+            problem = "Unbalanced rich-text tags across ICU choices"
+            return { parents, tags }
+          }
           next = result.parents
           branches.push(result.tags)
         }
@@ -89,8 +95,8 @@ function messagePlaceholders(message: string) {
     return { parents, tags }
   }
   const result = visit(compileMessageOrThrow(message), [])
-  // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
-  if (result.parents.length) throw new Error("Unclosed rich-text tag")
+  if (problem) return { problem }
+  if (result.parents.length) return { problem: "Unclosed rich-text tag" }
   return { names, tags: result.tags }
 }
 
@@ -98,7 +104,9 @@ function messagePlaceholders(message: string) {
 export function validateMessagePlaceholders(source: string, text: string): ValidationIssue[] {
   try {
     const required = messagePlaceholders(source)
+    if ("problem" in required) return [{ code: "brace", message: `Invalid message: ${required.problem}` }]
     const translated = messagePlaceholders(text)
+    if ("problem" in translated) return [{ code: "brace", message: `Invalid message: ${translated.problem}` }]
     return [
       ...[...required.names].filter(name => !translated.names.has(name)).map((name): ValidationIssue => ({ code: "missing-placeholder", message: `${name} is missing` })),
       ...[...translated.names].filter(name => !required.names.has(name)).map((name): ValidationIssue => ({ code: "unknown-placeholder", message: `Unknown ${name}` })),

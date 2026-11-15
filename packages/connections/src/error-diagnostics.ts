@@ -88,14 +88,15 @@ const codes = {
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "redirect" | "token-request" | "verify", provider?: string, status?: number }): string => {
       if (problem === "invalid-json") return "Provider returned invalid JSON."
+      if (problem === "redirect") return `The provider answered with a redirect${status ? ` (${status})` : ""}. ViteHub does not follow redirects of token, revocation, and model requests.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
       return `Provider rejected ${action} with ${status}${message ? `: ${message}` : "."}`
     },
-    fix: "Check the provider status and the account permissions, then try again.",
+    fix: "Check the provider status and the account permissions, and use provider endpoint URLs that do not redirect. Then try again.",
   },
   CONNECTIONS_UNAVAILABLE: {
     why: ({ connection }: { connection: string }): string => `Connection "${connection}" has a token mutation in progress. Try again.`,
