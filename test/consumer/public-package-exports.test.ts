@@ -148,6 +148,7 @@ async function requiredPeerSpecs() {
     ...browserCatalog,
     ...chatCatalog,
     ...await catalogDependencySpecs("nuxt", ["nuxt"]),
+    ...await catalogDependencySpecs("runtime", ["zod"]),
     ...vercelCatalog,
     ...workflowCatalog,
     "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
@@ -951,7 +952,7 @@ describe("published declaration diagnostics", () => {
       "@vite-hub/agent",
       "vite",
       ["@types/json-schema", "@types/mdast"],
-      ["@agntn/web", "@chat-adapter/discord", "@vercel/functions", "evalite", "vite"],
+      ["@agntn/web", "@chat-adapter/discord", "@vercel/functions", "evalite", "vite", "zod"],
       {},
       { ...peerSpecs, evalite: "1.0.0-beta.16", vite: "8.0.8" },
     )
@@ -960,6 +961,7 @@ describe("published declaration diagnostics", () => {
       "@agntn/web": peerSpecs["@agntn/web"],
       "@chat-adapter/discord": peerSpecs["@chat-adapter/discord"],
       "@vercel/functions": peerSpecs["@vercel/functions"],
+      zod: expect.any(String),
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
