@@ -194,7 +194,7 @@ describe.each([
     const options = { maxAge: 3600, name: "overlap", tags: ["posts"], waitUntil }
     const fn = defineCachedFunction(compute, options)
     const app = new H3().get("/", defineCachedHandler(compute, options))
-    const call = () => kind === "function" ? fn() : app.fetch(new Request("http://test/")).then(response => response.text())
+    const call = async () => kind === "function" ? fn() : (await app.fetch(new Request("http://test/"))).text()
     const first = call()
     await running
     tick()
