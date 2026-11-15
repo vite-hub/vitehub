@@ -1,4 +1,5 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { invariantError } from "./invariant.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "./inspect.ts"
 
@@ -954,12 +955,10 @@ export function isViteHubConsoleDocumentEditorSection<TOptions>(
 function checkedServerExport(section: { id: string }, value: ViteHubConsoleServerExport, role: string): ViteHubConsoleServerExport {
   const { export: name, module } = value
   if (!isRuntimeModule(module)) {
-    // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
+    throw invariantError(`Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
   }
   if (!runtimeExportPattern.test(name)) {
-    // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)
+    throw invariantError(`Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)
   }
   return { export: name, module }
 }
@@ -989,8 +988,7 @@ export function describeOperationView(view: ViteHubConsoleOperationView, section
   // The list and each row action call an operation by name.
   for (const operation of [view.operation, ...(view.actions ?? []).map(action => action.operation)]) {
     if (String(operation) !== operation || !operationNamePattern.test(operation)) {
-      // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-      throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(operation)}.`)
+      throw invariantError(`A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(operation)}.`)
     }
   }
   for (const column of view.columns) {
@@ -1005,8 +1003,7 @@ export function describeOperationView(view: ViteHubConsoleOperationView, section
 /** Returns the serializable part of a contribution. */
 export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleSectionContribution<TOptions>): ViteHubConsoleSectionDescriptor {
   if (!isViteHubConsoleSectionId(section.id)) {
-    // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-    throw new TypeError(`[vitehub] Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
+    throw invariantError(`Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }), kind: "record-table", notice: section.view.notice }
@@ -1023,21 +1020,17 @@ const sectionPageViewKinds: ReadonlySet<string> = new Set<ViteHubConsoleSectionP
 function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsoleSectionPage[] {
   const name = JSON.stringify(section.id)
   if (section.view.kind !== "document-editor") {
-    // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-    throw new TypeError(`[vitehub] Console section ${name} declares pages, but only document editor sections render pages.`)
+    throw invariantError(`Console section ${name} declares pages, but only document editor sections render pages.`)
   }
   const ids = new Set<string>()
   const pages = (section.pages ?? []).map((page) => {
     if (!isViteHubConsoleSectionId(page.id)) {
-      // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-      throw new TypeError(`[vitehub] Console section ${name} page id ${JSON.stringify(page.id)} must be a lowercase route segment.`)
+      throw invariantError(`Console section ${name} page id ${JSON.stringify(page.id)} must be a lowercase route segment.`)
     }
-    // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-    if (ids.has(page.id)) throw new TypeError(`[vitehub] Console section ${name} declares the page ${JSON.stringify(page.id)} twice.`)
+    if (ids.has(page.id)) throw invariantError(`Console section ${name} declares the page ${JSON.stringify(page.id)} twice.`)
     ids.add(page.id)
     if (!sectionPageViewKinds.has(page.view.kind)) {
-      // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-      throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} has an unknown view ${JSON.stringify(page.view.kind)}.`)
+      throw invariantError(`Console section ${name} page ${JSON.stringify(page.id)} has an unknown view ${JSON.stringify(page.view.kind)}.`)
     }
     const described: ViteHubConsoleSectionPage = { icon: page.icon, id: page.id, label: page.label, view: { kind: page.view.kind } }
     if (page.index) described.index = true
@@ -1045,15 +1038,13 @@ function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsole
     if (group) described.group = group
     if (page.requires?.length) {
       if (!page.requires.every(isViteHubConsoleSectionId)) {
-        // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-        throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} requires section ids.`)
+        throw invariantError(`Console section ${name} page ${JSON.stringify(page.id)} requires section ids.`)
       }
       described.requires = [...page.requires]
     }
     return described
   })
-  // Internal invariant: only ViteHub owner packages contribute Console sections, and their own tests check them.
-  if (pages.filter(page => page.index).length > 1) throw new TypeError(`[vitehub] Console section ${name} has more than one index page.`)
+  if (pages.filter(page => page.index).length > 1) throw invariantError(`Console section ${name} has more than one index page.`)
   return pages
 }
 

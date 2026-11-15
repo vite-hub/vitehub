@@ -143,6 +143,14 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
       fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
     },
+    INTERNAL_SQLITE_ARGUMENT_INVALID: {
+      why: ({ value }: { value: "non-finite" | "undefined" }) => value === "undefined" ? "undefined cannot be passed as argument to the database" : "Only finite numbers (not Infinity or NaN) can be passed as arguments",
+      fix: "Pass query arguments as finite numbers, strings, booleans, bigints, dates, byte arrays, or null. Replace undefined with null, and check numbers with `Number.isFinite()` before the query.",
+    },
+    INTERNAL_SQLITE_INTEGER_UNSAFE: {
+      why: "Received integer which cannot be safely represented as a JavaScript number",
+      fix: "Create the client with `intMode: \"bigint\"` or `intMode: \"string\"`, or read the column with `CAST(column AS TEXT)` in the query.",
+    },
     INTERNAL_VALIBOT_JSON_SCHEMA_TARGET_UNSUPPORTED: {
       why: ({ target }: { target: string }) => `[vitehub] Valibot cannot convert a schema to the ${target} JSON Schema target.`,
       fix: "Ask for the `draft-07`, `draft-2020-12`, or `openapi-3.0` JSON Schema target, or pass one of them as `withValibotJsonSchema(schema, { target })`.",

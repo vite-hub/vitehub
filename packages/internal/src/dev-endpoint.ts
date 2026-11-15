@@ -1,4 +1,5 @@
 import { redactInspectionText } from "./inspect.ts"
+import { invariant } from "./invariant.ts"
 import { isViteHubSecretEqual } from "./secret.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -96,10 +97,7 @@ function rejectDevRequest(rejection: Response): ViteHubDevRequestCheck {
  * grant. Call it in the operation that the grant authorizes.
  */
 export function assertViteHubDevRequestGrant(grant: ViteHubDevRequestGrant, request: IncomingMessage | Request): void {
-  if (devRequestGrants.get(grant) !== request) {
-    // Internal invariant: owner packages pass the grant of the dev request that they checked.
-    throw new TypeError("[vitehub] This dev-only operation requires the grant of a checked dev request.")
-  }
+  invariant(devRequestGrants.get(grant) === request, "owner packages pass the grant of the dev request that they checked")
 }
 
 const fileOrExtensionProtocol = /^(?:file|.+-extension):/i
@@ -530,10 +528,7 @@ export interface ViteHubNitroDevHandlerSource {
  * contains it.
  */
 export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSource): string {
-  if (!/^[A-Za-z_$][\w$]*$/.test(source.export)) {
-    // Internal invariant: owner packages pass a literal export name.
-    throw new TypeError(`[vitehub] Nitro dev handler export ${JSON.stringify(source.export)} must be an identifier.`)
-  }
+  invariant(/^[A-Za-z_$][\w$]*$/.test(source.export), `owner packages pass an identifier as the Nitro dev handler export (${JSON.stringify(source.export)})`)
   const contextModules = Object.entries(source.contextModules ?? {})
   const context = contextModules.length
     ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`
