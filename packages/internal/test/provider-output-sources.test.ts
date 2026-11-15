@@ -78,6 +78,34 @@ it("copies published sources into deployment artifacts and rewrites their runtim
   await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
 })
 
+it.each(["json", "single", "template", "file-url"] as const)("publishes Workspace paths containing spaces (%s)", async (form) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-spaced-provider-sources-"))
+  tempDirs.push(rootDir)
+  const publishedSourcesDir = join(rootDir, "sources")
+  const workspaceDir = join(publishedSourcesDir, "0", "My App", "My Workspace")
+  const deployedSourcesDir = join(rootDir, "deployed")
+  const bundleFile = join(rootDir, "index.mjs")
+  await mkdir(workspaceDir, { recursive: true })
+  await writeFile(join(workspaceDir, "context.md"), "deployed\n")
+  const literals = {
+    "file-url": JSON.stringify(pathToFileURL(workspaceDir).href),
+    "json": JSON.stringify(workspaceDir),
+    "single": `'${workspaceDir}'`,
+    "template": `\`${workspaceDir}/\${name}\``,
+  }
+  const literal = literals[form]
+  await writeFile(bundleFile, `const workspace = ${literal}\n`)
+
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{ files: [bundleFile], runtimeSourcesDir: "./deployed", sourcesDir: deployedSourcesDir }],
+    publishedSourcesDir,
+  })
+
+  await expect(readFile(join(deployedSourcesDir, "0", "My App", "My Workspace", "context.md"), "utf8"))
+    .resolves.toBe("deployed\n")
+  await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
+})
+
 it("copies only the published sources that deployment files name, without dotenv files", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deployed-provider-source-files-"))
   tempDirs.push(rootDir)

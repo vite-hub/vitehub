@@ -6,7 +6,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createImportPath } from "./paths.ts"
-import { maskLiterals, scanModule } from "./scan-module.ts"
+import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -98,17 +98,26 @@ export async function rebasePublishedProviderSourceLinks(
 function referencedProviderSourcePaths(contents: string, publishedSourcesDir: string): string[] {
   const prefixes = [
     { decode: (path: string) => path, prefix: publishedSourcesDir },
-    { decode: (path: string) => path, prefix: JSON.stringify(publishedSourcesDir).slice(1, -1) },
-    { decode: decodeURIComponent, prefix: pathToFileURL(publishedSourcesDir).href },
+    { decode: (path: string) => decodeURIComponent(path.split(/[?#]/, 1)[0]!), prefix: pathToFileURL(publishedSourcesDir).href },
   ]
+  const literals: string[] = []
+  walk(scanModule(contents).program, (node) => {
+    if (node.type === "Literal" && typeof node.value === "string") literals.push(node.value)
+    // Only the first quasi names a known path when code appends a computed suffix.
+    if (node.type === "TemplateLiteral") {
+      const prefix = node.quasis[0]?.value.cooked
+      if (prefix !== null && prefix !== undefined) literals.push(prefix)
+    }
+  })
   const references = new Set<string>()
-  for (const { decode, prefix } of prefixes) {
-    for (let index = contents.indexOf(prefix); index !== -1; index = contents.indexOf(prefix, index + prefix.length)) {
-      // A literal path ends at a quote or a blank. Code can append a computed suffix, so stop at `${`, `?`, and `#` too.
-      const suffix = /^[^"'`\s?#]*/.exec(contents.slice(index + prefix.length))![0].split("${", 1)[0]!
-      if (suffix && !/^[\\/]/.test(suffix)) continue
-      const reference = resolve(publishedSourcesDir, ...decode(suffix).split(/[\\/]+/).filter(Boolean))
-      if (pathContains(publishedSourcesDir, reference) && existsSync(reference)) references.add(reference)
+  for (const literal of literals) {
+    for (const { decode, prefix } of prefixes) {
+      for (let index = literal.indexOf(prefix); index !== -1; index = literal.indexOf(prefix, index + prefix.length)) {
+        const suffix = literal.slice(index + prefix.length)
+        if (suffix && !/^[\\/]/.test(suffix)) continue
+        const reference = resolve(publishedSourcesDir, ...decode(suffix).split(/[\\/]+/).filter(Boolean))
+        if (pathContains(publishedSourcesDir, reference) && existsSync(reference)) references.add(reference)
+      }
     }
   }
   return [...references].filter(reference => ![...references].some(parent => parent !== reference && pathContains(parent, reference)))
