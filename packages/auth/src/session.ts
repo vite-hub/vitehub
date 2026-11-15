@@ -1,5 +1,6 @@
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { readSetCookies } from "./set-cookie.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 interface BetterAuthGetSessionInput {
@@ -17,10 +18,25 @@ export interface AuthenticationSessionSnapshot {
   userId: string
 }
 
+/** The session of a request, and the cookies that Better Auth set while it read it. */
+export interface AuthenticationSessionRead {
+  session: AuthenticationSessionSnapshot | null
+  /**
+   * The `Set-Cookie` values of the read: the renewed session cookie after `session.updateAge`, a refreshed cookie
+   * cache, or the deletion of an ended session. The response to the request must carry them, else the browser keeps
+   * the old cookies and loses the session when they expire.
+   */
+  setCookies: string[]
+}
+
+// Better Auth keeps the cookies that an endpoint set before it threw an `APIError`, such as the deletion of an ended
+// session, on the error under this key of better-call.
+const apiErrorHeaders = Symbol.for("better-call:api-error-headers")
+
 export async function getAuthenticationSession(
   auth: unknown,
   input: BetterAuthGetSessionInput,
-): Promise<AuthenticationSessionSnapshot | null> {
+): Promise<AuthenticationSessionRead> {
   const [api, getSession] = await readProvider(() => {
     const api = readRecordProperty(auth, "api")
     return [api, api && readProperty(api, "getSession")] as const
@@ -31,20 +47,22 @@ export async function getAuthenticationSession(
 
   const value = await readProvider(async () => {
     try {
-      return await Reflect.apply(getSession, api, [input])
+      return await Reflect.apply(getSession, api, [{ ...input, returnHeaders: true }])
     }
     catch (cause) {
       // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`.
-      if (isUnauthorizedApiError(cause)) return null
+      if (isUnauthorizedApiError(cause)) {
+        const headers: unknown = Reflect.get(cause, apiErrorHeaders)
+        return { headers: headers instanceof Headers ? headers : undefined, response: null }
+      }
       throw cause
     }
   })
-  if (value === null) return null
-  const session = await readProvider(() => resolveAuthenticationSession(value))
-  if (!session) {
+  const read = await readProvider(() => resolveAuthenticationSessionRead(value))
+  if (!read) {
     throw authErrorDiagnostics.AUTH_R0012({ message: "Better Auth returned an invalid session response." })
   }
-  return session
+  return read
 }
 
 async function readProvider<T>(read: () => T | PromiseLike<T>): Promise<T> {
@@ -62,6 +80,17 @@ function readRecordProperty(value: unknown, property: string): Record<string, un
   return isRecord(nested) ? nested : undefined
 }
 
+/** Reads the `{ headers, response }` result of `getSession({ returnHeaders: true })`. */
+function resolveAuthenticationSessionRead(value: unknown): AuthenticationSessionRead | undefined {
+  if (!isRecord(value) || !("response" in value)) return
+  const { headers, response } = value
+  if (headers !== undefined && headers !== null && !(headers instanceof Headers)) return
+  const setCookies = headers ? readSetCookies(headers) : []
+  if (response === null) return { session: null, setCookies }
+  const session = resolveAuthenticationSession(response)
+  return session && { session, setCookies }
+}
+
 function resolveAuthenticationSession(value: unknown): AuthenticationSessionSnapshot | undefined {
   if (!isRecord(value)) return
   const session = value.session
@@ -77,7 +106,7 @@ function resolveAuthenticationSession(value: unknown): AuthenticationSessionSnap
   }
 }
 
-function isUnauthorizedApiError(error: unknown): boolean {
+function isUnauthorizedApiError(error: unknown): error is object {
   if (typeof error !== "object" || error === null) return false
   try {
     if (Reflect.get(error, "name") !== "APIError" || Reflect.get(error, "statusCode") !== 401) return false
