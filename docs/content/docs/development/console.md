@@ -153,6 +153,8 @@ pnpm vitehub project info --url https://app.example.com
 
 `protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
+The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.
+
 ## Inspect environment declarations
 
 Env searches declared Server Env variables and filters them by source. A variable shows its provider, secret flag, and whether it is required or has a default.
