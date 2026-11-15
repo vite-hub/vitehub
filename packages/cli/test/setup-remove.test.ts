@@ -220,6 +220,20 @@ describe("vitehub remove", () => {
     expect(json).toMatchObject({ status: "planned", turnedOff: ["connections"], uninstall: { devPackages: [], packages: [] } })
   })
 
+  it("refuses to remove Console when retained source uses its Agent integration packages", async () => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ preset: "netlify", agent: true, console: { auth: false } }'),
+      "client.ts": 'import { createClient } from "@libsql/client"\n',
+    })
+
+    const refused = await remove(["console", "--yes", "--no-uninstall"], root)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toContainEqual({ feature: "console", file: "client.ts", line: 1, module: "@libsql/client" })
+  })
+
   it("keeps an edited starter and refuses until --force", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare" }`) })
     expect((await add(["queue", "--name", "welcome", "--no-install"], root)).exitCode).toBe(0)
