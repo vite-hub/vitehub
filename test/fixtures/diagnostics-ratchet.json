@@ -966,5 +966,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/sandbox/src/internal/cloudflare-transport.ts": 1
+  }
 }
