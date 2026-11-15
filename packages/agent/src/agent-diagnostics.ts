@@ -432,6 +432,27 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0929",
   "AGENT_R0938",
   "AGENT_R1039",
+  // Named codes that replace TypeErrors keep their input-error status.
+  "AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID",
+  "AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY",
+  "AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED",
+  "AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID",
+  "AGENT_CHANNEL_PULL_OPTIONS_INVALID",
+  "AGENT_CHANNEL_PULL_PAGE_INVALID",
+  "AGENT_CHANNEL_STATE_DURATION_INVALID",
+  "AGENT_CHANNEL_STATE_TRANSACTION_INVALID",
+  "AGENT_CHANNEL_STATE_TRANSACTION_NESTED",
+  "AGENT_CONNECTOR_ADAPTER_UNSUPPORTED",
+  "AGENT_CONNECTOR_RECIPIENT_INVALID",
+  "AGENT_CONNECTOR_RECIPIENT_MISSING",
+  "AGENT_CONNECTOR_REPLACE_INVALID",
+  "AGENT_CONNECTOR_REPLACE_THREAD_ROOT",
+  "AGENT_CONNECTOR_THREAD_KEY_MISSING",
+  "AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID",
+  "AGENT_CONNECTOR_THREAD_UNSUPPORTED",
+  "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -2161,6 +2182,137 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
+    },
+    // Named errors. Keep these codes in alphabetical order.
+    AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID: {
+      why: "[vitehub] channelDelivery({ channel }) requires a Channel client, for example useChannel(\"teams\").",
+      fix: "Pass a Channel client with a `send()` method to `channelDelivery({ channel })`, such as `useChannel(\"teams\")`.",
+    },
+    AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires formatted text to be non-empty.`,
+      fix: "Return non-empty text from the `channelDelivery({ format })` function.",
+    },
+    AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID: {
+      why: "[vitehub] channelDelivery({ maxCalls }) must be a positive integer.",
+      fix: "Set `channelDelivery({ maxCalls })` to an integer of 1 or more, or omit it to allow one call.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID: {
+      why: "[vitehub] channelDelivery({ reminder: { instruction } }) must be a non-empty string.",
+      fix: "Set `channelDelivery({ reminder: { instruction } })` to non-empty text, or omit it to use the default reminder.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED: {
+      why: "[vitehub] channelDelivery({ reminder }) requires required: true.",
+      fix: "Add `required: true` to `channelDelivery({ reminder })`, or remove `reminder`.",
+    },
+    AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID: {
+      why: "[vitehub] channelDelivery({ reminder: { turns } }) must be a positive integer.",
+      fix: "Set `channelDelivery({ reminder: { turns } })` to an integer of 1 or more.",
+    },
+    AGENT_CHANNEL_MESSAGE_ID_MISSING: {
+      why: ({ label, root }: { label: string, root: boolean }) => root ? `[vitehub] ${label} did not return a root message ID.` : `[vitehub] ${label} did not return a message ID.`,
+      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created.",
+    },
+    AGENT_CHANNEL_PULL_CURSOR_INVALID: {
+      why: ({ key, cursor, next, kind }: { key: string, cursor: string | number, next: string | number | undefined, kind: "back" | "gap" | "repeated" | "stuck" }) => kind === "gap"
+        ? `[vitehub] context.pull("${key}") has a gap: expected cursor ${cursor}, received ${next}.`
+        : kind === "back"
+          ? `[vitehub] context.pull("${key}") moved its cursor back from ${cursor} to ${next}.`
+          : kind === "stuck"
+            ? `[vitehub] context.pull("${key}") reported more items without advancing its cursor ${cursor}.`
+            : `[vitehub] context.pull("${key}") repeated cursor ${next}.`,
+      fix: "Make the `context.pull()` fetch function start each page at the given cursor, move `next` forward, and return `more: false` on the last page.",
+    },
+    AGENT_CHANNEL_PULL_CURSOR_TYPE_CHANGED: {
+      why: ({ key, cursorType }: { key: string, cursorType: string }) => `[vitehub] The saved cursor of context.pull("${key}") is not a ${cursorType}.`,
+      fix: "Keep `initialCursor` of `context.pull()` the same type as the saved cursor, or pass a new `key` to start a new cursor.",
+    },
+    AGENT_CHANNEL_PULL_OPTIONS_INVALID: {
+      why: ({ key, need }: { key: string, need: "a fetch function" | "a non-empty key" | "a string or finite number initialCursor" | "the trigger that admits its items" }) => key ? `[vitehub] context.pull("${key}") needs ${need}.` : `[vitehub] context.pull() needs ${need}.`,
+      fix: "Pass `key`, `initialCursor` (a string or a number), `fetch`, and `trigger` to `context.pull({ key, initialCursor, fetch, trigger })`.",
+    },
+    AGENT_CHANNEL_PULL_PAGE_INVALID: {
+      why: ({ key, cursorType }: { key: string, cursorType: string }) => `[vitehub] context.pull("${key}") fetch must return { items, next, more } with a ${cursorType} next cursor.`,
+      fix: "Return `{ items, next, more }` from the `context.pull()` fetch function, with `next` of the same type as `initialCursor`.",
+    },
+    AGENT_CHANNEL_PULL_STATE_MISSING: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Channel trigger "${triggerId}" can pull only with the Channel's State. Run it through the Channel's webhook route.`,
+      fix: "Call `context.pull()` only in a trigger that runs from the Channel webhook route, where the Channel State is bound.",
+    },
+    AGENT_CHANNEL_STATE_DURATION_INVALID: {
+      why: ({ name, allowZero }: { name: "ttlMs" | "waitMs", allowZero: boolean }) => `[vitehub] channelState.transaction() ${name} must be a ${allowZero ? "non-negative" : "positive"} finite number.`,
+      fix: "Pass `ttlMs` as a number above 0 and `waitMs` as a number of 0 or more to `channelState.transaction(key, run, { ttlMs, waitMs })`.",
+    },
+    AGENT_CHANNEL_STATE_LOCK_BUSY: {
+      why: ({ key, waitMs }: { key: string, waitMs: number }) => `[vitehub] Channel State lock "${key}" is still held after ${waitMs} ms.`,
+      fix: "Retry later: a webhook delivery retries by itself. If the lock stays busy, raise `waitMs` of `channelState.transaction()` or make the work that holds the lock shorter.",
+    },
+    AGENT_CHANNEL_STATE_QUEUE_MISSING: {
+      why: "[vitehub] Channel State writes with a delivery need a queue-capable State.",
+      fix: "Use a queue-capable Agent State, such as `vitehub({ agent: { providers: { state: { driver: \"sqlite\" } } } })`, for Channels that queue deliveries.",
+    },
+    AGENT_CHANNEL_STATE_TRANSACTION_INVALID: {
+      why: ({ need }: { need: "a callback" | "a non-empty key" }) => `[vitehub] channelState.transaction() needs ${need}.`,
+      fix: "Call `channelState.transaction(key, run)` with a non-empty string key and a callback function.",
+    },
+    AGENT_CHANNEL_STATE_TRANSACTION_NESTED: {
+      why: ({ key }: { key: string }) => `[vitehub] Channel State key "${key}" already has a transaction in this trigger call.`,
+      fix: "Use one `channelState.transaction()` per key in a trigger call, and read and write that key inside its callback.",
+    },
+    AGENT_CONNECTOR_ADAPTER_UNSUPPORTED: {
+      why: ({ label, action }: { label: string, action: "delete messages" | "open direct messages" | "post channel messages" }) => `[vitehub] The ${label} adapter cannot ${action}.`,
+      fix: "Pass a Chat adapter that has the method that the message names, or send without `replace`, a `user:` recipient, or `thread`.",
+    },
+    AGENT_CONNECTOR_RECIPIENT_INVALID: {
+      why: ({ label }: { label: "Slack" | "Teams" }) => `[vitehub] The ${label} recipient is not a ${label} thread ID.`,
+      fix: "Pass a thread ID that the Chat adapter encodes as `recipient`, such as the `threadId` of a message that the Channel received.",
+    },
+    AGENT_CONNECTOR_RECIPIENT_MISSING: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} send requires a recipient.`,
+      fix: "Pass `recipient` to `send(message, { recipient })`, such as a channel thread ID or `user:<id>`.",
+    },
+    AGENT_CONNECTOR_REPLACE_INVALID: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`,
+      fix: "Pass `idempotencyKey` to `send()` and set `replace` to the `idempotencyKey` of an earlier send, not to the same key.",
+    },
+    AGENT_CONNECTOR_REPLACE_THREAD_ROOT: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`,
+      fix: "Set `thread.root` on the first `send()` of the thread, so the message that `replace` deletes is a reply and not the root.",
+    },
+    AGENT_CONNECTOR_THREAD_KEY_MISSING: {
+      why: ({ label }: { label: string }) => `[vitehub] ${label} thread requires a non-empty key.`,
+      fix: "Pass `thread: { key }` with a non-empty key to `send()`, or omit `thread`.",
+    },
+    AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID: {
+      why: ({ label }: { label: string }) => `[vitehub] A ${label} thread requires a channel recipient without a message ID.`,
+      fix: "Pass the channel, not a message thread, as `recipient` when you send with `thread`.",
+    },
+    AGENT_CONNECTOR_THREAD_UNSUPPORTED: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name}.connector() does not support thread.`,
+      fix: "Remove `thread` from `send()` for this connector. The Slack and Teams connectors support `thread`.",
+    },
+    AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
+      why: "GitHub activity session links require an Agent identity.",
+      fix: "Run the GitHub Channel from an Agent Definition so the activity has an Agent identity, or remove `activity.publicUrl` from the GitHub Channel options.",
+    },
+    AGENT_GMAIL_DISPATCH_FAILED: {
+      why: ({ count }: { count: number }) => `Gmail message dispatch failed for ${count} message(s); saved for retry.`,
+      fix: "Read the failed Invocations of the Gmail Channel for the cause. The messages are saved, and the next poll retries them.",
+    },
+    AGENT_GMAIL_LOCK_LOST: {
+      why: ({ lock }: { lock: "mailbox" | "skipped messages" }) => lock === "mailbox" ? "Lost ownership of the Gmail mailbox lease." : "Lost the lock of the Gmail skipped messages.",
+      fix: "Poll the Gmail Channel again. Another process took the lock after it expired, which a slow Agent State can cause.",
+    },
+    AGENT_GMAIL_MAILBOX_MISMATCH: {
+      why: "Gmail notification belongs to another mailbox.",
+      fix: "Point the Pub/Sub push subscription of this Gmail Channel only at the mailbox of its refresh token.",
+    },
+    AGENT_GMAIL_SYNC_BUSY: {
+      why: "Gmail mailbox synchronization is already running; retry polling after it completes.",
+      fix: "Poll the Gmail Channel again after the running synchronization completes.",
+    },
+    AGENT_SLACK_CONNECTOR_ADAPTER_MISSING: {
+      why: "[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
+      fix: "Pass the Slack adapter of the app to `slack.connector({ adapter })`, or a function that returns it.",
     },
   },
 })

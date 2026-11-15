@@ -49,6 +49,7 @@ export interface GmailRequest {
 export type GmailClient = (request: GmailRequest) => Promise<unknown>
 
 /** A Gmail API or Google OAuth HTTP error. */
+// Internal invariant: a public error class whose callers read `status`; Gmail provider errors keep this contract.
 export class GmailApiError extends Error {
   readonly status: number
 
@@ -959,7 +960,7 @@ async function updateSkippedMessages(
     const next = update(current)
     if (next === current) return
     const mutation: AgentStateCacheMutation = next.length ? { key, type: "set", value: next } : { key, type: "delete" }
-    if (!await state.mutateWithLock(lock, [mutation])) throw new Error("Lost the lock of the Gmail skipped messages.")
+    if (!await state.mutateWithLock(lock, [mutation])) throw agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "skipped messages" })
   }
   finally {
     await state.releaseLock(lock)
@@ -1164,7 +1165,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     await save({ ...progress, pageToken: progress.nextPageToken, nextPageToken: undefined, pageLoaded: false, done: !progress.nextPageToken })
   }
   if (progress.retryIds.length) {
-    if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
+    if (sync.throwOnDispatchFailure) throw agentDiagnostics.AGENT_GMAIL_DISPATCH_FAILED({ count: progress.retryIds.length })
     return "retrying"
   }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
@@ -1197,7 +1198,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     // The holder may have released the lock before it saw the pending mark.
     lock = await state.acquireLock(lockKey, syncLockTtlMs)
     if (!lock) {
-      if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
+      if (sync.throwOnDispatchFailure) throw agentDiagnostics.AGENT_GMAIL_SYNC_BUSY()
       return
     }
   }
@@ -1210,13 +1211,13 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     const renew = async () => {
       if (ownershipLost || !await state.extendLock(heldLock, syncLockTtlMs)) {
         ownershipLost = true
-        throw new Error("Lost ownership of the Gmail mailbox lease.")
+        throw agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "mailbox" })
       }
     }
     const mutate = async (mutations: readonly AgentStateCacheMutation[]) => {
       if (ownershipLost || !await state.mutateWithLock(heldLock, mutations)) {
         ownershipLost = true
-        throw new Error("Lost ownership of the Gmail mailbox lease.")
+        throw agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "mailbox" })
       }
     }
     let renewalTask = Promise.resolve()
@@ -1283,6 +1284,7 @@ const historyQuerySchema = v.object({
 
 type GmailHistoryQuery = v.InferOutput<typeof historyQuerySchema>
 
+// Internal invariant: replayChannel() reads its name and reports an invalid history cursor with its own code.
 class GmailHistoryCursorError extends Error {
   constructor() {
     super("Invalid Gmail page token.")

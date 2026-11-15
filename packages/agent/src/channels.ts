@@ -3042,17 +3042,17 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
   }
   return {
     async send(message, { recipient, thread, idempotencyKey, update, replace }) {
-      if (typeof recipient !== "string" || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
-      if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
+      if (typeof recipient !== "string" || !recipient) throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_MISSING({ label })
+      if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_KEY_MISSING({ label })
       if (replace !== undefined && (typeof replace !== "string" || !replace || !idempotencyKey || replace === idempotencyKey)) {
-        throw new TypeError(`[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`)
+        throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_INVALID({ label })
       }
       const chat = await useAdapter()
-      if (replace && !chat.deleteMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot delete messages.`)
+      if (replace && !chat.deleteMessage) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "delete messages" })
       if (!thread) {
         const target = async () => {
           if (!recipient.startsWith("user:")) return recipient
-          if (!chat.openDM) throw new TypeError(`[vitehub] The ${label} adapter cannot open direct messages.`)
+          if (!chat.openDM) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "open direct messages" })
           return await chat.openDM(recipient.slice(5))
         }
         const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
@@ -3077,11 +3077,11 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         return receipt
       }
       const threads = platform.thread
-      if (!threads) throw new TypeError(`[vitehub] ${name}.connector() does not support thread.`)
+      if (!threads) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_UNSUPPORTED({ name })
       if (recipient.startsWith("user:") || !threads.isChannel(chat, recipient)) {
-        throw new TypeError(`[vitehub] A ${label} thread requires a channel recipient without a message ID.`)
+        throw agentDiagnostics.AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID({ label })
       }
-      if (!chat.postChannelMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot post channel messages.`)
+      if (!chat.postChannelMessage) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "post channel messages" })
       const postChannelMessage = chat.postChannelMessage.bind(chat)
       const kv = await connectorKV(name)
       const key = `${name}:threads:${connectorHash(`${recipient}\0${thread.key}`)}`
@@ -3094,7 +3094,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         if (replacedKey && threadId) {
           const replaced = await connectorKVGet(kv, replacedKey)
           if (typeof replaced?.id === "string" && threads.rootMessageId(chat, threadId) === replaced.id) {
-            throw new TypeError(`[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`)
+            throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_THREAD_ROOT({ label })
           }
         }
         if (typeof stored?.id === "string") {
@@ -3104,7 +3104,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         }
         if (!threadId) {
           const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
-          if (!root.id) throw new Error(`[vitehub] ${label} did not return a root message ID.`)
+          if (!root.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: true })
           threadId = threads.rootThreadId(chat, recipient, root)
           await connectorKVSet(kv, `${key}:root`, { threadId })
           if (thread.root === undefined) {
@@ -3113,7 +3113,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           }
         }
         const sent = await chat.postMessage(threadId, chatPostable(message))
-        if (!sent.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
+        if (!sent.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
         if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
         return { id: sent.id }
       })
@@ -3160,7 +3160,7 @@ function connectorAdapter<TOptions>(input: TOptions | ChatConnectorAdapter | und
 
 function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || typeof data.conversationId !== "string") throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
+  if (!isRecord(data) || typeof data.conversationId !== "string") throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_INVALID({ label: "Teams" })
   return { ...data, conversationId: data.conversationId }
 }
 
@@ -3197,7 +3197,7 @@ function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector {
 
 function decodeSlackThread(adapter: Adapter, threadId: string): { channel: string, threadTs: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || typeof data.channel !== "string" || typeof data.threadTs !== "string") throw new TypeError("[vitehub] The Slack recipient is not a Slack thread ID.")
+  if (!isRecord(data) || typeof data.channel !== "string" || typeof data.threadTs !== "string") throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_INVALID({ label: "Slack" })
   return { channel: data.channel, threadTs: data.threadTs }
 }
 
@@ -3216,7 +3216,7 @@ const slackConnectorPlatform: ChatConnectorPlatform = {
 /** Sends Markdown to Slack through your Slack adapter. Roots and receipts live in KV under `slack:`. */
 function slackConnector(options: SlackConnectorOptions): ChatConnector {
   const input = isRecord(options) ? options.adapter : undefined
-  if (!isAdapter(input) && typeof input !== "function") throw new TypeError("[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.")
+  if (!isAdapter(input) && typeof input !== "function") throw agentDiagnostics.AGENT_SLACK_CONNECTOR_ADAPTER_MISSING()
   return chatConnector(slackConnectorPlatform, typeof input === "function" ? input : () => input)
 }
 
@@ -3463,7 +3463,7 @@ async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConf
   const agentName = context.agentName || context.agentIdentity?.name
   if (!options.publicUrl && !agentName) return
   if (!agentName && services) throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge activity session links require an Agent identity." })
-  if (!agentName) throw new Error("GitHub activity session links require an Agent identity.")
+  if (!agentName) throw agentDiagnostics.AGENT_GITHUB_ACTIVITY_AGENT_MISSING()
   const { agentInvocationId } = await import("./invocations.ts")
   const id = await agentInvocationId(runId, agentName)
   // The public URL callback uses the discovered name, while an explicit name identifies the invocation.
@@ -4497,7 +4497,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             if (!options.client) {
               verifiedMailbox = { address: mailbox, clientId: settings.clientId, clientSecret: settings.clientSecret, refreshToken: settings.refreshToken }
             }
-            if (notifiedMailbox !== mailbox.trim().toLowerCase()) throw new Error("Gmail notification belongs to another mailbox.")
+            if (notifiedMailbox !== mailbox.trim().toLowerCase()) throw agentDiagnostics.AGENT_GMAIL_MAILBOX_MISMATCH()
             await syncGmailMailbox({
               bodyLimit,
               client,

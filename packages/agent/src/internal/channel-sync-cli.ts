@@ -346,6 +346,7 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: Vite
     resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
     server = await vite.createServer(resolved)
     const environment = server.environments.ssr
+    // Internal invariant: the ssr environment above is created with createRunnableDevEnvironment().
     if (!vite.isRunnableDevEnvironment(environment)) throw new Error("Channel target loading requires a runnable SSR environment.")
     const stageServer = server
     return {

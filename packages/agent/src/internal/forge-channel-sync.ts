@@ -157,6 +157,7 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
   if (repositories) {
     try {
       const url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
+      // Internal invariant: the catch below turns this into AGENT_R0997 with a fix.
       if (url.username || url.password || url.search || url.hash) throw new Error("Invalid instance URL")
       instance = url.href.replace(/\/+$/, "")
     }

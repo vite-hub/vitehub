@@ -26,16 +26,21 @@ export function channelsConsoleHost(): ChannelsConsoleHost | undefined {
 }
 
 /** The Channel does not exist on the Agent, or has no per-thread conversation. */
+// Internal invariant: operations.ts maps it to a coded Channels operation error with a fix.
 export class ChannelUnknownError extends Error {}
 
 /** No Invocation of the Channel and no transcript knows the thread, so it is not read. */
+// Internal invariant: operations.ts maps it to a coded Channels operation error with a fix.
 export class ChannelThreadUnknownError extends Error {}
 
 /** The Channel has no Chat adapter that can read the thread. */
+// Internal invariant: operations.ts maps it to a coded Channels operation error with a fix.
 export class ChannelAdapterUnavailableError extends Error {}
 
 /** The conversation is larger than an archive may be. */
+// Internal invariant: operations.ts maps it to a coded Channels operation error with a fix.
 export class ChannelArchiveTooLargeError extends Error {}
 
 /** The State of the Agent cannot read what a conversation needs. */
+// Internal invariant: operations.ts maps it to a coded Channels operation error with a fix.
 export class ChannelStateUnavailableError extends Error {}
