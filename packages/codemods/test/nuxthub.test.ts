@@ -2,7 +2,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { satisfies } from "semver"
+import { subset } from "semver"
 import { glob } from "tinyglobby"
 import { afterAll, describe, expect, it } from "vitest"
 
@@ -46,7 +46,7 @@ describe.each([
 })
 
 describe("nuxthub", () => {
-  it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
+  it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
     const directory = await app(`drizzle-${version ?? "missing"}`, {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
       "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", ...(version ? { "drizzle-orm": version, "drizzle-kit": version } : {}) } }),
@@ -55,8 +55,9 @@ describe("nuxthub", () => {
     const manifest = JSON.parse(run.result.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
     for (const name of ["drizzle-orm", "drizzle-kit"] as const) {
       const selected = manifest.dependencies[name]
-      expect(satisfies(selected?.slice(1) ?? "", databasePackage.peerDependencies[name])).toBe(true)
-      if (version && satisfies(version.slice(1), databasePackage.peerDependencies[name])) expect(selected).toBe(version)
+      // Every version the app can install is one that Database accepts, snapshot builds such as 1.0.0-rc.5-ab785fc too.
+      expect(subset(selected, databasePackage.peerDependencies[name], { includePrerelease: true })).toBe(true)
+      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || ^1.0.0")
     }
   })
 
@@ -319,7 +320,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-kit": "^1.0.0-rc.5", "drizzle-orm": "^1.0.0-rc.5", "vite-hub": "^0.1.0" } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": "^0.1.0" } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",
