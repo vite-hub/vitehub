@@ -54,6 +54,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/database/diagnostics",
   codes: {
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
+    DATABASE_CHUNK_INVALID_COUNT: {
+      why: ({ min, name, value }: { min: number, name: string, value: number }) => `chunkParameters() needs \`${name}\` to be an integer of ${min} or more, not ${value}.`,
+      fix: "Pass whole numbers to `chunkParameters(values, { per, reserved, limit })`: `per` and `limit` of 1 or more, and `reserved` of 0 or more.",
+    },
+    DATABASE_CHUNK_VALUE_TOO_LARGE: {
+      why: ({ limit, per, reserved }: { limit: number, per: number, reserved: number }) => `chunkParameters() cannot fit one value: it takes ${per} bound parameters and the statement has ${reserved} more, over the limit of ${limit}.`,
+      fix: "Make `per` plus `reserved` of `chunkParameters()` at most `limit`: bind fewer parameters in the statement, or split each value over more statements.",
+    },
     DATABASE_D1_INVALID_RESPONSE: {
       why: "Cloudflare D1 returned an invalid response shape, such as a different number of results than the number of queries or malformed rows.",
       fix: "Retry the query. If it fails again, open a ViteHub issue with the query and the D1 HTTP response.",
@@ -124,6 +132,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Migration errors. `vitehub database migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
+    DATABASE_D1_MIGRATION_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `D1 migration failed for the database "${database}". ${problem}`,
+      fix: "Fix the SQL of the failed migration, or set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and `cloudflare.databaseId` (or the `url` and `authToken` of object-form `cloudflare.http`) to values that can edit D1. Then run `vitehub database migrate` again.",
+    },
     DATABASE_D1_MIGRATION_INVALID: {
       why: ({ problem }: { problem: string }) => `D1 migration history is invalid. ${problem}`,
       fix: "Restore the migration folders and d1-migrations.json from version control. Keep the Wrangler file names of applied migrations, and give each new migration a unique file name before generating, building, or migrating again.",
