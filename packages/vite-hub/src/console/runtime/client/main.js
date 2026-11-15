@@ -37,7 +37,7 @@ import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } 
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
-import { consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
+import { consoleSectionsPath, createConsoleSectionLoader, isConsoleSectionRevoked, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
 // their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
@@ -57,6 +57,8 @@ const appearance = startConsoleAppearance({
 
 /** @type {import("./account-views").ConsoleAccountViews} */
 const accountViews = {};
+// The app opened in the same task from the answers that the device kept from the last visit.
+let openedAtOnce = false;
 
 if (account) {
   // The Console server drew the first view of the visit from its path and cookies (`@vite-hub/console`, src/page.ts).
@@ -81,9 +83,11 @@ if (account) {
   ]);
   const projects = useConsoleProjects();
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
-  // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
+  // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening. With the answer that the
+  // device kept from the last visit, the app opens at once.
   if (projects.gate.value.kind === "opening") {
     const opening = openConsoleProject().catch(() => undefined);
+    openedAtOnce = projects.gate.value.kind === "ready";
     // While the app answers, the code of its first frame loads: the team menu and the app switcher of the rail, and the
     // Overview on the home path. The timer lets the request to the app go out first.
     setTimeout(() => {
@@ -91,7 +95,7 @@ if (account) {
       void import("../components/console-account-link.vue").catch(() => undefined);
       if (window.location.pathname === consoleBase) void ConsoleHome().catch(() => undefined);
     });
-    await Promise.race([opening, new Promise(resolve => setTimeout(resolve, 2_500))]);
+    await Promise.race([opening, consoleProjectReady(), new Promise(resolve => setTimeout(resolve, 2_500))]);
   }
   // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
   watch(() => projects.gate.value.kind, (kind) => {
@@ -436,6 +440,11 @@ function addContributedRoutes(navigation) {
   }
 }
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
+// An `account` Console opens with the navigation that the device kept. When the answer of this visit no longer has the
+// section of the page, the page goes to the Overview.
+subscribeConsoleNavigation(sectionsBase, (navigation) => {
+  if (isConsoleSectionRevoked(router.currentRoute.value.meta.consoleSection, navigation)) void router.replace({ name: "vitehub-console" });
+});
 
 router.beforeEach(async (to) => {
   // The first page waits until the project opens, so its requests go to the open project.
@@ -466,13 +475,17 @@ router.afterEach((to, _from, failure) => {
 });
 addViteHubIcons();
 deferLucideIcons();
-createApp(App, { sectionsBase })
+const app = createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .provide(consoleAccountViewsKey, accountViews)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI({ icons: vitehubTheme.icons }))
-  .mount("#app");
+  .use(createViteHubUI({ icons: vitehubTheme.icons }));
+// An app that opened from the device renders its first page in the first frame: the router loads the code of the page,
+// usually from the HTTP cache, before the mount. A page whose code takes more than 1 second mounts in the frame, which
+// says that the Console is opening.
+if (openedAtOnce) await Promise.race([router.isReady().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 1_000))]);
+app.mount("#app");
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
 if (window.parent !== window) {

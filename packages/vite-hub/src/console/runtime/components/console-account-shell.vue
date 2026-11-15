@@ -6,7 +6,8 @@ import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/a
 import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { accountAppStatusLabels, checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
-import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, openAccountProject, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { consoleAppCheckKey, readStored } from "../client/stored";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
@@ -103,20 +104,27 @@ function intent(target: "team" | "settings"): void {
   preparePage(target);
 }
 
+// The server calls each app with its token. A linked app answers, and an app without the variable refuses it. The
+// device keeps each answer, so the names of the apps show in the first frame of the next visit.
+for (const app of apps.value) {
+  status[app.id] = "checking";
+  const check = readStored(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
+  rememberConsoleProjectName(app.id, check.stored?.name);
+  void check.answer.then(
+    (result) => {
+      status[app.id] = result.status;
+      rememberConsoleProjectName(app.id, result.name);
+    },
+    () => { status[app.id] = "unreachable"; },
+  );
+}
+
 onMounted(() => {
   const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 200));
   idle(() => {
     preparePage("team");
     preparePage("settings");
   });
-  // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
-  for (const app of apps.value) {
-    status[app.id] = "checking";
-    void checkConsoleAccountProject(app.id).then(
-      (result) => { status[app.id] = result.status; },
-      () => { status[app.id] = "unreachable"; },
-    );
-  }
 });
 
 async function retry(): Promise<void> {

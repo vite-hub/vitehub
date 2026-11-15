@@ -91,14 +91,21 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
 
 /**
  * Keep the navigation that `project.get` sent with the project, so the rail and the Overview show it without a
- * `sections.list` call. A load that already started keeps its own answer.
+ * `sections.list` call. A newer answer, such as the answer of this visit after a stored one, replaces it, and the
+ * subscribers get it when it changed.
  */
 export function seedConsoleNavigation(base: string, navigation: ConsoleNavigation): void {
-  if (navigationRequests.has(base)) return
+  const known = navigationValues.get(base)
   navigationErrors.delete(base)
   navigationRequests.set(base, Promise.resolve(navigation))
   navigationValues.set(base, navigation)
+  if (known && JSON.stringify(known) === JSON.stringify(navigation)) return
   for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
+}
+
+/** Whether a route shows a section that the navigation does not have, such as one that the access lost. */
+export function isConsoleSectionRevoked(section: unknown, navigation: Pick<ConsoleNavigation, "sections">): boolean {
+  return isConsoleSectionId(section) && !navigation.sections.includes(section)
 }
 
 /** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */

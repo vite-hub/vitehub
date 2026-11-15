@@ -4,6 +4,7 @@
  * private key for each project, and signs the calls of the page that it forwards to `/p/<project>/_vitehub/...`.
  */
 import { passkeyClient } from "@better-auth/passkey/client"
+import { setDeviceAccount } from "@vite-hub/device"
 import { createAuthClient } from "better-auth/client"
 import { organizationClient } from "better-auth/client/plugins"
 
@@ -113,9 +114,11 @@ export async function linkConsoleGitHub(callbackURL: string): Promise<void> {
   if (error) throw failure(error, "GitHub did not start.")
 }
 
+/** Sign out, and delete the answers that this device keeps for the account, in every tab. */
 export async function signOutConsoleAccount(): Promise<void> {
   const { error } = await auth().signOut()
   if (error) throw failure(error, "Sign out failed.")
+  await setDeviceAccount(null)
 }
 
 export async function switchConsoleTeam(teamId: string): Promise<void> {
@@ -259,6 +262,8 @@ export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
+  /** The name that a connected app reports in `project.get`. */
+  name?: string
 }
 
 // The codes of an app that has no public key for the link, or another one.
@@ -267,7 +272,10 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 /** Whether the app keeps the public key of the link: the Console server calls the app with a signed request. */
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
-  if (result.linked) return { status: "connected", code: result.status }
+  if (result.linked) {
+    const name: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "name") : undefined
+    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}) }
+  }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
   // The Console server answers for the app when it cannot reach it, with a `CONSOLE_FORWARD_` code.
