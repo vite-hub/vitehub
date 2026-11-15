@@ -100,7 +100,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

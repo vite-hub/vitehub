@@ -331,7 +331,7 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 
 ### Declaration inventory
 
-`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the `names` an env declaration reads in read order (the canonical name first unless `canonical: false` or `prefix: false` turns it off, then the `env.source()` names or the unprefixed path name), source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, `names`, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
 
 `hubEnv()` contributes two CLI commands:
 
@@ -340,7 +340,7 @@ vitehub env inspect [--stage <name>] [--json]
 vitehub env check [--stage <name>] [--json]
 ```
 
-Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. `--json` also lists the host variable `names` of each env declaration. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
 
 ### Managed credentials
 

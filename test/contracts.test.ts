@@ -216,9 +216,28 @@ describe("package manifest contracts", () => {
       for (const peer of appPeers) {
         const specifier = peers[peer]
         if (!specifier) continue
-        expect(catalogRange(peer, specifier), `${packageName} peer ${peer} (${specifier}) should be a range`).toMatch(/^(\^|>=)/)
+        const range = catalogRange(peer, specifier)
+        expect(semver.validRange(range) !== null && semver.valid(range) === null, `${packageName} peer ${peer} (${specifier}) should be a range`).toBe(true)
       }
     }
+  })
+
+  it("declares Drizzle peer ranges whose highest published match is the version that ViteHub tests", () => {
+    // Drizzle publishes snapshot builds such as 1.0.0-rc.5-ab785fc. Semver ranks them above 1.0.0-rc.5, so pnpm
+    // installs one for `>=1.0.0-rc.5`. That snapshot has no drizzle-orm/d1/codecs, and an Agent build stops with MISSING_EXPORT.
+    const published = ["0.45.4", "1.0.0-rc.4", "1.0.0-rc.4-fb12281", "1.0.0-rc.5", "1.0.0-rc.5-169397b", "1.0.0-rc.5-5935859", "1.0.0-rc.5-ab785fc"]
+    const peers = ["drizzle-orm", "drizzle-kit"] as const
+    const checked: string[] = []
+    for (const packageName of packageNames) {
+      for (const peer of peers) {
+        const specifier = readPackageManifest(packageName).peerDependencies?.[peer]
+        if (!specifier) continue
+        checked.push(packageName)
+        const range = catalogRange(peer, specifier)
+        expect(semver.maxSatisfying(published, range), `${packageName} peer ${peer}@${range} installs this version`).toBe(catalogRange(peer, "catalog:database"))
+      }
+    }
+    expect(checked).toEqual(expect.arrayContaining(["agent", "database"]))
   })
 
   it("declares peer ranges that accept the versions that sibling packages depend on", () => {
