@@ -156,9 +156,11 @@ function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?:
 export function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
   if (delaySeconds === undefined) return 0
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`\`delaySeconds\` must be a number of seconds from 0, got ${String(delaySeconds)}.`)
   }
   if (rules.maxDelaySeconds !== undefined && delaySeconds > rules.maxDelaySeconds) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`${providerNames[rules.rules]} accepts \`delaySeconds\` up to ${rules.maxDelaySeconds}, got ${delaySeconds}.`)
   }
   return delaySeconds * 1000
@@ -169,6 +171,7 @@ function retentionMs(retentionSeconds: number | undefined, rules: LocalQueueDeli
   if (!retention) return undefined
   const seconds = retentionSeconds ?? retention.defaultSeconds
   if (!Number.isFinite(seconds) || seconds < retention.minSeconds || seconds > retention.maxSeconds) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`${providerNames[rules.rules]} accepts \`retentionSeconds\` from ${retention.minSeconds} to ${retention.maxSeconds}, got ${String(seconds)}.`)
   }
   return seconds * 1000
@@ -176,19 +179,23 @@ function retentionMs(retentionSeconds: number | undefined, rules: LocalQueueDeli
 
 function checkPayloadSize(bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.maxPayloadBytes !== undefined && bytes > rules.maxPayloadBytes) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`${providerNames[rules.rules]} accepts a payload of up to ${rules.maxPayloadBytes} bytes, got ${bytes} bytes of JSON.`)
   }
 }
 
 function checkBatch(entries: readonly LocalQueueEntry[], bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.rules === "vercel" && entries.length === 0) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError("Vercel requires at least one job in a `sendBatch()`.")
   }
   if (entries.length < 2) return
   if (rules.maxBatchJobs !== undefined && entries.length > rules.maxBatchJobs) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchJobs} jobs in one \`sendBatch()\`, got ${entries.length}.`)
   }
   if (rules.maxBatchBytes !== undefined && bytes > rules.maxBatchBytes) {
+    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
     throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchBytes} bytes in one \`sendBatch()\`, got ${bytes} bytes of JSON.`)
   }
 }

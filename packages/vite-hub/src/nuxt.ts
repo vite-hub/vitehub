@@ -341,6 +341,7 @@ const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
   "@vite-hub/content/vite",
   "@vite-hub/sandbox/task/vite",
+  "@vite-hub/workflow/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -391,7 +392,10 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
   const transformWorkspaceAgent = (plugin as Plugin & {
     vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
   }).vitehub?.agent?.transformWorkspaceAgent
-  if (!resolveId && !load && !transformWorkspaceAgent) return
+  const workflowTransform = plugin.name === "@vite-hub/workflow/vite"
+    ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
+    : undefined
+  if (!resolveId && !load && !transformWorkspaceAgent && !workflowTransform) return
 
   const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
     // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
@@ -403,11 +407,19 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
     // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
     return load.call(this, id, { ...options, ssr: true })
   }
+  const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id, options) {
+    // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
+    return workflowTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
+  }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
     // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
     ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
     ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
+    ...(replayWorkflowTransform ? {
+      // SAFETY: the filter belongs to the same Workflow transform hook.
+      transform: withHookFilter(plugin.transform, replayWorkflowTransform) as Plugin["transform"],
+    } : {}),
     ...(transformWorkspaceAgent ? {
       transform: {
         filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
@@ -1104,7 +1116,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     access: consoleAccess,
     runtimeCapabilityImports,
     development: nuxt.options.dev === true,
-    pageTool: { base: nuxt.options.app?.baseURL || "/" },
+    ...(consoleOptions?.pill === false ? {} : { pageTool: { base: nuxt.options.app?.baseURL || "/" } }),
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -1529,7 +1541,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
-  if (isPackageInstalled("@vite-hub/forms") && isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction", "useFormSubmit"])
+  if (isPackageInstalled("@vite-hub/forms")) {
+    addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
+    if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
+  }
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
