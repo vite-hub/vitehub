@@ -138,7 +138,7 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
     }
     const cached = findCachingRule(guard.pattern, { names: isGuestGuard(guard.auth) ? guestCachingRuleNames : cachingRuleNames, exempt })
     if (!cached) continue
-    throw authErrorDiagnostics.AUTH_B0004({
+    throw authErrorDiagnostics.AUTH_GUARDED_PAGE_CACHED({
       message: `[vitehub] Route rule ${JSON.stringify(cached.key)} sets \`${cached.name}\` on ${cached.method} requests to the ${guard.payload ? "payload of the " : ""}page ${JSON.stringify(guard.path)}, which \`definePageMeta({ auth })\` guards. A cached or prerendered page is rendered for one visitor and served to all visitors.`,
     })
   }

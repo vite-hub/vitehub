@@ -45,20 +45,20 @@ describe("Nuxt page guard with cache route rules", () => {
 
   it("fails the build when a route rule caches a page that definePageMeta({ auth }) guards", async () => {
     await expect(buildNuxt(pages, { "/dashboard/settings": { swr: 60 } })).rejects.toMatchObject({
-      code: "AUTH_B0004",
+      code: "AUTH_GUARDED_PAGE_CACHED",
       message: expect.stringContaining("Route rule \"/dashboard/settings\" sets `cache` on GET requests to the page \"/dashboard/settings\", which `definePageMeta({ auth })` guards"),
       fix: expect.stringContaining("cache: false"),
     })
-    await expect(buildNuxt(pages, { "/users/**": { isr: true } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("the page \"/users/:id()\"") })
-    await expect(buildNuxt(pages, { "/members/:id": { static: true } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("the page \"/members/:id()\"") })
-    await expect(buildNuxt(pages, { "/**": { prerender: true } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("sets `prerender`") })
-    await expect(buildNuxt(pages, { "/login": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("the page \"/login\"") })
-    await expect(buildNuxt(pages, { "HEAD /dashboard": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("on HEAD requests") })
+    await expect(buildNuxt(pages, { "/users/**": { isr: true } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("the page \"/users/:id()\"") })
+    await expect(buildNuxt(pages, { "/members/:id": { static: true } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("the page \"/members/:id()\"") })
+    await expect(buildNuxt(pages, { "/**": { prerender: true } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("sets `prerender`") })
+    await expect(buildNuxt(pages, { "/login": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("the page \"/login\"") })
+    await expect(buildNuxt(pages, { "HEAD /dashboard": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("on HEAD requests") })
   })
 
   it("fails the build when a route rule caches the payload of a guarded page", async () => {
     await expect(buildNuxt(pages, { "/dashboard/_payload.json": { isr: 60 } })).rejects.toMatchObject({
-      code: "AUTH_B0004",
+      code: "AUTH_GUARDED_PAGE_CACHED",
       message: expect.stringContaining("Route rule \"/dashboard/_payload.json\" sets `isr` on GET requests to the payload of the page \"/dashboard\""),
     })
     await expect(buildNuxt(pages, { "/dashboard/public": { swr: 60 }, "/dashboard/public/_payload.json": { cache: { swr: true, maxAge: 60 } } })).resolves.toBeDefined()
@@ -73,7 +73,7 @@ describe("Nuxt page guard with cache route rules", () => {
   it("prerenders a guest page, because Nuxt renders it without a cookie and the guard runs again in the browser", async () => {
     await expect(buildNuxt(pages, { "/login": { prerender: true } })).resolves.toBeDefined()
     await expect(buildNuxt([{ path: "/sign-in", meta: { auth: { only: "guest", redirectTo: "/home" } } }], { "/**": { prerender: true } })).resolves.toBeDefined()
-    await expect(buildNuxt(pages, { "/login": { isr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004", message: expect.stringContaining("sets `isr`") })
+    await expect(buildNuxt(pages, { "/login": { isr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED", message: expect.stringContaining("sets `isr`") })
   })
 
   it("does not check a page that Nuxt renders only in the browser", async () => {
@@ -100,7 +100,7 @@ describe("Nuxt page guard with cache route rules", () => {
   it("fails the build when a route rule turns the cache off on only part of the guarded pages", async () => {
     // `/dashboard` does not match the guarded `/dashboard/settings`.
     await expect(buildNuxt(pages, { "/dashboard/**": { swr: 60 }, "/dashboard": { cache: false }, "/dashboard/_payload.json": { cache: false } })).rejects.toMatchObject({
-      code: "AUTH_B0004",
+      code: "AUTH_GUARDED_PAGE_CACHED",
       message: expect.stringContaining("the page \"/dashboard/settings\""),
     })
   })
@@ -122,7 +122,7 @@ describe("Nuxt page guard with cache route rules", () => {
 
   it("compares paths without case unless the Nuxt router is case sensitive", async () => {
     await expect(buildNuxt(pages, { "/DASHBOARD": { swr: 60 } })).rejects.toMatchObject({ message: expect.stringContaining("Route rule \"/DASHBOARD\"") })
-    await expect(buildNuxt([{ path: "/Dashboard", meta: { auth: "user" } }], { "/dashboard": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt([{ path: "/Dashboard", meta: { auth: "user" } }], { "/dashboard": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
     await expect(buildNuxt(pages, { "/**": { swr: 60 }, "/DASHBOARD/**": { cache: false }, "/Users/**": { cache: false }, "/members/**": { cache: false }, "/LOGIN/**": { cache: false } })).resolves.toBeDefined()
     await expect(buildNuxt(pages, { "/DASHBOARD": { swr: 60 } }, undefined, { rootDir: "/tmp/vitehub-auth-nuxt", router: { options: { sensitive: true } } })).resolves.toBeDefined()
   })
@@ -131,31 +131,31 @@ describe("Nuxt page guard with cache route rules", () => {
     // The empty child page renders `/dashboard`, and its `auth: false` replaces the guard of the parent.
     const indexChild: Page[] = [{ path: "/dashboard", meta: { auth: "user" }, children: [{ path: "", meta: { auth: false } }, { path: "settings" }] }]
     await expect(buildNuxt(indexChild, { "/dashboard": { swr: 60 } })).resolves.toBeDefined()
-    await expect(buildNuxt(indexChild, { "/dashboard/settings": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(indexChild, { "/dashboard/settings": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
     // Vue Router selects the static `/users/public` before the dynamic `/users/:id()`.
     const staticPage: Page[] = [{ path: "/users/:id()", meta: { auth: "user" } }, { path: "/users/public", meta: { auth: false } }]
     await expect(buildNuxt(staticPage, { "/users/public": { swr: 60 } })).resolves.toBeDefined()
-    await expect(buildNuxt(staticPage, { "/users/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(staticPage, { "/users/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
   })
 
   it("lets a public page keep a cache only on its own static path and payload", async () => {
     const catchAll: Page[] = [{ path: "/:pathMatch(.*)*", meta: { auth: "user" } }, { path: "/users/user-:id", meta: { auth: false } }, { path: "/about", meta: { auth: false } }]
     // Vue Router selects the guarded catch-all page for `/users/private`, because `/users/user-:id` does not match it.
     await expect(buildNuxt(catchAll, { "/users/private": { swr: 60 } })).rejects.toMatchObject({
-      code: "AUTH_B0004",
+      code: "AUTH_GUARDED_PAGE_CACHED",
       message: expect.stringContaining("Route rule \"/users/private\""),
       fix: expect.stringContaining("use that exact path as the route rule key"),
     })
     // A public page with a dynamic path does not exempt a rule, also on its own path.
-    await expect(buildNuxt(catchAll, { "/users/user-:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(catchAll, { "/users/user-:id": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
     await expect(buildNuxt(catchAll, { "/about": { swr: 60 }, "/about/_payload.json": { swr: 60 }, "/ABOUT": { isr: 60 } })).resolves.toBeDefined()
-    await expect(buildNuxt(catchAll, { "/about/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(catchAll, { "/about/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
   })
 
   it("reads `ssr` on the paths and methods that the rule caches", async () => {
     const account: Page[] = [{ path: "/account/:id()", meta: { auth: "user" } }]
     await expect(buildNuxt(account, { "/**": { ssr: true }, "/account/preview": { ssr: false, swr: 60 } })).resolves.toBeDefined()
-    await expect(buildNuxt(account, { "/**": { ssr: true }, "/account/preview": { ssr: false }, "/account/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_B0004" })
+    await expect(buildNuxt(account, { "/**": { ssr: true }, "/account/preview": { ssr: false }, "/account/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
     await expect(buildNuxt(pages, { "/**": { ssr: false, swr: 60 }, "POST /dashboard": { ssr: true } })).resolves.toBeDefined()
     await expect(buildNuxt(pages, { "/**": { ssr: false, swr: 60 }, "GET /dashboard": { ssr: true } })).rejects.toMatchObject({ message: expect.stringContaining("the page \"/dashboard\"") })
   })
