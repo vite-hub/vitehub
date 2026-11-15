@@ -14,6 +14,7 @@ export default defineConfig({
       "src/index.ts",
       "src/agent.ts",
       "src/google.ts",
+      "src/operations.ts",
       "src/chatgpt.ts",
       "src/cli.ts",
       "src/runtime/empty-registry.ts",

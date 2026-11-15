@@ -1,6 +1,7 @@
 import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } from "@vite-hub/internal/presets"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 import type { AgentDefinition } from "./types.ts"
 
@@ -34,7 +35,7 @@ export function resolveAgentPresetExtension(
   mergeOptions: (parent: Record<string, unknown>, child?: Record<string, unknown>) => Record<string, unknown>,
 ): unknown {
   if (isRuntimeRecord(input) && ("preset" in input || "presets" in input)) {
-    throw new TypeError("[vitehub] defineAgent() has no preset or presets option. Pass the parent Agent Definition as extends, such as defineAgent({ extends: babysitter }).")
+    throw agentDiagnostics.AGENT_PRESET_OPTION_UNSUPPORTED()
   }
   if (!isRuntimeRecord(input) || !("extends" in input)) return input
   const { extends: extension, ...overrides } = input
@@ -46,12 +47,12 @@ export function resolveAgentPresetExtension(
   let namedOptions: Record<string, unknown> | undefined
   if (typeof configKey === "string" && Object.hasOwn(overrides, configKey)) {
     const value = overrides[configKey]
-    if (value !== undefined && !isPresetOptionsRecord(value)) throw new TypeError(`[vitehub] Agent ${configKey} options must be an object.`)
+    if (value !== undefined && !isPresetOptionsRecord(value)) throw agentDiagnostics.AGENT_PRESET_OPTIONS_INVALID({ name: configKey })
     namedOptions = value
     delete overrides[configKey]
   }
   if (Object.hasOwn(overrides, "options") && (tupleOptions || namedOptions)) {
-    throw new TypeError("[vitehub] Select preset options with options or a named block/tuple, not both.")
+    throw agentDiagnostics.AGENT_PRESET_OPTIONS_CONFLICT()
   }
   const supplied = tupleOptions ? mergeOptions(namedOptions ?? {}, tupleOptions) : namedOptions
   if (supplied) {

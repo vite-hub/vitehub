@@ -418,11 +418,14 @@ describe("D1 Agent Invocation store", () => {
     await journal.create(invocation("appends"))
     await journal.claim("appends", "live-owner", 30_000)
     const claim = await journal.getClaimToken("appends")
-    await Promise.all(Array.from({ length: 4 }, (_, index) => defineAgentInvocations({ store: store() }).appendObservation(
+    // Concurrent D1 writes retry revision conflicts through Miniflare RPC. Allow
+    // those round trips on busy CI workers; this test checks evidence and claims,
+    // rather than the default store operation deadline.
+    const access = () => defineAgentInvocations({ store: store(), storeTimeoutMs: 10_000 })
+    await Promise.all(Array.from({ length: 4 }, (_, index) => access().appendObservation(
       "appends", { name: "report.delivered", type: "run", timestamp }, { id: `report:${index}` },
     )))
-    const access = defineAgentInvocations({ store: journal })
-    const saved = await access.appendObservation("appends", { name: "retry", type: "run", timestamp }, { id: "report:0" })
+    const saved = await access().appendObservation("appends", { name: "retry", type: "run", timestamp }, { id: "report:0" })
     expect(saved?.observations).toHaveLength(4)
     expect(new Set(saved?.observations.map(event => event.sequence)).size).toBe(4)
     expect(await journal.getClaimToken("appends")).toBe(claim)
