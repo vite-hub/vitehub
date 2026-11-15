@@ -211,7 +211,8 @@ export function createResumableChatProcessCustody<TContext>(
     return {
       kind: "claimed",
       complete(response, completion) {
-        if (run.setupSettled) throw agentDiagnostics.AGENT_R0568({ message: "[vitehub] Resumable Chat claim was already settled." })
+        // Internal invariant: the web chat route calls complete() once, before it settles the claim in any other way.
+        if (run.setupSettled) throw new Error("[vitehub] Resumable Chat claim was already settled.")
         const headers = new Headers(response.headers)
         headers.set("x-vitehub-message-id", completion.messageId || "")
         headers.set("x-vitehub-run-id", completion.runId || "")

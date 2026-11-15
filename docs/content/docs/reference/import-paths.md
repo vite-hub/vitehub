@@ -39,7 +39,7 @@ the same behavior.
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
-| `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. Re-exports `@vite-hub/forms`. |
+| `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. `formFields()`, `toElicitation()`, and `toChatModal()` draw the same schema as an MCP elicitation or a Slack or Teams modal, and `checkForm()` checks the answers. Re-exports `@vite-hub/forms`. |
 | `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. `fieldErrors()` gives them by field name. Re-exports `@vite-hub/forms/client`. |
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
 | `vite-hub/forms/operations` | The `forms.list`, `forms.get`, and `forms.mark` operations of the Console, `vitehub forms`, and MCP. Re-exports `@vite-hub/forms/operations`. |
@@ -146,7 +146,7 @@ the same behavior.
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
-| `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a long-lived OpenWorkflow worker process. Install `openworkflow`. |
+| `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a separate OpenWorkflow worker process. Node servers start a worker automatically. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
 | `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/checkout` | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |
