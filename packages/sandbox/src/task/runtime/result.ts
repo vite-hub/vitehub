@@ -14,7 +14,7 @@ function statusFor(error: ViteHubError<`SANDBOX_TASK_${string}`>) {
 }
 
 // These details can hold source paths, environment values, or user data from the Sandbox process.
-const developmentOnlyDetails = new Set(['args', 'cause', 'cwd', 'output', 'stack', 'stderr', 'stderrPreview', 'stdout', 'stdoutPreview'])
+const developmentOnlyDetails = new Set(['args', 'cause', 'cwd', 'output', 'outputPreview', 'stack', 'stderr', 'stderrPreview', 'stdout', 'stdoutPreview'])
 
 function publicDetails(details: ViteHubError['details'], development: boolean) {
   if (development || !details)

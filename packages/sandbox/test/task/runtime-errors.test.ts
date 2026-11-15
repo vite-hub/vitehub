@@ -404,3 +404,44 @@ describe("Sandbox Task handler error Responses", () => {
     } })
   })
 })
+
+describe("Sandbox Task incomplete output recovery", () => {
+  it.each(["production", "development", "runner"] as const)("protects recovered output at the %s boundary", async (boundary) => {
+    vi.useFakeTimers()
+    setSandboxTaskRuntimeDevelopment(boundary === "development")
+    const partial = '{"ok":false,"error":{"stack":"TOKEN=private-token /app/crash.ts'
+    const { session, files } = createSession()
+    const exec = session.exec.getMockImplementation()!
+    session.exec.mockImplementation(async (command, args, options) => {
+      const result = await exec(command, args, options)
+      if (command === "node")
+        files.set(args!.at(-1)!, new TextEncoder().encode(partial))
+      return result
+    })
+    const runner = await resolveSandboxTaskRunner("example")
+    const result = boundary === "runner"
+      ? runner.run().catch((error: unknown) => toSandboxTaskError(error))
+      : runSandboxTaskRuntime("example")
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    if (boundary === "runner") {
+      expect(await result).toMatchObject({
+        code: "SANDBOX_TASK_HANDLER_ERROR",
+        details: { provider: "cloudflare", outputPreview: partial },
+      })
+    }
+    else {
+      const response = await result as Response
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body.error.code).toBe("SANDBOX_TASK_HANDLER_ERROR")
+      expect(body.error.details.provider).toBe("cloudflare")
+      if (boundary === "development")
+        expect(body.error.details.outputPreview).toBe(partial)
+      else {
+        expect(body.error.details).not.toHaveProperty("outputPreview")
+        expect(JSON.stringify(body)).not.toContain("private-token")
+      }
+    }
+  })
+})

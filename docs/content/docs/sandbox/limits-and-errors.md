@@ -26,7 +26,7 @@ If execution and cleanup both fail, the response keeps the first error code and 
 
 ## Error responses
 
-A failed `runSandboxTask()` returns a JSON body with `error.code`, `error.message`, and `error.details`. Your route can send this body to the client, so outside `vite dev` the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `cause`, `cwd`, or `args`. These fields can hold source paths, environment values, or user data from the Sandbox process. The body keeps facts such as `provider`, `exitCode`, and `timeout`. In `vite dev`, the body keeps all details.
+A failed `runSandboxTask()` returns a JSON body with `error.code`, `error.message`, and `error.details`. Your route can send this body to the client, so outside `vite dev` the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `outputPreview`, `cause`, `cwd`, or `args`. These fields can hold source paths, environment values, or user data from the Sandbox process. The body keeps facts such as `provider`, `exitCode`, and `timeout`. In `vite dev`, the body keeps all details.
 
 To read the full details on the server, call `resolveSandboxTaskRunner(name).run()`. It throws the error with every detail and its cause. Log it on the server. Do not send it to the client.
 
