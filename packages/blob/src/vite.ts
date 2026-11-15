@@ -17,6 +17,7 @@ import { dirname, relative, resolve } from "pathe"
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
 import { blobSignedRoute } from "./internal/fs-sign.ts"
+import { blobDeploymentEnv } from "./deployment-env.ts"
 import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -27,6 +28,7 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
@@ -56,6 +58,8 @@ export { hasS3BlobEnv } from "./config.ts"
 export type { BlobViteRuntimeConfig } from "./vite-config.ts"
 
 export interface BlobVitePluginAPI {
+  /** The variables that the Blob stores read on the deployed host. See `blobDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => BlobViteRuntimeConfig
 }
 
@@ -300,7 +304,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
+    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`, "import { defineHandler } from 'nitro/h3'"] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
@@ -370,10 +374,11 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "",
     ...(serve.authorize
       ? [
-          "// Authorize before the store read and before conditional request handling.",
+          // `defineHandler()` also gives the route a `fetch()` that makes an H3 event for a direct call.
+          "// Authorize before the store read and before conditional request handling. `authorize` gets the H3 event.",
           serve.anonymous
-            ? "export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }"
-            : `export default { fetch: withAuthorization(${authorizeModule ? "authorize" : "true"}, (request: Request) => serveBlob(request)) }`,
+            ? "export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))"
+            : `export default defineHandler(event => withAuthorization(${authorizeModule ? "authorize" : "true"}, () => serveBlob(event.req))(event))`,
         ]
       : ["export default { fetch: serveBlob }"]),
     "",
@@ -515,7 +520,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
 
   return {
     name: BLOB_VITE_PLUGIN_NAME,
-    api: { getConfig },
+    api: { deploymentEnv: context => blobDeploymentEnv(getConfig().blob, context), getConfig },
     vitehub: {
       durability: () => {
         const config = getConfig().blob

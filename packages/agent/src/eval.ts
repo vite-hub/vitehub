@@ -188,7 +188,7 @@ function resolveEvalNameFromFile(caller: string): string {
 }
 
 function getCallerFile(): string | undefined {
-  const stack = agentDiagnostics.AGENT_R0405().stack
+  const stack = new Error().stack
   if (!stack) return
   const current = fileURLToPath(import.meta.url)
   const sourceMappedCurrent = sourceMappedEvalFile(current)

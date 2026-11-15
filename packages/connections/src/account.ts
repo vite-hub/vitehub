@@ -35,7 +35,7 @@ export function accountFromIdToken(token: string | undefined): ConnectionAccount
 }
 
 /** The account of a token response. Without `account`, a provider that requests `openid` reads the ID token. */
-export function providerAccount(provider: ConnectionProvider, response: ConnectionTokenResponse): ConnectionAccount | undefined {
+export function providerAccount(provider: Pick<ConnectionProvider, "account" | "identityScopes">, response: ConnectionTokenResponse): ConnectionAccount | undefined {
   if (provider.account) return provider.account(response)
   return provider.identityScopes?.includes("openid") ? accountFromIdToken(response.id_token) : undefined
 }
