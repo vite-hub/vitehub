@@ -7,7 +7,6 @@
     "packages/agent/src/capabilities/openapi.ts": 1,
     "packages/agent/src/capabilities/papercut-index.ts": 2,
     "packages/agent/src/capabilities/papercuts.ts": 8,
-    "packages/agent/src/channels-console-host.ts": 5,
     "packages/agent/src/channels.ts": 16,
     "packages/agent/src/chat-trigger.ts": 1,
     "packages/agent/src/discovery.ts": 26,
@@ -21,21 +20,18 @@
     "packages/agent/src/internal/channel-sync-cli.ts": 1,
     "packages/agent/src/internal/chatgpt-transport.ts": 1,
     "packages/agent/src/internal/colocated-agent-skills.ts": 1,
-    "packages/agent/src/internal/conversations-cli.ts": 1,
     "packages/agent/src/internal/execution-budget-middleware.ts": 1,
     "packages/agent/src/internal/forge-channel-sync.ts": 1,
     "packages/agent/src/internal/generated-provider-git-files.ts": 3,
-    "packages/agent/src/internal/gmail-channel.ts": 7,
+    "packages/agent/src/internal/gmail-channel.ts": 5,
     "packages/agent/src/internal/provider-box.ts": 1,
     "packages/agent/src/internal/state-lock.ts": 1,
     "packages/agent/src/mcp.ts": 2,
     "packages/agent/src/observability/host.ts": 1,
     "packages/agent/src/observability/posthog.ts": 3,
-    "packages/agent/src/operations.ts": 1,
     "packages/agent/src/papercut-reporter.ts": 8,
     "packages/agent/src/process-host-vite.ts": 3,
     "packages/agent/src/provider-agent.ts": 5,
-    "packages/agent/src/runtime/invocations-dev.ts": 1,
     "packages/agent/src/runtime/process.ts": 2,
     "packages/agent/src/server/console-delivery.ts": 2,
     "packages/agent/src/server/routes.ts": 17,
@@ -1132,5 +1128,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/agent/src/server/routes.ts": 2
+  }
 }

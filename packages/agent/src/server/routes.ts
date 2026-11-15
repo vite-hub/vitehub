@@ -74,7 +74,7 @@ import {
 } from "../internal/channel-state.ts"
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
-import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
+import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
@@ -193,7 +193,7 @@ import type { AgentInvocations } from "../invocations.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
-import { ChannelAdapterUnavailableError, ChannelArchiveTooLargeError, ChannelStateUnavailableError, ChannelThreadUnknownError, ChannelUnknownError } from "../channels-console-host.ts"
+import { invariant } from "@vite-hub/internal/invariant"
 import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
 
 const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
@@ -219,7 +219,7 @@ export interface AgentChannelWebhookRouteHandler {
   /**
    * Read one thread of a Channel as a conversation: the provider messages, the durable transcripts, and the Invocations
    * that answered, stitched in time order. It checks nothing about the caller, so only trusted code may call it, but
-   * it refuses a thread that the Channel does not know (`ChannelThreadUnknownError`).
+   * it refuses a thread that the Channel does not know (`CHANNELS_THREAD_UNKNOWN`).
    * `attachmentBytes` bounds the attachment data in the answer; 0 returns attachment metadata only.
    */
   conversation(request: Request, input: { attachmentBytes?: number, channel: string, signal?: AbortSignal, threadId: string }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelConversation>
@@ -409,7 +409,7 @@ interface ChatTypingRefresh {
 }
 
 function createRouteError(statusCode: number, message: string): AgentHttpError {
-  return new AgentHttpError(statusCode, message)
+  return agentHttpError(statusCode, message)
 }
 
 function createRouteBodyError(message: string): Error & { status?: number; statusCode?: number } {
@@ -8515,14 +8515,14 @@ async function readChannelConversation(
   const adapters = await resolveChatAdapters(baseChatOptions, context)
   const adapterName = resolveChatAdapterName(adapters, registration)
   const adapter = adapterName ? adapters[adapterName] : undefined
-  if (!adapter) throw new ChannelAdapterUnavailableError("Channel history export could not resolve the configured Chat adapter.")
+  if (!adapter) throw agentDiagnostics.CHANNELS_ADAPTER_MISSING()
   const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
   const state = await resolveChatState(chatOptions, context, registration, options)
   try {
     await state.state.connect()
   }
   catch (error) {
-    throw new ChannelStateUnavailableError(`The Agent State could not be read: ${error instanceof Error ? error.message : String(error)}`)
+    throw agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ cause: error, detail: `The Agent State could not be read: ${error instanceof Error ? error.message : String(error)}` })
   }
   const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
   const retention = channelRetention(chatOptions, state.state)
@@ -8542,7 +8542,7 @@ async function readChannelConversation(
       for (const key of participants) if (typeof key === "string" && key) keys.add(key)
     }
     catch (error) {
-      throw new ChannelStateUnavailableError(`The transcript participants could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+      throw agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ cause: error, detail: `The transcript participants could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}` })
     }
   }
   const readTranscripts = async (keys: Iterable<string>, limit: number) => {
@@ -8556,7 +8556,7 @@ async function readChannelConversation(
         listed = await history.list({ limit, threadId: input.threadId, userKey })
       }
       catch (error) {
-        throw new ChannelStateUnavailableError(`The transcripts could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+        throw agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ cause: error, detail: `The transcripts could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}` })
       }
       if (listed.length >= limit) truncated = true
       for (const entry of listed) {
@@ -8580,11 +8580,11 @@ async function readChannelConversation(
         admitted = await state.state.get(channelTranscriptAdmissionKey(state.titleKeyPrefix, input.threadId)) === true
       }
       catch (error) {
-        throw new ChannelStateUnavailableError(`The thread admission could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+        throw agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ cause: error, detail: `The thread admission could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}` })
       }
     }
     const known = admitted && (await readTranscripts(keys, 1)).entries.length > 0
-    if (!known) throw new ChannelThreadUnknownError(`The Channel has no Invocation and no transcript for the thread ${JSON.stringify(input.threadId)}.`)
+    if (!known) throw agentDiagnostics.CHANNELS_THREAD_UNKNOWN({ thread: input.threadId })
   }
   const messages: Record<string, unknown>[] = []
   const chatMessages: ChatSdkMessage[] = []
@@ -8607,7 +8607,7 @@ async function readChannelConversation(
       const message = result.value
       const archivedMessage = await channelHistoryMessage(message, adapter, attachmentBudget, input.signal)
       const messageBytes = boundedJsonByteLength(archivedMessage, channelHistoryArchiveMaxBytes - archiveBytes)
-      if (messageBytes === undefined) throw new ChannelArchiveTooLargeError("Channel history archive exceeds the 35 MiB response limit.")
+      if (messageBytes === undefined) throw agentDiagnostics.CHANNELS_EXPORT_TOO_LARGE()
       archiveBytes += messageBytes
       messages.push(archivedMessage)
       chatMessages.push(message)
@@ -8677,7 +8677,7 @@ async function createChannelHistoryResponse(
       threadId: body.threadId.trim(),
     })
   } catch (error) {
-    if (error instanceof ChannelAdapterUnavailableError) return createJsonErrorResponse(500, error.message)
+    if (error instanceof Error && Reflect.get(error, "code") === "CHANNELS_ADAPTER_MISSING") return createJsonErrorResponse(500, error.message)
     return createJsonErrorResponse(400, error instanceof Error ? error.message : "Channel history export failed.")
   }
   const serialized = JSON.stringify(channelConversationArchive(conversation))
@@ -10318,8 +10318,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   )
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
-    if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(channel)}.`)
-    if (agentChannelOptions(agent)[channel]?.history) throw new ChannelUnknownError(`Channel ${JSON.stringify(channel)} has its own history collection and no per-thread conversation.`)
+    if (!match) throw agentDiagnostics.CHANNELS_NOT_FOUND({ channel })
+    if (agentChannelOptions(agent)[channel]?.history) throw agentDiagnostics.CHANNELS_NO_CONVERSATIONS({ channel })
     return match.registration
   }
   handler.conversation = async (request, input, handlerOptions = {}) => {
@@ -10343,7 +10343,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const context = await channelContext(request, handlerOptions)
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => registration.channelId === channel)
-      if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(channel)}.`)
+      if (!match) throw agentDiagnostics.CHANNELS_NOT_FOUND({ channel })
       // The same choice as a webhook delivery: the webhook State, else the chat State.
       let scope = await resolveAgentWebhookState(context, match.registration, handlerOptions)
       if (!scope) {
@@ -10368,7 +10368,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         const registrations = await agentWebhookRegistrations(agent, context)
         for (const channelId of channelIds) {
           const registration = registrations.find(({ registration }) => registration.channelId === channelId)?.registration
-          if (!registration) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no webhook route.`)
+          invariant(registration, "every Channel of an Agent has a webhook registration")
           // The same State and key prefix as the webhook route, so a poll and a push share the cursor and its lock.
           const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
           const channelState = webhookState ?? await (async () => {
@@ -10376,12 +10376,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             return { keyPrefix: chatState.titleKeyPrefix, state: chatState.state }
           })()
           if (registration.durableState && !isDurableAgentState(channelState.state)) {
-            throw new ChannelStateUnavailableError("This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
+            throw agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ detail: "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects." })
           }
           await channelState.state.connect()
           bindAgentChannelTriggerState(context.request, channelId, { keyPrefix: `${channelState.keyPrefix}channel-state:`, state: channelState.state })
           const trigger = (await resolveAgentTriggers(agent as never, context as never))[`${channelId}.poll`]
-          if (!trigger) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no poll trigger.`)
+          invariant(trigger, "a Channel that pollGmailChannel() accepts has a poll trigger")
           await trigger.invoke(undefined)
         }
       })

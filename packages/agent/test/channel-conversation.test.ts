@@ -850,17 +850,17 @@ describe("conversations.export", () => {
 
 describe("operation failures", () => {
   it("name their cause and their fix", async () => {
-    const { ChannelAdapterUnavailableError, ChannelArchiveTooLargeError, ChannelStateUnavailableError } = await import("../src/channels-console-host.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
     const fail = (error: Error) => installChannelsConsoleHost({
       agents: { support: {} as never },
       handlers: { support: { channels: async () => [], conversation: async () => { throw error }, threads: async () => [] } as never },
       options: () => ({}),
     })
-    fail(new ChannelArchiveTooLargeError("Channel history archive exceeds the 35 MiB response limit."))
+    fail(agentDiagnostics.CHANNELS_EXPORT_TOO_LARGE())
     await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_EXPORT_TOO_LARGE", status: 413 })
-    fail(new ChannelAdapterUnavailableError("no adapter"))
+    fail(agentDiagnostics.CHANNELS_ADAPTER_MISSING())
     await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_ADAPTER_MISSING", status: 500 })
-    fail(new ChannelStateUnavailableError("The Agent State could not be read: down"))
+    fail(agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({ detail: "The Agent State could not be read: down" }))
     await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", status: 503, fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL") })
     fail(new Error("provider exploded"))
     await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_PROVIDER_FAILED", status: 502 })

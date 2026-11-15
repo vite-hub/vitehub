@@ -3001,6 +3001,22 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] Agent configKey must be a non-reserved configuration key.",
       fix: "Set `configKey` in `defineAgent({ options, configure, configKey })` to a camelCase name that is not an Agent option, such as `\"babysitter\"`.",
     },
+    AGENT_CONVERSATIONS_ARGUMENTS_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] vitehub conversations export: ${problem}`,
+      fix: "Run `vitehub conversations export <agent> <channel> <thread>` with only the options that `vitehub conversations export --help` lists, and pass `--output <directory>` with `--media`.",
+    },
+    AGENT_CONVERSATIONS_DEV_SERVER_MISSING: {
+      why: ({ rootDir }: { rootDir: string }) => `[vitehub] No dev server is running for ${rootDir}. Start \`vite dev\` or pass --url <origin>.`,
+      fix: "Start `vite dev` in the project, or pass `--url <origin>` of the deployed app to `vitehub conversations export`.",
+    },
+    AGENT_CONVERSATIONS_MEDIA_PATH_INVALID: {
+      why: ({ path }: { path: string }) => `[vitehub] The server named a file outside the output directory: ${path}.`,
+      fix: "Use the same ViteHub version in the app and in the CLI. The `conversations.export` operation of the app must name attachment paths inside the output directory.",
+    },
+    AGENT_CONVERSATIONS_OUTPUT_EXISTS: {
+      why: ({ directory }: { directory: string }) => `[vitehub] The output directory already exists: ${directory}`,
+      fix: "Pass `--output` a directory that does not exist yet, or delete the old export directory first.",
+    },
     AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING: {
       why: "[vitehub] context.customInstructions must be a string.",
       fix: "Pass the custom instructions as a Markdown string in `context.customInstructions`, or omit the value.",
@@ -3020,6 +3036,18 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_GMAIL_CERTIFICATES_FAILED: {
+      why: ({ status }: { status: number }) => `Google OAuth certificates request failed with HTTP ${status}.`,
+      fix: "Check that the server can reach https://www.googleapis.com/oauth2/v3/certs. A retry helps when Google was only unavailable.",
+    },
+    AGENT_GMAIL_REQUEST_FAILED: {
+      why: ({ method, path, reason, status }: { method: string, path: string, reason?: string, status: number }) => `Gmail ${method} ${path} failed with HTTP ${status}${reason ? `: ${reason}` : ""}.`,
+      fix: "Read the HTTP status: for 401 or 403 give the Gmail account of GMAIL_REFRESH_TOKEN the Gmail API scopes again, for 429 or a 5xx status retry later.",
+    },
+    AGENT_GMAIL_TOKEN_REFRESH_FAILED: {
+      why: ({ reason, status }: { reason?: string, status?: number }) => `Google OAuth token refresh failed${status ? ` with HTTP ${status}` : ""}${reason ? `: ${reason}` : ""}.`,
+      fix: "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN, and create a new refresh token when Google answers `invalid_grant`. Read error.cause for a network failure.",
     },
     AGENT_INLINE_INVOCATION_WORKFLOW: {
       why: ({ capabilities }: { capabilities: boolean }) => capabilities
@@ -3043,9 +3071,17 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] Agent invocations accept `database` only with `store: \"database\"`.",
       fix: "Set `store: \"database\"` next to `database` in the Agent `invocations` option, or remove `database`.",
     },
+    AGENT_INVOCATION_CLAIM_CONFLICT: {
+      why: "Invocation already exists or is claimed.",
+      fix: "Another run already holds this Invocation, so this duplicate does not run. Read it with `invocations.get(id)`, or pass `force` to Channel replay to start it again.",
+    },
     AGENT_INVOCATION_CLAIM_UNAVAILABLE: {
       why: "Could not acquire the Invocation execution claim.",
       fix: "Check that the Invocations store of the Agent is reachable and can write, then retry the Invocation.",
+    },
+    AGENT_INVOCATION_ID_AMBIGUOUS: {
+      why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
+      fix: "Cancel the Invocation through the intended Agent, with `invocations.cancel(id)` of that Agent.",
     },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,
@@ -3094,6 +3130,53 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_WORKFLOW_REPLAY_UNSAFE: {
       why: ({ reason }: { reason: "The acknowledged Workflow run is unavailable" | "Workflow dispatch acknowledgement is unknown" | "Workflow dispatch identity changed" }) => `${reason}; replay cannot safely submit this Invocation again.`,
       fix: "Find the Workflow run of this Invocation in the Workflow provider and finish or cancel it there. A replay does not help; keep the Workflow provider and Agent name unchanged while runs are pending.",
+    },
+    CHANNELS_ADAPTER_MISSING: {
+      why: "Channel history export could not resolve the configured Chat adapter.",
+      fix: "Configure the Chat adapter of the Channel, such as its bot token, so the provider history can be read.",
+    },
+    CHANNELS_CURSOR_INVALID: {
+      why: "The cursor is not valid.",
+      fix: "Pass the `nextCursor` of the previous page, or omit the cursor to read the first page.",
+    },
+    CHANNELS_EXPORT_TOO_LARGE: {
+      why: "Channel history archive exceeds the 35 MiB response limit.",
+      fix: "Export without media, or read the conversation page by page with `vitehub channels conversation`.",
+    },
+    CHANNELS_FORBIDDEN: {
+      why: ({ need }: { need: "conversations" | "all" | "participant" | "identity" }) => ({
+        all: "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.",
+        conversations: "An Agent can read Channel conversations only when its operations() capability sets `conversations`.",
+        identity: "The Actor has no identity that can be matched to the people of this thread.",
+        participant: "The Actor is not a participant of this thread.",
+      })[need],
+      fix: "Create the capability with `operations({ conversations: \"participant\" })` to let the Agent read the threads it takes part in, or with `conversations: \"all\"` to read every thread and the Channel status.",
+    },
+    CHANNELS_HOST_UNAVAILABLE: {
+      why: ({ detail }: { detail?: string }) => detail ?? "The Channel webhook routes of this app have not started in this process, or the Agent State cannot read conversations.",
+      fix: "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state.driver: \"cloudflare\"`). The generated webhook route installs the reader when the server starts.",
+    },
+    CHANNELS_NOT_FOUND: {
+      why: ({ agent, channel }: { agent?: string, channel?: string }) => channel === undefined
+        ? `The app has no Agent named ${JSON.stringify(agent)} with Channels.`
+        : agent === undefined ? `Unknown Channel ${JSON.stringify(channel)}.` : `The Agent ${JSON.stringify(agent)} has no Channel ${JSON.stringify(channel)}.`,
+      fix: "Run `vitehub channels list` to see the Agents and their Channels, and pass one of those names.",
+    },
+    CHANNELS_NO_CONVERSATIONS: {
+      why: ({ channel }: { channel: string }) => `Channel ${JSON.stringify(channel)} has its own history collection and no per-thread conversation.`,
+      fix: "Use `vitehub channels history` and `vitehub channels replay` for a Channel with a `history` collection.",
+    },
+    CHANNELS_NO_STATUS: {
+      why: ({ channel }: { channel: string }) => `Channel ${JSON.stringify(channel)} has no sync status.`,
+      fix: "Read the status of a Channel that reads a provider cursor, such as Gmail. Other Channels report no sync status.",
+    },
+    CHANNELS_PROVIDER_FAILED: {
+      why: ({ detail }: { detail: string }) => `The provider history could not be read: ${detail}`,
+      fix: "Read error.cause for the provider error, and check the credentials of the Chat adapter of the Channel. A retry helps when the provider was only unavailable.",
+    },
+    CHANNELS_THREAD_UNKNOWN: {
+      why: ({ thread }: { thread: string }) => `The Channel has no Invocation and no transcript for the thread ${JSON.stringify(thread)}.`,
+      fix: "Run `vitehub channels threads <agent> <channel>` to see the threads of the Channel.",
     },
   },
 })

@@ -12,7 +12,6 @@ import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { Diagnostic } from "nostics"
 import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
@@ -86,7 +85,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -1112,7 +1111,7 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
   await loadAgentHost()
   const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
-    if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
+    if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
     throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
   }
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
@@ -1125,8 +1124,8 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       // even when legacy metadata cannot show whether dispatch was accepted.
       if (!canDispatchAgentWorkflow(binding, context)) {
         if (binding || dispatch) {
-          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw new AgentInvocationClaimConflict()
-          throw new AgentInvocationClaimConflict()
+          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+          throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
         }
         return journal
       }
@@ -1138,7 +1137,7 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
       const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
-      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
+      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
         throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch identity changed" })
       }
@@ -1151,7 +1150,7 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       const accepted = await handle.getRun(providerId)
       if (accepted.status !== "unknown") {
         if (!await journal.confirmWorkflowDispatch()) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the accepted Workflow Invocation" })
-        throw new AgentInvocationClaimConflict()
+        throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       }
       // A missing marker is ambiguous for legacy reservations. Only an explicit
       // false means the provider call was never attempted; an attempted or
@@ -1198,7 +1197,7 @@ async function runAgentAsWorkflow<
         })
       : undefined
     if (journal?.claimStatus !== "owned") {
-      if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
+      if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     replayJournal = journal
@@ -4026,7 +4025,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
       await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, signal: "traces", spans })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
   }))
   throwAgentTelemetryFailures(exports)
@@ -4088,7 +4087,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
         })
       }
       catch (error) {
-        throw new AgentTelemetryCapabilityError(capabilityId, error)
+        throw agentTelemetryCapabilityError(capabilityId, error)
       }
       afterSequence = events.at(-1)!.sequence
       cursors.set(item, afterSequence)
@@ -4144,7 +4143,7 @@ async function exportAgentTelemetryConfiguration<TRuntimeConfig extends AgentRun
       })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
     configurationDelivered.add(item)
   }))
@@ -4157,19 +4156,13 @@ function throwAgentTelemetryFailures(exports: PromiseSettledResult<void>[]): voi
   if (failures.length > 1) throw new AggregateError(failures, "Multiple Agent telemetry exports failed.")
 }
 
-class AgentTelemetryCapabilityError extends Diagnostic {
-  readonly capabilityId: string
+function agentTelemetryCapabilityError(capabilityId: string, cause: unknown) {
+  return Object.assign(agentDiagnostics.AGENT_R0890({ cause, message: `[vitehub] Capability "${capabilityId}" telemetry export failed.` }), { capabilityId })
+}
 
-  constructor(capabilityId: string, cause: unknown) {
-    super({
-      cause,
-      code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0890",
-      why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
-    }, AgentTelemetryCapabilityError)
-    this.name = "AgentTelemetryCapabilityError"
-    this.capabilityId = capabilityId
-  }
+/** The Capability id of an `AGENT_R0890` telemetry export error. */
+function telemetryCapabilityId(error: unknown): string | undefined {
+  return isRuntimeRecord(error) && error.code === "AGENT_R0890" && typeof error.capabilityId === "string" ? error.capabilityId : undefined
 }
 
 function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -4179,14 +4172,15 @@ function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
   invocationId: string,
   phase: "live" | "terminal",
 ): void {
-  const failure = error instanceof AgentTelemetryCapabilityError ? error.cause : error
+  const capabilityId = telemetryCapabilityId(error)
+  const failure = capabilityId !== undefined && error instanceof Error ? error.cause : error
   const name = agentInvocationName(agent, runtime)
   const capabilityIds = error instanceof AggregateError
-    ? error.errors.flatMap(item => item instanceof AgentTelemetryCapabilityError ? [item.capabilityId] : [])
+    ? error.errors.flatMap(item => telemetryCapabilityId(item) ?? [])
     : []
   console.error({
     agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
-    ...(error instanceof AgentTelemetryCapabilityError ? { capability_id: error.capabilityId } : {}),
+    ...(capabilityId !== undefined ? { capability_id: capabilityId } : {}),
     ...(capabilityIds.length ? { capability_ids: capabilityIds } : {}),
     component: "@vite-hub/agent",
     error: normalizeRuntimeDiagnosticError(failure, { includeStack: true }),
@@ -8352,7 +8346,7 @@ async function executeAgentInvocation<
       })
       : undefined
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {
-      if (invocationJournal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
+      if (invocationJournal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     // SAFETY: Workflow execution installs this private binding on the runtime context before handing off the claimed Invocation.

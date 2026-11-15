@@ -430,14 +430,6 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
-// Internal invariant: Channel replay and the Workflow dispatch catch this conflict and skip the duplicate run.
-export class AgentInvocationClaimConflict extends Error {
-  constructor() {
-    super("Invocation already exists or is claimed.")
-    this.name = "AgentInvocationClaimConflict"
-  }
-}
-
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Aborts when a user requests cancellation of this Invocation. */
   abortSignal: AbortSignal

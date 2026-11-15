@@ -1,14 +1,8 @@
 import { defineOperation, table } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import {
-  ChannelAdapterUnavailableError,
-  ChannelArchiveTooLargeError,
-  channelsConsoleHost,
-  ChannelStateUnavailableError,
-  ChannelThreadUnknownError,
-  ChannelUnknownError,
-} from "./channels-console-host.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { channelsConsoleHost } from "./channels-console-host.ts"
 import {
   channelAuthorName,
   channelConversationArchive,
@@ -27,17 +21,28 @@ import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
 
-class ChannelsOperationError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
+/** The HTTP status of each Channel operation code. */
+const failureStatus: Readonly<Record<string, number>> = {
+  CHANNELS_ADAPTER_MISSING: 500,
+  CHANNELS_CURSOR_INVALID: 400,
+  CHANNELS_EXPORT_TOO_LARGE: 413,
+  CHANNELS_FORBIDDEN: 403,
+  CHANNELS_HOST_UNAVAILABLE: 503,
+  CHANNELS_NOT_FOUND: 404,
+  CHANNELS_NO_CONVERSATIONS: 400,
+  CHANNELS_NO_STATUS: 400,
+  CHANNELS_PROVIDER_FAILED: 502,
+  CHANNELS_THREAD_UNKNOWN: 404,
+}
 
-  constructor(status: number, code: string, message: string, fix?: string) {
-    super(message)
-    this.code = code
-    this.status = status
-    if (fix) this.fix = fix
-  }
+function isChannelsFailure(error: unknown): error is Error & { code: string } {
+  const code: unknown = error instanceof Error ? Reflect.get(error, "code") : undefined
+  return typeof code === "string" && Object.hasOwn(failureStatus, code)
+}
+
+/** Adds the HTTP status of its code to a Channel operation failure. The routes that throw it run in another bundle. */
+function withStatus<T extends Error & { code: string }>(error: T): T & { status: number } {
+  return Object.assign(error, { status: failureStatus[error.code] ?? 500 })
 }
 
 const maximumMediaBytes = 25 * 1024 * 1024
@@ -46,19 +51,18 @@ const defaultThreads = 25
 const maximumThreads = 100
 const defaultMessages = 100
 const maximumMessages = 500
-const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state.driver: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
 
 function host(): ChannelsConsoleHost {
   const installed = channelsConsoleHost()
   if (!installed) {
-    throw new ChannelsOperationError(503, "CHANNELS_HOST_UNAVAILABLE", "The Channel webhook routes of this app have not started in this process, or the Agent State cannot read conversations.", stateFix)
+    throw withStatus(agentDiagnostics.CHANNELS_HOST_UNAVAILABLE({}))
   }
   return installed
 }
 
 function handlerOf(installed: ChannelsConsoleHost, agent: string) {
   const handler = installed.handlers[agent]
-  if (!handler) throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", `The app has no Agent named ${JSON.stringify(agent)} with Channels.`, "Run `vitehub channels list` to see the Agents and Channels.")
+  if (!handler) throw withStatus(agentDiagnostics.CHANNELS_NOT_FOUND({ agent }))
   return handler
 }
 
@@ -68,13 +72,8 @@ function requestOf(context: OperationContext): Request {
 
 /** The failure of a read as a coded operation failure. */
 function failureOf(error: unknown): Error {
-  if (error instanceof ChannelsOperationError) return error
-  if (error instanceof ChannelUnknownError) return new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", error.message, "Run `vitehub channels list` to see the Channels that keep conversations.")
-  if (error instanceof ChannelThreadUnknownError) return new ChannelsOperationError(404, "CHANNELS_THREAD_UNKNOWN", error.message, "Run `vitehub channels threads <agent> <channel>` to see the threads of the Channel.")
-  if (error instanceof ChannelAdapterUnavailableError) return new ChannelsOperationError(500, "CHANNELS_ADAPTER_MISSING", error.message, "Configure the Chat adapter of the Channel, such as its bot token, so the provider history can be read.")
-  if (error instanceof ChannelArchiveTooLargeError) return new ChannelsOperationError(413, "CHANNELS_EXPORT_TOO_LARGE", error.message, "Export without media, or read the conversation page by page with `channels conversation`.")
-  if (error instanceof ChannelStateUnavailableError) return new ChannelsOperationError(503, "CHANNELS_HOST_UNAVAILABLE", error.message, stateFix)
-  return new ChannelsOperationError(502, "CHANNELS_PROVIDER_FAILED", `The provider history could not be read: ${error instanceof Error ? error.message : String(error)}`)
+  if (isChannelsFailure(error)) return withStatus(error)
+  return withStatus(agentDiagnostics.CHANNELS_PROVIDER_FAILED({ cause: error, detail: error instanceof Error ? error.message : String(error) }))
 }
 
 /** The ids that tell whether the caller is a person of a thread: the user, the Actor, and the Auth user of the Actor. */
@@ -91,7 +90,7 @@ function callerIds(context: OperationContext): string[] {
 function conversationAccess(context: OperationContext): "all" | "participant" {
   if (context.surface !== "agent") return "all"
   if (!context.conversations) {
-    throw new ChannelsOperationError(403, "CHANNELS_FORBIDDEN", "An Agent can read Channel conversations only when its operations() capability sets `conversations`.", "Create the capability with `operations({ conversations: \"participant\" })` to let it read the threads it takes part in.")
+    throw withStatus(agentDiagnostics.CHANNELS_FORBIDDEN({ need: "conversations" }))
   }
   return context.conversations
 }
@@ -99,12 +98,7 @@ function conversationAccess(context: OperationContext): "all" | "participant" {
 function assertParticipant(context: OperationContext, participants: readonly string[]): void {
   const ids = callerIds(context)
   if (ids.some(id => participants.includes(id))) return
-  throw new ChannelsOperationError(
-    403,
-    "CHANNELS_FORBIDDEN",
-    ids.length ? "The Actor is not a participant of this thread." : "The Actor has no identity that can be matched to the people of this thread.",
-    "Read the thread the Agent is answering in, or create the capability with `conversations: \"all\"`.",
-  )
+  throw withStatus(agentDiagnostics.CHANNELS_FORBIDDEN({ need: ids.length ? "participant" : "identity" }))
 }
 
 async function readConversation(context: OperationContext, input: { agent: string, attachmentBytes?: number, channel: string, thread: string }): Promise<AgentChannelConversation> {
@@ -156,7 +150,7 @@ const page = (maximum: number) => v.optional(v.pipe(v.number(), v.integer(), v.m
 function cursorOf(value: string | undefined): ChannelCursor | undefined {
   if (value === undefined) return undefined
   const cursor = decodeChannelCursor(value)
-  if (!cursor) throw new ChannelsOperationError(400, "CHANNELS_CURSOR_INVALID", "The cursor is not valid.", "Use the nextCursor of the previous page.")
+  if (!cursor) throw withStatus(agentDiagnostics.CHANNELS_CURSOR_INVALID())
   return cursor
 }
 
@@ -217,8 +211,8 @@ const channelsThreads = defineOperation({
     const mode = conversationAccess(context)
     const options = installed.options(input.agent, context.env)
     const channel = (await handler.channels(requestOf(context), options).catch((error: unknown) => { throw failureOf(error) })).find(entry => entry.id === input.channel)
-    if (!channel) throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", `The Agent ${JSON.stringify(input.agent)} has no Channel ${JSON.stringify(input.channel)}.`, "Run `vitehub channels list` to see the Channels.")
-    if (!channel.conversations) throw new ChannelsOperationError(400, "CHANNELS_NO_CONVERSATIONS", `Channel ${JSON.stringify(input.channel)} has its own history collection and no per-thread conversation.`, "Use `vitehub channels replay` to work with its history.")
+    if (!channel) throw withStatus(agentDiagnostics.CHANNELS_NOT_FOUND({ agent: input.agent, channel: input.channel }))
+    if (!channel.conversations) throw withStatus(agentDiagnostics.CHANNELS_NO_CONVERSATIONS({ channel: input.channel }))
     const cursor = cursorOf(input.cursor)
     let threads
     try {
@@ -275,7 +269,7 @@ const channelsStatus = defineOperation({
   run: async (input, context) => {
     // Errors name message IDs of the mailbox, so an Agent needs access to every conversation.
     if (context.surface === "agent" && context.conversations !== "all") {
-      throw new ChannelsOperationError(403, "CHANNELS_FORBIDDEN", "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.", "Create the capability with `operations({ conversations: \"all\" })`.")
+      throw withStatus(agentDiagnostics.CHANNELS_FORBIDDEN({ need: "all" }))
     }
     const installed = host()
     const handler = handlerOf(installed, input.agent)
@@ -286,7 +280,7 @@ const channelsStatus = defineOperation({
     catch (error) {
       throw failureOf(error)
     }
-    if (!status) throw new ChannelsOperationError(400, "CHANNELS_NO_STATUS", `Channel ${JSON.stringify(input.channel)} has no sync status.`, "Only Channels that read a provider cursor, such as Gmail, report a sync status.")
+    if (!status) throw withStatus(agentDiagnostics.CHANNELS_NO_STATUS({ channel: input.channel }))
     return { agent: input.agent, channel: input.channel, ...status }
   },
   section: "channels",
@@ -414,7 +408,7 @@ const conversationsExport = defineOperation({
           truncated: conversation.truncated,
         })
     if (new TextEncoder().encode(body).length + media.reduce((total, file) => total + file.size, 0) > maximumArchiveBytes) {
-      throw new ChannelsOperationError(413, "CHANNELS_EXPORT_TOO_LARGE", "The conversation is larger than the 35 MiB limit of an export.", "Export without media, or read the conversation page by page with `channels conversation`.")
+      throw withStatus(agentDiagnostics.CHANNELS_EXPORT_TOO_LARGE())
     }
     return { ...exported, text: body, ...(conversation.truncated ? { truncated: true } : {}) }
   },

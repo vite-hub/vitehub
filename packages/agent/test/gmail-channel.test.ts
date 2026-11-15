@@ -14,7 +14,7 @@ import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
-import { clearGmailSkippedMessages, getGmailMessage, getGmailThread, GmailApiError, gmailMessagePrompt, gmailMessageSchema, gmailSettings, readGmailChannelStatus, splitAddresses, verifyGoogleOidcToken, syncGmailMailbox, gmailClientFromSettings } from "../src/internal/gmail-channel.ts"
+import { clearGmailSkippedMessages, getGmailMessage, getGmailThread, gmailMessagePrompt, gmailMessageSchema, gmailSettings, readGmailChannelStatus, splitAddresses, verifyGoogleOidcToken, syncGmailMailbox, gmailClientFromSettings } from "../src/internal/gmail-channel.ts"
 import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { channelMessageRunId, createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
@@ -585,7 +585,7 @@ describe("gmail() Channel", () => {
         if (request.path === "history" && request.query?.startHistoryId === "200") return { historyId: "200" }
         if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: ["broken", "next"].map(id => ({ message: { id } })) }] }
         if (request.query?.format === "minimal") return { labelIds: ["INBOX"] }
-        if (request.path === "messages/broken") throw new GmailApiError("Gmail GET messages/broken failed with HTTP 500: Backend Error.", 500)
+        if (request.path === "messages/broken") throw Object.assign(new Error("Gmail GET messages/broken failed with HTTP 500: Backend Error."), { status: 500 })
         return apiMessage(request.path.slice("messages/".length), "Next")
       }
       const delivered: string[] = []
@@ -638,7 +638,7 @@ describe("gmail() Channel", () => {
         if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: [{ message: { id: "m1" } }] }] }
         if (request.query?.format === "minimal" && rateLimited) {
           rateLimited = false
-          throw new GmailApiError("Gmail GET messages/m1 failed with HTTP 429: Too many requests.", 429)
+          throw Object.assign(new Error("Gmail GET messages/m1 failed with HTTP 429: Too many requests."), { status: 429 })
         }
         if (request.query?.format === "minimal") return { labelIds: ["INBOX"] }
         return apiMessage("m1", "First")
@@ -2080,7 +2080,7 @@ describe("gmail() Channel", () => {
     const second = await collection.page({ cursor: "page-2", query: await collection.parseQuery({}) })
     expect(second).toMatchObject({ items: [{ id: "m3" }], nextCursor: null })
     expect(google.calls.filter(call => call.path === "messages").map(call => [call.query.get("q"), call.query.get("maxResults")])).toEqual([["in:inbox", "2"], ["in:inbox", "50"]])
-    await expect(collection.page({ cursor: "stale", query: {} })).rejects.toMatchObject({ name: "CollectionCursorError" })
+    await expect(collection.page({ cursor: "stale", query: {} })).rejects.toMatchObject({ code: "AGENT_R0936", message: "[vitehub] Invalid Gmail history cursor." })
 
     const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: () => "ok" } })
     await expect(replayChannel(agent, "gmail", { cursor: "stale", force: true })).rejects.toThrow(/Invalid Channel "gmail" history cursor/)
