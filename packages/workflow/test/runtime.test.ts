@@ -376,8 +376,10 @@ describe("workflow runtime", () => {
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,
-    details: { acknowledgement?: "unknown", operation: string, provider: string, status?: number },
+    expected: { acknowledgement?: "rejected" | "unknown", operation: string, provider: string, reason?: string, status?: number },
   ) {
+    // Every provider failure carries a short redacted reason. A case that does not name one accepts any reason.
+    const details = { reason: expect.any(String), ...expected }
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -392,7 +394,8 @@ describe("workflow runtime", () => {
       message: "Workflow provider operation failed.",
       name: "ViteHubError",
     })
-    expect(JSON.stringify(error)).not.toContain("provider-secret")
+    // The reason keeps the first line of the provider message. A value after a secret name is redacted.
+    expect(JSON.stringify(error)).not.toMatch(/provider-secret:(?!\[redacted\])/)
   }
 
   async function expectInvalidProviderResult(
@@ -1997,6 +2000,7 @@ describe("workflow runtime", () => {
     })
 
     await expectProviderFailure(startWorkflow("welcome", {}, { id: "source-run" }), cause, {
+      acknowledgement: "rejected",
       operation: "run",
       provider: "openworkflow",
       status: 403,
@@ -3555,6 +3559,30 @@ describe("workflow runtime", () => {
       provider: "cloudflare",
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { acknowledgement: "rejected", message: "(instance.already_exists) Workflow instance already exists" },
+    { acknowledgement: "rejected", message: "Workflow instance has invalid id" },
+    { acknowledgement: "unknown", message: "Network connection lost." },
+  ] as const)("reports a Cloudflare create that fails with \"$message\" as $acknowledgement", async ({ acknowledgement, message }) => {
+    const cause = new Error(message)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: async () => { throw cause }, get: vi.fn() },
+      } } } },
+    })
+
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "welcome-1" }), cause, {
+      acknowledgement,
+      operation: "create",
+      provider: "cloudflare",
+      reason: `Error: ${message}`,
+    })
   })
 
   it.each([
