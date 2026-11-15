@@ -43,10 +43,9 @@ function isPrimitive(value: unknown) {
 }
 
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
-function serializeValue(value: unknown, operation = "setIfAbsent"): string {
+function serializeValue(value: unknown, operation: "deleteIfEquals" | "setIfAbsent" = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
-  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
-  if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.delete() to remove a key.`)
+  if (value === undefined) throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "missing" })
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
   if (value && typeof value === "object") {
@@ -55,8 +54,7 @@ function serializeValue(value: unknown, operation = "setIfAbsent"): string {
     const toJSON: unknown = Reflect.get(value, "toJSON")
     if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
   }
-  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
-  throw new TypeError("KV cannot serialize this value.")
+  throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
 }
 
 /** The line that `vite dev` prints when a store uses real data. Only `vite dev` resolves a store with `remote: true`. */

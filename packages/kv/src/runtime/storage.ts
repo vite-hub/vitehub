@@ -134,7 +134,7 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("deleteIfEquals", name, async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
         return storage.deleteIfEqualsItem(key, expected)
-      }, ["KV_UNSUPPORTED_OPERATION"])
+      }, ["KV_INVALID_VALUE", "KV_UNSUPPORTED_OPERATION"])
     },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
@@ -166,7 +166,7 @@ function createKVStorage(name = "default"): KVStorage {
         const ttl = options?.ttl
         if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl)))) throw kvErrorDiagnostics.KV_INVALID_TTL()
         return storage.setIfAbsentItem(key, value, ttl)
-      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
+      }, ["KV_INVALID_TTL", "KV_INVALID_VALUE", "KV_UNSUPPORTED_OPERATION"])
     },
     store: selectKVStore,
   }

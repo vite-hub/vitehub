@@ -1132,5 +1132,13 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/kv/src/runtime/cloudflare-kv.ts": 2,
+    "packages/kv/src/runtime/cursor-history.ts": 1,
+    "packages/kv/src/runtime/deno-kv.ts": 2,
+    "packages/kv/src/runtime/preview.ts": 2,
+    "packages/kv/src/runtime/redis-driver.ts": 1,
+    "packages/kv/src/runtime/upstash-driver.ts": 1,
+    "packages/queue/src/providers/postgres.ts": 1
+  }
 }

@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { createKVStorage } from "./create-storage.ts"
@@ -108,8 +109,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     }
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
-    // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
-    if (disposed) throw new Error("KV storage has been disposed.")
+    invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
@@ -125,8 +125,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
-        // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
-        if (disposed) throw new Error("KV storage has been disposed.")
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(page.cursor!)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }
