@@ -107,6 +107,7 @@ export default defineConsoleAuthorize((context) => {
 | `{ sections: ['content'] }` | Allows only these section ids, with all their actions. An empty list returns `403`. |
 | `{ sections: ['kv:read'] }` | Allows `kv` for reads only. See [Read-only grants](#read-only-grants). |
 | `{ sections: ['blob:media'] }` | Allows Blob operations on the `media` store only. See [Grant one Blob store](#grant-one-blob-store). |
+| `{ sections: ['site'], grants: ['comments-read'] }` | Allows [Site access](/docs/console/site-access) with only these page tool roles and the `console` role. Without `grants`, members get every page tool role. |
 | `false` | Returns `403`. |
 | A `Response` | Goes out as it is, for example a `401`. |
 | Anything else | Returns `500`. |

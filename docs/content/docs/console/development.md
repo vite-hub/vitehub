@@ -85,7 +85,7 @@ A forwarder that copies raw TCP bytes, such as `ssh -R` or `tailscale serve --tc
 
 ## The development user
 
-```ts
+```ts fragment
 context.user = { id: 'local', name: 'You' }
 ```
 

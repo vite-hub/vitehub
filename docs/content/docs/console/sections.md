@@ -7,7 +7,7 @@ navigation.group: Use the Console
 icon: i-lucide-layout-list
 ---
 
-The Console shows a section for each primitive that your app installs and that [`authorize`](/docs/console/access) allows for you: Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues and Schedules.
+The Console shows a section for each primitive that your app installs and that [`authorize`](/docs/console/access) allows for you: Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Cache, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues and Schedules.
 
 [Agents in the Console](/docs/console/agents) covers Agents, Skills and Usage, and [MCP client](/docs/console/mcp-client) covers its section.
 
@@ -17,6 +17,7 @@ The Console shows a section for each primitive that your app installs and that [
 | --- | --- | --- |
 | **Env** | Declared Server Env variables by source, with the provider, secret flag, and whether each is required or has a default. | Nothing. It reads no values or defaults, calls no providers and checks no credentials. `env: false` turns off Env and its section. |
 | **KV** | Stores and keys, in pages of at most 200. A value loads only when you select its key, as text or formatted JSON, cut at 256 KiB. | Sets and deletes keys, except `vitehub:` keys. |
+| **Cache** | Keys, tags and values when the app sets `cache`. | Deletes cached entries with `cache.delete`; `cache:read` only lists and reads. |
 | **Blob** | Object metadata per store, 100 objects first and 250 per request, with an optional pathname prefix. Objects under `_vitehub/`, such as Workspace history and Console attachments, stay hidden until you select **Show ViteHub files**. | Uploads up to 8 MiB and deletes. Object contents and provider URLs never reach the Console. |
 | **Databases** | Found Definitions, with their source, definition mode and table names. | Nothing. It never connects to a database. |
 | **Rate Limits** | Policies. | Reads or resets the counter of a key that you enter. |

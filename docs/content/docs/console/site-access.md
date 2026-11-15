@@ -9,6 +9,8 @@ icon: i-lucide-door-open
 
 From the Console you can open your app already signed in, sign in a phone and invite guests. One-time links open drafts and impersonation on your app's own origin, and your pages can link back to the Console.
 
+With `console.authorize`, a member needs the `site` section. The result’s `grants` selects their [page tool roles](/docs/console/access#what-authorize-returns).
+
 ## Sign browsers in
 
 With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
@@ -19,7 +21,7 @@ With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
 A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
 
@@ -88,3 +90,23 @@ export default defineConsoleAuthorize((context) => {
 An `authorize` that returns `true` for every context shows the link to every visitor, so check `context.via` first.
 
 The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
+## Site access from the terminal
+
+Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](/docs/console/signed-requests), it calls the deployed app.
+
+```bash [Terminal]
+pnpm vitehub site sessions
+pnpm vitehub site revoke <id> --yes
+pnpm vitehub site invite Ana --grants comments-write --expires-in-days 7
+pnpm vitehub site invites
+pnpm vitehub site revoke-invite <id> --yes
+pnpm vitehub site grants
+```
+
+`vitehub site sessions` prints the id, kind, person, device, last use, and expiry of each browser. `--json` prints the operation result.
+
+`vitehub site open [path]` runs `site.link`, but a command cannot sign a browser in as you. The link opens the app as the person who asks, and a command signs its calls with a key, not as a person. A development server knows you only as the local developer, without an email. So the command fails with `403` and `CONSOLE_TICKET_NO_PERSON`, and so does `vitehub site invite` against a deployed app, since an invite records the member who made it:
+
+- For a deployed app, use **Open site**, **Link a phone**, or **Invite someone** in the Console.
+- On a development server, which the Console cannot reach, invite your own browser as a guest with the roles you need: `vitehub site invite Me --grants comments-read,comments-write`, then open the link that it prints in a browser on the same machine, since the development server answers only this machine. `vitehub site grants` lists the roles.

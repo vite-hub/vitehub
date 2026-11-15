@@ -33,7 +33,6 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | Code | Status | Fix |
 | --- | --- | --- |
 | `CONSOLE_ACCESS_DENIED` | `403` | Use an account or a key that `authorize` allows. |
-| `CONSOLE_IMPERSONATING` | `403` | The caller uses an impersonation session. Stop impersonating to get your own session back. |
 | `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with a `console` option, and set `console.authorize` to restrict who may use it. |
 | `CONSOLE_LOOPBACK_ONLY` | `403` | The dev server takes unsigned calls from this machine only. See [Share a development server](/docs/console/development#share-a-development-server). |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Call from the app origin, or send `x-vitehub-console: 1` with no `Origin`. |
@@ -49,7 +48,6 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
-| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Check the request body, and update `vite-hub` in the app when the Console is newer. |
 | `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
 | `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
