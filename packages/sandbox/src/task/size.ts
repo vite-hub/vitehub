@@ -27,6 +27,9 @@ const cloudflareInstanceTypes = [
   { name: 'standard-4', vcpu: 4, memoryMib: 12288 },
 ] as const
 
+// Older names that Wrangler still accepts.
+const cloudflareInstanceTypeAliases: Record<string, string> = { dev: 'lite', standard: 'standard-1' }
+
 /** Same memory as the 2 vCPU default of Vercel. `lite` has too little memory for a package install. */
 export const defaultCloudflareInstanceType = 'standard-1'
 
@@ -61,8 +64,9 @@ function formatVcpu(vcpu: number) {
 export function describeCloudflareInstanceType(instanceType: CloudflareInstanceType) {
   if (typeof instanceType === 'object')
     return { label: `custom (${formatVcpu(instanceType.vcpu)} vCPU, ${instanceType.memory_mib} MiB memory)`, vcpu: instanceType.vcpu, memoryMib: instanceType.memory_mib }
-  const named = cloudflareInstanceTypes.find(entry => entry.name === instanceType)
-  return named && { label: `${named.name} (${formatVcpu(named.vcpu)} vCPU, ${named.memoryMib} MiB memory)`, vcpu: named.vcpu, memoryMib: named.memoryMib }
+  const canonical = cloudflareInstanceTypeAliases[instanceType] ?? instanceType
+  const named = cloudflareInstanceTypes.find(entry => entry.name === canonical)
+  return named && { label: `${instanceType} (${formatVcpu(named.vcpu)} vCPU, ${named.memoryMib} MiB memory)`, vcpu: named.vcpu, memoryMib: named.memoryMib }
 }
 
 /** The smallest Cloudflare instance type that gives at least `cpu` vCPUs and `memory` MiB. */

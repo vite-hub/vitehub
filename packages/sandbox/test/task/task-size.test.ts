@@ -59,6 +59,11 @@ describe("Cloudflare Sandbox Task size", () => {
       .toThrow(expect.objectContaining({ code: "SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL" }))
     expect(() => configure({ cpu: 2 }, [{ class_name: "Sandbox", instance_type: { vcpu: 1, memory_mib: 4096, disk_mb: 8000 } }]))
       .toThrow(expect.objectContaining({ code: "SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL" }))
+    for (const alias of ["dev", "standard"]) {
+      expect(() => configure({ memory: 8192 }, [{ class_name: "Sandbox", instance_type: alias }]), alias)
+        .toThrow(expect.objectContaining({ code: "SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL" }))
+    }
+    expect(configure({ memory: 4096 }, [{ class_name: "Sandbox", instance_type: "standard" }]).instance_type).toBe("standard")
   })
 
   it("rejects maxInstances that differs from max_instances of an app-owned containers entry", () => {
