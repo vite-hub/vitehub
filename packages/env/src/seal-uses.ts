@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 /**
  * A SQLite, libSQL, or D1 Drizzle database, such as `db` from `vite-hub/database`. The uses of a sealed value live
  * there, because every instance of the app must see the same count. KV cannot take a use atomically.
@@ -11,7 +13,8 @@ const ready = new WeakMap<SealUsesDatabase, Promise<void>>()
 
 // The queries embed only a hex id and integers that this module checks, so no input reaches the SQL text.
 function checkId(id: string): string {
-  if (!/^[\da-f]{32}$/.test(id)) throw new TypeError("A seal id must be 32 lowercase hex characters.")
+  // seal() makes the id from 16 random bytes and unseal() reads it from the authenticated header.
+  invariant(/^[\da-f]{32}$/.test(id), "a seal id must be 32 lowercase hex characters")
   return id
 }
 
@@ -30,7 +33,8 @@ function initialize(db: SealUsesDatabase): Promise<void> {
 
 /** Keeps `uses` for a new id. The row holds no part of the value. */
 export async function createSealUses(db: SealUsesDatabase, id: string, uses: number, expiresAt: number | undefined): Promise<void> {
-  if (!Number.isSafeInteger(uses) || uses < 1) throw new TypeError("`uses` must be a positive integer.")
+  // seal() checks `uses` and throws ENV_SEAL_ARGUMENT_INVALID before it gets here.
+  invariant(Number.isSafeInteger(uses) && uses >= 1, "`uses` must be a positive integer")
   await initialize(db)
   const now = Date.now()
   await db.all(`DELETE FROM ${table} WHERE expires_at IS NOT NULL AND expires_at <= ${now}`)

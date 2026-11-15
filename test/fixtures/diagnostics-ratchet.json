@@ -1026,5 +1026,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/env/src/seal-uses.ts": 2
+  }
 }
