@@ -179,7 +179,7 @@ svg: '<svg xmlns="http://www.w3.org/2000/svg" onload="globalThis.__diagramOnload
 
       const html = await renderToString(vue.createSSRApp(renderer(), { document }))
       const diagram = html.slice(html.indexOf('class="cmm"'))
-      expect(diagram).toMatch(/^class="cmm" data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
+      expect(diagram).toMatch(/^class="cmm" data-comark-frame data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
       expect(diagram).toContain(">Handler<")
       expect(fetch).not.toHaveBeenCalled()
     }
