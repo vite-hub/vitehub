@@ -881,107 +881,404 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0201: dynamicError,
     AGENT_R0202: dynamicError,
     AGENT_R0203: dynamicError,
-    AGENT_R0204: dynamicError,
-    AGENT_R0205: dynamicError,
-    AGENT_R0206: dynamicError,
-    AGENT_R0207: dynamicError,
-    AGENT_R0208: dynamicError,
-    AGENT_R0209: dynamicError,
-    AGENT_R0210: dynamicError,
-    AGENT_R0211: dynamicError,
-    AGENT_R0212: dynamicError,
-    AGENT_R0213: dynamicError,
-    AGENT_R0214: dynamicError,
-    AGENT_R0215: dynamicError,
-    AGENT_R0216: dynamicError,
-    AGENT_R0217: dynamicError,
-    AGENT_R0218: dynamicError,
-    AGENT_R0219: dynamicError,
-    AGENT_R0220: dynamicError,
-    AGENT_R0221: dynamicError,
-    AGENT_R0222: dynamicError,
-    AGENT_R0223: dynamicError,
-    AGENT_R0224: dynamicError,
-    AGENT_R0225: dynamicError,
+    AGENT_R0204: {
+      ...dynamicError,
+      fix: "Set blob in vitehub(), such as blob: true, or run pnpm add @vite-hub/blob in the app. The message shows the load error.",
+    },
+    AGENT_R0205: {
+      ...dynamicError,
+      fix: "Pass blob_edit a workspacePath of a file that exists in the active Workspace Session.",
+    },
+    AGENT_R0206: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace in defineAgent({ workspace }) to use blob_edit with workspacePath, or pass body or attachmentId.",
+    },
+    AGENT_R0207: {
+      ...dynamicError,
+      fix: "Pass blob_edit the attachmentId of one attachment of the current input. The message lists the IDs that you can use.",
+    },
+    AGENT_R0208: {
+      ...dynamicError,
+      fix: "Make the attachment that the message names hold data: a string, an ArrayBuffer, a Uint8Array, a Blob, or a fetchData() function that returns one.",
+    },
+    AGENT_R0209: {
+      ...dynamicError,
+      fix: "Use the blob_read operation get, head, or list.",
+    },
+    AGENT_R0210: {
+      ...dynamicError,
+      fix: "Pass blob_edit put only one of attachmentId, body, or workspacePath.",
+    },
+    AGENT_R0211: {
+      ...dynamicError,
+      fix: "Pass blob_edit put one of attachmentId, body, or workspacePath.",
+    },
+    AGENT_R0212: {
+      ...dynamicError,
+      fix: "Use the blob_edit operation put or delete.",
+    },
+    AGENT_R0213: {
+      ...dynamicError,
+      fix: "Set database in vitehub(), such as database: true, or run pnpm add @vite-hub/database in the app. The message shows the load error.",
+    },
+    AGENT_R0214: {
+      ...dynamicError,
+      fix: "Set database in vitehub(), such as database: true, so that the db() Capability gets a Database with exec().",
+    },
+    AGENT_R0215: {
+      ...dynamicError,
+      fix: "Set database in vitehub(), such as database: true, so that the db() Capability gets a Database with query().",
+    },
+    AGENT_R0216: {
+      ...dynamicError,
+      fix: "Set db({ database }) to a Database that the app defines, or remove it to use the default Database.",
+    },
+    AGENT_R0217: {
+      ...dynamicError,
+      fix: "Pass db_query one SELECT, WITH ... SELECT, or read-only PRAGMA statement. Use db_exec for changes.",
+    },
+    AGENT_R0218: {
+      ...dynamicError,
+      fix: "Pass db_exec a rationale that says why the statement must run.",
+    },
+    AGENT_R0219: {
+      ...dynamicError,
+      fix: "Pass db_exec one SQL statement per call.",
+    },
+    AGENT_R0220: {
+      ...dynamicError,
+      fix: "Run read-only SQL with db_query, not db_exec.",
+    },
+    AGENT_R0221: {
+      ...dynamicError,
+      fix: "Set db({ schemaMode: \"write\" }) to allow CREATE, ALTER, and DROP statements, or run the schema change in a migration.",
+    },
+    AGENT_R0222: {
+      ...dynamicError,
+      fix: "Set db({ mode: \"write\" }) to allow INSERT, UPDATE, and DELETE statements.",
+    },
+    AGENT_R0223: {
+      ...dynamicError,
+      fix: "Pass db_exec one INSERT, UPDATE, DELETE, or schema statement.",
+    },
+    AGENT_R0224: {
+      ...dynamicError,
+      fix: "Pass kv_read either key or prefix, not both and not neither.",
+    },
+    AGENT_R0225: {
+      ...dynamicError,
+      fix: "Use the kv_edit operation put or delete.",
+    },
     // AGENT_R0226, AGENT_R0227, and AGENT_R0228 are retired. They duplicated AGENT_R0105, AGENT_R0106, and AGENT_R0104. Do not reuse them.
-    AGENT_R0229: dynamicError,
-    AGENT_R0230: dynamicError,
-    AGENT_R0231: dynamicError,
-    AGENT_R0232: dynamicError,
-    AGENT_R0233: dynamicError,
-    AGENT_R0234: dynamicError,
-    AGENT_R0235: dynamicError,
-    AGENT_R0236: dynamicError,
-    AGENT_R0237: dynamicError,
-    AGENT_R0238: dynamicError,
-    AGENT_R0239: dynamicError,
-    AGENT_R0240: dynamicError,
-    AGENT_R0241: dynamicError,
-    AGENT_R0242: dynamicError,
-    AGENT_R0243: dynamicError,
-    AGENT_R0244: dynamicError,
-    AGENT_R0245: dynamicError,
-    AGENT_R0246: dynamicError,
+    AGENT_R0229: {
+      ...dynamicError,
+      fix: "Give the tool field that the message names a non-empty string.",
+    },
+    AGENT_R0230: {
+      ...dynamicError,
+      fix: "Use the ViteHub primitive that the message names, set in vitehub(), or a handle that has the method that the message names.",
+    },
+    AGENT_R0231: {
+      ...dynamicError,
+      fix: "Use the ViteHub primitive with named stores, set in vitehub(), or remove store from the Capability options.",
+    },
+    AGENT_R0232: {
+      ...dynamicError,
+      fix: "Add title() to defineAgent({ capabilities }) and let the Agent run it. Do not call its hooks yourself.",
+    },
+    AGENT_R0233: {
+      ...dynamicError,
+      fix: "Add title() to defineAgent({ capabilities }) and let the Agent run it. Do not call its hooks yourself.",
+    },
+    AGENT_R0234: {
+      ...dynamicError,
+      fix: "Upgrade the ai package in the app to a version that exports experimental_streamTranscribe.",
+    },
+    AGENT_R0235: {
+      ...dynamicError,
+      fix: "Set transcribe({ maxBytes }) to a positive number of bytes, or remove it to use the default.",
+    },
+    AGENT_R0236: {
+      ...dynamicError,
+      fix: "Send a smaller audio file, or raise transcribe({ maxBytes }).",
+    },
+    AGENT_R0237: {
+      ...dynamicError,
+      fix: "Give the audio part data, a fetchData() function, or a url.",
+    },
+    AGENT_R0238: {
+      ...dynamicError,
+      fix: "Check that the audio URL is public and returns the file, then retry. The message shows the HTTP status.",
+    },
+    AGENT_R0239: {
+      ...dynamicError,
+      fix: "Give the audio part data, a fetchData() function, or a url.",
+    },
+    AGENT_R0240: {
+      ...dynamicError,
+      fix: "Upgrade the ai package in the app to a version that exports transcribe or experimental_transcribe.",
+    },
+    AGENT_R0241: {
+      ...dynamicError,
+      fix: "Set the transcribe() option that the message names to a relative path inside the Workspace, not in .git or .vitehub and without \"..\".",
+    },
+    AGENT_R0242: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace with mode: \"write\" in defineAgent({ workspace }), or remove transcribe({ artifacts }).",
+    },
+    AGENT_R0243: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace with mode: \"write\" in defineAgent({ workspace }), or remove transcribe({ artifacts }).",
+    },
+    AGENT_R0244: {
+      ...dynamicError,
+      fix: "Pass elevenLabsScribe() an options object with apiKey and webhookId.",
+    },
+    AGENT_R0245: {
+      ...dynamicError,
+      fix: "Set elevenLabsScribe({ apiKey }) to the ElevenLabs API key or to a function that returns it.",
+    },
+    AGENT_R0246: {
+      ...dynamicError,
+      fix: "Set elevenLabsScribe({ webhookId }) to the ID of the webhook in your ElevenLabs account.",
+    },
     // AGENT_R0247 through AGENT_R0255 are retired with openRouterTranscriptionModel(). Do not reuse them.
-    AGENT_R0256: dynamicError,
-    AGENT_R0257: dynamicError,
-    AGENT_R0258: dynamicError,
-    AGENT_R0259: dynamicError,
-    AGENT_R0260: dynamicError,
-    AGENT_R0261: dynamicError,
-    AGENT_R0262: dynamicError,
-    AGENT_R0263: dynamicError,
-    AGENT_R0264: dynamicError,
-    AGENT_R0265: dynamicError,
-    AGENT_R0266: dynamicError,
-    AGENT_R0267: dynamicError,
-    AGENT_R0268: dynamicError,
-    AGENT_R0269: dynamicError,
-    AGENT_R0270: dynamicError,
-    AGENT_R0271: dynamicError,
-    AGENT_R0272: dynamicError,
-    AGENT_R0273: dynamicError,
-    AGENT_R0274: dynamicError,
-    AGENT_R0275: dynamicError,
-    AGENT_R0276: dynamicError,
-    AGENT_R0277: dynamicError,
-    AGENT_R0278: dynamicError,
-    AGENT_R0279: dynamicError,
-    AGENT_R0280: dynamicError,
-    AGENT_R0281: dynamicError,
-    AGENT_R0282: dynamicError,
-    AGENT_R0283: dynamicError,
-    AGENT_R0284: dynamicError,
-    AGENT_R0285: dynamicError,
-    AGENT_R0286: dynamicError,
-    AGENT_R0287: dynamicError,
-    AGENT_R0288: dynamicError,
-    AGENT_R0289: dynamicError,
-    AGENT_R0290: dynamicError,
-    AGENT_R0291: dynamicError,
-    AGENT_R0292: dynamicError,
-    AGENT_R0293: dynamicError,
-    AGENT_R0294: dynamicError,
-    AGENT_R0295: dynamicError,
-    AGENT_R0296: dynamicError,
-    AGENT_R0297: dynamicError,
-    AGENT_R0298: dynamicError,
-    AGENT_R0299: dynamicError,
-    AGENT_R0300: dynamicError,
-    AGENT_R0301: dynamicError,
-    AGENT_R0302: dynamicError,
-    AGENT_R0303: dynamicError,
-    AGENT_R0304: dynamicError,
-    AGENT_R0305: dynamicError,
-    AGENT_R0306: dynamicError,
-    AGENT_R0307: dynamicError,
-    AGENT_R0308: dynamicError,
-    AGENT_R0309: dynamicError,
-    AGENT_R0310: dynamicError,
-    AGENT_R0311: dynamicError,
-    AGENT_R0312: dynamicError,
-    AGENT_R0313: dynamicError,
-    AGENT_R0314: dynamicError,
+    AGENT_R0256: {
+      ...dynamicError,
+      fix: "Pass transcriptionError() one of the TRANSCRIPTION_ codes that ViteHub defines, such as \"TRANSCRIPTION_PROVIDER_FAILED\".",
+    },
+    AGENT_R0257: {
+      ...dynamicError,
+      fix: "Pass createTranscription({ driver }) a driver object with name, submit(), and receive().",
+    },
+    AGENT_R0258: {
+      ...dynamicError,
+      fix: "Give the transcription driver a name of at most 128 letters, digits, dots, /, - and _ that starts with a letter or digit, such as \"elevenlabs\".",
+    },
+    AGENT_R0259: {
+      ...dynamicError,
+      fix: "Give the transcription driver a submit() function.",
+    },
+    AGENT_R0260: {
+      ...dynamicError,
+      fix: "Give the transcription driver a receive() function.",
+    },
+    AGENT_R0261: {
+      ...dynamicError,
+      fix: "Pass the transcription metadata, or return the completion metadata from the driver, as a plain object.",
+    },
+    AGENT_R0262: {
+      ...dynamicError,
+      fix: "Pass the transcription source as an object, such as { url: \"https://example.com/audio.ogg\" }.",
+    },
+    AGENT_R0263: {
+      ...dynamicError,
+      fix: "Set source.url of the transcription to the URL of the audio file.",
+    },
+    AGENT_R0264: {
+      ...dynamicError,
+      fix: "Set source.url of the transcription to an http or https URL.",
+    },
+    AGENT_R0265: {
+      ...dynamicError,
+      fix: "Set source.mediaType of the transcription to a media type, such as \"audio/ogg\", or remove it.",
+    },
+    AGENT_R0266: {
+      ...dynamicError,
+      fix: "Set source.name of the transcription to a non-empty file name, or remove it.",
+    },
+    AGENT_R0267: {
+      ...dynamicError,
+      fix: "Make the transcription driver return a non-empty job id from the step that the message names.",
+    },
+    AGENT_R0268: {
+      ...dynamicError,
+      fix: "Read the message for the error of the transcription provider, and check the provider account and the audio file. Retry when the provider error is temporary.",
+    },
+    AGENT_R0269: {
+      ...dynamicError,
+      fix: "Pass webSearch({ mode: \"tool\", provider }) a provider name, or an object with a name.",
+    },
+    AGENT_R0270: {
+      ...dynamicError,
+      fix: "Pass webSearch() an options object with mode: \"tool\" or mode: \"model\".",
+    },
+    AGENT_R0271: {
+      ...dynamicError,
+      fix: "Set webSearch({ mode }) to \"tool\" or \"model\".",
+    },
+    AGENT_R0272: {
+      ...dynamicError,
+      fix: "Remove the options that the message names from the web search tool input.",
+    },
+    AGENT_R0273: {
+      ...dynamicError,
+      fix: "Pass the web search tool an object as input.",
+    },
+    AGENT_R0274: {
+      ...dynamicError,
+      fix: "Run pnpm add @agntn/web in the app, or use webSearch({ mode: \"model\" }).",
+    },
+    AGENT_R0275: {
+      ...dynamicError,
+      fix: "Pass web_search a non-empty query.",
+    },
+    AGENT_R0276: {
+      ...dynamicError,
+      fix: "Pass web_read a non-empty url.",
+    },
+    AGENT_R0277: {
+      ...dynamicError,
+      fix: "Pass the commands option that the message names at least one command.",
+    },
+    AGENT_R0278: {
+      ...dynamicError,
+      fix: "Use an executable name or an absolute path without spaces or control characters for each command that the message names.",
+    },
+    AGENT_R0279: {
+      ...dynamicError,
+      fix: "Give each entry of the commands option a string or an object with a command, such as { command: \"pnpm\" }.",
+    },
+    AGENT_R0280: {
+      ...dynamicError,
+      fix: "Set command of each commands entry to an executable name or an absolute path without spaces or control characters.",
+    },
+    AGENT_R0281: {
+      ...dynamicError,
+      fix: "Set description of the commands entry to a string, or remove it.",
+    },
+    AGENT_R0282: {
+      ...dynamicError,
+      fix: "Set install of the commands entry to a string, or remove it.",
+    },
+    AGENT_R0283: {
+      ...dynamicError,
+      fix: "Set the timeout that the message names to a positive number of milliseconds, at most 2147483647.",
+    },
+    AGENT_R0284: {
+      ...dynamicError,
+      fix: "Pass the workspace_exec field that the message names as an array of strings.",
+    },
+    AGENT_R0285: {
+      ...dynamicError,
+      fix: "Pass workspace_exec env as an object with string values.",
+    },
+    AGENT_R0286: {
+      ...dynamicError,
+      fix: "Use environment variable names without = or null bytes in workspace_exec env.",
+    },
+    AGENT_R0287: {
+      ...dynamicError,
+      fix: "Remove PATH and the LD_ and DYLD_ variables from workspace_exec env.",
+    },
+    AGENT_R0288: {
+      ...dynamicError,
+      fix: "Pass workspace_exec env as an object with string values.",
+    },
+    AGENT_R0289: {
+      ...dynamicError,
+      fix: "Pass workspace_exec cwd as a string, or omit it.",
+    },
+    AGENT_R0290: {
+      ...dynamicError,
+      fix: "Set workspace_exec cwd to a folder inside /workspace, without \"..\" or \".\" parts.",
+    },
+    AGENT_R0291: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace that can start a shell session in defineAgent({ workspace }).",
+    },
+    AGENT_R0292: {
+      ...dynamicError,
+      fix: "Read the stdout and stderr of the error to see why the Workspace command failed, then fix the command or its input.",
+    },
+    AGENT_R0293: {
+      ...dynamicError,
+      fix: "Run the Agent on a Workspace host that allows processes, such as a Sandbox, or remove the command tools.",
+    },
+    AGENT_R0294: {
+      ...dynamicError,
+      fix: "Read the stdout and stderr of the error to see why the Workspace command failed, then fix the command or its input.",
+    },
+    AGENT_R0295: {
+      ...dynamicError,
+      fix: "Pass the command tool a command string.",
+    },
+    AGENT_R0296: {
+      ...dynamicError,
+      fix: "Run a command from the commands option of the Capability, or add the command to that list.",
+    },
+    AGENT_R0297: {
+      ...dynamicError,
+      fix: "Set workspaceShell({ mode: \"write\" }) when you pass commands, or remove commands.",
+    },
+    AGENT_R0298: {
+      ...dynamicError,
+      fix: "Use a Provider Agent Driver with workspaceShell({ commands }), or use sandbox() for command tools of model-backed Agents.",
+    },
+    AGENT_R0299: {
+      ...dynamicError,
+      fix: "Give the Capability CLI a name that starts with a letter and has only letters, digits, - and _.",
+    },
+    AGENT_R0300: {
+      ...dynamicError,
+      fix: "Give the CLI command a name of letters, digits, dots, - and _, without spaces.",
+    },
+    AGENT_R0301: {
+      ...dynamicError,
+      fix: "Give the CLI part that the message names at least one command in commands.",
+    },
+    AGENT_R0302: {
+      ...dynamicError,
+      fix: "Make the CLI command that the message names an object with commands or run.",
+    },
+    AGENT_R0303: {
+      ...dynamicError,
+      fix: "Give the CLI command that the message names either commands or run, not both.",
+    },
+    AGENT_R0304: {
+      ...dynamicError,
+      fix: "Set description of the CLI command to a string, or remove it.",
+    },
+    AGENT_R0305: {
+      ...dynamicError,
+      fix: "Set effects of the CLI command to an array of non-empty strings, or remove it.",
+    },
+    AGENT_R0306: {
+      ...dynamicError,
+      fix: "Set examples of the CLI command to an array of non-empty strings, or remove it.",
+    },
+    AGENT_R0307: {
+      ...dynamicError,
+      fix: "Set input of the CLI command to a Standard Schema, such as a Valibot or Zod schema, or remove it.",
+    },
+    AGENT_R0308: {
+      ...dynamicError,
+      fix: "Set output of the CLI command to a Standard Schema or to { schema, format }, or remove it.",
+    },
+    AGENT_R0309: {
+      ...dynamicError,
+      fix: "Set output.format of the CLI command to \"json\" or \"text\".",
+    },
+    AGENT_R0310: {
+      ...dynamicError,
+      fix: "Set run of the CLI command to a function.",
+    },
+    AGENT_R0311: {
+      ...dynamicError,
+      fix: "Set cli of the Capability that the message names to an object with name and commands.",
+    },
+    AGENT_R0312: {
+      ...dynamicError,
+      fix: "Set cli.description of the Capability to a string, or remove it.",
+    },
+    AGENT_R0313: {
+      ...dynamicError,
+      fix: "Pass --input a valid JSON value, such as --input '{\"id\":1}'.",
+    },
+    AGENT_R0314: {
+      ...dynamicError,
+      fix: "Pass a JSON value after --input, such as --input '{\"id\":1}'.",
+    },
     AGENT_R0315: dynamicError,
     AGENT_R0316: dynamicError,
     AGENT_R0317: dynamicError,
