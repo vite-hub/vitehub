@@ -1,7 +1,13 @@
+import { resolve } from "node:path"
+
+import { createClient } from "@libsql/client"
+import { drizzle } from "drizzle-orm/libsql"
+import { migrate } from "drizzle-orm/libsql/migrator"
 import { describe, expect, it, vi } from "vitest"
 
 import type { GenericEndpointContext } from "better-auth"
-import { adoptGitHubEmail } from "../src/accounts.ts"
+import { adoptGitHubEmail, readConsoleAccount } from "../src/accounts.ts"
+import { createConsoleProjectStore } from "../src/projects.ts"
 
 function context(users: Record<string, { id: string, email: string }>) {
   const updateUser = vi.fn(async (id: string, data: { email: string }) => { users[id] = { ...users[id]!, ...data } })
@@ -65,5 +71,48 @@ describe("adoptGitHubEmail", () => {
     expect(updateUser).not.toHaveBeenCalled()
     await adoptGitHubEmail({ ...account, accessToken: "new-token" }, ctx, githubEmails([{ email: "ada@example.com", primary: true, verified: true }]))
     expect(updateUser).toHaveBeenCalledWith("u1", { email: "ada@example.com", emailVerified: true })
+  })
+})
+
+describe("readConsoleAccount", () => {
+  const secret = "s".repeat(64)
+
+  async function consoleDatabase() {
+    const client = createClient({ url: ":memory:" })
+    const db = drizzle({ client })
+    await migrate(db, { migrationsFolder: resolve(import.meta.dirname, "../server/databases/default/migrations") })
+    await client.executeMultiple(`
+      INSERT INTO user (id, name, email) VALUES ('u1', 'Ada', 'ada@example.com'), ('u2', 'Bob', 'u2@passkey.invalid');
+      INSERT INTO organization (id, name, slug, created_at) VALUES ('t1', 'Personal', 'personal-u1', 1), ('t2', 'Shop', 'shop', 2);
+      INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m1', 't1', 'u1', 'owner', 1), ('m2', 't2', 'u1', 'admin,member', 2), ('m3', 't2', 'u2', 'member', 3);
+    `)
+    return db
+  }
+
+  it("answers the teams, the roles in the session's team, and its projects", async () => {
+    const db = await consoleDatabase()
+    const shop = await createConsoleProjectStore(db, secret, "t2").create({ createdBy: "u1", url: "https://shop.example.com" })
+    await createConsoleProjectStore(db, secret, "t1").create({ createdBy: "u1", url: "https://docs.example.com" })
+    await expect(readConsoleAccount(db, { id: "u1", name: "Ada", email: "ada@example.com" }, "t2")).resolves.toEqual({
+      user: { id: "u1", name: "Ada", email: "ada@example.com", image: null },
+      hasEmail: true,
+      teams: [{ id: "t1", name: "Personal", slug: "personal-u1" }, { id: "t2", name: "Shop", slug: "shop" }],
+      teamId: "t2",
+      roles: ["admin", "member"],
+      projects: [shop],
+    })
+  })
+
+  it("shows no projects of a team that the person is not a member of, and no email for a passkey account", async () => {
+    const db = await consoleDatabase()
+    await createConsoleProjectStore(db, secret, "t1").create({ createdBy: "u1", url: "https://docs.example.com" })
+    await expect(readConsoleAccount(db, { id: "u2", name: "Bob", email: "u2@passkey.invalid" }, "t1")).resolves.toEqual({
+      user: { id: "u2", name: "Bob", email: "u2@passkey.invalid", image: null },
+      hasEmail: false,
+      teams: [{ id: "t2", name: "Shop", slug: "shop" }],
+      roles: [],
+      projects: [],
+    })
+    await expect(readConsoleAccount(db, { id: "u2", name: "Bob", email: "u2@passkey.invalid" }, undefined)).resolves.toMatchObject({ projects: [], roles: [] })
   })
 })

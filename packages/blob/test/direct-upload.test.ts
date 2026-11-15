@@ -137,7 +137,9 @@ describe("direct uploads on the fs driver", () => {
   it("accepts only its own ticket for an object that was stored", async () => {
     const signed = await sign(blob, { contentType: "text/plain", name: "a.txt", size: 1 })
     await expect(complete(blob, signed.ticket)).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("is not in the store") })
-    await expect(complete(blob, `${signed.ticket.slice(0, -1)}0`)).rejects.toMatchObject({ statusCode: 403 })
+    // Change the last hex digit of the signature. Setting it to a fixed digit is no change when the digit is already that.
+    const tampered = `${signed.ticket.slice(0, -1)}${signed.ticket.endsWith("0") ? "1" : "0"}`
+    await expect(complete(blob, tampered)).rejects.toMatchObject({ statusCode: 403 })
     await expect(complete(blob, signed.ticket, {}, `${origin}/api/other`)).rejects.toMatchObject({ statusCode: 403 })
   })
 

@@ -190,11 +190,9 @@ describe("Agent Invocation controllers", () => {
     parent.abort("too late")
     const inspection = await controller.inspect()
     expect(inspection).toEqual({
-      invocation: { id: controller.id, output: expect.any(Response), status: "completed" },
+      invocation: { id: controller.id, output: controller.id, status: "completed" },
       outcome: "available",
     })
-    if (inspection.outcome !== "available" || !(inspection.invocation.output instanceof Response)) throw new Error("Expected an invocation Response")
-    await expect(inspection.invocation.output.text()).resolves.toBe(controller.id)
   })
 
   it("attempts backed cancellation independently of inspection availability", async () => {

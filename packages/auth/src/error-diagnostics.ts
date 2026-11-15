@@ -94,5 +94,23 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
     AUTH_R0022: withFix("Send the request to an origin that `vitehub({ publicUrl })` returns for one of your Agents, or set `baseURL` in the Auth Definition. The request Host cannot choose the Auth origin."),
     AUTH_R0023: withFix("Return `null` from `verify` to ignore the header, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`, for example `{ providerId: 'github', accountId: String(user.id), email, name: user.login, emailVerified: true }`."),
+
+    // CLI errors. `vitehub auth events` prints them with the fix.
+    AUTH_EVENTS_OPTION_INVALID: {
+      why: ({ option, problem }: { option: string, problem: "unknown" | "value" }) => problem === "unknown" ? `[vitehub] Unknown auth events option: ${option}` : `[vitehub] Missing value for ${option}.`,
+      fix: "Pass only the options that `vitehub auth events --help` lists, each followed by its value.",
+    },
+    AUTH_EVENTS_REQUEST_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] Auth events returned HTTP ${status}.`,
+      fix: "Return true from `events.authorize` in `defineAuth()` for your user, and set VITEHUB_AUTH_COOKIE to the cookie of a session of that user.",
+    },
+    AUTH_EVENTS_URL_INSECURE: {
+      why: "[vitehub] Auth events requires HTTPS or a loopback HTTP URL.",
+      fix: "Pass an `https://` Auth base URL to `--url`, or `http://localhost` for a dev server.",
+    },
+    AUTH_EVENTS_URL_MISSING: {
+      why: "[vitehub] `vitehub auth events` has no Auth base URL.",
+      fix: "Pass `--url` with the Auth base URL, such as `--url http://localhost:5173/api/auth`, or set VITEHUB_AUTH_URL.",
+    },
   },
 })

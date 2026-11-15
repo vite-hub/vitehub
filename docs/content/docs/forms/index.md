@@ -69,4 +69,4 @@ Does the sender talk with other readers on the page? Then use [Comments](/docs/c
 
 - [Get started](/docs/forms/get-started): add a contact form to a ViteHub app.
 - [Server API](/docs/forms/server-api): every option of `defineForm()` and the inbox.
-- [Vue](/docs/forms/vue): `AutoForm` and `useFormSubmit()`.
+- [Vue](/docs/forms/vue): `AutoForm`, `useFormAction()`, and `useFormSubmit()` for Formisch.

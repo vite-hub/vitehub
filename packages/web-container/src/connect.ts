@@ -69,6 +69,7 @@ function isProviderName(name: string): name is ConnectProviderName {
 /** Describes the providers a page offers, in a fixed order. */
 export function defineConnect(config: ConnectConfig): Connect {
   for (const name of Object.keys(config)) {
+    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
     if (!isProviderName(name)) throw new TypeError(`Unknown connect provider "${name}". Use one of: ${Object.keys(defaults).sort().join(", ")}.`)
   }
   const providers: ConnectProvider[] = []
