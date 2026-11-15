@@ -3303,6 +3303,29 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "Console delivery requires an HTTP(S) URL without embedded credentials.",
       fix: "Pass an `http:` or `https:` URL without a user name or password as `createAgentConsoleDelivery({ url })`, and pass the secret as `token`.",
     },
+    AGENT_CONVERSATIONS_EXPORT_ARGUMENTS_INVALID: {
+      why: ({ problem, value }: { problem: "argument" | "format" | "media" | "missing" | "option" | "value", value?: string }) => ({
+        argument: `Unexpected argument ${value}.`,
+        format: "--format must be markdown or json.",
+        media: "--media needs --output <directory>, since attachments are files.",
+        missing: "An agent, a channel, and a thread are required.",
+        option: `Unknown option ${value}.`,
+        value: `${value} requires a value.`,
+      })[problem],
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
+      why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
+      why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
+      fix: "Pass a directory that does not exist to `--output`, or delete the directory that the message names.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_PATH_UNSAFE: {
+      why: ({ path }: { path: string }) => `The server named a file outside the output directory: ${path}.`,
+      fix: "Pass `--url` the origin of your own ViteHub app, and use the same `@vite-hub/agent` version in the app and in the CLI. The CLI writes no file outside `--output`.",
+    },
     AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING: {
       why: "[vitehub] context.customInstructions must be a string.",
       fix: "Pass the custom instructions as a Markdown string in `context.customInstructions`, or omit the value.",
@@ -3384,6 +3407,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATION_CLAIM_UNAVAILABLE: {
       why: "Could not acquire the Invocation execution claim.",
       fix: "Check that the Invocations store of the Agent is reachable and can write, then retry the Invocation.",
+    },
+    AGENT_INVOCATION_ID_AMBIGUOUS: {
+      why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
+      fix: "Cancel the Invocation through the Agent that owns it, with `invocations.cancel(id)` of that Agent.",
     },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,

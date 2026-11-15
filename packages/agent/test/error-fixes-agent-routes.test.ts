@@ -2,6 +2,7 @@ import { expect, it } from "vitest"
 
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts"
 import { agentHostRoutes } from "../src/host-routes-vite.ts"
+import { runConversationsExportCli } from "../src/internal/conversations-cli.ts"
 import { processAgentHost } from "../src/process-host-vite.ts"
 import { createAgentConsoleDelivery } from "../src/server/console-delivery.ts"
 import { agentTriggerTask } from "../src/trigger-runtime.ts"
@@ -88,4 +89,32 @@ it("reports an agentHostRoutes() export that is not an identifier with a code an
     code: "AGENT_HOST_ROUTE_EXPORT_NAME_INVALID",
     fix: expect.stringContaining("agentHostRoutes("),
   })
+})
+
+it("gives the conversations export and Invocation cancel codes a fix and their own docs pages", () => {
+  const errors = [
+    agentDiagnostics.AGENT_CONVERSATIONS_EXPORT_ARGUMENTS_INVALID({ problem: "option", value: "--bad" }),
+    agentDiagnostics.AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING({ root: "/app" }),
+    agentDiagnostics.AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS({ directory: "/app/out" }),
+    agentDiagnostics.AGENT_CONVERSATIONS_EXPORT_PATH_UNSAFE({ path: "\"../x\"" }),
+    agentDiagnostics.AGENT_INVOCATION_ID_AMBIGUOUS(),
+  ]
+  for (const error of errors) {
+    expect(error.message, error.code).toMatch(/\S/)
+    expect(error.fix, error.code).toMatch(/\S/)
+    expect(error.docs, error.code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${error.code.toLowerCase()}`)
+  }
+})
+
+it("prints the fix of a bad vitehub conversations export option", async () => {
+  const stderr: string[] = []
+  const code = await runConversationsExportCli(["support", "telegram", "telegram:456", "--format", "xml"], {
+    cwd: "/tmp",
+    env: {},
+    rootDir: "/tmp",
+    stderr: { write: chunk => stderr.push(String(chunk)) },
+    stdout: { write: () => undefined },
+  })
+  expect(code).toBe(1)
+  expect(stderr.join("")).toContain("--format must be markdown or json.\nFix: Pass the Agent, the Channel, and the thread to `vitehub conversations export")
 })
