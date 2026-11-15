@@ -44,11 +44,18 @@ it("gives the Connections bridge no standing administrator access", async () => 
   }
 })
 
-it("migrates sealed grants and pending OAuth transactions from the legacy tables", async () => {
+it.each(["none", "secret", "state", "both"])("migrates legacy tables with %s already migrated, then retires the old key", async (migrated) => {
   const client = createClient({ url: ":memory:" })
   const key = new Uint8Array(32).fill(9)
   try {
     const db = drizzle({ client: client })
+    const initial = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
+    if (migrated === "secret" || migrated === "both") {
+      await initial.secrets.replace({ key: "connection/mail", value: JSON.stringify({ accessToken: "legacy-access", scopes: ["mail.read"] }), expectedRevision: null })
+    }
+    if (migrated === "state" || migrated === "both") {
+      await initial.state.put({ name: "mail", accountId: "account-1", status: "connected", scopes: ["mail.read"], updatedAt: "2026-09-30T00:00:00.000Z" })
+    }
     const sealKey = await importSealKey(key)
     const grantPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
     const pendingPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
@@ -68,8 +75,16 @@ it("migrates sealed grants and pending OAuth transactions from the legacy tables
       { state: "expired-state" },
       { state: "unopened-state" },
     ])
-    const restarted = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
+    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
+    const nextKey = new Uint8Array(32).fill(10)
+    const rotating = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey, key] })
+    await rotating.rotate()
+    // Simulate a database migrated by the older implementation, which retained the grant row.
+    await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)
+    const restarted = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey] })
+    expect(await restarted.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })
     expect(await restarted.authorizations.take("legacy-state")).toBeUndefined()
+    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
   } finally {
     client.close()
   }

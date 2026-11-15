@@ -223,13 +223,21 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         const rows = await db.all(sql`SELECT name, provider, account, scopes, payload, revision, status, connected_at, updated_at, expires_at FROM vitehub_connection_grants`)
         for (const row of rows) {
           const grant = v.parse(legacyGrantRow, row)
+          const secretKey = `connection/${grant.name}`
+          const secret = await envStore.secrets.inspect(secretKey)
+          const state = (await db.all(sql`SELECT name FROM vitehub_connection_state WHERE name = ${grant.name}`))[0]
+          if (secret && state) {
+            await db.run(sql`DELETE FROM vitehub_connection_grants WHERE name = ${grant.name} AND revision = ${grant.revision} AND payload = ${grant.payload}`)
+            continue
+          }
           const legacyToken = v.parse(legacyTokenSet, JSON.parse(await unsealLegacy(["connection-grant", grant.name, grant.revision], grant.payload)))
           const token = { ...legacyToken, ...(legacyToken.account ? { accountId: legacyToken.account } : {}) }
-          const secretKey = `connection/${grant.name}`
-          if (!(await envStore.secrets.inspect(secretKey))) {
+          if (!secret) {
             await envStore.secrets.replace({ key: secretKey, value: JSON.stringify(token), expectedRevision: null })
           }
           await db.run(sql`INSERT INTO vitehub_connection_state (name, status, account_id, account_email, scopes, connected_at, refreshed_at, updated_at) VALUES (${grant.name}, ${grant.status === "active" ? "connected" : grant.status === "needs-reconnect" ? "reauth_required" : "revoked"}, ${token.accountId ?? null}, ${grant.account ?? null}, ${JSON.stringify(token.scopes)}, ${grant.connected_at}, ${grant.updated_at}, ${grant.updated_at}) ON CONFLICT (name) DO NOTHING`)
+          // Retire ciphertext only after both migration writes succeed, so interrupted migrations retry safely.
+          await db.run(sql`DELETE FROM vitehub_connection_grants WHERE name = ${grant.name} AND revision = ${grant.revision} AND payload = ${grant.payload}`)
         }
       }
       if (legacyNames.has("vitehub_connection_pending")) {
