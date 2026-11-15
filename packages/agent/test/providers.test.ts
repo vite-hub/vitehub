@@ -9316,11 +9316,9 @@ describe("server helpers", () => {
       await vi.waitFor(async () => {
         const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
+          result: "accepted github delivery",
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
       releaseRun()

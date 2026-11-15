@@ -70,7 +70,8 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "catalog:browser",
-    "@webcontainer/api": "catalog:browser"
+    "@webcontainer/api": "catalog:browser",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
