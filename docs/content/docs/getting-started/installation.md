@@ -206,10 +206,10 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 
 ## Add feature packages
 
-Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
+Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints one install command for every package that the feature needs, also one that another dependency already brings:
 
 ```text [output/missing-package.txt]
-[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
+[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install them in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
 When an installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
