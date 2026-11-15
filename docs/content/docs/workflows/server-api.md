@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
+| `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
@@ -34,7 +35,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
+Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. The id that you pass is the run id: `startWorkflow()` returns it, and `getWorkflowRun()` and `cancelWorkflow()` take it, on Cloudflare, OpenWorkflow, and inline runs. A second start with the same id returns the first run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
 ## Runtime helpers
 
@@ -49,7 +50,9 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 
 `WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
-Inline runs buffer the response body before they complete. Each inspection and duplicate start returns a new response, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
+The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
+
+Inline runs buffer a returned `Response` body before they complete. Each inspection and duplicate start returns a new `Response`, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
 
 Inspection holds a weak reference to an active inline run:
 
@@ -70,7 +73,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `id` | `string` | Run id from the provider or ViteHub. |
 | `provider` | `WorkflowProvider` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
-| `result` | `TResult` | Result, when completed. |
+| `result` | `TResult` | The value that the handler returned, as JSON, when completed. A `Response` when the handler returned one. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
 | `createdAt`, `startedAt`, `completedAt` | `Date` | Run times. OpenWorkflow and native Vercel runs set them. |
