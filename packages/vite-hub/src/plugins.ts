@@ -1113,6 +1113,10 @@ function deploymentPlugins(
         }),
       },
       config(config) {
+        // Nuxt replays config for separate Nitro builds without running Vite configResolved.
+        if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+          resolvedPlugins = config.plugins?.flat(Infinity)
+        }
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
         if (plan.host !== "cloudflare") return

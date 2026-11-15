@@ -3388,6 +3388,38 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
+  it("writes primitive deployment env on a Nuxt Nitro-only cache hit", async () => {
+    const { viteHubPlugins } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-host", "vite-hub/deployment-output", "@vite-hub/blob/vite"].includes(String(plugin.name)),
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const outputDir = await mkdtemp(resolve(tmp, "deployment-env-"))
+    try {
+      await viteHubNuxtModule({ host: "node", blob: { driver: "fs" }, env: false, queue: false, rateLimit: false }, nuxt)
+      const config: Record<string, unknown> = {}
+      // Nuxt 5 cache hits skip Vite configResolved and buildStart entirely.
+      await runNitroConfigHook(config)
+      const compiled: Array<() => Promise<void>> = []
+      const nitro = {
+        options: { ...config, preset: "node-server", rootDir: nuxt.options.rootDir, commands: {}, output: { dir: outputDir, serverDir: resolve(outputDir, "server") } },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") compiled.push(callback) } },
+      }
+      for (const module of config.modules as Array<unknown>) {
+        if (typeof module === "function") await module(nitro)
+      }
+      await mkdir(resolve(outputDir, "server"), { recursive: true })
+      await writeFile(resolve(outputDir, "server/index.mjs"), "export default {}\n")
+      for (const callback of compiled) await callback()
+      const manifest = JSON.parse(await readFile(resolve(outputDir, "deployment.json"), "utf8"))
+      expect(manifest.env).toContainEqual({ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["blob"] })
+    }
+    finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it("binds deployment output to an existing Env plugin selected for replay", async () => {
     const existingEnvPlugin = {
       name: "@vite-hub/env/vite",
