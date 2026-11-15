@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `vite-hub/auth/server` | Read events and daily counts from server code. |
 | `defineAuth` from `vite-hub/auth` | Declare the Primary Auth Definition. |
 | `isGitHubOrgMember` from `vite-hub/auth` | Check that a GitHub token belongs to an active [organization member](#github-organization-membership). |
+| `checkGitHubOrgMember` from `vite-hub/auth` | The same check as `[error]`, with the [reason](#github-organization-membership) when it fails. |
 | `stateless` from `vite-hub/auth/presets` | Keep sessions in encrypted cookies, [with no database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Add Auth discovery, the route, and generated server aliases. |
 | `useAuth`, `auth`, `getAuth` from `vite-hub/auth/server` | Use the Better Auth instance in server code. |
@@ -172,7 +173,7 @@ The `authorization` argument and the `requireAuth()` result are a frozen `{ requ
 
 ### GitHub organization membership
 
-`isGitHubOrgMember(accessToken, org, options?)` returns `true` only when GitHub says the token's user is an active member of `org`. The token needs the `read:org` scope. A pending invitation, a non-2xx response, a network error, or a timeout returns `false`, so a failed check never lets a user in. It uses only `fetch` and Web Crypto, so it runs on Node, Workers, and other hosts.
+`isGitHubOrgMember(accessToken, org, options?)` returns `true` only when GitHub says the token's user is an active member of `org`. The token needs the `read:org` scope. A pending invitation, a non-2xx response, a network error, or a timeout returns `false`, so a failed check never lets a user in. An empty `org` returns `false`. It uses only `fetch` and Web Crypto, so it runs on Node, Workers, and other hosts.
 
 | Option | Default | Use |
 | --- | --- | --- |
@@ -186,6 +187,32 @@ export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMem
 ```
 
 The cache is in memory, so each Worker isolate or server process has its own.
+
+`checkGitHubOrgMember(accessToken, org, options?)` runs the same check and returns `[error, undefined]`, so you can tell the user why they cannot get in. It takes the same options. An active membership returns `[undefined, undefined]`, and an empty `org` throws `AUTH_GITHUB_ORG_REQUIRED`.
+
+| `error.code` | When | What to do |
+| --- | --- | --- |
+| `AUTH_GITHUB_TOKEN_INVALID` | GitHub answers `401`, or there is no token. | Ask the user to sign in with GitHub again. |
+| `AUTH_GITHUB_ORG_ACCESS_DENIED` | GitHub answers `403`, or `404` to a classic OAuth token without `read:org`. The organization uses SAML single sign-on that the token is not authorized for, or it restricts OAuth apps. | Ask the user to sign in again with `read:org` and to authorize single sign-on. |
+| `AUTH_GITHUB_UNAVAILABLE` | A network error, a timeout, a `429` or `5xx`, a rate limit, or a body that is not a membership. | Answer `503` and ask the user to try again. |
+| `AUTH_GITHUB_NOT_ORG_MEMBER` | GitHub answers `404`, or the invitation is pending. | Answer `403`. |
+
+```ts [server/utils/require-team-member.ts]
+import { HTTPError } from 'h3'
+import { checkGitHubOrgMember } from 'vite-hub/auth'
+
+const statuses = {
+  AUTH_GITHUB_TOKEN_INVALID: 401,
+  AUTH_GITHUB_ORG_ACCESS_DENIED: 403,
+  AUTH_GITHUB_NOT_ORG_MEMBER: 403,
+  AUTH_GITHUB_UNAVAILABLE: 503,
+}
+
+export async function requireTeamMember(token: string | null | undefined) {
+  const [error] = await checkGitHubOrgMember(token, 'acme', { cacheMs: 300_000 })
+  if (error) throw new HTTPError({ status: statuses[error.code], message: error.why, data: { code: error.code } })
+}
+```
 
 ### Authorize access routes
 
@@ -248,16 +275,20 @@ export default defineAuth({
 `access.policy` decides who can use the app. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
-import { defineAuth, isGitHubOrgMember } from 'vite-hub/auth'
+import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'
 
 const members = ['ada@example.com', 'grace@example.com']
 
 export default defineAuth({
   access: {
     policy: {
-      allow: async ({ user, accessToken }) =>
-        (user.emailVerified && members.includes(user.email))
-        || await isGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 }),
+      allow: async ({ user, accessToken }) => {
+        if (user.emailVerified && members.includes(user.email)) return true
+        const [error] = await checkGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 })
+        // During a GitHub outage, fail the request and keep the session.
+        if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw error
+        return !error
+      },
       recheck: 300_000,
     },
   },
@@ -271,6 +302,7 @@ export default defineAuth({
 | Throws | The request fails. The session stays, and Auth asks again on the next request. |
 
 - `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
+- Use [`checkGitHubOrgMember()`](#github-organization-membership), which tells a refusal from a GitHub outage. `isGitHubOrgMember()` returns `false` for both, so a recheck while GitHub is down ends every session.
 - `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
