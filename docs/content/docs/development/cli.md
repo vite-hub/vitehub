@@ -908,7 +908,7 @@ pnpm vitehub database rows users --database analytics --offset 20 --url https://
 
 ## Read and invalidate the cache
 
-With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/development/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
+With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/console/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
 
 ```bash [Terminal]
 pnpm vitehub cache list
