@@ -165,7 +165,6 @@
     "packages/presets/src/github/pull-requests.ts": 11,
     "packages/presets/src/github/repair.ts": 13,
     "packages/presets/src/github/required-checks.ts": 4,
-    "packages/presets/src/labeller.ts": 28,
     "packages/queue/src/providers/local.ts": 7,
     "packages/queue/src/providers/vercel.ts": 2,
     "packages/queue/src/runtime/operations.ts": 1,
