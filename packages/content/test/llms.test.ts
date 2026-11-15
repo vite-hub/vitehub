@@ -405,6 +405,30 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(browser.headers.get("content-type")).not.toContain("markdown")
   })
 
+  it("answers a .md URL with the Markdown 404 when only an HTML fallback page matches it", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    // A single-page app answers every path with its HTML shell.
+    const shells = [
+      () => new Response("<!doctype html><div id=__nuxt></div>", { headers: { "content-type": "text/html;charset=utf-8" } }),
+      (event: { res: { headers: Headers } }) => {
+        event.res.headers.set("content-type", "text/html; charset=utf-8")
+        return "<!doctype html><div id=__nuxt></div>"
+      },
+    ]
+    for (const shell of shells) {
+      const server = new H3().use(defineContentMarkdownHandler(content)).all("/**", shell)
+      const copy = await server.request("https://example.com/docs/nope.md")
+      expect(copy.status).toBe(404)
+      expect(copy.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(await copy.text()).toContain("The page `/docs/nope.md` does not exist on https://example.com.")
+      // The page URL keeps the shell, also for an agent: Accept states a preference.
+      expect((await server.request("https://example.com/docs/nope", { headers: { accept: "text/markdown" } })).status).toBe(200)
+    }
+    // A route of the app that serves the .md URL as text keeps its answer.
+    const text = await app(content, () => new Response("# Notes", { headers: { "content-type": "text/markdown" } })).request("https://example.com/notes.md")
+    expect(await text.text()).toBe("# Notes")
+  })
+
   it("loads Content to check copies for downstream responses", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     let loads = 0
@@ -571,6 +595,22 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
           expect(body).toContain("https://example.com/root")
         }
       }
+    })
+
+    it("converts app pages when a .md URL matches an HTML shell", async () => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app: H3 = new H3().use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+      app.get("/about", () => html("<main>About the app</main>"))
+      app.all("/**", (event) => {
+        event.res.headers.set("content-type", "text/html")
+        event.res.headers.set("cache-control", "public, max-age=600")
+        return "<!doctype html><div id=__nuxt></div>"
+      })
+      const response = await app.request("https://example.com/about.md", { headers: { cookie: "session=abc" } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(response.headers.get("cache-control")).toBe("private, no-store")
+      expect(await response.text()).toBe("About the app\n")
     })
 
     it.each([false, true])("discards prepared failed-route headers (throws: %s)", async (throws) => {

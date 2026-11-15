@@ -312,7 +312,8 @@ export async function createSandboxTaskFeaturePlan(
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-task-provider-loader',
-            filename: 'runtime/sandbox-task-provider-loader.mjs',
+            // Nitro resolves its aliases to real paths once at startup, so this file stays outside the runtime generations.
+            filename: 'sandbox-task-provider-loader.mjs',
             contents: createSandboxTaskProviderLoaderContents(providerLoaderTarget),
           }]
         : []),

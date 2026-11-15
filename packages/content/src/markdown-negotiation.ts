@@ -395,7 +395,11 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
       if (errorStatus(error) === 404) return await fallback()
       throw error
     }
-    if (result === notFound || (responseStatus(result) ?? event.res?.status) === 404) return await fallback()
+    const status = responseStatus(result) ?? event.res?.status ?? 200
+    if (result === notFound || status === 404) return await fallback()
+    // A single-page app answers every path with its HTML shell. A `.md` URL that only the shell matches has no copy.
+    const type = resultHeaders(result)?.get("content-type") ?? event.res?.headers.get("content-type") ?? ""
+    if (copy && status === 200 && /^\s*(?:text\/html|application\/xhtml\+xml)\b/i.test(type)) return await fallback()
     return result
   }
 }

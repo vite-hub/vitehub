@@ -40,7 +40,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
   return { ...actual, resolveSandbox };
 });
 
-import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
+import { type AgentDriverCapacityOptions, agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, loadAgent } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterRepositories, type BabysitterRepositories } from "../src/babysitter/repositories.ts";
@@ -70,8 +70,10 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories; hostCapacity?: Parameters<typeof createBabysitterRuntime>[0]["hostCapacity"] } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { number?: number; resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; draft?: boolean; authorAssociation?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement; workspaces?: PullRequestWorkspaces; repositories?: BabysitterRepositories; hostCapacity?: Parameters<typeof createBabysitterRuntime>[0]["hostCapacity"]; concurrency?: number; workerCapacity?: AgentDriverCapacityOptions } = {}) {
   const number = preset.number ?? 12;
+  // Other open PRs by number, with their mergeable state.
+  const others = new Map<number, string>();
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
   // The fake provider needs to know whether placement chose a Sandbox for the pass.
@@ -111,9 +113,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
   let openPullRequests = true;
   // Check runs that the REST API reports in addition to the fixture's required "test" run.
   const extraCheckRuns: Record<string, unknown>[] = [];
-  const pr = () => ({
-    number,
-    node_id: `PR_${number}`,
+  const pr = (n = number) => ({
+    number: n,
+    node_id: `PR_${n}`,
     state: "open",
     draft: preset.draft ?? false,
     title: "Fix value",
@@ -123,11 +125,11 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     labels: [{ name: "repair" }],
     head: { sha: head, ref: "fix", repo: { full_name: "acme/app" } },
     base: { sha: baseHead, ref: preset.base ?? "main", repo: { full_name: "acme/app", default_branch: "main", owner: { login: "acme" } } },
-    html_url: `https://github.com/acme/app/pull/${number}`,
-    mergeable_state: preset.mergeableState ?? "clean",
+    html_url: `https://github.com/acme/app/pull/${n}`,
+    mergeable_state: others.get(n) ?? preset.mergeableState ?? "clean",
   });
   const pageInfo = { hasNextPage: false, endCursor: null };
-  const graphSnapshot = () => ({
+  const graphSnapshot = (n = number) => ({
     repository: {
       autoMergeAllowed: true,
       squashMergeAllowed: true,
@@ -135,8 +137,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
       rebaseMergeAllowed: true,
       deleteBranchOnMerge: false,
       pullRequest: {
-        id: `PR_${number}`,
-        number,
+        id: `PR_${n}`,
+        number: n,
         state: "OPEN",
         isDraft: preset.draft ?? false,
         headRefOid: head,
@@ -158,6 +160,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
   });
   const command = vi.fn(async (args: string[], request?: { signal?: AbortSignal }) => {
     const text = args.join(" ");
+    const requested = Number(/(?:^| )number=(\d+)(?: |$)/.exec(text)?.[1] ?? /repos\/acme\/app\/(?:pulls|issues)\/(\d+)/.exec(text)?.[1] ?? number);
     if (preset.actionsDenied && text.includes("/actions/runs/")) throw new Error("HTTP 403: Actions permission denied");
     if (text.includes("enablePullRequestAutoMerge"))
       return {
@@ -173,18 +176,17 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
         request?.signal?.throwIfAborted();
       }
       if (text.includes("BabysitterOpenPullRequests")) {
-        const current = pr();
-        const node = {
+        const nodes = [number, ...others.keys()].map(n => pr(n)).map(current => ({
           number: current.number, title: current.title, isDraft: current.draft, headRefOid: current.head.sha, headRefName: current.head.ref,
           baseRefName: current.base.ref, baseRefOid: current.base.sha, mergeable: "MERGEABLE", updatedAt: "2026-10-01T00:00:00Z", url: current.html_url,
           authorAssociation: preset.authorAssociation ?? "MEMBER", totalCommentsCount: 0, author: current.user, headRepository: { nameWithOwner: "acme/app" },
           labels: { nodes: current.labels }, commits: { nodes: [] }, latestReviews: { nodes: [] }, reviewThreads: { nodes: [] },
-        };
-        return { stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: openPullRequests ? [node] : [], pageInfo } } } }), stderr: "" };
+        }));
+        return { stdout: JSON.stringify({ data: { repository: { pullRequests: { nodes: openPullRequests ? nodes : [], pageInfo } } } }), stderr: "" };
       }
       const data = text.includes("reviewThreads")
         ? { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo } } } }
-        : graphSnapshot();
+        : graphSnapshot(requested);
       if (!text.includes("reviewThreads")) await onAdmission?.();
       return { stdout: JSON.stringify({ data }), stderr: "" };
     }
@@ -199,7 +201,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
         stderr: "",
       };
     }
-    if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr()), stderr: "" };
+    if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr(requested)), stderr: "" };
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
     if (/\/comments\/\d+\/replies$/.test(path)) return { stdout: JSON.stringify({ id: 900, body: args.find(arg => arg.startsWith("body="))?.slice(5) ?? "", user: { login: "repair-bot", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r900" }), stderr: "" };
     if (/^repos\/acme\/app\/branches\/[^/]+$/.test(path)) return { stdout: JSON.stringify({ name: pr().base.ref, protected: false }), stderr: "" };
@@ -212,8 +214,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     if (path.startsWith("repos/acme/app/git/ref/heads/"))
       return { stdout: JSON.stringify({ ref: `refs/heads/${pr().base.ref}`, object: { type: "commit", sha: preset.baseBranchHead ?? pr().base.sha } }), stderr: "" };
     const data =
-      path.includes("pulls?state") || path === `repos/acme/app/pulls/${number}`
-        ? [pr()]
+      path.includes("pulls?state") ? [number, ...others.keys()].map(n => pr(n))
+        : path === `repos/acme/app/pulls/${requested}`
+        ? [pr(requested)]
         : path.includes("/reviews?")
           ? preset.merge ? [] : [
               {
@@ -343,7 +346,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
     options: { filter: { labels: { allow: ["repair"] } }, merge: (preset.merge ?? (autoMerge ? "auto" : false)) as false, ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
-    driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
+    driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), ...(preset.workerCapacity ? { capacity: preset.workerCapacity } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
     agent: discovered ? await loadAgent("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
@@ -351,7 +354,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     github,
     inboxPath: preset.inboxPath ?? join(root, "inbox.sqlite"),
     repositories: preset.repositories ?? ["acme/app"],
-    concurrency: 1,
+    concurrency: preset.concurrency ?? 1,
     activityAuthors: preset.activityBarrier ? ["repair-bot"] : ["vitehub-agent"],
     admission: preset.admission,
     error: errors,
@@ -508,6 +511,11 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
       operationArguments = args;
     },
     pr,
+    /** Opens another PR through its webhook. */
+    openPullRequest: async (n: number, mergeableState = "clean") => {
+      others.set(n, mergeableState);
+      await runtime.inbox.ingest(`open-${n}`, "pull_request", { repository: { full_name: "acme/app" }, action: "opened", pull_request: pr(n) });
+    },
     failCheckout: (error: Error) => { checkoutFailure = error },
     abortOnOperation: () => { abortOperation = true },
     onAdmission: (callback: () => void | Promise<void>) => { onAdmission = callback },
@@ -1965,6 +1973,13 @@ describe("Babysitter preset runtime", () => {
     ]) expect(babysitterInstructions.split(sentence)).toHaveLength(2);
   });
 
+  it("ignores deployment preview bots by default, and a list replaces them", () => {
+    expect(defineAgent({ extends: babysitter, options: {} }).ignoreFeedbackAuthors).toEqual(["pkg-pr-new[bot]", "vercel[bot]", "cloudflare-workers-and-pages[bot]", "netlify[bot]"]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["preview[bot]"] } }).ignoreFeedbackAuthors).toEqual(["preview[bot]"]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [] } }).ignoreFeedbackAuthors).toEqual([]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [...babysitter.options.ignoreFeedbackAuthors, "review[bot]"] } }).ignoreFeedbackAuthors).toHaveLength(5);
+  });
+
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
     for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
@@ -2143,6 +2158,30 @@ describe("Babysitter preset runtime", () => {
       expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
     } finally { await f.runtime.inbox.close(); }
   });
+
+  it("gives back the worker slot before the install when the PR changed while the pass waited for it", async () => {
+    let workerOpen = false;
+    const sample = vi.fn(() => ({ concurrency: workerOpen ? 1 : 0 }));
+    const f = await fixture(false, false, { gitWorkspace: true,
+      workerCapacity: { concurrency: 1, queue: { maxPending: 1, timeout: 60_000 }, adaptive: { sample, intervalMs: 100 } } });
+    await writeFile(join(f.checkout, "package.json"), "{}");
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue();
+    const tracked: Promise<unknown>[] = [];
+    try {
+      await f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
+      await vi.waitFor(() => expect(sample).toHaveBeenCalled(), { timeout: 30_000 });
+      await f.runtime.inbox.ingest("queued-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 603, body: "One more finding.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+      });
+      workerOpen = true;
+      while (tracked.length) await Promise.all(tracked.splice(0));
+      expect(install).not.toHaveBeenCalled();
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.pass.evidence_changed", expect.objectContaining({ head_sha: f.pr().head.sha }));
+      expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "ready", lease: null });
+    } finally { workerOpen = true; install.mockRestore(); await f.runtime.inbox.close(); }
+  }, 60_000);
 
   it("does not count a push that repairs a failing check against the review push budget", async () => {
     const f = await fixture(false, false, { options: { reviewPushBudget: 1 } });
@@ -3931,6 +3970,94 @@ describe("Babysitter preset runtime", () => {
         expect((await f.runtime.inbox.get("acme/app", 12))).toMatchObject({ status: "ready", lease: null });
       } finally { f.restore(); await f.runtime.inbox.close(); }
     });
+
+    it("admits one conflict preparation when two overlapping samples allow one", async () => {
+      let release!: () => void;
+      const barrier = new Promise<void>(resolve => { release = resolve; });
+      const hostCapacity = vi.fn(async () => { await barrier; return { concurrency: 1 }; });
+      const f = await conflictOnly({ concurrency: 2, hostCapacity });
+      // Hold the first preparation open so the second admission sees it.
+      let finish!: () => void;
+      const held = new Promise<void>(resolve => { finish = resolve; });
+      vi.mocked(prepareGitHubRepairBase).mockImplementation(async () => { await held; return { conflicted: ["src/a.ts"], resolved: [], remaining: ["src/a.ts"] }; });
+      const tracked: Promise<unknown>[] = [];
+      const reconcile = () => f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
+      try {
+        await f.openPullRequest(13, "dirty");
+        await reconcile();
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
+        release();
+        await vi.waitFor(() => expect(f.events).toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything()), { timeout: 30_000 });
+        expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
+      } finally {
+        release(); finish();
+        while (tracked.length) await Promise.all(tracked.splice(0));
+        f.restore(); await f.runtime.inbox.close();
+      }
+    }, 60_000);
+
+    it("samples host capacity without the passes that still wait for a worker slot", async () => {
+      let workerOpen = false;
+      const sample = vi.fn(() => ({ concurrency: workerOpen ? 1 : 0 }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 1 }));
+      // PR 12 needs the model; PR 13 conflicts.
+      const f = await conflictOnly({ mergeableState: "clean", concurrency: 2, hostCapacity, options: { noFindingsReviews: [] },
+        workerCapacity: { concurrency: 1, queue: { maxPending: 2, timeout: 60_000 }, adaptive: { sample, intervalMs: 100 } } });
+      const tracked: Promise<unknown>[] = [];
+      const reconcile = () => f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
+      try {
+        await reconcile();
+        // PR 12 holds a model slot and waits in the worker queue.
+        await vi.waitFor(() => expect(sample).toHaveBeenCalled(), { timeout: 30_000 });
+        await f.openPullRequest(13, "dirty");
+        await reconcile();
+        await vi.waitFor(() => expect(prepareGitHubRepairBase).toHaveBeenCalledOnce(), { timeout: 30_000 });
+        expect(hostCapacity).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ active: 0 }));
+        expect(f.events).not.toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything());
+      } finally {
+        workerOpen = true;
+        while (tracked.length) await Promise.all(tracked.splice(0));
+        f.restore(); await f.runtime.inbox.close();
+      }
+    }, 60_000);
+
+    it.each(["completes", "fails", "is cancelled"] as const)("counts a pass in host capacity while its provider runs until it %s", async ending => {
+      const hostCapacity = vi.fn(async () => ({ concurrency: 1 }));
+      const f = await conflictOnly({ mergeableState: "clean", concurrency: 2, hostCapacity, options: { noFindingsReviews: [] }, providerRetryDelayMs: 1 });
+      const tracked: Promise<unknown>[] = [];
+      const reconcile = () => f.runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work); } } as Parameters<typeof f.runtime.reconcile>[1]);
+      let started!: () => void;
+      const running = new Promise<void>(resolve => { started = resolve; });
+      let finish!: () => void;
+      const finished = new Promise<void>(resolve => { finish = resolve; });
+      f.beforeResult(async () => {
+        started();
+        await finished;
+        if (ending === "fails") throw new Error("Provider crashed.");
+      });
+      const close = (key: string) => f.runtime.inbox.ingest(key, "pull_request", { repository: { full_name: "acme/app" }, action: "closed", pull_request: { ...f.pr(), state: "closed" } });
+      try {
+        await reconcile();
+        await running;
+        await f.openPullRequest(13, "dirty");
+        await reconcile();
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledOnce(), { timeout: 30_000 });
+        expect(hostCapacity).toHaveBeenLastCalledWith(expect.objectContaining({ active: 1 }));
+        if (ending === "is cancelled") await close("close-12");
+        else finish();
+        while (tracked.length) await Promise.all(tracked.splice(0));
+        // A failed pass would retry; closing PR 12 keeps it from running beside the next sample.
+        if (ending !== "is cancelled") await close("close-12");
+        await f.openPullRequest(14, "dirty");
+        await reconcile();
+        await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
+        expect(hostCapacity).toHaveBeenLastCalledWith(expect.objectContaining({ active: 0 }));
+      } finally {
+        finish();
+        while (tracked.length) await Promise.all(tracked.splice(0));
+        f.restore(); await f.runtime.inbox.close();
+      }
+    }, 60_000);
   });
 
   it.each([
