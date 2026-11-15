@@ -30,8 +30,10 @@ export function createBabysitterStatusRecovery(options: {
 }): BabysitterStatusRecovery {
   const { inbox, revision, publish } = options;
   const publishTimeoutMs = options.publishTimeoutMs ?? 20_000;
+  // Internal invariant: only createBabysitterRuntime() calls this, with the default timeout and lease.
   if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error("Status publication timeout must be positive.");
   const deliveryLeaseMs = options.deliveryLeaseMs ?? 300_000;
+  // Internal invariant: only createBabysitterRuntime() calls this, with the default timeout and lease.
   if (!Number.isFinite(deliveryLeaseMs) || deliveryLeaseMs < 3 || deliveryLeaseMs > 2_147_483_647) throw new Error("Status delivery lease must be between 3 and 2,147,483,647 milliseconds.");
   let selecting = Promise.resolve();
   const active = new Set<Promise<void>>();

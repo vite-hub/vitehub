@@ -5,6 +5,7 @@ import type { Claim, Snapshot } from './store.ts'
 /** REST fields are authoritative; older persisted GraphQL aliases may be stale. */
 export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
   const pr = snapshot.pr
+  // Internal invariant: the inbox claims only hydrated snapshots, which have a head and a base.
   if (!pr?.head?.sha || !pr.head.ref || !pr.base?.ref) throw new Error(`Incomplete PR snapshot for ${snapshot.repository}#${snapshot.number}`)
   return {
     ...pr,

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot, type SnapshotPatch } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
 import { isBabysitterCheckRun } from '../check-run.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
@@ -42,13 +43,13 @@ const envelope = v.object({ data: v.optional(v.unknown()), errors: v.optional(v.
 
 function reviewThreadData(raw: unknown): unknown {
   const response = v.parse(envelope, raw)
-  if (response.errors?.length) throw new Error(`GitHub review thread query failed: ${response.errors.map(error => error.message).join('; ')}`)
+  if (response.errors?.length) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_QUERY_FAILED({ query: 'review thread', errors: response.errors.map(error => error.message).join('; ') })
   return response.data ?? raw
 }
 function nextCursor(connection: { pageInfo: v.InferOutput<typeof pageInfo> }, seen: Set<string>): string | null {
   if (!connection.pageInfo.hasNextPage) return null
   const cursor = connection.pageInfo.endCursor
-  if (!cursor || seen.has(cursor)) throw new Error('Invalid review thread pagination cursor')
+  if (!cursor || seen.has(cursor)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_CURSOR_INVALID({ kind: 'review thread pagination' })
   seen.add(cursor); return cursor
 }
 async function readThreadComments(request: ReadGraphql, id: string) {
@@ -72,7 +73,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const prefix = `repos/${repository}`
   const [raw] = await read(`${prefix}/pulls/${number}`, '.')
   const pr = parsePullRequest(raw)
-  if (!pr.head?.sha) throw new Error('GitHub returned no pull request head.')
+  if (!pr.head?.sha) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_HEAD_MISSING()
   if (pr.state !== 'open') return { pr }
   const readAll = async (path: string, projection?: string) => {
     const items: unknown[] = []
@@ -244,11 +245,11 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
     do {
       const raw = await graphql(repository)(OPEN_PULL_REQUESTS, { owner, name, after })
       const response = v.parse(envelope, raw)
-      if (response.errors?.length) throw new Error(`GitHub open pull request query failed: ${response.errors.map(error => error.message).join('; ')}`)
+      if (response.errors?.length) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_QUERY_FAILED({ query: 'open pull request', errors: response.errors.map(error => error.message).join('; ') })
       const page = v.parse(openPullRequestsSchema, response.data ?? raw).repository.pullRequests
       for (const pr of page.nodes) open.set(pr.number, pr)
       after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor ?? '' : null
-      if (after !== null && (!after || cursors.has(after))) throw new Error('Invalid open pull request cursor')
+      if (after !== null && (!after || cursors.has(after))) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_CURSOR_INVALID({ kind: 'open pull request' })
       if (after) cursors.add(after)
     } while (after)
     // Mark changes only after every page succeeded, so a partial list never looks like closed PRs.

@@ -125,12 +125,14 @@ export function babysitterAdmissionDecision(state: BabysitterAdmissionState, lim
 }
 
 async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "list" | "get"> | undefined, since: number) {
+  // Internal invariant: the admission controller reads token usage only after the runtime assigns the invocation journal.
   if (!invocations) throw new Error("No invocation journal is assigned.");
   const usage: Array<{ id: string; updatedAt: string; tokens: number }> = [];
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   do {
     const page = await invocations.list({ cursor, limit: 100, status: ["pending", "running", "completed", "failed", "cancelled"], updatedSince: new Date(since).toISOString() });
+    // Internal invariant: the Agent Invocation store returns a new cursor for each page; a repeat is a store bug.
     if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
     if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {
@@ -166,6 +168,7 @@ function normalizeAdmissionPause(value: unknown): BabysitterAdmissionPause | und
   if (!isRuntimeRecord(value) || !hasRuntimeType(value.reason, "string") || !value.reason.trim()
     || value.detail !== undefined && !hasRuntimeType(value.detail, "string")
     || value.retryAt !== undefined && !(hasRuntimeType(value.retryAt, "number") && Number.isFinite(value.retryAt) && value.retryAt >= 0)) {
+    // Internal invariant: the admission controller catches it and reports the message in the admission state errors.
     throw new TypeError("Invalid admission.check result. Expected undefined or { reason, detail, retryAt }.");
   }
   const pause: BabysitterAdmissionPause = { reason: value.reason };

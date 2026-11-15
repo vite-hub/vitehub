@@ -123,5 +123,6 @@ export function validateBudgets(budgets: InboxBudgets): void {
   if (budgets.dailyPasses !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.dailyPasses)
 }
 export function requireEvidence(evidence: string): void {
+  // Internal invariant: the inbox passes evidence that the runtime builds, such as push:<sha>, or a fixed reset reason.
   if (!evidence.trim()) throw new Error('A non-empty verified evidence or reset reason is required')
 }

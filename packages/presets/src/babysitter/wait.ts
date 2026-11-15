@@ -11,6 +11,7 @@ import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 import { reviewerLabeledSevere } from "../github/index.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -362,8 +363,9 @@ export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPoli
 
 /** A digest of every check run and commit status of a dependency's head, from forges `checks.list()`. */
 export function checksDependencyEvidence(checks: Page<Check>): string {
-  if (checks.warnings?.length) throw new Error(`Dependency checks are incomplete: ${checks.warnings.map(warning => warning.message).join("; ")}`);
+  if (checks.warnings?.length) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_CHECKS_INCOMPLETE({ warnings: checks.warnings.map(warning => warning.message).join("; ") });
   const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
+    // Internal invariant: forges keeps the GitHub JSON object of each check as raw.
     if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
     return check.raw;
   }).filter(check => !isBabysitterCheckRun(check));

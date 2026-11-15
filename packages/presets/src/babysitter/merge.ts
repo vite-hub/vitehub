@@ -257,7 +257,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {
     const method = merge.method ?? "squash";
     if (method !== "squash" && method !== "merge" && method !== "rebase") {
-      throw new TypeError('[vitehub] Babysitter merge.method must be "squash", "merge", or "rebase".');
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.method", expected: '"squash", "merge", or "rebase"' });
     }
     if (merge.ready !== undefined && merge.ready !== "approved-if-outside" && !hasRuntimeType(merge.ready, "function")) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.ready", expected: 'a function or "approved-if-outside"' });
@@ -288,7 +288,7 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     }
     return { mode: "direct", method, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {} };
   }
-  throw new TypeError('[vitehub] Babysitter merge must be false, "auto", "direct", or { strategy: "direct" }.');
+  throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge", expected: 'false, "auto", "direct", or { strategy: "direct" }' });
 }
 
 /** The current-head check runs and statuses retained in an inbox snapshot. */

@@ -94,6 +94,7 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
       if (!cached || cached.retryAt !== undefined && cached.retryAt <= now) {
         try {
           const log = await readers.readLog(`repos/${repository}/actions/jobs/${job.id}/logs`, repository)
+          // Internal invariant: the catch below records the log as unavailable and retries later.
           if (!log) throw new Error('Empty log response')
           cached = { value: { log: compactCiLog(log) }, fetchedAt: now }
         } catch {

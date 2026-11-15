@@ -13,6 +13,7 @@ import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSch
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
 import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -71,6 +72,7 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item)
 
 function parseSnapshot(value: unknown): Snapshot {
+  // Internal invariant: the inbox writes and reads these rows itself; another writer is a bug.
   if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
@@ -86,6 +88,7 @@ function parseSnapshot(value: unknown): Snapshot {
     ('revision' in input && !Number.isFinite(input.revision)) ||
     ('threadsHydrated' in input && input.threadsHydrated !== true && input.threadsHydrated !== false) ||
     ('lastResult' in input && Object.prototype.toString.call(input.lastResult) !== '[object String]')) {
+    // Internal invariant: the inbox writes and reads these rows itself; another writer is a bug.
     throw new TypeError('Invalid inbox snapshot')
   }
   if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
@@ -102,6 +105,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
   if (input.dailyPassBudget !== undefined) parseDailyPassBudget(input.dailyPassBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
+    // Internal invariant: the inbox writes and reads these rows itself; another writer is a bug.
     if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
@@ -261,7 +265,7 @@ export class PullRequestInbox {
   private reportedRows = new Set<string>()
   constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
-    if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
+    if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
     this.priorityLabels = [...new Set(priorityLabels.map(label => label.trim().toLowerCase()).filter(Boolean))]
     this.mainRepairBranchPrefix = mainRepairBranchPrefix || undefined
@@ -573,6 +577,7 @@ export class PullRequestInbox {
   }
   /** A bounded batch of due deliveries. Invalid metadata never reaches the publisher. */
   async pendingStatusDeliveries(limit = 5): Promise<StatusDelivery[]> {
+    // Internal invariant: the status recovery passes fixed positive limits and leases.
     if (!Number.isInteger(limit) || limit < 1) throw new Error('Status delivery limit must be a positive integer')
     const now = this.clock()
     return (await this.metaEntries(statusOutboxPrefix)).flatMap(([, value]) => {
@@ -582,6 +587,7 @@ export class PullRequestInbox {
   }
   /** Claim due, eligible deliveries atomically across hosts. Deferred heads yield the batch. */
   async claimStatusDeliveries(limit = 5, leaseMs = 300_000): Promise<StatusDelivery[]> {
+    // Internal invariant: the status recovery passes fixed positive limits and leases.
     if (!Number.isInteger(limit) || limit < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery limits must be positive')
     return await this.transaction(async tx => {
       const now = this.clock()
@@ -621,6 +627,7 @@ export class PullRequestInbox {
   }
   /** Keep the external writer's lease, including when its saved result is superseded. */
   async renewStatusDelivery(observed: StatusDelivery, leaseMs = 300_000): Promise<boolean> {
+    // Internal invariant: the status recovery passes fixed positive limits and leases.
     if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery lease must be positive')
     return await this.transaction(async tx => {
       const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
@@ -833,8 +840,10 @@ export class PullRequestInbox {
   }
   async reserveProviderAttempt(provider: string): Promise<ProviderAttempt | undefined> {
     return await this.transaction(async tx => {
+      // Internal invariant: the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider.
       if (!provider.trim()) throw new Error('Provider scope is required')
       const maxRetries = this.budgets.providerRetries
+      // Internal invariant: the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider.
       if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before reserving attempts')
       const budget = await this.providerBudgetIn(tx, provider) ?? { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [] }
       // Pending attempts also consume capacity. A crashed dispatch fails closed.
@@ -864,6 +873,7 @@ export class PullRequestInbox {
     requireEvidence(reason)
     await this.transaction(async tx => {
       const maxRetries = this.budgets.providerRetries
+      // Internal invariant: the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider.
       if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before resetting attempts')
       await this.setMetaIn(tx, `provider-budget:${provider}`, { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [], resetReason: reason })
     })
@@ -874,6 +884,7 @@ export class PullRequestInbox {
       const s = await this.getIn(tx, repository.toLowerCase(), number)
       if (!s || s.pr?.head?.sha !== head || s.status === 'terminal' || s.lease) return false
       const limit = this.budgets.noProgress
+      // Internal invariant: the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider.
       if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
       const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
       s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
@@ -945,6 +956,7 @@ export class PullRequestInbox {
   }
   async seed(repository: string, value: unknown): Promise<Snapshot> {
     repository = repository.toLowerCase()
+    // Internal invariant: the runtime seeds only repositories that its repository source lists.
     if (!this.repositories.includes(repository)) throw new Error('Repository is not configured for this inbox.')
     const pr = normalizePullRequest(value)
     return await this.transaction(async tx => {
@@ -1261,6 +1273,7 @@ export class PullRequestInbox {
   }
   /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
   async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
+    // Internal invariant: the runtime registers the full SHA that the host push returned.
     if (!/^[a-f\d]{40}$/i.test(head)) throw new TypeError('Expected an exact publication commit SHA.')
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
@@ -1268,6 +1281,7 @@ export class PullRequestInbox {
         || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
       const heads = s.prospectivePush?.token === claim.token ? s.prospectivePush.heads : []
       if (!heads.includes(head)) {
+        // Internal invariant: a pass registers one head for each host push, and the push budgets end a pass long before 64 pushes.
         if (heads.length >= 64) throw new Error('Publication candidate limit reached.')
         heads.push(head)
       }
@@ -1361,7 +1375,9 @@ export class PullRequestInbox {
       this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
+        // Internal invariant: the runtime builds each pass result; it never sets a wait together with retry or terminal, and sets verified push heads only with their push receipt.
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
+        // Internal invariant: the runtime builds each pass result; it never sets a wait together with retry or terminal, and sets verified push heads only with their push receipt.
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
@@ -1394,6 +1410,7 @@ export class PullRequestInbox {
         return true
       }
       if (result.wait) {
+        // Internal invariant: the runtime builds each pass result; it never sets a wait together with retry or terminal, and sets verified push heads only with their push receipt.
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
         if (s.status === 'terminal' || !s.pr?.head?.sha || s.pr.head.sha !== claim.snapshot.pr?.head?.sha
           || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
