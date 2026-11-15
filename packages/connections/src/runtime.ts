@@ -244,6 +244,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
+    // Internal invariant: the same TypeError that fetch throws for redirect: "error", so Workers and Node fail alike.
     if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
     return response
   }
@@ -1374,6 +1375,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)
+      // Internal invariant: caught below and thrown again as CONNECTIONS_CHATGPT_IDENTITY.
       if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
       issuedAt = claims.iat * 1000
     }

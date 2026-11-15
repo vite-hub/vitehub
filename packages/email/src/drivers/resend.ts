@@ -248,8 +248,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
     const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
     const url = new URL(configuredEndpoint ?? "https://api.resend.com");
     if (url.protocol !== "http:" && url.protocol !== "https:")
+      // Internal invariant: caught below and thrown again as a coded Resend provider error.
       throw new TypeError("Unsupported protocol");
     if (url.username || url.password || url.search || url.hash)
+      // Internal invariant: caught below and thrown again as a coded Resend provider error.
       throw new TypeError("Unsupported URL components");
     endpoint = url.href.replace(/\/+$/, "");
   } catch (cause) {

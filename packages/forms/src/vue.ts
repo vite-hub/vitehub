@@ -2,6 +2,7 @@ import { focus, getInput, handleSubmit, reset, setErrors, useField, useForm, val
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId, watch } from "vue"
 
 import { fieldErrors, formRoute, submitForm } from "./client.ts"
+import { formsDiagnostics } from "./errors.ts"
 import { formFields, isLongText } from "./fields.ts"
 
 import type { FormSchema, FormStore } from "@formisch/vue"
@@ -175,7 +176,7 @@ export interface AutoFormField {
  */
 export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode
-  if (root?.type !== "object" || !root.entries) throw new TypeError("[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).")
+  if (root?.type !== "object" || !root.entries) throw formsDiagnostics.FORMS_AUTOFORM_SCHEMA_INVALID()
   return formFields(schema as StandardSchemaV1).map((field) => {
     const { name: key, label, description, required, minLength, maxLength } = field
     const base: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) }

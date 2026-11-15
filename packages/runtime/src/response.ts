@@ -156,6 +156,7 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
+  // Internal invariant: the record comes from serializeResponse(). deserializeResponse() documents this TypeError, and its tests check the class.
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
   if (value.type !== undefined) return createStatusZeroResponse(value.type, value.url)
   const bytes = base64ToBytes(value.body.data)

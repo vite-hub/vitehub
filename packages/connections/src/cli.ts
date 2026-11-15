@@ -42,6 +42,7 @@ interface ParsedArgs {
   url: string
 }
 
+// Internal invariant: usage error of the Connections CLI. The CLI prints its message.
 class CliError extends Error {}
 
 const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })

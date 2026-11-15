@@ -438,6 +438,7 @@ class BlockRewriter {
   /** Start of the expression that holds the config object in a read such as `config.public.x`. */
   private objectStart(read: Read): number {
     const first = read.members[0]
+    // Internal invariant: the call-site scan collects only member reads, so the first member is always a member expression.
     if (!first || (first.type !== "MemberExpression" && first.type !== "OptionalMemberExpression")) throw new TypeError("Expected a member read")
     return start(first.object)
   }

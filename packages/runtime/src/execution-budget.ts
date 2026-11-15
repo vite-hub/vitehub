@@ -1,3 +1,5 @@
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
 /** Counters that an Invocation can spend while it runs. */
 export type ExecutionBudgetCounter = "inputBytes" | "outputBytes" | "retries" | "toolCalls"
 
@@ -34,6 +36,7 @@ export interface ExecutionBudgetOptions extends ExecutionBudgetLimits {
   signal?: AbortSignal
 }
 
+// Internal invariant: public class with the counter and limit that ran out. Agents read them.
 export class ExecutionBudgetExceededError extends Error {
   readonly counter: ExecutionBudgetCounter | "deadline"
   readonly limit?: number
@@ -179,6 +182,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       deadlineController.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
       deadlineController.signal.throwIfAborted()
     }
+    // Internal invariant: ViteHub charges measured bytes and counts, which are finite and not negative.
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
@@ -288,7 +292,7 @@ function minDefined(left: number | undefined, right: number | undefined) {
 function normalizeLimits(options: ExecutionBudgetOptions): ExecutionBudgetLimits {
   const normalize = (value: number | undefined) => {
     if (value === undefined) return undefined
-    if (!Number.isFinite(value) || value < 0) throw new RangeError("[vitehub] Execution budget limits must be finite non-negative numbers.")
+    if (!Number.isFinite(value) || value < 0) throw runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID()
     return Math.floor(value)
   }
   return {

@@ -58,8 +58,10 @@ export function normalizeConsoleProjectUrl(projectUrl: string): string | undefin
  */
 export function hostedConsoleUrl(projectUrl: string, path: string, consoleOrigin: string = hostedConsoleOrigin): string {
   const project = normalizeConsoleProjectUrl(projectUrl)
+  // Internal invariant: hostedConsoleUrl() documents this TypeError, and its tests check the class.
   if (!project) throw new TypeError(`${projectUrl} is not a project URL. Use the https:// origin of the app, with its base path if it has one.`)
   const consolePath = normalizeConsolePath(path)
+  // Internal invariant: hostedConsoleUrl() documents this TypeError, and its tests check the class.
   if (!consolePath) throw new TypeError(`${path} is not a Console path. Use a path that starts with one /, such as /agents/<agent>.`)
   const url = new URL("/open", consoleOrigin)
   url.search = new URLSearchParams({ project, path: consolePath }).toString()

@@ -51,6 +51,7 @@ function messagePlaceholders(message: string) {
       if (typeof token === "string") {
         for (const [, closing, name, empty] of token.matchAll(/<(\/?)(\d+)(\/?)>/g)) {
           if (closing) {
+            // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
             if (empty || parents.pop() !== name) throw new Error(`Unpaired rich-text tag </${name}>`)
           }
           else {
@@ -69,6 +70,7 @@ function messagePlaceholders(message: string) {
         for (const branch of Object.values(token[2] as CompiledIcuChoices)) {
           if (!Array.isArray(branch)) continue
           const result = visit(branch, [...parents])
+          // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
           if (next && next.join(",") !== result.parents.join(",")) throw new Error("Unbalanced rich-text tags across ICU choices")
           next = result.parents
           branches.push(result.tags)
@@ -87,6 +89,7 @@ function messagePlaceholders(message: string) {
     return { parents, tags }
   }
   const result = visit(compileMessageOrThrow(message), [])
+  // Internal invariant: validateMessagePlaceholders() catches it and returns a brace validation issue.
   if (result.parents.length) throw new Error("Unclosed rich-text tag")
   return { names, tags: result.tags }
 }

@@ -96,6 +96,7 @@ export function createChannel<TAdapter extends ChannelAdapter<never, never>>(
         // SAFETY: ChannelClient types the message and options as the adapter's send arguments.
         const result: unknown = await send.call(adapter, message as never, (options ?? {}) as never)
         if (!result || typeof result !== "object") {
+          // Internal invariant: caught below and returned as CHANNEL_SEND_FAILED with this error as the cause.
           throw new Error(`The "${adapter.kind}" adapter of Channel "${name}" returned an invalid result.`)
         }
         const normalized = normalizeSendReceipt(result)

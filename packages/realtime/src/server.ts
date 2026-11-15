@@ -214,6 +214,7 @@ function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
+// Internal invariant: public class. The room refuses the write of the peer with its message.
 export class RealtimeWriteRejected extends Error {
   constructor(message: string) {
     super(message)
@@ -538,6 +539,7 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
     if (!legacyUpdate) continue
     const blob = Uint8Array.from(legacyUpdate).buffer
     try {
+      // Internal invariant: caught below, which keeps the rows of the older journal schema.
       if (!clientUpdateColumn) throw new Error("client_update column unavailable")
       sql.exec(
         "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",

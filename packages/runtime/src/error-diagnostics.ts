@@ -2,7 +2,12 @@ import { defineDiagnostics } from "nostics"
 
 import type { Diagnostics } from "nostics"
 
-const dynamicError: { why: (params: { message?: unknown }) => string } = {
+interface RuntimeCodeDefinition {
+  why: (params: { message?: unknown }) => string
+  fix?: string
+}
+
+const dynamicError: RuntimeCodeDefinition = {
   why: ({ message }) => message === undefined ? "" : String(message),
 }
 
@@ -22,10 +27,11 @@ type RuntimeErrorCode =
   | "RUNTIME_R0016"
   | "RUNTIME_R0017"
   | "RUNTIME_R0018"
+  | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // The closed record also supports isolated declaration output.
-const codes: Record<RuntimeErrorCode, typeof dynamicError> = {
+const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_R0001: dynamicError,
   RUNTIME_R0002: dynamicError,
   RUNTIME_R0003: dynamicError,
@@ -41,6 +47,11 @@ const codes: Record<RuntimeErrorCode, typeof dynamicError> = {
   RUNTIME_R0016: dynamicError,
   RUNTIME_R0017: dynamicError,
   RUNTIME_R0018: dynamicError,
+  // Named errors. Keep these codes in alphabetical order.
+  RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID: {
+    why: () => "[vitehub] Execution budget limits must be finite non-negative numbers.",
+    fix: "Set each limit of `executionBudget`, such as `maxToolCalls` or `maxOutputBytes`, to a finite number of 0 or more, or remove it.",
+  },
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({

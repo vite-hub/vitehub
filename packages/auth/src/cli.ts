@@ -53,17 +53,22 @@ export function createAuthCliContributor(options: { fetch?: typeof fetch } = {})
             const arg = args[index]!
             if (arg === "--aggregate") { query.set("aggregate", "true"); continue }
             if (arg === "--json") continue
+            // Internal invariant: caught below. `vitehub auth events` prints the message, which says what to do.
             if (arg !== "--url" && !Object.hasOwn(filters, arg)) throw new Error(`Unknown auth events option: ${arg}`)
             const value = args[++index]
+            // Internal invariant: caught below. `vitehub auth events` prints the message, which says what to do.
             if (!value || value.startsWith("--")) throw new Error(`Missing value for ${arg}.`)
             if (arg === "--url") url = value
             else query.set(filters[arg]!, value)
           }
+          // Internal invariant: caught below. `vitehub auth events` prints the message, which says what to do.
           if (!url) throw new Error("Set --url to the Auth base URL, such as http://localhost:5173/api/auth. Set VITEHUB_AUTH_COOKIE to a permitted session cookie.")
           const endpoint = new URL(`${url.replace(/\/$/, "")}/vitehub/events`)
+          // Internal invariant: caught below. `vitehub auth events` prints the message, which says what to do.
           if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname))) throw new Error("Auth events requires HTTPS or a loopback HTTP URL.")
           endpoint.search = query.toString()
           const response = await (options.fetch ?? fetch)(endpoint, { redirect: "error", headers: cookie ? { cookie } : {}, signal: AbortSignal.timeout(30_000) })
+          // Internal invariant: caught below. `vitehub auth events` prints the message, which says what to do.
           if (!response.ok) throw new Error(`Auth events returned HTTP ${response.status}. Configure events.authorize and use a permitted session.`)
           context.stdout.write(`${JSON.stringify(await response.json(), null, 2)}\n`)
           return 0

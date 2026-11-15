@@ -104,6 +104,7 @@ function resolveCloudflareInspectionBinding(event: unknown, binding: string | un
 
 function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): { id: string } {
   if (typeof value !== "object" || value === null) {
+    // Internal invariant: runWorkflowProviderOperation() returns it as a coded provider failure.
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 
@@ -112,10 +113,12 @@ function normalizeCloudflareWorkflowStart(value: unknown, expectedId: string): {
     id = Reflect.get(value, "id")
   }
   catch (cause) {
+    // Internal invariant: runWorkflowProviderOperation() returns it as a coded provider failure.
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.", { cause })
   }
 
   if (typeof id !== "string" || !id || id !== expectedId) {
+    // Internal invariant: runWorkflowProviderOperation() returns it as a coded provider failure.
     throw new Error("Cloudflare Workflow provider returned an invalid workflow instance.")
   }
 

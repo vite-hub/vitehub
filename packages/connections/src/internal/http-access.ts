@@ -103,6 +103,7 @@ export async function checkConnectionsAccess(
  */
 export function connectionsRuntimeFor(access: ConnectionsAccess): () => ConnectionsRuntime {
   const runtime = grants.get(access)
+  // Internal invariant: owner routes pass the access of the request that they checked.
   if (!runtime) throw new TypeError("[vitehub] Connections management requires the access of a checked request.")
   return runtime
 }
