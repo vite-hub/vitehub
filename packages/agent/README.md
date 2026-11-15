@@ -274,7 +274,7 @@ Import the same `agentCapacity` object into each Agent Definition that should sh
 
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
-On a persistent server, ViteHub drains Agent work on `SIGTERM` and `SIGINT`, then exits. The application writes no shutdown code. The generated webhook queue plugin registers two drains with the shared [ViteHub shutdown](../runtime/README.md): `agent.chat` for inline Chat invocations and `agent.webhook-queues` for the webhook queues. Process hosts and other packages register their own drains, and all drains run in parallel with one budget from `VITEHUB_SHUTDOWN_DRAIN_MS`. `vitehub({ agent: { shutdown: { drainMs } } })` sets the default for that variable, and the variable wins when it is set. The default is 0, which interrupts the work at once. Set `agent.shutdown: false` to not drain inline Chat invocations. The Chat drain does not run in development, during prerender, or on ephemeral hosts. HTTP stays up during the drains. Then the server closes HTTP, Nitro runs its `close` hooks for up to 10 seconds, and the process exits once. `process.__vitehubShutdown` shows the registered drains and their results. Give the host a termination grace period longer than the drain budget plus 25 seconds: 15 seconds for interrupted Chat invocations to post their notice and 10 seconds for the close hooks. The Chat drain waits up to the budget for inline Chat invocations to finish. It then aborts the rest with a `HOST_RESTARTED` error, which replaces the thinking placeholder with a restart notice. Each inline Chat invocation stores its inbound message in Chat state under `vitehub:interrupted-chat` until it finishes. When the webhook route resumes with `recoverInterruptedBefore`, it posts the notice for each stored message that did not complete and that no live run claims in the Invocation journal, and runs the message once more with a note that asks the Agent to check for work that the first attempt already did. Recovery requires State with atomic lease-fenced cache mutations (`mutateWithLock`). It durably reserves the single retry before dispatch, so an expired lease cannot cause a second dispatch. If the host stops after reservation but before dispatch is confirmed, the next startup treats that attempt as exhausted. A message that was already retried is not retried again; the thread gets "Please send your message again." The queue drain resolves when every stopping webhook queue has settled. A stopping queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for active deliveries before it aborts them, and the persisted queue replays aborted deliveries after the restart. Workflow-backed Agents do not need this path, because their runs continue across restarts.
+On a persistent server, ViteHub drains Agent work on `SIGTERM` and `SIGINT`, then exits. The application writes no shutdown code. The generated webhook queue plugin registers two drains with the shared [ViteHub shutdown](../runtime/README.md): `agent.chat` for inline Chat invocations and `agent.webhook-queues` for the webhook queues. Process hosts and other packages register their own drains, and all drains run in parallel with one budget from `VITEHUB_SHUTDOWN_DRAIN_MS`. `vitehub({ agent: { shutdown: { drainMs } } })` sets the default for that variable, and the variable wins when it is set. The default is 0, which interrupts the work at once. Set `agent.shutdown: false` to not drain inline Chat invocations. The Chat drain does not run in development, during prerender, or on ephemeral hosts. HTTP stays up during the drains. Then the server closes HTTP, Nitro runs its `close` hooks for up to 10 seconds, and the process exits once. `process.__vitehubShutdown` shows the registered drains and their results. Give the host a termination grace period longer than the drain budget plus 25 seconds: 15 seconds for interrupted Chat invocations to post their notice and 10 seconds for the close hooks. The Chat drain waits up to the budget for inline Chat invocations to finish. It then aborts the rest with a `HOST_RESTARTED` error, which replaces the thinking placeholder with a restart notice. Each inline Chat invocation stores its inbound message in Chat state under `vitehub:interrupted-chat` until it finishes. When the webhook route resumes with `recoverInterruptedBefore`, it posts the notice for each stored message that did not complete and that no live run claims in the Invocation journal, and runs the message once more with a note that asks the Agent to check for work that the first attempt already did. Recovery requires State with atomic lease-fenced cache mutations (`mutateWithLock`). It durably reserves the single retry before dispatch, so an expired lease cannot cause a second dispatch. If the host stops after reservation but before dispatch is confirmed, the next startup treats that attempt as exhausted. A message that was already retried is not retried again; the thread gets "Please send your message again." The queue drain resolves when every stopping webhook queue has settled. A stopping queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for active deliveries before it aborts them, and the persisted queue replays aborted deliveries after the restart. Workflow-backed Agents do not use this path. A Workflow-backed turn that stops during its Driver fails when the provider retries it, and the Driver does not run again.
 
 `defineAgent({ invocations })` accepts the journal that `defineAgentInvocations()` returns, `"database"`, `"memory"`, `false`, and `{ store, ...options }`. Without `invocations`, the Agent records in the app-wide journal that the ViteHub server installs, and `getAgentInvocations()` returns that journal. `false` records no journal. `vite-hub/agent` re-exports this package unchanged. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#store-invocation-history).
 
@@ -403,6 +403,68 @@ frame and `data: [DONE]`, so every host ends the response.
 
 See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics)
 for the code format and an application catalog example.
+
+## UI that an Agent sends
+
+An Agent can answer with UI: an approval card, a table, a plan, or a form, instead of text. It writes a [json-render](https://json-render.dev) spec, and `@vite-hub/agent/ui` is the contract for what it may send. In the C4 first-try evals, models wrote json-render correctly in 72 of 72 tries and A2UI in 57 of 72, so json-render is the wire format.
+
+The catalog holds layout and display components only: Stack, Text, Heading, KeyValue, Divider, Card, Button, Link, Image, Badge, Table, Tabs, and Form. A spec does not draw inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, and the form schema gives the fields, the same schema that the web form, the MCP elicitation, and the chat modal use.
+
+| Surface | Where the spec renders | Components |
+| --- | --- | --- |
+| `web`, `mcp` | A Vue or Nuxt page, an MCP App | All |
+| `chatCard` | A card in Slack, Teams, Discord, or Telegram | No Badge, Tabs, or Form: a card has no inputs |
+| `chatModal` | A chat modal, such as a Slack modal | Stack, Text, Heading, KeyValue, and Form |
+
+Install the peers only when you use it:
+
+```sh
+pnpm add @vite-hub/forms zod @json-render/core @json-render/vue
+```
+
+On the server, put the prompt in the Agent's instructions, check each spec, and check the values that a Form sends:
+
+```ts
+import { defineForm } from "@vite-hub/forms"
+import { type CatalogSpec, catalogPrompt, checkSpecForm, defineCatalog, validateSpec, viteHubCatalogEntries } from "@vite-hub/agent/ui"
+import * as v from "valibot"
+
+const invite = defineForm({ schema: v.object({ email: v.pipe(v.string(), v.email()), role: v.picklist(["admin", "member"]) }) })
+export const catalog = defineCatalog(viteHubCatalogEntries, { forms: { invite } })
+
+export const instructions = `You help the team.\n\n${catalogPrompt({ surface: "web", catalog })}`
+
+export function checkSpec(spec: unknown) {
+  // Each diagnostic has a stable code, such as AGENT_UI_COMPONENT_NOT_ON_SURFACE for a Form in a chat card. Send them back to the model.
+  const result = validateSpec(spec, { surface: "web", catalog })
+  return result.valid ? { spec: result.spec } : { error: result.diagnostics }
+}
+
+// A Form sends { "action": "event", "params": { "name": "invite.send", "context": { "values": { "$state": "/invite" } } } }.
+export const readInvite = (spec: CatalogSpec, values: unknown) => checkSpecForm(spec, "invite", values, { catalog })
+```
+
+`catalogPrompt()` is json-render's own prompt for the catalog, the prompt that the evals measured, with the fields of each form that the surface can draw. Buttons and Forms tell the Agent what the person did with one action, `event`, which sends a name and a context. Action bindings are standalone; `onSuccess` and `onError` continuations are rejected.
+
+In a Vue page, render a spec with `@json-render/vue` and the default components of `@vite-hub/agent/ui/vue`. They use `@ui-sdk/vue` for Button and Tabs, and draw one native control for each field of a Form:
+
+```vue
+<script setup lang="ts">
+import { JSONUIProvider, Renderer } from "@json-render/vue"
+import { catalogComponents, defineCatalogRegistry } from "@vite-hub/agent/ui/vue"
+import type { CatalogSpec } from "@vite-hub/agent/ui"
+import { catalog } from "./catalog"
+
+const props = defineProps<{ spec: CatalogSpec, send: (event: { name: string, context?: object }) => void }>()
+const registry = defineCatalogRegistry(catalog, catalogComponents)
+</script>
+
+<template>
+  <JSONUIProvider :registry :initial-state="props.spec.state" :handlers="{ event: props.send }">
+    <Renderer :spec="props.spec" :registry />
+  </JSONUIProvider>
+</template>
+```
 
 ## Chat replies
 
