@@ -1,6 +1,7 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
-import { webContainerBrowserDiagnostics } from "./browser-diagnostics.ts"
+import { defineDiagnostics } from "nostics"
+
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
 
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
@@ -122,6 +123,18 @@ export interface ViteHubWebContainer {
 export type WebContainerSupport =
   | { supported: true }
   | { supported: false, reason: string }
+
+// The code that this browser entry raises. Its own catalog keeps the page bundle small.
+const webContainerBrowserDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: "https://vitehub.dev/docs/web-container/diagnostics",
+  codes: {
+    // Named errors. Keep these codes in alphabetical order.
+    WEB_CONTAINER_UNSUPPORTED: {
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in the `routes` option of `hubWebContainer` in `vitehub()`, or send the isolation headers on its route in production.",
+    },
+  },
+})
 
 /** Checks the page, not the browser name: a WebContainer needs a cross-origin isolated page with SharedArrayBuffer. */
 export function checkWebContainerSupport(): WebContainerSupport {
