@@ -352,7 +352,15 @@ The result has `ok` and one entry per declaration: `path`, `names`, `name` (the 
 
 ### Managed credentials
 
-`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
+`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption keys in host configuration and back them up separately from the database.
+
+`encryptionKeys` is a keyring: the current key first, then previous keys. Each value is stored as `v2:<keyId>:<iv>:<ciphertext>`, where `keyId` is `sealKeyId()` of the key that sealed it. A read picks the key by its id. A value from an older store, `<iv>:<ciphertext>` without a key id, reads with the current key, then each previous key. The AES-GCM additional data binds each value to its namespace, key, and revision, so a value moved to another row does not decrypt.
+
+To rotate the key:
+
+1. Pass `encryptionKeys: [newKey, oldKey]`. New writes use `newKey`.
+2. Call `await store.rotate()`. It re-encrypts each value that another key sealed and returns `{ rotated, skipped }`. Revisions stay the same, so `revisionCondition()` and `expectedRevision` stay valid. A value that a write replaces during the rotation keeps the new write.
+3. Pass `encryptionKeys: [newKey]`.
 
 `@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `sealWithKey`, `unsealWithKey`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format. To seal an app value with a key derived from `VITEHUB_SECRET`, use [`seal()` and `unseal()`](#seal-a-value).
 

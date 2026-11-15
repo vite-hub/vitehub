@@ -329,6 +329,22 @@ describe("kv runtime", () => {
     expect(upstashEval).not.toHaveBeenCalled()
   })
 
+  it("accepts only a positive ttl as a set() option", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expectKVSuccess(await kv.set("session", "value", { ttl: 60 }))
+    for (const ttl of [0, -1, Number.NaN]) expect((await kv.set("session", "value", { ttl }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    const cloudflareOptions = { expirationTtl: 60 } as { ttl?: number }
+    expect((await kv.set("session", "value", cloudflareOptions))[0]).toMatchObject({
+      code: "KV_INVALID_OPTION",
+      why: "kv.set() does not accept the option `expirationTtl`. It accepts only `ttl`.",
+    })
+    expect((await kv.setIfAbsent("claim", "value", cloudflareOptions))[0]).toMatchObject({ code: "KV_INVALID_OPTION" })
+  })
+
   it("throws config errors instead of returning them", async () => {
     process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")

@@ -13,7 +13,7 @@ describe("stored Connection scopes", () => {
     const client = createClient({ url: ":memory:" })
     try {
       const db = drizzle({ client: client })
-      const store = createDatabaseConnectionStore({ db, encryptionKey: new Uint8Array(32).fill(9) })
+      const store = createDatabaseConnectionStore({ db, encryptionKeys: [new Uint8Array(32).fill(9)] })
       await store.state.put({ name: "mail", scopes: ["mail.read"], status: "connected", updatedAt: "2026-09-30T00:00:00Z" })
       expect((await store.state.get("mail"))?.scopes).toEqual(["mail.read"])
       for (const scopes of ['["mail.read", 42]', '{}', 'null']) {
@@ -30,7 +30,7 @@ describe("stored Connection scopes", () => {
 it("gives the Connections bridge no standing administrator access", async () => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKeys: [new Uint8Array(32).fill(9)] })
     await store.secrets.replace({ key: "connection/mail", value: "token", expectedRevision: null })
     const actor = { id: "connections", kind: "service" } as const
     await expect(store.bridge.read({ env: {}, keys: ["connection/mail"] })).rejects.toMatchObject({ code: "ENV_BRIDGE_DENIED" })
@@ -44,11 +44,18 @@ it("gives the Connections bridge no standing administrator access", async () => 
   }
 })
 
-it("migrates sealed grants and pending OAuth transactions from the legacy tables", async () => {
+it.each(["none", "secret", "state", "both"])("migrates legacy tables with %s already migrated, then retires the old key", async (migrated) => {
   const client = createClient({ url: ":memory:" })
   const key = new Uint8Array(32).fill(9)
   try {
     const db = drizzle({ client: client })
+    const initial = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
+    if (migrated === "secret" || migrated === "both") {
+      await initial.secrets.replace({ key: "connection/mail", value: JSON.stringify({ accessToken: "legacy-access", scopes: ["mail.read"] }), expectedRevision: null })
+    }
+    if (migrated === "state" || migrated === "both") {
+      await initial.state.put({ name: "mail", accountId: "account-1", status: "connected", scopes: ["mail.read"], updatedAt: "2026-09-30T00:00:00.000Z" })
+    }
     const sealKey = await importSealKey(key)
     const grantPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
     const pendingPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
@@ -58,7 +65,7 @@ it("migrates sealed grants and pending OAuth transactions from the legacy tables
     await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('legacy-state', 'legacy-ticket', 'mail', ${pendingPayload}, ${Date.now() + 60_000}, 1)`)
     await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('unopened-state', 'unopened-ticket', 'mail', ${pendingPayload}, ${Date.now() + 60_000}, 0)`)
     await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('expired-state', 'expired-ticket', 'mail', ${pendingPayload}, ${Date.now() - 1}, 1)`)
-    const store = createDatabaseConnectionStore({ db, encryptionKey: key })
+    const store = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
     expect(await store.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })
     expect(await store.state.get("mail")).toMatchObject({ accountId: "account-1", status: "connected", scopes: ["mail.read"] })
     expect(await store.authorizations.take("legacy-state")).toMatchObject({ actor: "agent:agent-1", verifier: "legacy-verifier" })
@@ -68,8 +75,17 @@ it("migrates sealed grants and pending OAuth transactions from the legacy tables
       { state: "expired-state" },
       { state: "unopened-state" },
     ])
-    const restarted = createDatabaseConnectionStore({ db, encryptionKey: key })
+    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
+    const nextKey = new Uint8Array(32).fill(10)
+    const rotating = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey, key] })
+    expect(rotating.rotate).toBeDefined()
+    await rotating.rotate!()
+    // Simulate a database migrated by the older implementation, which retained the grant row.
+    await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)
+    const restarted = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey] })
+    expect(await restarted.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })
     expect(await restarted.authorizations.take("legacy-state")).toBeUndefined()
+    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
   } finally {
     client.close()
   }
@@ -85,7 +101,7 @@ describe("approval execution leases", () => {
     })
     try {
       const db = drizzleD1(await worker.getD1Database("DB"))
-      const store = createDatabaseConnectionStore({ db, encryptionKey: new Uint8Array(32).fill(9) })
+      const store = createDatabaseConnectionStore({ db, encryptionKeys: [new Uint8Array(32).fill(9)] })
       await store.approvals.create({ id: "d1", name: "mail", actor: "agent:test", action: "mail.write", input: {}, status: "pending", createdAt: "2026-09-30T00:00:00.000Z" })
       expect(await store.approvals.renew("d1", "2026-09-30T00:10:00.000Z")).toBe(false)
       expect(await store.approvals.transition("d1", "pending", "approved", { executionExpiresAt: "2026-09-30T00:05:00.000Z" })).toMatchObject({ status: "approved" })
@@ -111,7 +127,7 @@ describe("approval execution leases", () => {
       )
       const store = createDatabaseConnectionStore({
         db,
-        encryptionKey: new Uint8Array(32).fill(9),
+        encryptionKeys: [new Uint8Array(32).fill(9)],
       })
       await store.approvals.create({
         id: "a1",
@@ -154,7 +170,7 @@ it("removes authorizations at their exact expiration timestamp", async () => {
   const now = Date.now()
   const clock = vi.spyOn(Date, "now").mockReturnValue(now)
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKeys: [new Uint8Array(32).fill(9)] })
     await store.authorizations.put({ actor: "user:local", expiresAt: now, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "expired", verifier: "verifier" })
     await store.authorizations.put({ actor: "user:local", expiresAt: now + 60_000, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "current", verifier: "verifier" })
     await expect(store.authorizations.take("expired")).resolves.toBeUndefined()
@@ -168,7 +184,7 @@ it("removes authorizations at their exact expiration timestamp", async () => {
 it("updates Connection metadata atomically at the token revision", async () => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKeys: [new Uint8Array(32).fill(9)] })
     const state = { name: "mail", scopes: ["mail.read"], status: "connected" as const, updatedAt: "2026-09-30T00:00:00Z" }
     expect(await store.state.putForToken(state, null)).toBe(true)
     const first = await store.secrets.replace({ key: "connection/mail", value: "token-one", expectedRevision: null })
@@ -185,7 +201,7 @@ it("updates Connection metadata atomically at the token revision", async () => {
 it.each(["pending", "executed"] as const)("paginates %s approvals without skipping or repeating entries", async (status) => {
   const client = createClient({ url: ":memory:" })
   try {
-    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKey: new Uint8Array(32).fill(9) })
+    const store = createDatabaseConnectionStore({ db: drizzle({ client: client }), encryptionKeys: [new Uint8Array(32).fill(9)] })
     for (let index = 0; index < 205; index++) {
       await store.approvals.create({
         id: `approval-${index}`,
