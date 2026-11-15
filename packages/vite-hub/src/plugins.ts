@@ -779,7 +779,8 @@ function deploymentNitroModule(
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
       if (plan.host === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
       if (plan.output.packaging === "deno-node-modules") {
-        if (!serverPackages) throw viteHubErrorDiagnostics.VITE_HUB_B0017({ message: "[vitehub] The Deno server bundle did not report its runtime packages." })
+        // Internal invariant: denoServerPackagesPlugin() above sets serverPackages when the Deno server bundle is written.
+        if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
@@ -1678,6 +1679,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
+      databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
