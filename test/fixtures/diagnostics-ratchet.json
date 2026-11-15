@@ -988,5 +988,7 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/runtime/src/internal/runtime-type.ts": 1
+  }
 }

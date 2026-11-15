@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { runtimeErrorDiagnostics } from "../error-diagnostics.ts"
 
 export { runtimeErrorDiagnostics }
@@ -31,8 +32,7 @@ export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
       return (representation === "undefined" && value !== undefined ? "function" : representation) === expected
     }
   }
-  // Internal invariant: the switch above handles every key of RuntimeTypeMap, the only names that callers can pass.
-  throw new Error(`Unsupported runtime type: ${expected}`)
+  throw invariantError(`hasRuntimeType() receives only a key of RuntimeTypeMap, not ${String(expected)}`)
 }
 
 /** Marks an intentional structural boundary that TypeScript cannot express. */
