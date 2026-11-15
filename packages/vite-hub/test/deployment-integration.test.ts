@@ -64,6 +64,26 @@ describe("built-in host integration", () => {
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
+  it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
+    const resolve = () => resolveConfig({
+      root,
+      plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false, ...(agent === undefined ? {} : { agent }) })],
+    }, "build")
+    if (agent === undefined) {
+      // An app that adds hubAgent() itself is not missing the option.
+      await expect(resolveConfig({
+        root,
+        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), Promise.resolve({ name: "@vite-hub/agent/vite" })],
+      }, "build")).resolves.toBeTruthy()
+    }
+    if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
+    else await expect(resolve()).resolves.toBeTruthy()
+  })
+
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {
@@ -450,6 +470,56 @@ describe("built-in host integration", () => {
       expect(wrangler).toMatchObject({ secrets: { required: ["VITEHUB_TOKEN"] } })
     }
     finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
+
+  it("writes Server Env names, never values, to deployment.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-names-build-"))
+    const canary = "canary-value-5d81e2"
+    const previous = process.env.VENDOR_TOKEN
+    process.env.VENDOR_TOKEN = canary
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await mkdir(join(root, "server", "env"), { recursive: true })
+      await writeFile(join(root, "server", "env", "credentials.ts"), "export default { read: () => ({}) }\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "node",
+          blob: false,
+          queue: false,
+          rateLimit: false,
+          env: {
+            server: {
+              token: env({ secret: true, source: env.source(["VENDOR_TOKEN", "LEGACY_TOKEN"]) }),
+              region: env({ default: canary }),
+              direct: env({ optional: true, source: env.source("DIRECT_URL", { canonical: false }) }),
+              vault: env({ secret: true, source: env.provider("credentials", "github/token") }),
+            },
+            providers: { credentials: "./server/env/credentials.ts" },
+          },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
+      expect(JSON.parse(text).env).toEqual([
+        { path: "env.server.token", names: ["VITEHUB_TOKEN", "VENDOR_TOKEN", "LEGACY_TOKEN"], required: true, secret: true, hasDefault: false },
+        { path: "env.server.region", names: ["VITEHUB_REGION", "REGION"], required: true, secret: false, hasDefault: true },
+        { path: "env.server.direct", names: ["DIRECT_URL"], required: false, secret: false, hasDefault: false },
+      ])
+      expect(text).not.toContain(canary)
+      expect(text).not.toContain("github/token")
+    }
+    finally {
+      if (previous === undefined) delete process.env.VENDOR_TOKEN
+      else process.env.VENDOR_TOKEN = previous
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)

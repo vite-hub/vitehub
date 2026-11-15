@@ -158,7 +158,7 @@ function requireProjectDriver(name: "pg" | "postgres", projectRoot: string): unk
     return createRequire(join(projectRoot, "package.json"))(name)
   }
   catch (error) {
-    throw new Error(`Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`, { cause: error })
+    throw databaseErrorDiagnostics.DATABASE_POSTGRES_DRIVER_MISSING({ cause: error, name })
   }
 }
 
@@ -214,6 +214,7 @@ async function readPgliteLedger(path: string, projectRoot: string): Promise<Ledg
   }
   catch (error) {
     // Check it before the folder exists too: Drizzle Kit needs it to apply the first migration.
+    // Internal invariant: readMigrationPlan() catches it and reports it as DATABASE_MIGRATION_CHECK_FAILED.
     throw new Error("It runs on PGlite, because the Definition sets `driver: \"pglite\"` or has no `connection.url` and no PG* variables, but the project cannot load `@electric-sql/pglite`. Set `connection.url` to migrate a Postgres server, or install PGlite with `pnpm add -D @electric-sql/pglite`.", { cause: error })
   }
   // A missing folder has no applied migrations. Do not let PGlite create it.
