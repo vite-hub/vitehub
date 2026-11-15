@@ -52,8 +52,12 @@ function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
-/** Actions that can read a journal file with --database instead of asking the app. */
+/** Actions that read the journal file without --url, or the file from --database. */
 const fileActions = new Set<string | undefined>(["export", "list", "show", "tail", "wait-idle"])
+
+function readsJournalFile(parsed: ParsedArgs): boolean {
+  return fileActions.has(parsed.action) && (parsed.database !== undefined || !parsed.urlSet)
+}
 
 interface ParsedArgs {
   action?: Action | "cancel"
@@ -141,22 +145,19 @@ function usage(context: AgentInvocationsCliContext): void {
     "show prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
     "to put one change back, through the app's Console (--url).",
     "",
-    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
-    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app. Without it,",
-    "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
-    "With --database, list, show, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
+    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app.",
+    "Without --url, list, show, tail, export, and wait-idle read the local SQLite journal file read-only, without the app,",
+    "and cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
     "This command does not load the project config.",
     "",
     "Options:",
     "  --url <url>               App URL, such as https://app.example.com or http://localhost:3000, as in every",
     "                            vitehub command. Uses the Console RPC endpoint under it. Set",
     "                            VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls to a deployment.",
-    "                            Without --url, list, show, and tail read the invocation endpoint",
-    "                            (default http://localhost:5173/api/invocations).",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
     "                            Defaults to 30m.",
@@ -166,9 +167,10 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
     "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
-    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the default journal file.",
-    "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
-    "                            a running container. They do not migrate or write it.",
+    "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
+    "                            .vitehub/data/agent-invocations.sqlite in the project. list, show, tail, export, and",
+    "                            wait-idle read a local SQLite file read-only, such as the journal inside a running",
+    "                            container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
     "  --older-than <duration>   Prune records last updated before this age, such as 12h or 7d. Defaults to 30d.",
     "  --max-records <count>     Prune the oldest records past this count. With --max-size, --older-than is",
@@ -270,7 +272,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     observations: false,
     server: false,
     staleAfter: waitIdleDefaults.staleAfter,
-    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
+    url: resolveViteHubDevServerUrl(env),
     urlSet: false,
     waitTimeout: waitIdleDefaults.timeout,
   }
@@ -386,13 +388,10 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
     throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
   }
-  const readsFile = parsed.database !== undefined && fileActions.has(parsed.action)
-  if (!parsed.help && readsFile && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
-  if ((parsed.console || readsFile) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+  if (!parsed.help && parsed.database !== undefined && fileActions.has(parsed.action) && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
+  if ((parsed.console || readsJournalFile(parsed)) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
-  // cancel targets the Vite Development Server, not the application inspection route.
-  if (parsed.action === "cancel" && !parsed.urlSet) parsed.url = resolveViteHubDevServerUrl(env)
   return parsed
 }
 
@@ -669,7 +668,10 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
   if (database.path === undefined) {
     throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
   }
-  if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
+  if (!existsSync(database.path)) {
+    const hint = parsed.database === undefined ? " Pass --database with the journal file, or --url with the app URL." : ""
+    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.${hint}` })
+  }
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
   return {
     cancel: async () => {
@@ -1243,7 +1245,7 @@ export async function runAgentInvocationsCli(
     if (parsed.deprecated) writeDeprecation(context, parsed, parsed.deprecated)
     const local = () => localInvocationsTarget(parsed, context, fetchImpl, timeout)
     const consoleTarget = parsed.console ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed) : undefined
-    const target = parsed.database !== undefined && fileActions.has(parsed.action)
+    const target = readsJournalFile(parsed)
       ? file = await journalFileTarget(parsed, context)
       : consoleTarget && parsed.consoleFallback
         ? appInvocationsTarget(consoleTarget, local, () => writeDeprecation(context, parsed, oldLocalForm(parsed)))
