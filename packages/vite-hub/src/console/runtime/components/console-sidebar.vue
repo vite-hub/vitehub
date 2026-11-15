@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { defineShortcuts } from "@nuxt/ui/composables";
 import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 
-import { closeConsoleSidebarDrawer, consoleSidebarDrawer, consoleSidebarOpen } from "../client/sidebar";
+import { closeConsoleSidebarDrawer, consoleSidebarDrawer, consoleSidebarOpen, toggleConsoleSidebar } from "../client/sidebar";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
 
@@ -12,12 +13,14 @@ import ConsoleSidebarItem from "./console-sidebar-item.vue";
  *
  * On a narrow screen the rail stays, and the open sidebar covers the page as a drawer.
  */
-defineProps<{
+withDefaults(defineProps<{
   /** Where the brand row leads: the apps of the team, or the Overview of the only app. */
   homeHref: string;
   homeLabel: string;
   team?: string;
-}>();
+  /** Show the Search row. Pages without a search palette, such as the pages of a team, turn it off. */
+  search?: boolean;
+}>(), { search: true });
 
 const emit = defineEmits<{ home: [event: MouseEvent], search: [] }>();
 
@@ -25,6 +28,9 @@ const emit = defineEmits<{ home: [event: MouseEvent], search: [] }>();
 const ready = ref(false);
 
 const surface = useTemplateRef<HTMLElement>("surface");
+
+// `[` opens and closes the sidebar on every page, as in Linear. It does not run while a field has focus.
+defineShortcuts({ "[": toggleConsoleSidebar });
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Escape" || !consoleSidebarDrawer.value || !consoleSidebarOpen.value) return;
@@ -67,7 +73,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         </ConsoleSidebarItem>
       </div>
 
-      <ConsoleSidebarItem class="vitehub-sidebar__search" label="Search" icon="i-lucide-search" :shortcut="['meta', 'k']" @click="emit('search')">
+      <ConsoleSidebarItem v-if="search" class="vitehub-sidebar__search" label="Search" icon="i-lucide-search" :shortcut="['meta', 'k']" @click="emit('search')">
         <template #trailing>
           <UKbd value="meta" size="sm" class="vitehub-sidebar__fade" /><UKbd value="k" size="sm" class="vitehub-sidebar__fade" />
         </template>
@@ -75,7 +81,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
       <slot name="app" />
 
-      <div class="vitehub-sidebar__rule" />
+      <div v-if="search || $slots.app" class="vitehub-sidebar__rule" />
       <div class="vitehub-sidebar__scroll">
         <slot />
       </div>
