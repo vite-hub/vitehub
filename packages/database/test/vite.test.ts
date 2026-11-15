@@ -1127,6 +1127,31 @@ describe("hubDatabase", () => {
     }
   })
 
+  it("names the libSQL variables for the deployed host, and none for a D1 binding on Cloudflare", async () => {
+    const libsqlRoot = await createTempProject()
+    await writeDefinition(libsqlRoot, "server/databases/default.ts", "notes", {
+      connection: ["    authToken: process.env.TURSO_AUTH_TOKEN,", "    url: process.env.TURSO_DATABASE_URL,"].join("\n"),
+    })
+    const libsql = hubDatabase()
+    await resolveConfigResolved(libsql)({ db: undefined, root: libsqlRoot })
+    const turso = [
+      { names: ["TURSO_DATABASE_URL"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+      { names: ["TURSO_AUTH_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+    ]
+    expect(libsql.api.deploymentEnv({ host: "vercel" })).toEqual(turso)
+    // On Node, the local file default keeps working, and a local sqld or file needs no token.
+    expect(libsql.api.deploymentEnv({ host: "node" })).toEqual([{ ...turso[0], required: false, hasDefault: true }, { ...turso[1], required: false }])
+
+    const d1Root = await createTempProject()
+    await writeDefinition(d1Root, "server/databases/default.ts", "notes", {
+      cloudflare: "    binding: 'DB',",
+      connection: "    url: process.env.TURSO_DATABASE_URL,",
+    })
+    const d1 = hubDatabase({ driver: "d1" })
+    await resolveConfigResolved(d1)({ db: undefined, root: d1Root })
+    expect(d1.api.deploymentEnv({ host: "cloudflare" })).toEqual([])
+  })
+
   it("writes Cloudflare D1 HTTP credentials for Drizzle Kit", async () => {
     const rootDir = await createTempProject()
     const originalDatabaseId = process.env.CLOUDFLARE_D1_DATABASE_ID

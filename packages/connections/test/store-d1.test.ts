@@ -13,7 +13,7 @@ describe("Connections store on D1", () => {
   let store: ConnectionStore
   beforeAll(async () => {
     worker = new Miniflare({ compatibilityDate: "2026-07-14", d1Databases: ["DB"], modules: true, script: "export default { fetch() { return new Response('test') } }" })
-    store = createDatabaseConnectionStore({ db: drizzle(await worker.getD1Database("DB")), encryptionKey: new Uint8Array(32).fill(3) })
+    store = createDatabaseConnectionStore({ db: drizzle(await worker.getD1Database("DB")), encryptionKeys: [new Uint8Array(32).fill(3)] })
   })
   afterAll(async () => { await worker?.dispose() })
 
@@ -53,8 +53,8 @@ describe("Connections store on D1", () => {
 
   it("prunes activity with one D1 DELETE", async () => {
     const db = drizzle(await worker.getD1Database("DB"))
-    const retained = createDatabaseConnectionStore({ activityRetention: { maxAgeMs: 60_000, maxRecords: 2 }, db, encryptionKey: new Uint8Array(32).fill(3) })
-    const other = createDatabaseEnvStore({ db, encryptionKey: new Uint8Array(32).fill(3), namespace: "default" })
+    const retained = createDatabaseConnectionStore({ activityRetention: { maxAgeMs: 60_000, maxRecords: 2 }, db, encryptionKeys: [new Uint8Array(32).fill(3)] })
+    const other = createDatabaseEnvStore({ db, encryptionKeys: [new Uint8Array(32).fill(3)], namespace: "default" })
     const event = (id: string, age = 0) => ({ action: "use" as const, actor: { id: "agent", kind: "agent" as const }, id, key: "connection/gmail", operationId: id, outcome: "succeeded" as const, timestamp: new Date(Date.now() - age).toISOString() })
     await other.access.append(event("other-old", 120_000))
     await store.access.append(event("old", 120_000))

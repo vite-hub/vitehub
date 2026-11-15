@@ -134,8 +134,8 @@ The first response is `200` with a `set-cookie` header. The second returns the u
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your terminal, then create the D1 database. Provision writes its id to `.vitehub/provision.json`:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 The build adds the `DB` binding to `.output/server/wrangler.json` and copies the migration SQL next to it. Apply the migrations with Wrangler, then deploy:
