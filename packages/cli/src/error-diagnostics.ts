@@ -204,9 +204,21 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ file }: { file?: unknown, names?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add \`.env*\` to .gitignore, and rotate the values that git has seen. Or set the values in the shell for this command.`,
       why: ({ file, names }: { file?: unknown, names?: unknown }) => `${String(file)} is tracked by git and holds the secret ${String(names)}. \`vitehub env push\` does not push a secret that is in git.`,
     },
+    SETUP_ENV_DECRYPT_FAILED: {
+      fix: ({ file, key }: { file?: unknown, key?: unknown, name?: unknown, reason?: unknown }) => `Set ${String(key)} to the private key that encrypted ${String(file)}. Check it with \`dotenvx get -f ${String(file)}\`.`,
+      why: ({ file, key, name, reason }: { file?: unknown, key?: unknown, name?: unknown, reason?: unknown }) => `${String(key)} cannot decrypt ${String(name)} in ${String(file)} (${String(reason)}).`,
+    },
+    SETUP_ENV_KEYS_TRACKED: {
+      fix: ({ file }: { file?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add it to .gitignore, and rotate the keys with \`dotenvx rotate\`. Everyone with the repository can decrypt the values until then.`,
+      why: ({ file }: { file?: unknown }) => `${String(file)} holds the private keys of the encrypted env files and is tracked by git. \`vitehub env push\` does not decrypt with a key that is in git.`,
+    },
     SETUP_ENV_NAME_UNKNOWN: {
       fix: "Pass names that `vitehub env diff` lists, or build again after you declare the name.",
       why: ({ names }: { names?: unknown }) => `The build output lists no variable named ${String(names)}.`,
+    },
+    SETUP_ENV_PRIVATE_KEY_MISSING: {
+      fix: ({ key }: { file?: unknown, key?: unknown, names?: unknown }) => `Set ${String(key)} in the shell, or add it to .env.keys, which git must ignore.`,
+      why: ({ file, key, names }: { file?: unknown, key?: unknown, names?: unknown }) => `${String(file)} holds the encrypted ${String(names)}, and ${String(key)} is not set.`,
     },
     SETUP_ENV_STAGE_UNSUPPORTED: {
       fix: ({ host, stage }: { host?: unknown, stage?: unknown }) => stage !== "preview"

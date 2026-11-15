@@ -723,13 +723,48 @@ When the build output for the host is missing, both commands build first, as `vi
 | Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
 | Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno decides from the name whether a value is secret; a plain declaration gets `--non-secrets`. | `production` only |
 
+### Encrypted env files
+
+To keep values in git, commit a `.env.<stage>` file that [dotenvx](https://dotenvx.com/encryption) encrypted, and keep its private key out of git. `env push` decrypts each `encrypted:` value before it sends it, with the same stdin and redaction rules as a plain value.
+
+```bash [Terminal]
+npx @dotenvx/dotenvx encrypt -f .env.production
+DOTENV_PRIVATE_KEY_PRODUCTION=<private key> pnpm vitehub env push --yes
+```
+
+- The key name follows dotenvx: `DOTENV_PRIVATE_KEY_PRODUCTION` for `.env.production`, `DOTENV_PRIVATE_KEY` for `.env`, or the name that matches the `DOTENV_PUBLIC_KEY_*` line of the file. `env push` reads it from the shell first, then from `.env.keys`. A comma-separated list of keys works, as in `dotenvx rotate`.
+- A git-tracked file may hold encrypted secrets. A plaintext secret in a tracked file is still refused.
+- `env push` refuses to decrypt when git tracks `.env.keys`, and fails with the key name when the key is missing or wrong.
+
+`vitehub init` ignores `.env*` except `.env.example`. To commit an encrypted stage file, add an exception, and keep `.env.keys` ignored:
+
+```txt [.gitignore]
+.env*
+!.env.example
+!.env.production
+```
+
+Vite does not decrypt the file for `vite dev` or `vite build`. Run them through dotenvx when the app reads these values at build time, such as `npx @dotenvx/dotenvx run -f .env.production -- vite build`.
+
 ### `SETUP_ENV_FILE_TRACKED`
 
-A secret value comes from an env file that git tracks. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+A plaintext secret value comes from an env file that git tracks. An `encrypted:` value is allowed. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+
+### `SETUP_ENV_DECRYPT_FAILED`
+
+The private key cannot decrypt an `encrypted:` value, for example because the file was encrypted with another key. `why` names the dotenvx error code, such as `WRONG_PRIVATE_KEY`. Nothing was pushed. The command exits with `1`.
+
+### `SETUP_ENV_KEYS_TRACKED`
+
+Git tracks `.env.keys`, so everyone with the repository can decrypt the encrypted env files. Nothing was pushed. Remove the file from git, ignore it, and rotate the keys with `dotenvx rotate`. The command exits with `3`.
 
 ### `SETUP_ENV_NAME_UNKNOWN`
 
 `--only` names a variable that the build output does not list. The command exits with `2`.
+
+### `SETUP_ENV_PRIVATE_KEY_MISSING`
+
+An env file holds `encrypted:` values, and its private key is not in the shell or in `.env.keys`. The fix names the variable, such as `DOTENV_PRIVATE_KEY_PRODUCTION`. Nothing was pushed. The command exits with `2`.
 
 ### `SETUP_ENV_STAGE_UNSUPPORTED`
 

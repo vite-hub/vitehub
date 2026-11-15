@@ -96,7 +96,7 @@ pnpm vitehub env push --yes               # values from the shell, then .env.pro
 pnpm vitehub env diff --host vercel --stage preview
 ```
 
-`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It decrypts dotenvx `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>`, refuses a plaintext secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
 
 ## Run the CLI from code
 

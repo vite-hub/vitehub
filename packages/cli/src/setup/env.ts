@@ -9,6 +9,7 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./deploy.ts"
+import { decryptEnvValues, envKeysFile, isEncryptedEnvValue } from "./env-encrypted.ts"
 import { cloudflareEnv } from "./deploy/cloudflare.ts"
 import { denoEnv } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
@@ -80,7 +81,8 @@ export interface EnvPushOutput {
   project: string
   stage: string
   target: HostEnvTarget
-  pushed: { name: string, source: EnvValueSource, secret: boolean, replaced: boolean }[]
+  /** `encrypted` is true for a dotenvx value that the CLI decrypted before the push. */
+  pushed: { name: string, source: EnvValueSource, secret: boolean, replaced: boolean, encrypted?: true }[]
   /** Entries without a local value. The host keeps what it has. */
   skipped: (EnvDiffEntry & { required: boolean })[]
 }
@@ -234,6 +236,8 @@ async function runDiff(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
 interface LocalValue {
   value: string
   source: EnvValueSource
+  /** A dotenvx `encrypted:` value from an env file. `value` is the ciphertext until the push decrypts it. */
+  encrypted: boolean
 }
 
 /**
@@ -254,7 +258,7 @@ export async function readLocalEnvValues(root: string, stage: string, env: NodeJ
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
     const source = env[name] !== undefined ? "process" : sources.get(name)
-    if (source && value !== "") values.set(name, { source, value })
+    if (source && value !== "") values.set(name, { encrypted: source !== "process" && isEncryptedEnvValue(value), source, value })
   }
   return values
 }
@@ -264,6 +268,7 @@ interface PlannedValue {
   value: string
   source: EnvValueSource
   secret: boolean
+  encrypted: boolean
 }
 
 /** The value of each entry: the first name in read order that has a local value, and every local name of a prefix. */
@@ -286,22 +291,42 @@ function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<st
     for (const name of chosen) {
       const local = values.get(name)!
       const current = planned.get(name)
-      planned.set(name, { name, secret: entry.secret || (current?.secret ?? false), source: local.source, value: local.value })
+      planned.set(name, { encrypted: local.encrypted, name, secret: entry.secret || (current?.secret ?? false), source: local.source, value: local.value })
     }
   }
   return { planned: [...planned.values()], skipped }
 }
 
-/** Refuses a secret whose value comes from a file that git tracks: pushing it would hide that the secret is in git. */
+/**
+ * Refuses a plaintext secret from a file that git tracks: pushing it would hide that the secret is in git.
+ * An encrypted value may be in git, but the private keys in `.env.keys` may not.
+ */
 async function assertUntracked(planned: readonly PlannedValue[], target: EnvTarget, env: NodeJS.ProcessEnv): Promise<void> {
+  const tracked = async (file: string) => (await target.run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: target.project.root, env }).catch(() => undefined))?.exitCode === 0
   const byFile = new Map<string, string[]>()
   for (const item of planned) {
-    if (item.secret && item.source !== "process") byFile.set(item.source, [...byFile.get(item.source) ?? [], item.name])
+    if (item.secret && item.source !== "process" && !item.encrypted) byFile.set(item.source, [...byFile.get(item.source) ?? [], item.name])
   }
   for (const [file, names] of byFile) {
-    const result = await target.run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: target.project.root, env }).catch(() => undefined)
-    if (result?.exitCode === 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
+    if (await tracked(file)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
   }
+  if (planned.some(item => item.encrypted) && await tracked(envKeysFile)) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_KEYS_TRACKED({ file: envKeysFile }), setupExitCodes.conflict)
+  }
+}
+
+/** Replaces each encrypted value with its plaintext. The private keys and the plaintext join the values that output redacts. */
+async function decryptPlanned(planned: readonly PlannedValue[], root: string, env: NodeJS.ProcessEnv, secrets: string[]): Promise<PlannedValue[]> {
+  const encrypted = planned.filter(item => item.encrypted)
+  const { keys, values } = await decryptEnvValues(root, encrypted.map(item => ({ file: item.source, name: item.name, value: item.value })), env)
+  secrets.push(...keys)
+  return planned.map((item) => {
+    const value = values.get(item.name)
+    if (value === undefined) return item
+    // A decrypted value is a secret to redact, even when its declaration is plain.
+    secrets.push(value)
+    return { ...item, value }
+  })
 }
 
 async function confirmPush(planned: readonly PlannedValue[], label: string): Promise<boolean> {
@@ -320,7 +345,7 @@ function pushRerun(args: EnvArgs): string {
 
 function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
   const lines = output.pushed.length
-    ? [`Pushed to ${targetLabel(output)}:`, ...output.pushed.map(item => `  ${item.name} from ${item.source === "process" ? "the shell" : item.source}${item.replaced ? ", replaced" : ""}`)]
+    ? [`Pushed to ${targetLabel(output)}:`, ...output.pushed.map(item => `  ${item.name} from ${item.source === "process" ? "the shell" : item.source}${item.encrypted ? ", decrypted" : ""}${item.replaced ? ", replaced" : ""}`)]
     : [`Nothing to push to ${targetLabel(output)}.`]
   if (output.skipped.length) lines.push("No local value, so the host keeps what it has:", ...output.skipped.map(item => `  ${entryLabel(item)}${item.required ? " (required)" : ""}`))
   context.stdout.write(`${lines.join("\n")}\n`)
@@ -329,16 +354,17 @@ function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
 async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env push", context)
   const values = await readLocalEnvValues(target.project.root, target.stage, context.env)
-  const { planned, skipped } = planPush(target.entries, values, args.only)
+  const { planned: stored, skipped } = planPush(target.entries, values, args.only)
   // Short plain values, such as "1", would hide host output that has nothing to do with them.
-  for (const item of planned) if (item.secret || item.value.length >= 4) target.secrets.push(item.value)
+  for (const item of stored) if (item.secret || item.value.length >= 4) target.secrets.push(item.value)
   const output: EnvPushOutput = { host: target.host, project: target.link.project.name, pushed: [], skipped, stage: target.stage, target: target.target }
-  if (!planned.length) {
+  if (!stored.length) {
     if (args.json) writeSetupJson(context, output)
     else writePush(output, context)
     return setupExitCodes.done
   }
-  await assertUntracked(planned, target, context.env)
+  await assertUntracked(stored, target, context.env)
+  const planned = await decryptPlanned(stored, target.project.root, context.env, target.secrets)
   if (!args.yes) {
     const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
     if (!interactive) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub env push` changes host variables and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
@@ -347,7 +373,7 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   const onHost = new Set(await target.hostEnv.listSecretNames())
   for (const item of planned) {
     await target.hostEnv.setSecret(item.name, item.value, { secret: item.secret })
-    output.pushed.push({ name: item.name, replaced: onHost.has(item.name), secret: item.secret, source: item.source })
+    output.pushed.push({ name: item.name, replaced: onHost.has(item.name), secret: item.secret, source: item.source, ...(item.encrypted ? { encrypted: true as const } : {}) })
   }
   if (args.json) writeSetupJson(context, output)
   else writePush(output, context)
