@@ -112,7 +112,7 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   const store: FormsStore | undefined = databases
     ? createDrizzleFormsStore(() => {
         const db = selectDatabase(databases, options.database)
-        if (!db) throw new Error(`[vitehub] Forms has no Database${options.database ? ` named ${JSON.stringify(options.database)}` : ""}.`)
+        if (!db) throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: options.database })
         return db
       })
     : options.memory ? createMemoryFormsStore() : undefined

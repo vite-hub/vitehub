@@ -97,6 +97,8 @@ import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
+import { keepStandardContext } from "../internal/webhook-request.ts"
+import { sendPreparedResponse } from "@vite-hub/runtime/internal/h3"
 import { channelWebhookEventTarget } from "../internal/channel-webhook-events.ts"
 import {
   agentWebhookRegistrations,
@@ -542,11 +544,11 @@ function serializeErrorForLog(
 }
 
 function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {
-  return new Request(request.url, {
+  return keepStandardContext(request, new Request(request.url, {
     ...(body ? { body } : {}),
     headers: request.headers,
     method: request.method,
-  })
+  }))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -8918,7 +8920,7 @@ export function createChannelChatRouteHandler(
   const resumableCustody = routeOptions.resumable
     ? createResumableChatProcessCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable)
     : undefined
-  const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => {
+  const respond = async (request: Request, handlerOptions: AgentChannelChatRouteRequestOptions = {}): Promise<Response> => {
     if (request.method !== "POST" && (!resumableCustody || (request.method !== "GET" && request.method !== "DELETE"))) {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
     }
@@ -9158,6 +9160,9 @@ export function createChannelChatRouteHandler(
       return agentChatFetchErrorResponse(error)
     }
   }
+  // A plain Fetch host sends only the Response of the route, so the route adds the headers that code prepared through
+  // the Standard Context of the request, such as the cookie deletions of `authenticated()`.
+  const handler: AgentChannelChatRouteHandler = async (request, handlerOptions = {}) => sendPreparedResponse(request, await respond(request, handlerOptions))
   handler.deliveries = async (request, handlerOptions = {}) => {
     const context = createRuntimeContext(
       request,
@@ -9720,7 +9725,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      if (!deliveryState) throw agentDiagnostics.AGENT_R0842({ message: "[vitehub] Agent Channel delivery state did not resolve." })
+      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
+      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")

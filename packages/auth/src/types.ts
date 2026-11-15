@@ -83,12 +83,12 @@ export interface AuthAccessRouteConfiguration {
 
 export type AuthAccessRoute = string | AuthAccessRouteConfiguration
 
-export type AuthAccessAuthorizationContext = AccessAuthorizationContext
+export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuthorizationContext<TEvent>
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
-export type AuthAccessAuthorize = AccessAuthorize
+export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent>
 
 /** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext & {
+export type AuthAuthorization = Readonly<Omit<AuthAccessAuthorizationContext, "event"> & {
   /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
   session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
 }>
@@ -97,8 +97,8 @@ export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext & {
 export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
 
 /** The checked request of a signed-out caller that `withAnonymousAuthorization()` accepted. */
-export type AuthAnonymousAuthorization = Readonly<AnonymousAccessAuthorizationContext>
-export type AuthAnonymousAuthorize = AnonymousAccessAuthorize
+export type AuthAnonymousAuthorization = Readonly<Omit<AnonymousAccessAuthorizationContext, "event">>
+export type AuthAnonymousAuthorize<TEvent = ViteHubContext> = AnonymousAccessAuthorize<TEvent>
 
 /** A server handler that runs after `authorize` accepts a signed-in or signed-out caller. */
 export type AuthAnonymousGuardedHandler<TInput, TResult> = (

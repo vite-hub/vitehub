@@ -124,6 +124,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
+      // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
       if (disposed) throw new Error("KV storage has been disposed.")
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
@@ -138,6 +139,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           cursorHistories.complete(cursor)
           return { keys }
         }
+        // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
