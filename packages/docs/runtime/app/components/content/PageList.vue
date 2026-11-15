@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { docsPanelOf } from "#docs/navigation"
+
 // `::page-list` lists the pages of a section under their sidebar groups, each with its icon and description, so an
 // Overview can link every page without keeping a list by hand. Its own content is the list agents read in the
 // Markdown copy; the site leaves it out.
@@ -19,7 +21,8 @@ const groups = computed(() => {
   const grouped = new Map<string, NonNullable<typeof section>["pages"]>()
   for (const candidate of section?.pages ?? []) {
     const label = candidate.group?.trim() ?? ""
-    if (candidate.navigation === false || candidate.path === page.value?.page.path || exclude.has(label)) continue
+    // Pages inside a panel belong to the panel's own sidebar. The panel's Overview links to them.
+    if (candidate.navigation === false || candidate.path === page.value?.page.path || exclude.has(label) || (!candidate.panel && docsPanelOf(section!, candidate))) continue
     grouped.set(label, [...(grouped.get(label) ?? []), candidate])
   }
   return [...grouped].map(([label, pages]) => ({ label, pages }))

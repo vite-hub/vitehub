@@ -1,4 +1,4 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, getViteHubErrorShape, isSerializedResponse } from "@vite-hub/runtime"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -10,7 +10,7 @@ import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
-import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
@@ -155,11 +155,12 @@ function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
   return Object.hasOwn(cloudflareStatusMap, normalized) ? cloudflareStatusMap[normalized]! : "unknown"
 }
 
-function ownSerializedOutput(metadata: unknown) {
+/** The run result from Cloudflare status: the stored value, or a `Response` when the handler returned one. */
+function cloudflareRunResult(metadata: unknown): unknown {
   if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "output")) return undefined
   // SAFETY: The guards establish a non-null object with an own output property, whose value remains unknown.
   const output = (metadata as { output?: unknown }).output
-  return isSerializedResponse(output) ? output : undefined
+  return isSerializedResponse(output) ? deserializeResponse(output) : output
 }
 
 /** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
@@ -168,6 +169,21 @@ function isCloudflareInstanceNotFound(error: unknown): boolean {
   try {
     const message: unknown = Reflect.get(error, "message")
     return typeof message === "string" && message.includes("instance.not_found")
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * The Cloudflare Workflows service refused the call: its error carries a service code such as `(instance.already_exists)`,
+ * or local Miniflare rejected the instance id. A lost connection has neither.
+ */
+function isCloudflareRejection(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  try {
+    const message: unknown = Reflect.get(error, "message")
+    return typeof message === "string" && /\((?:instance|workflow)\.[a-z_]+\)|^Workflow instance has invalid id/.test(message)
   }
   catch {
     return false
@@ -200,13 +216,13 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         })
         if (!instance) return { id, provider: "cloudflare", status: "unknown" }
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
-        const output = ownSerializedOutput(metadata)
+        const status = normalizeCloudflareStatus(metadata)
         return {
           id,
           metadata,
           provider: "cloudflare",
-          result: output ? deserializeResponse(output) : undefined,
-          status: normalizeCloudflareStatus(metadata),
+          result: status === "completed" ? cloudflareRunResult(metadata) : undefined,
+          status,
         }
       }
 
@@ -222,7 +238,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           "cloudflare",
           "create",
           async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
-          { acknowledgementUnknown: (_error, status) => status === undefined },
+          {
+            acknowledgement: (error, status) => status === undefined
+              ? isCloudflareRejection(error) ? "rejected" : "unknown"
+              : status < 500 ? "rejected" : undefined,
+          },
         )
         const instance = await start().catch(async (firstError) => {
           try {
@@ -363,6 +383,15 @@ function runsNatively<TPayload, TResult>(definition: WorkflowDefinition<TPayload
   return Boolean(definition?.options?.native) && !getWorkflowDevRecorder()
 }
 
+/** Whether a registered Workflow has a native Vercel entry, so a run of it can wait for a signal. */
+async function hasNativeWorkflowDefinition(): Promise<boolean> {
+  const names = new Set([...Object.keys(getWorkflowRuntimeRegistry() ?? {}), ...getInlineWorkflowDefinitions().keys()])
+  for (const name of names) {
+    if ((await loadWorkflowDefinition(name))?.options?.native) return true
+  }
+  return false
+}
+
 function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   const fallback = inlineAdapter(config)
   return {
@@ -379,7 +408,20 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         ? await inspectVercelWorkflowRun(name, definition, id)
         : await fallback.get({ event: undefined, id, name })
     },
-    resume: async (token, payload) => await resumeVercelWorkflowSignal(token, payload),
+    async resume(token, payload) {
+      // `vite dev` runs every Workflow inline, and an inline run never waits for a signal.
+      if (getWorkflowDevRecorder()) unsupportedOperation(config.provider, "signals")
+      try {
+        return await resumeVercelWorkflowSignal(token, payload)
+      }
+      catch (error) {
+        // Without the Workflow DevKit, an app with no native entry runs only inline. Installing the SDK does not help.
+        if (getViteHubErrorShape(error)?.code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" && !await hasNativeWorkflowDefinition()) {
+          unsupportedOperation(config.provider, "signals")
+        }
+        throw error
+      }
+    },
     async run({ definition, event, id, name, options, payload }) {
       if (!runsNatively(definition)) {
         return await fallback.run({ definition, event, id, name, options, payload })

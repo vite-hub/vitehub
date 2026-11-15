@@ -15,12 +15,12 @@ const sourceModule = async (path: string) => ({
   }).outputText,
 });
 
-// The Console HTTP error helper imports H3. Bundle its `createError()` with the Workers build of H3, as a host build does.
+// The Console HTTP error helper imports H3 through `nitro/h3`. Bundle its `createError()` with the Workers build of H3, as a host build does.
 const consoleHttpErrorModules = async () => [
   await sourceModule("src/console/runtime/server/http-error.ts"),
   {
     type: "ESModule" as const,
-    path: resolve(root, "src/console/runtime/server/h3"),
+    path: resolve(root, "src/console/runtime/server/nitro/h3"),
     contents: (await build({
       bundle: true,
       conditions: ["workerd", "worker"],
