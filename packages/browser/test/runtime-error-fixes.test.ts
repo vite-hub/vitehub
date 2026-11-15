@@ -5,12 +5,14 @@ import { browserErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { localBrowser } from "../src/providers/local.ts"
 import { defineBrowser } from "../src/runtime.ts"
 
-const fixedCodes = Array.from({ length: 11 }, (_, index) => `BROWSER_R${String(index + 1).padStart(4, "0")}`)
+type RuntimeErrorCode = Extract<keyof typeof browserErrorDiagnostics, `BROWSER_R${string}`>
+
+const fixedCodes = Array.from({ length: 11 }, (_, index) => `BROWSER_R${String(index + 1).padStart(4, "0")}` as RuntimeErrorCode)
 
 describe("Browser runtime error fixes", () => {
   it("gives each Browser runtime code a fix and its own docs page", () => {
     for (const code of fixedCodes) {
-      const error = browserErrorDiagnostics[code as keyof typeof browserErrorDiagnostics]({ message: "m" })
+      const error = browserErrorDiagnostics[code]({ message: "m" })
       expect(error.fix, code).toMatch(/\S/)
       expect(error.docs, code).toBe(`https://vitehub.dev/docs/browser/diagnostics/${code.toLowerCase()}`)
     }
