@@ -159,18 +159,38 @@ const todos = useSync('todos', {
 })
 ```
 
-- `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait.
+- `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait, and `sync(name)` for the stores of another name (see below).
 - The function runs again each time the rows change, until the server answers. Keep it pure: no requests, no random values, no clock.
 - An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
 - When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message of an error with a status below 500, such as the `createError()` above. Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
 - An error in the optimistic function shows in the console. The action still goes to the server.
 - The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
 
+When the server action writes another definition with `sync(name)`, the optimistic function can change the open stores of that name with `local.sync(name)`:
+
+```ts [app/pages/issues/new.vue] fragment
+const issues = useSync('issues', {
+  actions: {
+    create: (local, { id, teamId, title, comment }) => {
+      local.insert({ id, teamId, title })
+      local.sync('comments').insert({ issueId: id, teamId, body: comment })
+    },
+  },
+})
+```
+
+- An insert shows in each open store of that name on the page whose subset the row matches, such as `useSync('comments', { where: { issueId } })`. A store that opens later gets the row from the server.
+- An update that changes a subset column moves the row: it leaves the stores whose subset it does not match now, and shows in the stores whose subset it matches.
+- `local.sync(name).get(key)` reads the row as that store has it without the changes of optimistic functions, plus the changes of the earlier actions in the queue. So when the function runs again, it does not apply its own change twice, such as a count that goes up by one.
+- When the server refuses the action, the change goes away in every store.
+- When the server applies the action, the stores that show a change of it pull at once, and keep the change until their pull brings the rows of the server. A row does not go away or come back in between.
+
 ## Live changes
 
-The rows of other people show within about a second. One tab of the app keeps a live stream open to the Sync route while it shows and is online. The other tabs get the changes from that tab. You do not have to turn anything on.
+The rows of other people show within about a second. Each tab that shows and is online keeps one live stream open for all its synced tables and subsets, so many `useSync()` calls use one connection. A table or subset that two tabs show streams in one of them, and the other tab gets its changes from that tab. You do not have to turn anything on.
 
-- `live` is `true` in the tab that holds the stream. When that tab hides, another tab that shows takes over.
+- `live` is `true` in the tab that streams the table or subset. When that tab hides, another tab that shows takes over.
+- When a component opens or closes a table or subset, the tab opens its stream again after a short pause, once for all the changes of that pause.
 - While the stream is open, the interval pull runs every 5 minutes at most. The client still pulls when the page shows again and when the network comes back.
 - The server ends a stream after about 25 seconds, and the client opens a new one at once. After a failure, it waits 1 second, doubling to 30 seconds.
 - A stream belongs to the account, scope and table version of the rows when it opens. When they change, such as after a sign-in or after the person left a team, the client ends the stream, drops its changes, and opens a new one.

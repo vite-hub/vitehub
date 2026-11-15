@@ -23,8 +23,8 @@ function defineSyncOperation<Input, Output>(definition: Omit<OperationDefinition
 function formatList(rows: SyncSummary[]): string {
   if (!rows.length) return "No Sync definitions.\n"
   return `${table([
-    ["NAME", "TABLE", "KEY", "WRITE", "LIVE", "SUBSETS", "ACTIONS", "ROWS", "CHANGES", "EXITS", "FLOOR", "LAST SEQ"],
-    ...rows.map(row => [row.name, row.table, row.key, row.write, row.live ? "yes" : "no", row.subsets.join(",") || "-", row.actions.join(",") || "-", String(row.rows), String(row.changes), String(row.exits), String(row.floor), String(row.lastSeq)]),
+    ["NAME", "TABLE", "KEY", "WRITE", "LIVE", "SUBSETS", "ACTIONS", "ROWS", "CHANGES", "EXITS", "FLOOR", "LAST SEQ", "TRIGGERS", "SCOPE COLUMNS"],
+    ...rows.map(row => [row.name, row.table, row.key, row.write, row.live ? "yes" : "no", row.subsets.join(",") || "-", row.actions.join(",") || "-", String(row.rows), String(row.changes), String(row.exits), String(row.floor), String(row.lastSeq), row.triggers ? "yes" : "no", row.scopeColumns.join(",") || "-"]),
   ])}\n`
 }
 
@@ -38,7 +38,7 @@ function formatChanges(rows: SyncChangeEntry[]): string {
 
 const list = defineSyncOperation<Record<string, never>, SyncSummary[]>({
   cli: { default: true, format: formatList },
-  description: "List the Sync definitions with their write mode, live streams, subset columns, action names, row count, change count, exit count, floor, and last seq.",
+  description: "List the Sync definitions with their write mode, live streams, subset columns, action names, row count, change count, exit count, floor, last seq, whether the change log triggers are on the table, and the scope columns that the triggers watch.",
   input: v.object({}),
   kind: "read",
   name: "sync.list",

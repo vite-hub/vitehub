@@ -35,18 +35,31 @@ export type SyncWhere<TRow> = (context: SyncContext) => SyncWhereValues<TRow> | 
 /** The arguments of a `write` check. `row` is the row after the write, or the deleted row. */
 export type SyncWriteContext<TRow> = SyncContext & { op: "insert" | "update" | "delete", row: TRow }
 
-/**
- * What an action gets. The writes run with the same rules as writes from the browser (`where`, `write`, `schema`), and
- * they are applied together, in one atomic batch, after the action returns. Reads with `get()` see the table before the
- * action's writes.
- */
-export interface SyncActionContext<TRow> extends SyncContext {
+/** The rows of one Sync definition in an action. Reads see the table before the action's writes. */
+export interface SyncActionRows<TRow> {
   /** The row with this key, when the caller may see it. */
   get: (key: SyncKey) => Promise<TRow | undefined>
   /** Adds a row and returns its key. Pass the key in `value` when the client made it, so the optimistic row keeps it. */
   insert: (value: Partial<TRow>) => SyncKey
   update: (key: SyncKey, patch: Partial<TRow>) => void
   delete: (key: SyncKey) => void
+}
+
+/** The Drizzle row of a Sync name, as server code reads and writes it. */
+type SyncServerRowOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncRow<ViteHubSyncMap[TName]> : Record<string, unknown>
+
+/**
+ * What an action gets. The writes run with the same rules as writes from the browser (`where`, `write`, `schema`), and
+ * they are applied together, in one atomic batch, after the action returns. Reads with `get()` see the table before the
+ * action's writes.
+ */
+export interface SyncActionContext<TRow> extends SyncContext, SyncActionRows<TRow> {
+  /**
+   * The rows of another Sync definition, such as `sync("comments").insert({ issueId, body })`. Its writes have the
+   * checks of that definition (`where`, `write`, `schema`) for the same caller, and they apply in the same batch as the
+   * other writes of the action, or none of them does.
+   */
+  sync: <TName extends SyncName>(name: TName) => SyncActionRows<SyncServerRowOf<TName>>
   /**
    * Refuses the action: no write applies, and the browser gets `SYNC_ACTION_REFUSED` with this message, such as
    * `if (!card) refuse("The card was deleted.")`.

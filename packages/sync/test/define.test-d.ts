@@ -75,3 +75,58 @@ it("types the browser row as JSON: a Date and a bigint arrive as text", () => {
   expectTypeOf<SyncJsonRow<typeof events.$inferSelect>>().toEqualTypeOf<EventJson>()
   expectTypeOf<SyncRowOf<"events">>().toEqualTypeOf<EventJson>()
 })
+
+it("types the rows of another definition in an action from the Sync map", () => {
+  defineSync({
+    table: todos,
+    where: () => ({}),
+    actions: {
+      log: async ({ sync }, { id }: { id: string }) => {
+        const others = sync("events")
+        const event = await others.get(id)
+        // Server code gets the Drizzle row, so a timestamp is a Date.
+        expectTypeOf(event).toEqualTypeOf<typeof events.$inferSelect | undefined>()
+        expectTypeOf(others.insert({ at: new Date(), count: 1n, tags: [], done: false })).toEqualTypeOf<string>()
+        // @ts-expect-error The rows of events have no `title`.
+        others.update(id, { title: "x" })
+        // @ts-expect-error The app has no Sync definition with this name.
+        sync("notes")
+      },
+    },
+  })
+})
+
+const issues = sqliteTable("issues", { id: text("id").primaryKey(), title: text("title").notNull() })
+const comments = sqliteTable("comments", { id: text("id").primaryKey(), issueId: text("issue_id").notNull(), body: text("body").notNull() })
+
+// Two definitions whose actions write each other, as two files of `server/sync/` in the generated map.
+const issuesSync = defineSync({
+  table: issues,
+  where: () => ({}),
+  actions: {
+    open: ({ insert, sync }, { title, body }: { title: string, body: string }) => {
+      const id = insert({ title })
+      sync("cycleComments").insert({ issueId: id, body })
+      return id
+    },
+  },
+})
+const commentsSync = defineSync({
+  table: comments,
+  where: () => ({}),
+  actions: {
+    rename: ({ sync }, { issueId, title }: { issueId: string, title: string }) => sync("cycleIssues").update(issueId, { title }),
+  },
+})
+
+declare global {
+  interface ViteHubSyncMap {
+    cycleIssues: typeof issuesSync
+    cycleComments: typeof commentsSync
+  }
+}
+
+it("types two definitions whose actions write each other", () => {
+  expectTypeOf<InferSyncActions<typeof issuesSync>>().toEqualTypeOf<{ open: { title: string, body: string } }>()
+  expectTypeOf<SyncRowOf<"cycleComments">>().toEqualTypeOf<{ id: string, issueId: string, body: string }>()
+})

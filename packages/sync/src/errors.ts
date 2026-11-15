@@ -37,8 +37,8 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       fix: "Keep the writes for their account and send them when that account signs in again. Call `clearSync()` on sign-out to drop them.",
     },
     SYNC_READ_ONLY: {
-      why: "This Sync definition has `write: false`, so the browser cannot change its rows.",
-      fix: "Change the rows in server code and call `recordSyncChanges()`, or remove `write: false`.",
+      why: "This Sync definition has `write: false`, so the browser and the actions of other Sync definitions cannot change its rows.",
+      fix: "Change the rows in server code or in an action of this definition, or remove `write: false`.",
     },
     SYNC_INVALID: {
       why: message,

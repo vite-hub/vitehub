@@ -77,8 +77,6 @@ function generationOf(value: { account: string, scope: { id: string }, version: 
   return JSON.stringify([value.account, value.scope.id, value.version, subset])
 }
 
-type RowWrite = Extract<SyncNewWrite, { op: "insert" | "update" | "delete" }>
-
 /** The row of an insert on the wire: the single scope values, then the caller's value, then the key. */
 function wireRow(write: Extract<SyncNewWrite, { op: "insert" }>, meta: SyncMeta | undefined): SyncRow {
   return { ...singleValues(meta?.scope.values), ...write.value, [keyColumnOf(meta)]: write.key }
@@ -92,6 +90,29 @@ function insertedRow(value: SyncRow, key: SyncKey, meta: SyncMeta | undefined, w
   return { ...meta?.defaults, ...where, ...singleValues(meta?.scope.values), ...value, [keyColumnOf(meta)]: key }
 }
 
+/**
+ * A row write of an optimistic function. `row` of an update with `local.sync()` is the whole row after the patch, so a
+ * store of another subset can show a row that moves into it.
+ */
+type SyncLocalWrite =
+  | { op: "insert", key: SyncKey, value: SyncRow }
+  | { op: "update", key: SyncKey, patch: SyncRow, row?: SyncRow }
+  | { op: "delete", key: SyncKey }
+
+/** A write that the optimistic function of an action makes with `local.sync(name)`. `id` is the id of the action. */
+type SyncLinkedWrite = SyncLocalWrite & { id: string }
+
+/** The open stores of other Sync names on the page, as an optimistic function reads them. */
+interface SyncViewPage {
+  /**
+   * The row with this key in an open store of `name`, without the writes that actions make in that store with
+   * `local.sync()`. An optimistic function that runs again so does not read its own earlier change.
+   */
+  get: (name: string, key: SyncKey) => SyncRow | undefined
+  /** The primary key column of the rows of `name`. */
+  key: (name: string) => string
+}
+
 /** What `buildView` needs besides the rows and the writes. */
 interface SyncViewContext {
   meta: SyncMeta | undefined
@@ -101,12 +122,22 @@ interface SyncViewContext {
   actions: ReadonlyMap<string, (local: SyncLocal<SyncRow>, args: unknown) => void>
   /** Gets an error that an optimistic function threw. The other writes still apply. */
   report: (write: SyncNewWrite, error: unknown) => void
+  page?: SyncViewPage
+  /** The writes of actions that the server applied, until the next pull brings their rows. */
+  held?: readonly SyncLinkedWrite[]
+  /**
+   * Actions that the server applied, whose writes in other stores those stores hold now. `local.sync()` of these
+   * actions changes nothing, so a later action does not read their writes twice.
+   */
+  handed?: ReadonlySet<string>
 }
 
 interface SyncView {
   rows: ReadonlyMap<SyncKey, SyncRow>
   /** The keys that an active write changes. */
   pending: ReadonlySet<SyncKey>
+  /** The writes that the optimistic functions make in the stores of each Sync name. */
+  outgoing: ReadonlyMap<string, readonly SyncLinkedWrite[]>
 }
 
 /** The key of the row number `index` that an optimistic action inserts without a key. */
@@ -114,17 +145,44 @@ function actionKey(id: string, index: number): SyncKey {
   return index ? `${id}-${index}` : id
 }
 
+/** `true` when an inserted row belongs to the subset: it has each value of the subset. */
+function inSubset(value: SyncRow, where: SyncValues): boolean {
+  return Object.entries(where).every(([column, wanted]) => value[column] === wanted)
+}
+
+/**
+ * Applies a write that an action makes in a store with `local.sync()`, as the store shows it: an inserted or updated row
+ * shows when it is in the subset of the store, and an updated row that leaves the subset goes away. Returns `true` when
+ * the rows changed.
+ */
+function linkWrite(rows: Map<SyncKey, SyncRow>, write: SyncLocalWrite, where: SyncValues, meta: SyncMeta | undefined): boolean {
+  if (write.op === "delete") return rows.delete(write.key)
+  if (write.op === "insert") {
+    if (!inSubset(write.value, where)) return false
+    rows.set(write.key, insertedRow(write.value, write.key, meta, where))
+    return true
+  }
+  const row = rows.get(write.key)
+  const next = row ? { ...row, ...write.patch } : write.row
+  if (!next || !inSubset(next, where)) return rows.delete(write.key)
+  rows.set(write.key, next)
+  return true
+}
+
 /**
  * The confirmed rows with each active write applied in order: row writes, and actions through their optimistic
- * function. Refused writes and writes of another account are left out.
+ * function. Refused writes and writes of another account are left out. Then the writes that applied actions made in
+ * this store with `local.sync()` apply, until a pull brings their rows. The writes of actions that wait are not in it:
+ * `linkWrites()` adds them.
  */
 function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly SyncNewWrite[], context: SyncViewContext): SyncView {
   const { meta } = context
   const account = meta?.account
   const pending = new Set<SyncKey>()
+  const outgoing = new Map<string, SyncLinkedWrite[]>()
   let view: Map<SyncKey, SyncRow> | undefined
   const rows = () => view ??= new Map(confirmed)
-  const apply = (write: RowWrite) => {
+  const apply = (write: SyncLocalWrite) => {
     pending.add(write.key)
     if (write.op === "insert") rows().set(write.key, insertedRow(write.value, write.key, meta, context.where))
     else if (write.op === "delete") rows().delete(write.key)
@@ -133,6 +191,8 @@ function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly Sy
       if (row) rows().set(write.key, { ...row, ...write.patch })
     }
   }
+  // The rows of each other Sync name as the optimistic functions changed them, in order: `null` after a delete.
+  const changes = new Map<string, Map<SyncKey, SyncRow | null>>()
   for (const write of writes) {
     if (!isActive(write, account)) continue
     if (write.op !== "action") {
@@ -143,23 +203,68 @@ function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly Sy
     if (!optimistic) continue
     let inserted = 0
     let open = true
+    const keyOf = (value: SyncRow, column: string) => {
+      const given = value[column]
+      return typeof given === "string" && given ? given : actionKey(write.id, inserted++)
+    }
+    const handed = context.handed?.has(write.id) ?? false
+    // `local.sync(name)` of this function, by name.
+    const linked = new Map<string, SyncLocal<SyncRow>>()
+    const storesOf = (name: string): SyncLocal<SyncRow> => {
+      const found = linked.get(name)
+      if (found) return found
+      const changed = changes.get(name) ?? new Map<SyncKey, SyncRow | null>()
+      changes.set(name, changed)
+      /** Adds the write to the stores of `name`. Returns `false` when they hold it already. */
+      const record = (change: SyncLocalWrite) => {
+        if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
+        if (handed) return false
+        let list = outgoing.get(name)
+        if (!list) outgoing.set(name, list = [])
+        list.push({ ...change, id: write.id })
+        return true
+      }
+      const get = (key: SyncKey) => changed.has(key) ? changed.get(key) ?? undefined : context.page?.get(name, key)
+      const made: SyncLocal<SyncRow> = {
+        get,
+        insert(value) {
+          const column = context.page?.key(name) ?? "id"
+          const key = keyOf(value, column)
+          if (record({ op: "insert", key, value })) changed.set(key, { ...value, [column]: key })
+          return key
+        },
+        update(key, patch) {
+          const before = get(key)
+          const row = before && { ...before, ...patch }
+          if (record({ op: "update", key, patch, ...(row ? { row } : {}) }) && row) changed.set(key, row)
+        },
+        delete(key) {
+          if (record({ op: "delete", key })) changed.set(key, null)
+        },
+        sync,
+      }
+      linked.set(name, made)
+      return made
+    }
+    // SAFETY: the stores of a name hold the JSON rows of its table, which `SyncRowOf` names.
+    const sync = storesOf as SyncLocal<SyncRow>["sync"]
     const local: SyncLocal<SyncRow> = {
       get: key => (view ?? confirmed).get(key),
       insert(value) {
         if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
-        const given = value[keyColumnOf(meta)]
-        const key = typeof given === "string" && given ? given : actionKey(write.id, inserted++)
-        apply({ ...write, op: "insert", key, value })
+        const key = keyOf(value, keyColumnOf(meta))
+        apply({ op: "insert", key, value })
         return key
       },
       update(key, patch) {
         if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
-        apply({ ...write, op: "update", key, patch })
+        apply({ op: "update", key, patch })
       },
       delete(key) {
         if (!open) throw syncErrors.SYNC_LOCAL_CLOSED()
-        apply({ ...write, op: "delete", key })
+        apply({ op: "delete", key })
       },
+      sync,
     }
     try {
       optimistic(local, write.args)
@@ -169,7 +274,20 @@ function buildView(confirmed: ReadonlyMap<SyncKey, SyncRow>, writes: readonly Sy
     }
     open = false
   }
-  return { rows: view ?? confirmed, pending }
+  // The writes of applied actions do not show as pending: the server has them.
+  for (const write of context.held ?? []) linkWrite(rows(), write, context.where, meta)
+  return { rows: view ?? confirmed, pending, outgoing }
+}
+
+/** The view with the writes that the actions that wait make in this store with `local.sync()`. They show as pending. */
+function linkWrites(view: SyncView, writes: readonly SyncLinkedWrite[], where: SyncValues, meta: SyncMeta | undefined): SyncView {
+  if (!writes.length) return view
+  const rows = new Map(view.rows)
+  const pending = new Set(view.pending)
+  for (const write of writes) {
+    if (linkWrite(rows, write, where, meta)) pending.add(write.key)
+  }
+  return { rows, pending, outgoing: view.outgoing }
 }
 
 /** The mutation that goes on the wire for a queued write. */
@@ -245,6 +363,19 @@ function randomUUID(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
+/** Whether a JSON value is a `SyncPullResponse`. */
+function isPull(value: unknown): value is SyncPullResponse {
+  if (!value || typeof value !== "object") return false
+  const scope: unknown = Reflect.get(value, "scope")
+  return typeof Reflect.get(value, "key") === "string"
+    && typeof Reflect.get(value, "cursor") === "number"
+    && typeof Reflect.get(value, "account") === "string"
+    && typeof Reflect.get(value, "version") === "string"
+    && Array.isArray(Reflect.get(value, "rows"))
+    && Array.isArray(Reflect.get(value, "deleted"))
+    && Boolean(scope) && typeof scope === "object" && typeof Reflect.get(scope as object, "id") === "string"
+}
+
 /** Milliseconds before retry number `attempt + 1`: 1 s doubling to 30 s, with a random wait in the upper half. */
 function backoffDelay(attempt: number, random: number): number {
   const ceiling = Math.min(30_000, 1000 * 2 ** attempt)
@@ -290,5 +421,5 @@ function toWireError(error: SyncError): SyncWireError {
   return { code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) }
 }
 
-export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
-export type { SyncView, SyncViewContext }
+export { backoffDelay, buildView, cleanWhere, clientError, generationOf, insertedRow, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, singleValues, toMutation, toWireError, whereKey }
+export type { SyncLinkedWrite, SyncView, SyncViewContext, SyncViewPage }

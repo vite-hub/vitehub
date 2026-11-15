@@ -2,11 +2,16 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { createMemoryStorage } from "../src/client/storage.ts"
 import { SyncError } from "../src/client/types.ts"
-import { accountOf, scopeIdOf } from "./client-fake-server.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
+import { accountOf, createFakeSyncServer, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
+import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { Harness, Todo } from "./client-harness.ts"
+import type { SyncPage } from "../src/client/store.ts"
+import type { SyncLocal, SyncStore } from "../src/client/types.ts"
+import type { FakeSyncServer } from "./client-fake-server.ts"
+import type { Harness, Tab, Todo, TodoActions } from "./client-harness.ts"
 
 let harness: Harness
 
@@ -23,9 +28,10 @@ function seed(h: Harness, rows: Todo[]): void {
   for (const row of rows) h.server.write({ ...row })
 }
 
-const posts = (h: Harness) => h.server.requests.filter(request => request.method === "POST")
-const pulls = (h: Harness) => h.server.requests.filter(request => request.method === "GET" && !request.url.searchParams.has("live"))
-const streams = (h: Harness) => h.server.requests.filter(request => request.url.searchParams.has("live"))
+const isLive = (input: unknown) => new URL(String(input), "http://app.test").pathname === syncLiveRoute
+const posts = (h: Harness) => h.server.requests.filter(request => request.method === "POST" && !isLive(request.url))
+const pulls = (h: Harness) => h.server.requests.filter(request => request.method === "GET")
+const streams = (h: Harness) => h.server.requests.filter(request => isLive(request.url))
 
 describe("start and pull", () => {
   it("pulls the caller's rows on start and shows them", async () => {
@@ -171,7 +177,7 @@ describe("writes", () => {
     const { store } = h.open({
       storage: slow,
       fetch: async (input, init) => {
-        if (init?.method === "POST") log.push("send")
+        if (init?.method === "POST" && !isLive(input)) log.push("send")
         return h.server.fetch(input, init)
       },
     })
@@ -191,7 +197,7 @@ describe("writes", () => {
     let most = 0
     const { store, browser } = h.open({
       fetch: async (input, init) => {
-        if (String(input).includes("live=1")) return h.server.fetch(input, init)
+        if (isLive(input)) return h.server.fetch(input, init)
         inFlight++
         most = Math.max(most, inFlight)
         await new Promise(resolve => setTimeout(resolve, 5))
@@ -637,6 +643,252 @@ describe("actions", () => {
   })
 })
 
+describe("actions across stores", () => {
+  /** A page with the todos store and the comments of two todos, each comments store a subset. */
+  async function crossSetup() {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    h.server.actions.add = ({ insert }, args) => {
+      const { id, title } = args as { id: string, title: string }
+      insert({ id, title })
+      // The server action writes the first comment in the same batch, as `sync("comments").insert()` does.
+      comments.write({ id: `${id}-c`, ownerId: "ada", todoId: id, body: "First" })
+    }
+    const todos = h.open({
+      actions: {
+        add: (local, { id, title }) => {
+          const key = local.insert({ ...(id ? { id } : {}), title })
+          local.sync("comments").insert({ id: `${key}-c`, todoId: key, body: "First" })
+        },
+      },
+    }).store
+    const first = h.open({ name: "comments", fetch: comments.fetch, where: { todoId: "t1" } }).store
+    const second = h.open({ name: "comments", fetch: comments.fetch, where: { todoId: "t2" } }).store
+    await Promise.all([todos.refresh(), first.refresh(), second.refresh()])
+    const shown: boolean[] = []
+    first.subscribe(() => shown.push(first.get("t1-c") !== undefined))
+    return { h, comments, todos, first, second, shown }
+  }
+
+  it("changes another open store at once, and keeps the change until that store pulled the row", async () => {
+    const { comments, todos, first, second, shown } = await crossSetup()
+    const call = todos.actions.add({ id: "t1", title: "Milk" })
+    expect(todos.get("t1")).toMatchObject({ title: "Milk" })
+    expect(first.get("t1-c")).toMatchObject({ id: "t1-c", todoId: "t1", body: "First", ownerId: "ada" })
+    expect(first.pending("t1-c")).toBe(true)
+    expect(shown.at(-1)).toBe(true)
+    // The store of another subset does not show a row of another todo.
+    expect(second.getState().rows).toEqual([])
+
+    const pullsOf = (todoId: string) => comments.requests.filter(request => request.method === "GET" && request.url.searchParams.get("where") === JSON.stringify({ todoId })).length
+    const [firstPulls, secondPulls] = [pullsOf("t1"), pullsOf("t2")]
+    await call
+    await until(() => pullsOf("t1") > firstPulls && first.getState().status === "ready" && !first.pending("t1-c"))
+    expect(first.get("t1-c")).toMatchObject({ id: "t1-c", body: "First" })
+    // From the first change on, the row never went away.
+    expect(shown.slice(shown.indexOf(true))).not.toContain(false)
+    // The store that did not show the row does not pull for it.
+    expect(pullsOf("t2")).toBe(secondPulls)
+
+    // The store shows the row of the server now, not the optimistic one.
+    comments.remove("t1-c")
+    await first.refresh()
+    expect(first.get("t1-c")).toBeUndefined()
+  })
+
+  it("rolls back the change in the other store when the server refuses the action", async () => {
+    const { h, todos, first, shown } = await crossSetup()
+    h.server.actions.add = () => {
+      throw new Error("The list is full.")
+    }
+    const call = todos.actions.add({ id: "t1", title: "Milk" })
+    expect(first.get("t1-c")).toBeDefined()
+    await expect(call).rejects.toMatchObject({ code: "SYNC_ACTION_REFUSED" })
+    expect(todos.get("t1")).toBeUndefined()
+    expect(first.get("t1-c")).toBeUndefined()
+    expect(shown.at(-1)).toBe(false)
+  })
+  it("keeps the change in the other store of a tab when another tab sent the action", async () => {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    h.server.actions.add = ({ insert }, args) => {
+      const { id, title } = args as { id: string, title: string }
+      insert({ id, title })
+      comments.write({ id: `${id}-c`, ownerId: "ada", todoId: id, body: "First" })
+    }
+    const add = (local: SyncLocal<Todo>, { id, title }: TodoActions["add"]) => {
+      const key = local.insert({ ...(id ? { id } : {}), title })
+      local.sync("comments").insert({ id: `${key}-c`, todoId: key, body: "First" })
+    }
+    // The first tab sends its push only when the test lets it.
+    let send!: () => void
+    const gate = new Promise<void>((resolve) => {
+      send = resolve
+    })
+    const one = h.open({ actions: { add }, fetch: async (input, init) => {
+      if (init?.method === "POST") await gate
+      return h.server.fetch(input, init)
+    } }).store
+    const page: SyncPage = { stores: new Set(), version: 0 }
+    const two = h.open({ page, actions: { add } }).store
+    const shownComments = h.open({ page, name: "comments", fetch: comments.fetch }).store
+    await Promise.all([one.refresh(), two.refresh(), shownComments.refresh()])
+    const shown: boolean[] = []
+    shownComments.subscribe(() => shown.push(shownComments.get("t1-c") !== undefined))
+
+    const call = one.actions.add({ id: "t1", title: "Milk" })
+    await until(() => shownComments.get("t1-c") !== undefined)
+    send()
+    await call
+    await until(() => two.getState().queued === 0 && !shownComments.pending("t1-c") && comments.requests.filter(request => request.method === "GET").length > 1)
+    await until(() => shownComments.getState().status === "ready")
+    expect(shownComments.get("t1-c")).toMatchObject({ body: "First" })
+    expect(shown.slice(shown.indexOf(true))).not.toContain(false)
+  })
+
+  /**
+   * The todos store, whose `complete` changes the comment `c1` of todo `t1` with `optimistic` in the browser and with
+   * `apply` on the comments server, and a comments store for each subset.
+   */
+  async function commentPage(optimistic: (local: SyncLocal<Todo>) => void, apply: (comments: FakeSyncServer) => void, subsets: SyncValues[], gate?: Promise<void>) {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    comments.write({ id: "c1", ownerId: "ada", todoId: "t1", body: "First" })
+    h.server.actions.complete = () => apply(comments)
+    // A push of todos waits for `gate`. It starts once the queue is stored.
+    let pushes = 0
+    const todos = h.open({ actions: { complete: optimistic }, fetch: async (input, init) => {
+      if (init?.method === "POST") {
+        pushes++
+        await gate
+      }
+      return h.server.fetch(input, init)
+    } }).store
+    const stores = subsets.map(where => h.open({ name: "comments", fetch: comments.fetch, where }).store)
+    await Promise.all([todos.refresh(), ...stores.map(store => store.refresh())])
+    const pulls = (where: SyncValues) => comments.requests.filter(request => request.method === "GET" && request.url.searchParams.get("where") === JSON.stringify(where)).length
+    return { h, comments, todos, stores, pulls, pushes: () => pushes }
+  }
+
+  /** The body of `c1` in `store` at each change. */
+  function bodies(store: SyncStore<Todo, TodoActions>): unknown[] {
+    const seen: unknown[] = []
+    store.subscribe(() => {
+      const row = store.get("c1")
+      seen.push(row && Reflect.get(row, "body"))
+    })
+    return seen
+  }
+
+  it("keeps a deletion in another store until that store pulled, and pulls that store", async () => {
+    const { todos, stores: [shown], pulls } = await commentPage(local => local.sync("comments").delete("c1"), comments => comments.remove("c1"), [{ todoId: "t1" }])
+    const seen = bodies(shown!)
+    const before = pulls({ todoId: "t1" })
+    const call = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toBeUndefined()
+    await call
+    await until(() => pulls({ todoId: "t1" }) > before)
+    await shown!.refresh()
+    expect(shown!.get("c1")).toBeUndefined()
+    // The row never came back.
+    expect(seen).not.toContain("First")
+  })
+
+  it("runs an optimistic function again on the rows of the other store without its own earlier change", async () => {
+    let send!: () => void
+    const gate = new Promise<void>((resolve) => {
+      send = resolve
+    })
+    const { todos, stores: [shown], pushes } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, (comments) => {
+      const row = comments.rows.get("c1")!
+      comments.write({ ...row, body: `${String(row.body)}!` })
+    }, [{ todoId: "t1" }], gate)
+    const seen = bodies(shown!)
+    const first = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // Storing the queue builds the view of todos again, and runs the function again.
+    await until(() => pushes() > 0)
+    expect(todos.getState().queued).toBe(1)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // A second call sees the change of the first one.
+    const second = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!!" })
+    send()
+    await Promise.all([first, second])
+    await shown!.refresh()
+    expect(shown!.get("c1")).toMatchObject({ body: "First!!" })
+    expect(seen.filter(body => body !== "First!" && body !== "First!!")).toEqual([])
+  })
+
+  it("keeps one change of a queued action in the other store when an unrelated write rebuilds the source store", async () => {
+    const gate = new Promise<void>(() => {})
+    const { todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, () => {}, [{ todoId: "t1" }], gate)
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // Writes in the source store, which build its view again and run the optimistic function again.
+    todos.insert({ title: "Unrelated" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    todos.insert({ title: "Another" })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("keeps one change of an action queued offline in the other store when an unrelated write rebuilds the source store", async () => {
+    const { h, todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, () => {}, [{ todoId: "t1" }])
+    h.server.offline = true
+    expect(shown!.get("c1")).toMatchObject({ body: "First" })
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    await until(() => todos.getState().status === "offline")
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    void todos.insert({ title: "Unrelated" }).then(undefined, () => undefined)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(todos.getState().queued).toBe(2)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("reads the other store for an optimistic function also before anything read that store", async () => {
+    const gate = new Promise<void>(() => {})
+    const { todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      local.sync("comments").update("c1", { body: comment ? `${comment.body}!` : "missing" })
+    }, () => {}, [{ todoId: "t1" }], gate)
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    todos.insert({ title: "Unrelated" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("moves a row between the stores of two subsets when a linked update changes the subset column", async () => {
+    const { todos, stores: [first, second], pulls } = await commentPage(local => local.sync("comments").update("c1", { todoId: "t2" }), (comments) => {
+      comments.write({ ...comments.rows.get("c1")!, todoId: "t2" })
+    }, [{ todoId: "t1" }, { todoId: "t2" }])
+    const seen = bodies(second!)
+    const before = [pulls({ todoId: "t1" }), pulls({ todoId: "t2" })]
+    const call = todos.actions.complete({ id: "t1" })
+    expect(first!.get("c1")).toBeUndefined()
+    expect(second!.get("c1")).toMatchObject({ id: "c1", todoId: "t2", body: "First" })
+    expect(second!.pending("c1")).toBe(true)
+    await call
+    // Both stores showed the change, so both pull.
+    await until(() => pulls({ todoId: "t1" }) > before[0]! && pulls({ todoId: "t2" }) > before[1]!)
+    await Promise.all([first!.refresh(), second!.refresh()])
+    expect(first!.get("c1")).toBeUndefined()
+    expect(second!.get("c1")).toMatchObject({ todoId: "t2", body: "First" })
+    expect(seen).not.toContain(undefined)
+  })
+})
+
 describe("coalescing and pending", () => {
   it("sends the writes of one tick in one push, and merges a patch into the update that waits", async () => {
     const h = setup()
@@ -791,14 +1043,90 @@ describe("live", () => {
     return h
   }
 
+  /** Runs the timers of the tab, such as the pause before the stream opens again, until every store is in one stream. */
+  async function liveInOneStream(h: Harness, tab: Tab[]): Promise<void> {
+    await until(() => {
+      tab[0]!.browser.fire()
+      return tab.every(({ store }) => store.getState().live) && h.server.streams === 1
+    })
+  }
+
+  const listsOf = (h: Harness) => streams(h).at(-1)!.live!.pulls.map(pull => pull.where?.listId).sort()
+
+  it("streams the six stores of a tab in one stream, and gives each store its own changes", async () => {
+    const h = live()
+    const first = h.open({ where: { listId: "l0" } })
+    const tab = [first, ...Array.from({ length: 5 }, (_, index) => h.open({ tab: first, where: { listId: `l${index + 1}` } }))]
+    await Promise.all(tab.map(({ store }) => store.refresh()))
+    await liveInOneStream(h, tab)
+    expect(listsOf(h)).toEqual(["l0", "l1", "l2", "l3", "l4", "l5"])
+    // The first store opens the stream at once. The stores that join it later open it again once, after a pause.
+    expect(streams(h).length).toBeLessThanOrEqual(2)
+    h.server.write({ id: "x", ownerId: "ada", listId: "l3", title: "Only in l3" })
+    await until(() => tab[3]!.store.get("x") !== undefined)
+    expect(tab.filter(({ store }) => store.get("x")).length).toBe(1)
+    expect(h.server.streams).toBe(1)
+  })
+
+  it("opens the stream of the tab again when a store joins or leaves, and closes it after the last one", async () => {
+    const h = live()
+    const one = h.open({ where: { listId: "a" } })
+    const two = h.open({ tab: one, where: { listId: "b" } })
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    await liveInOneStream(h, [one, two])
+    const opened = streams(h).length
+
+    const three = h.open({ tab: one, where: { listId: "c" } })
+    await three.store.refresh()
+    // The open stream stays until the pause ends, so the stores in it stay live.
+    await until(() => one.browser.timers.length === 1)
+    expect(h.server.streams).toBe(1)
+    expect(one.store.getState().live).toBe(true)
+    one.browser.fire()
+    await liveInOneStream(h, [one, two, three])
+    expect(streams(h)).toHaveLength(opened + 1)
+    expect(listsOf(h)).toEqual(["a", "b", "c"])
+
+    two.store.destroy()
+    await until(() => one.browser.timers.length === 1)
+    one.browser.fire()
+    await liveInOneStream(h, [one, three])
+    expect(streams(h)).toHaveLength(opened + 2)
+    expect(listsOf(h)).toEqual(["a", "c"])
+
+    one.store.destroy()
+    three.store.destroy()
+    await until(() => h.server.streams === 0)
+    expect(one.browser.timers).toEqual([])
+  })
+
+  it("keeps the other stores live when the server refuses one store of the stream", async () => {
+    const h = live()
+    let teams = ["red", "blue"]
+    h.server.where = () => ({ teamId: teams })
+    const red = h.open({ where: { teamId: "red" } })
+    const blue = h.open({ tab: red, where: { teamId: "blue" } })
+    await Promise.all([red.store.refresh(), blue.store.refresh()])
+    await liveInOneStream(h, [red, blue])
+    // Ada leaves the blue team. The next stream refuses the blue store alone.
+    teams = ["red"]
+    h.server.endStreams()
+    await until(() => red.browser.timers.length === 1)
+    red.browser.fire()
+    await until(() => blue.store.getState().status === "error")
+    expect(blue.store.getState()).toMatchObject({ live: false, error: { code: "SYNC_OUT_OF_SCOPE" } })
+    await until(() => red.store.getState().live && h.server.streams === 1)
+    h.server.write({ id: "r1", ownerId: "ada", teamId: "red", title: "Still live" })
+    await until(() => red.store.get("r1") !== undefined)
+  })
+
   it("opens one stream after the first pull and shows other people's changes without a pull", async () => {
     const h = live()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
     const { store } = h.open({ interval: 30_000 })
     await store.refresh()
     await until(() => store.getState().live)
-    const stream = streams(h)[0]!.url.searchParams
-    expect([stream.get("cursor"), stream.get("version")]).toEqual(["1", "v1"])
+    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1" }])
     const count = pulls(h).length
     h.server.write({ id: "b", ownerId: "ada", title: "Eggs" })
     h.server.write({ id: "c", ownerId: "bob", title: "Not mine" })
@@ -866,11 +1194,11 @@ describe("live", () => {
     let refuse = false
     const refusal = () => new Response(new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ error: { code: "SYNC_UNAUTHORIZED", message: "Sign in." } })}\n\n`))
+        controller.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ name: "todos", error: { code: "SYNC_UNAUTHORIZED", message: "Sign in." } })}\n\n`))
         controller.close()
       },
     }), { headers: { "content-type": "text/event-stream" } })
-    const { store, browser } = h.open({ fetch: async (input, init) => refuse && String(input).includes("live=1") ? refusal() : h.server.fetch(input, init) })
+    const { store, browser } = h.open({ fetch: async (input, init) => refuse && isLive(input) ? refusal() : h.server.fetch(input, init) })
     await store.refresh()
     await until(() => store.getState().live)
     // The person signs out in another tab. The next stream gets an error event.
@@ -889,10 +1217,11 @@ describe("live", () => {
     const encoder = new TextEncoder()
     let send: (pull: object) => void = () => undefined
     const fetch: typeof globalThis.fetch = async (input, init) => {
-      if (!String(input).includes("live=1")) return h.server.fetch(input, init)
+      if (!isLive(input)) return h.server.fetch(input, init)
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ pull })}\n\n`))
+          controller.enqueue(encoder.encode("event: open\ndata: {}\n\n"))
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ name: "todos", pull })}\n\n`))
         },
       })
       return new Response(body, { headers: { "content-type": "text/event-stream" } })
@@ -940,7 +1269,7 @@ describe("live streams of an old account or scope", () => {
     const { store } = h.open()
     await store.refresh()
     await until(() => store.getState().live)
-    const cursor = Number(streams(h)[0]!.url.searchParams.get("cursor"))
+    const cursor = streams(h)[0]!.live!.pulls[0]!.cursor
 
     // Bob signs in. The pull resets to his rows at the same cursor, while Ada's stream is still open.
     h.server.user = "bob"
@@ -992,11 +1321,12 @@ describe("live streams of an old account or scope", () => {
     let opened = 0
     let cancelled = 0
     const fetch: typeof globalThis.fetch = async (input, init) => {
-      if (!String(input).includes("live=1")) return h.server.fetch(input, init)
+      if (!isLive(input)) return h.server.fetch(input, init)
       opened++
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
-          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ pull })}\n\n`))
+          controller.enqueue(encoder.encode("event: open\ndata: {}\n\n"))
+          send = pull => controller.enqueue(encoder.encode(`event: pull\ndata: ${JSON.stringify({ name: "todos", pull })}\n\n`))
         },
         cancel() {
           cancelled++
