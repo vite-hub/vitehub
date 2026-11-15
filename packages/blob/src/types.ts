@@ -1,4 +1,5 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { H3Event } from "h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -605,10 +606,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
-export type BlobServeAuthorize = AccessAuthorize
+export type BlobServeAuthorize = AccessAuthorize<H3Event>
 
 /** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
-export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>
 
 export interface BlobServeConfig {
   access?: "public"

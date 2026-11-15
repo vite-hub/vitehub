@@ -191,7 +191,7 @@ export const pillBarStyles = `
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
+.swatch, .icon, .eye { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
@@ -232,4 +232,9 @@ export const areaStyles = `
 .area[data-status="active"] { border-color: var(--mark); background: color-mix(in oklab, var(--mark) 8%, transparent); }
 .area[data-status="resolved"] { border-style: dashed; border-color: color-mix(in oklab, var(--muted) 50%, transparent); }
 @media (prefers-reduced-motion: reduce) { .area { transition: none; } }
+/* While comments are hidden, an area that stops showing pops out, as its pin does. */
+.area[data-leaving="true"] { animation: leave 180ms cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes leave { to { opacity: 0; scale: .97; } }
+@keyframes fade { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .area[data-leaving="true"] { animation-name: fade; } }
 `

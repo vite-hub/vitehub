@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 import { CollectionCursorError, createCollectionCursorCodec } from "./collection-cursor.ts"
 import { parseCollectionSchema } from "./schema.ts"
@@ -60,7 +60,7 @@ export interface Collection<
 > {
   readonly [collectionQueryInput]?: TQueryInput
   /** Access rule for the generated route. Omit it for a public Collection. */
-  readonly authorize?: AccessAuthorizeOption
+  readonly authorize?: AccessAuthorizeOption<Request & ViteHubContext>
   readonly route?: false
   readonly get?: (key: string, options?: { signal?: AbortSignal }) => Promise<TItem | null | undefined>
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
@@ -193,7 +193,7 @@ export interface CollectionOptions<
   TCursorOutput extends CollectionCursorValue = TCursorInput,
 > {
   /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
+  authorize?: AccessAuthorizeOption<Request & ViteHubContext>
   cursor(item: NoInfer<TSourceItem>): ReadonlyCursor<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
@@ -205,7 +205,7 @@ export interface CollectionOptions<
 }
 
 export interface ProviderCollectionOptions<TSourceItem, TQuery extends object = CollectionRequestQuery, TItem = unknown> {
-  authorize?: AccessAuthorizeOption
+  authorize?: AccessAuthorizeOption<Request & ViteHubContext>
   route?: false
   pagination: "provider"
   get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
@@ -292,7 +292,7 @@ type SourceContract<TSource> =
 
 export interface SourceCollectionOptions<TSource extends AnyCollectionSource> {
   /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
-  authorize?: AccessAuthorizeOption
+  authorize?: AccessAuthorizeOption<Request & ViteHubContext>
   route?: false
   source: TSource & SourceContract<TSource>
 }
