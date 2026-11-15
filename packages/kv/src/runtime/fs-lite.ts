@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { link, lstat, mkdir, mkdtemp, opendir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, join, relative, resolve, sep } from "node:path"
 
@@ -160,10 +160,10 @@ function setExpiry(options: unknown): number | undefined {
 export default async function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): Promise<KVRuntimeDriver> {
   const root = resolve(options.base)
   const layout = await migrateKeys(root)
-  // The expiry of a key is a file with the same name in the layout workspace, which listings skip.
-  // A key without this file never expires, as every key that older versions wrote.
+  // The expiry of a key is a file in the layout workspace, which listings skip. It is named by a hash of the key, so
+  // its name stays short for any key. A key without this file never expires, as every key that older versions wrote.
   const expiries = join(layout, "expires")
-  const expiryPath = (key: string) => join(expiries, fileName(key))
+  const expiryPath = (key: string) => join(expiries, createHash("sha256").update(key).digest("hex"))
 
   async function readExpiry(key: string): Promise<number | undefined> {
     const text = await readFile(expiryPath(key), "utf8").catch((error: unknown) => {
