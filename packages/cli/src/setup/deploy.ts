@@ -21,6 +21,7 @@ import { addSetupLink, ensureViteHubGitignore, hostRequired, readSetupLinks, sel
 import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
 
+import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { DeployCheckouts, DeployCheckoutsOutput } from "./deploy/checkouts.ts"
@@ -161,7 +162,7 @@ async function confirmDeploy(name: string, host: DeployHost, preview: boolean): 
 }
 
 /** Runs the build script for `host`. VITEHUB_HOST_SOURCE=cli makes `host` win over a `host` literal in vitehub(). */
-async function build(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<void> {
+export async function build(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<void> {
   const command = `${project.packageManager} run build`
   const manifest: unknown = existsSync(join(project.root, "package.json")) ? JSON.parse(await readFile(join(project.root, "package.json"), "utf8")) : undefined
   if (!isRecord(manifest) || !isRecord(manifest.scripts) || typeof manifest.scripts.build !== "string") {
@@ -172,13 +173,38 @@ async function build(project: SetupProject, host: DeployHost, context: ViteHubCl
   if (result.exitCode !== 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
 }
 
-interface BuildOutput {
+export interface BuildOutput {
   outputDir: string
   identityName?: string
+  /** The host variable names that the app reads, from `env` of `deployment.json`. Empty when the build lists none. */
+  env: DeploymentEnvEntry[]
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter(item => typeof item === "string") : []
+}
+
+/** One entry of `env` in `deployment.json`. Only names: the build never writes a value there. */
+function readEnvEntry(value: unknown): DeploymentEnvEntry[] {
+  if (!isRecord(value)) return []
+  const names = stringList(value.names)
+  const prefix = optionalString(value.prefix)
+  if (!names.length && !prefix) return []
+  const owners = stringList(value.owners)
+  const path = optionalString(value.path)
+  return [{
+    ...(path ? { path } : {}),
+    names,
+    ...(prefix ? { prefix } : {}),
+    required: value.required === true,
+    secret: value.secret === true,
+    hasDefault: value.hasDefault === true,
+    ...(owners.length ? { owners } : {}),
+  }]
 }
 
 /** Reads `<output>/deployment.json`, which the build writes, and checks that it is for `host`. */
-async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOutput> {
+export async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOutput> {
   const outputDir = join(root, resolveDeploymentPlan(host).output.directory)
   const file = join(outputDir, "deployment.json")
   let manifest: unknown
@@ -191,7 +217,8 @@ async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOut
   const built = isRecord(manifest) ? optionalString(manifest.host) : undefined
   if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
-  return { outputDir, ...(identityName ? { identityName } : {}) }
+  const env = isRecord(manifest) && Array.isArray(manifest.env) ? manifest.env.flatMap(readEnvEntry) : []
+  return { env, outputDir, ...(identityName ? { identityName } : {}) }
 }
 
 async function hostAdapter(host: DeployHost, context: DeployContext): Promise<DeployAdapter> {

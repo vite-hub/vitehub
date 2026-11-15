@@ -88,6 +88,18 @@ The first linked host is the default. `vitehub link --host <host> --default` cha
 
 On Cloudflare and Vercel, `vitehub deploy` first runs the provision plan of the host with the same credentials, including a `wrangler login`. It lists the resources it creates, asks first unless you pass `--yes`, and records their ids in `.vitehub/provision.json` before the build, so a second deploy creates nothing. `--no-provision` skips it. See [Create the host resources](https://vitehub.dev/docs/development/cli#create-the-host-resources).
 
+## Check and push host env
+
+`vitehub env diff` and `vitehub env push` read the env names that the last build wrote to `deployment.json` and the variables of the linked host target. They run before the CLI loads the project config, and they run the host CLI with your login.
+
+```sh
+pnpm vitehub env diff                     # missing required, missing optional, extra
+pnpm vitehub env push --yes               # values from the shell, then .env.production
+pnpm vitehub env diff --host vercel --stage preview
+```
+
+`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.
