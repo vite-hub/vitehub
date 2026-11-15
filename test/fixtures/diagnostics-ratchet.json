@@ -1132,5 +1132,19 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/agent/src/agent-layers.ts": 3,
+    "packages/agent/src/internal/channel-item-reservation.ts": 1,
+    "packages/agent/src/internal/resumable-chat.ts": 1,
+    "packages/agent/src/internal/workflow-portability.ts": 2,
+    "packages/agent/src/internal/workflow-runtime-loaders.ts": 1,
+    "packages/agent/src/invocations/app.ts": 2,
+    "packages/agent/src/invocations/database.ts": 1,
+    "packages/agent/src/server/routes.ts": 1,
+    "packages/presets/src/babysitter/pr-workspaces.ts": 1,
+    "packages/presets/src/github/auto-merge.ts": 5,
+    "packages/presets/src/github/checkout.ts": 3,
+    "packages/presets/src/github/pull-requests.ts": 1,
+    "packages/presets/src/github/repair.ts": 6
+  }
 }
