@@ -163,7 +163,24 @@ Env does not read secret values, call providers, or check credentials. Values an
 
 ## Manage Connections
 
-The Console has no Connections section. To connect a provider account, use [`vitehub connections`](/docs/connections) against the app. In production, it needs the Connections management API with your own `actor` policy: `connections: { management: { actor: './server/connections-actor.ts' } }`.
+An app with [`connections`](/docs/connections) has a **Connections** section. It lists each Connection with its provider, status, account, and last refresh, and works in production without app Auth or `connections.management`.
+
+1. **Connect** or **Reconnect** on an OAuth Connection calls `connections.connect` with your signed Console call. The app starts the sign-in for you and returns the provider URL.
+2. The Console opens the provider in a new tab. You choose the account and approve the scopes.
+3. The provider sends the browser to the app's callback, `/_vitehub/connections/callback`. The app exchanges the code and keeps the grant. The Console never sees a code or a token.
+4. Close the tab. The list loads again when you come back to the Console.
+
+**Revoke** calls `connections.revoke`, which revokes the grant at the provider and deletes it from the app. Activity names you as `user:<your Console user id>`.
+
+| Operation | Kind | Use |
+| --- | --- | --- |
+| `connections.list` | read | List the Connections. |
+| `connections.connect` | write | Return the provider URL of a new sign-in, valid for 10 minutes. |
+| `connections.revoke` | destructive | Revoke the grant of a Connection. |
+
+- The callback of a Console sign-in needs no app session and no `state` cookie, because the Console page and the app have different origins. The signed call that started it checked you, and the `state` works once, for 10 minutes.
+- The provider must allow the callback URL of the app, such as `https://app.example.com/_vitehub/connections/callback`.
+- API key and ChatGPT Connections show their status here. Set a key, or sign in with a ChatGPT plan, with [`vitehub connections`](/docs/connections/server-api#cli).
 
 ## Connect to MCP servers
 
