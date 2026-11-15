@@ -7,6 +7,7 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, ref, watch } from "vue";
 import { changeAuthConsole } from "../client/auth-management";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import { consoleDurationWords } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 const props = defineProps<{
@@ -129,7 +130,7 @@ async function submit() {
         if (unset.value && !props.field?.required) value = null;
         else if (props.field?.type === "boolean") value = checked.value;
         else if (props.field?.type === "number") {
-          if (!text.value.trim()) throw new Error("Enter a number.");
+          if (!text.value.trim()) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_NUMBER_REQUIRED();
           value = Number(text.value);
         } else if (props.field?.type.endsWith("[]")) value = JSON.parse(text.value);
         body = { action: "editField", userId: props.userId!, field: props.field!.key, value };

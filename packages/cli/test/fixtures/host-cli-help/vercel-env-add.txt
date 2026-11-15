@@ -1,0 +1,55 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.11.0
+▲ vercel env add <name> [options]
+Add an Environment Variable
+
+Options:
+  -e, --environment <ENVIRONMENT>  Environments to add the variable to;
+                                   repeatable or comma-separated. Prompts when
+                                   omitted
+  --force                          Overwrite an existing variable in the same
+                                   environment
+  --git-branch <BRANCH>            Set the Git branch for a Preview Environment
+                                   Variable
+  --guidance                       Show command suggestions after completion
+  --json                           Output as JSON
+  --no-sensitive                   Store the value as Config
+  -p, --project <NAME_OR_ID>       Project name or ID (default: linked project)
+  --sensitive                      Store the value as a Secret
+  --type <TYPE>                    Set the Environment Variable type (`config`
+                                   or `secret`)
+  --value <VALUE>                  Set the variable value for non-interactive
+                                   use; otherwise use stdin or the prompt
+  -y, --yes                        Accept default choices when adding an
+                                   Environment Variable
+
+Global Options: See `vercel --help`
+
+Examples:
+  Add a new variable (prompts for value and Environments)
+    vercel env add <name>
+
+  Add a new Environment Variable to a specific Environment
+    vercel env add <name> --environment <production | preview | development>
+
+  Add one variable to multiple Environments (comma-separated)
+    vercel env add <name> --environment <environment>[,<environment>]
+
+  Override an existing Environment Variable in the same environment (production,
+  preview, development)
+    vercel env add API_TOKEN --force
+
+  Add a Config Environment Variable that remains readable later
+    vercel env add API_TOKEN --no-sensitive
+
+  Add a new Environment Variable for a specific Environment and Git Branch
+    vercel env add <name> --environment <production | preview | development> --git-branch <BRANCH>
+
+  Add a variable from piped input
+    cat <file> | vercel env add <name> --environment <production | preview | development>
+
+  Add a variable from a file
+    vercel env add <name> --environment <production | preview | development> < <file>
+
+  Add with --value for non-interactive use
+    vercel env add API_TOKEN --environment production --value "<value>" --yes
