@@ -69,6 +69,7 @@ export interface SetupFailureDetails {
 }
 
 /** A setup diagnostic with its exit code and the input that is missing. `writeSetupError` reports it. */
+// Internal invariant: setup failure with its exit code and details. writeSetupError() reports it.
 export class SetupFailure extends Error {
   override readonly cause: Error
   readonly exitCode: number

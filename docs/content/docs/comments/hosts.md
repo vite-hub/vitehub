@@ -150,7 +150,7 @@ export default defineConfig({
 :::
 ::
 
-Run `pnpm vitehub provision run --provider cloudflare` to create the D1 Database, then apply the migrations. See [Database hosts](/docs/database/hosts) and [Realtime host support](/docs/realtime/configure#host-support).
+Run `pnpm vitehub provision run --host cloudflare` to create the D1 Database, then apply the migrations. See [Database hosts](/docs/database/hosts) and [Realtime host support](/docs/realtime/configure#host-support).
 
 ### Vercel and Netlify
 
