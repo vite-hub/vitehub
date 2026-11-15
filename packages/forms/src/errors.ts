@@ -17,6 +17,11 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Enable database in vitehub(), or set store: false with notify or onSubmit in every form that does not need stored submissions.",
     },
+    /** A form schema has a field that a surface cannot draw, such as a nested object in a Slack modal. */
+    FORMS_FIELD_NOT_DRAWABLE: {
+      why: ({ field, found, surface, takes }: { field: string, found: string, surface: string, takes: string }) => `${field ? `The field \`${field}\`` : "The form schema"} is ${found}. ${surface} takes ${takes}.`,
+      fix: "Keep the form flat: one field for each text, number, true or false, or choice. Move nested data to its own form, or join it into one text field.",
+    },
     /** The store could not read or write submissions. */
     FORMS_R0001: dynamicError,
     /** No submission has that id. */
