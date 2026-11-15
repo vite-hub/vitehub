@@ -1110,6 +1110,8 @@ describe("ViteHub Nuxt integration", () => {
     const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts", { moduleType: "ts" }])
     expect(result).toEqual({ code: "native-with-workflow-id" })
     expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
+    await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
   })
 
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {

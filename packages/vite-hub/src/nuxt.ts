@@ -407,7 +407,7 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
   }
   const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id, options) {
     // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
-    return workflowTransform.call(this, code, id, { ...options, ssr: true })
+    return workflowTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
   }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
