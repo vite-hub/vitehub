@@ -3928,6 +3928,9 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: catalog:ui
         version: 5.3.0
+      '@formisch/vue':
+        specifier: catalog:ui
+        version: 1.2.0(typescript@6.0.3)(valibot@1.5.0(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))
       '@google-cloud/storage':
         specifier: catalog:storage
         version: 8.4.0(supports-color@8.1.1)
