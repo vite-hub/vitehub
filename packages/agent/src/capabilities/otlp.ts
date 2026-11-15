@@ -25,7 +25,8 @@ export function otlp<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   }
   try {
     const endpoint = new URL(options.endpoint)
-    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw agentDiagnostics.AGENT_R0151()
+    // Internal invariant: the catch below reports this protocol error as AGENT_R0152.
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") throw new Error("[vitehub] otlp({ endpoint }) must use http or https.")
   }
   catch {
     throw agentDiagnostics.AGENT_R0152({ message: "[vitehub] otlp({ endpoint }) requires an absolute HTTP(S) OTLP base endpoint." })

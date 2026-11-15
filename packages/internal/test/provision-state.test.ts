@@ -183,7 +183,7 @@ describe("provision status", () => {
     const { path, rootDir } = await createStateFile(invalidState)
     const original = await readFile(path)
     const { context, plan, status } = createStatus(rootDir)
-    await expect(status.run(["--provider", "cloudflare", ...options], context)).rejects.toMatchObject({
+    await expect(status.run(["--host", "cloudflare", ...options], context)).rejects.toMatchObject({
       code: "INTERNAL_R0014",
       message: expect.stringContaining(path),
       cause: expect.any(SyntaxError),
@@ -197,7 +197,7 @@ describe("provision status", () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, ".vitehub"), "obstruction")
     const { context, plan, status } = createStatus(rootDir)
-    await expect(status.run(["--provider", "cloudflare", "--json"], context)).rejects.toMatchObject({
+    await expect(status.run(["--host", "cloudflare", "--json"], context)).rejects.toMatchObject({
       code: "INTERNAL_R0014",
       cause: expect.objectContaining({ code: "ENOTDIR" }),
     })
@@ -208,7 +208,7 @@ describe("provision status", () => {
   it("reports missing state and persisted IDs", async () => {
     const rootDir = await createTempDir()
     const { context, status } = createStatus(rootDir)
-    const args = ["--provider", "cloudflare", "--json"]
+    const args = ["--host", "cloudflare", "--json"]
     expect(await status.run(args, context)).toBe(0)
     expect(JSON.parse(context.stdout.write.mock.lastCall![0])).toMatchObject({ recorded: {} })
     await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })

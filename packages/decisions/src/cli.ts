@@ -31,6 +31,7 @@ interface ListedFile {
   file: string
 }
 
+// Internal invariant: usage error of the Decisions CLI. The CLI catches it and prints its message.
 class UsageError extends Error {}
 
 const sourceExtensions = /\.(?:[cm]?[jt]s)$/

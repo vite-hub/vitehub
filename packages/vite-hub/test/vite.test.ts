@@ -94,7 +94,8 @@ vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
   denoServerPackagesPlugin: integrationMocks.denoServerPackagesPlugin,
   finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
 }))
-vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
+vi.mock("@vite-hub/internal/build/deployment-plan-output", async importOriginal => ({
+  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-plan-output")>(),
   finalizeDeploymentPlanOutput: integrationMocks.finalizeDeploymentPlanOutput,
 }))
 vi.mock("@vite-hub/auth/vite", () => ({
@@ -715,7 +716,9 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/agent-option-missing",
       "vite-hub/standard-context",
+      "vite-hub/vitest-inline",
       "vite-hub/database-disabled",
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
@@ -765,6 +768,7 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
+      "vite-hub/vitest-inline",
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
@@ -878,6 +882,7 @@ describe("vitehub", () => {
       },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
+      databaseImport: "vite-hub/database",
       hosting: "node-server",
       importBase: "vite-hub/workflow",
       providerImportAliases: {
@@ -2120,6 +2125,33 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
     vitehub({ host: "vercel", sandboxTask: true })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+  })
+
+  it("passes Sandbox Task options to the Sandbox owner and the build", async () => {
+    vitehub({ host: "cloudflare", sandboxTask: { keepAlive: true, migrationTag: "v2", provider: "cloudflare", sleepAfter: "30m" } })
+    expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ keepAlive: true, migrationTag: "v2", provider: "cloudflare", sleepAfter: "30m" }))
+    const cloudflare = await applyDeploymentConfig({ name: "acme", host: "cloudflare", sandboxTask: { binding: "BOX", keepAlive: true, migrationTag: "v2", provider: "cloudflare" } })
+    expect(getResolvedFeatureOptions(cloudflare, "sandboxTask")).toEqual({ binding: "BOX", keepAlive: true, migrationTag: "v2", name: "acme-sandbox", provider: "cloudflare" })
+    const named = await applyDeploymentConfig({ name: "acme", host: "cloudflare", sandboxTask: { name: "box" } })
+    expect(getResolvedFeatureOptions(named, "sandboxTask")).toEqual({ name: "box", provider: "cloudflare" })
+
+    const networkPolicy = { allow: ["registry.npmjs.org"] }
+    const vercel = await applyDeploymentConfig({ host: "vercel", sandboxTask: { cpu: 2, networkPolicy, provider: "vercel", runtime: "node22" } })
+    expect(getResolvedFeatureOptions(vercel, "sandboxTask")).toEqual({ cpu: 2, networkPolicy, provider: "vercel", runtime: "node22" })
+  })
+
+  it("selects Vercel Sandbox on hosts without a Sandbox provider", async () => {
+    for (const host of ["node", "netlify"] as const) {
+      expect(pluginNames(vitehub({ host, sandboxTask: { provider: "vercel", timeout: 60_000 } }))).toContain("@vite-hub/sandbox/task/vite")
+      expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel", timeout: 60_000 }))
+      // The host selects nothing, so the build config keeps no host Sandbox options and the plugin options apply.
+      const config = await applyDeploymentConfig({ host, sandboxTask: { provider: "vercel", timeout: 60_000 } })
+      expect(getResolvedFeatureOptions(config, "sandboxTask")).toBeUndefined()
+    }
+    await expect(applyDeploymentConfig({ host: "node", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    await expect(applyDeploymentConfig({ host: "node", sandboxTask: { name: "box" } })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    expect(() => vitehub({ host: "node", sandboxTask: { provider: "cloudflare" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED" }))
+    expect(() => vitehub({ host: "cloudflare", sandboxTask: { provider: "vercel" } })).not.toThrow()
   })
 
   it("keeps Rate Limit in memory on the dev server", async () => {
