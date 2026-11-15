@@ -75,11 +75,34 @@ export async function readTicket(ticket: string) {
 | `ENV_SEAL_EXPIRED` | The `ttl` has passed. |
 | `ENV_SEAL_INVALID` | The string is not a sealed value, someone changed it, or another root secret sealed it. |
 | `ENV_SEAL_SCHEMA_MISMATCH` | The value opened, but it does not match `schema`. `error.cause` has the schema issues. |
+| `ENV_SEAL_USED_UP` | The value was sealed with `uses`, and every use is taken. |
 | `ENV_SEAL_WRONG_PURPOSE` | The value was sealed for another purpose. |
 
 A missing root secret is a configuration error, so `seal()` and `unseal()` throw `ENV_REQUIRED_MISSING`, as `deriveSecret()` does. A bad argument, such as an empty purpose, a `ttl` that is not a positive number, or a value that is not JSON, throws `ENV_SEAL_ARGUMENT_INVALID`.
 
 `seal()` and `unseal()` from `vite-hub/env` read `VITEHUB_SECRET`. `#vitehub/env/server` exports the same two functions, and they also read the [development secret](#development) that ViteHub generates when it is not set.
+
+### Single-use values
+
+Pass `uses` and a `db` to make a share link that opens once, or N times, and then is gone. Pass the same `db` to `unseal()`:
+
+```ts [server/api/share/[token].get.ts]
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
+import { db } from 'vite-hub/database'
+import { unseal } from 'vite-hub/env'
+
+// Create the link elsewhere: await seal('my-app:share', { apiKey }, { uses: 1, ttl: 3600, db })
+export default defineEventHandler(async (event) => {
+  const [error, shared] = await unseal('my-app:share', getRouterParam(event, 'token')!, { db })
+  if (error) throw new HTTPError({ status: 410, message: error.why })
+  return shared
+})
+```
+
+- **Atomic.** Each read takes one use with one conditional `UPDATE`. Of two reads of the last use, on any instances, one gets the value and the other gets `ENV_SEAL_USED_UP`.
+- **No values in the database.** The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry.
+- **Database.** `db` is a SQLite, libSQL, or D1 Drizzle database, such as `db` from `vite-hub/database`. KV cannot take a use atomically, so it does not work here.
+- **Failed reads keep their uses.** A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
 
 ### Sealed values that you store
 
