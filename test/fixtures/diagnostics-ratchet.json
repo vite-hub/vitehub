@@ -1131,5 +1131,6 @@
     "WORKFLOW_C0017",
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
-  ]
+  ],
+  "invariants": {}
 }
