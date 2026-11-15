@@ -1,0 +1,7 @@
+export { type Catalog, type CatalogEntry, type CatalogPropsSchema, type CatalogSurface, catalogSurfaces, defineCatalog, defineCatalogEntry, type DefineCatalogOptions, portableEntries, surfaceEntries } from "./ui/define.ts"
+export type { CatalogDiagnostic, CatalogDiagnosticCode } from "./ui/diagnostics.ts"
+export { type ViteHubComponent, viteHubCatalog, viteHubCatalogEntries } from "./ui/entries.ts"
+export { checkSpecForm, specForm, specFormFields, type SpecFormOptions } from "./ui/form.ts"
+export { type JsonRenderCatalogOptions, toJsonRenderCatalog } from "./ui/json-render.ts"
+export { catalogPrompt, type CatalogPromptOptions } from "./ui/prompt.ts"
+export { agentEventAction, type CatalogSpec, maxSpecDepth, maxSpecElements, type SpecActionBinding, specActions, type SpecElement, type SpecValidation, specVersion, validateSpec, type ValidateSpecOptions } from "./ui/validate.ts"

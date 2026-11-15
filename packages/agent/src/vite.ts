@@ -1841,10 +1841,11 @@ async function generateAgentWebhookRouteHandler(
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
     // On Node, Nitro passes a srvx Request that builds its native Request lazily, from a body that the handlers have
-    // already read when they copy the request. The handlers get a plain Request with the same body stream instead.
+    // already read when they copy the request. The handlers get a plain Request with the same body stream instead, and
+    // the same Standard Context, so the headers that they prepare reach the response of the event.
     "function toWebhookRequest(request: Request): Request {",
     "  const { headers, method, signal, url } = request",
-    "  return createAgentWebhookRequest({ body: request.body ?? undefined, headers, method, signal, url })",
+    "  return createAgentWebhookRequest({ body: request.body ?? undefined, from: request, headers, method, signal, url })",
     "}",
     "",
     ...generatedRuntimeHelpers(),

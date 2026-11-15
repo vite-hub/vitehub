@@ -14,8 +14,6 @@ const update = process.env.VITEHUB_UPDATE_DIAGNOSTICS_BASELINE === "1"
 
 /** A plain error that the reader of an app sees has no code, fix, or docs link. */
 const rawErrors = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/g
-/** The comment that marks a plain error as an internal invariant. It must say why. */
-const internalMarker = /\/\/ Internal invariant: \S/
 /** A call of `invariant()` or `invariantError()` from `@vite-hub/internal/invariant`: a state that only a ViteHub bug can reach. */
 const invariantCalls = /\binvariant(?:Error)?\(/g
 
@@ -31,7 +29,8 @@ interface Baseline {
 function sourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return []
   return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter(entry => entry.isFile() && /\.(?:[cm]?ts|vue)$/.test(entry.name) && !entry.name.endsWith(".d.ts"))
+    // A `*.injected.ts` file holds source text that runs elsewhere, such as a CDP script or generated app code, so its errors stay plain.
+    .filter(entry => entry.isFile() && /\.(?:[cm]?ts|vue)$/.test(entry.name) && !/\.(?:d|injected)\.ts$/.test(entry.name))
     .map(entry => join(entry.parentPath, entry.name))
 }
 
@@ -39,11 +38,7 @@ function countRawErrors(): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const pkg of readdirSync(join(repoRoot, "packages"))) {
     for (const file of sourceFiles(join(repoRoot, "packages", pkg, "src"))) {
-      const lines = readFileSync(file, "utf8").split("\n")
-      // Count each match, so a second throw on a line that already has one still counts.
-      const count = lines.reduce((sum, line, index) => internalMarker.test(line) || internalMarker.test(lines[index - 1] ?? "")
-        ? sum
-        : sum + (line.match(rawErrors)?.length ?? 0), 0)
+      const count = readFileSync(file, "utf8").match(rawErrors)?.length ?? 0
       if (count) counts[relative(repoRoot, file)] = count
     }
   }

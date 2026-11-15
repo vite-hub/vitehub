@@ -179,7 +179,7 @@ To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, 
 The other runtime helpers are:
 
 - `deferWorkflow()` starts a run after the response, through `waitUntil`. It returns nothing and logs a failure. Call `startWorkflow()` when you need the run id.
-- `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
+- `cancelWorkflow()` cancels a Cloudflare run with `instance.terminate()`, a native Vercel run, or a pending or running OpenWorkflow run. A finished run keeps its status, and a missing run reports `unknown`.
 - `resumeWorkflow()` resumes a registered Vercel Workflow DevKit hook token.
 - `createWorkflow()` creates a named handle with `start`, `defer`, `getRun`, and `cancel` methods.
 

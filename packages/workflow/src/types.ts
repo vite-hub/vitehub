@@ -8,6 +8,8 @@ export interface CloudflareWorkflowBinding<TPayload = unknown> {
 export interface CloudflareWorkflowInstance {
   id: string
   status: () => Promise<unknown>
+  /** Stops the instance. Cloudflare rejects the call when the instance has already finished. */
+  terminate: () => Promise<void>
 }
 
 export interface WorkflowSharedOptions {
