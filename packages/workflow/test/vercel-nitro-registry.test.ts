@@ -137,7 +137,7 @@ it.each(["vite", "nitro"])("gives a native entry in %s the ID of the native Work
   const transform = plugin.transform
   if (!transform || typeof transform === "function") throw new TypeError("Expected the hubWorkflow transform hook to be an object hook.")
   const context = pipeline === "vite" ? { environment: { config: { consumer: "server" } } } : {}
-  const transformed = await transform.handler.call(context as never, definition, join(root, "server/workflows/onboard.ts"), { ssr: pipeline === "nitro" })
+  const transformed = await transform.handler.call(context as never, definition, join(root, "server/workflows/onboard.ts"), { moduleType: "ts", ssr: pipeline === "nitro" })
   expect(transformed).toMatchObject({ code: expect.stringContaining("workflow//./server/workflows/onboard//durableOnboard") })
 })
 

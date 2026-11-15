@@ -1098,7 +1098,7 @@ describe("ViteHub Nuxt integration", () => {
       transform: { filter: { code: /use workflow/ }, handler: transform },
     }])
     const { nuxt, runNitroConfigHook } = createNuxt()
-    nuxt.options.experimental = { nitroViteEnvironment: false }
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
     await viteHubNuxtModule({ workflow: true, host: "vercel" }, nuxt)
     const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
     await runNitroConfigHook(config)
@@ -1107,9 +1107,9 @@ describe("ViteHub Nuxt integration", () => {
     const hook = resolver?.transform
     if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered Workflow transform.")
     expect(hook.filter).toEqual({ code: /use workflow/ })
-    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts", { moduleType: "ts" }])
     expect(result).toEqual({ code: "native-with-workflow-id" })
-    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { ssr: true })
+    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
   })
 
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {

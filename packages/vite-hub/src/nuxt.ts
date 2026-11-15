@@ -405,9 +405,9 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
     // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
     return load.call(this, id, { ...options, ssr: true })
   }
-  const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id) {
+  const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id, options) {
     // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
-    return workflowTransform.call(this, code, id, { ssr: true })
+    return workflowTransform.call(this, code, id, { ...options, ssr: true })
   }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
