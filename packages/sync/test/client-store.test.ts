@@ -768,7 +768,7 @@ describe("actions across stores", () => {
     const stores = subsets.map(where => h.open({ name: "comments", fetch: comments.fetch, where }).store)
     await Promise.all([todos.refresh(), ...stores.map(store => store.refresh())])
     const pulls = (where: SyncValues) => comments.requests.filter(request => request.method === "GET" && request.url.searchParams.get("where") === JSON.stringify(where)).length
-    return { comments, todos, stores, pulls, pushes: () => pushes }
+    return { h, comments, todos, stores, pulls, pushes: () => pushes }
   }
 
   /** The body of `c1` in `store` at each change. */
@@ -822,6 +822,49 @@ describe("actions across stores", () => {
     await shown!.refresh()
     expect(shown!.get("c1")).toMatchObject({ body: "First!!" })
     expect(seen.filter(body => body !== "First!" && body !== "First!!")).toEqual([])
+  })
+
+  it("keeps one change of a queued action in the other store when an unrelated write rebuilds the source store", async () => {
+    const gate = new Promise<void>(() => {})
+    const { todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, () => {}, [{ todoId: "t1" }], gate)
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // Writes in the source store, which build its view again and run the optimistic function again.
+    todos.insert({ title: "Unrelated" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    todos.insert({ title: "Another" })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("keeps one change of an action queued offline in the other store when an unrelated write rebuilds the source store", async () => {
+    const { h, todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, () => {}, [{ todoId: "t1" }])
+    h.server.offline = true
+    expect(shown!.get("c1")).toMatchObject({ body: "First" })
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    await until(() => todos.getState().status === "offline")
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    void todos.insert({ title: "Unrelated" }).then(undefined, () => undefined)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(todos.getState().queued).toBe(2)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("reads the other store for an optimistic function also before anything read that store", async () => {
+    const gate = new Promise<void>(() => {})
+    const { todos, stores: [shown] } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      local.sync("comments").update("c1", { body: comment ? `${comment.body}!` : "missing" })
+    }, () => {}, [{ todoId: "t1" }], gate)
+    void todos.actions.complete({ id: "t1" }).then(undefined, () => undefined)
+    todos.insert({ title: "Unrelated" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
   })
 
   it("moves a row between the stores of two subsets when a linked update changes the subset column", async () => {
