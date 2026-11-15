@@ -64,6 +64,26 @@ describe("built-in host integration", () => {
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
+  it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
+    const resolve = () => resolveConfig({
+      root,
+      plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false, ...(agent === undefined ? {} : { agent }) })],
+    }, "build")
+    if (agent === undefined) {
+      // An app that adds hubAgent() itself is not missing the option.
+      await expect(resolveConfig({
+        root,
+        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), Promise.resolve({ name: "@vite-hub/agent/vite" })],
+      }, "build")).resolves.toBeTruthy()
+    }
+    if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
+    else await expect(resolve()).resolves.toBeTruthy()
+  })
+
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {
@@ -493,6 +513,7 @@ describe("built-in host integration", () => {
         { path: "env.server.token", names: ["VITEHUB_TOKEN", "VENDOR_TOKEN", "LEGACY_TOKEN"], required: true, secret: true, hasDefault: false },
         { path: "env.server.region", names: ["VITEHUB_REGION", "REGION"], required: true, secret: false, hasDefault: true },
         { path: "env.server.direct", names: ["DIRECT_URL"], required: false, secret: false, hasDefault: false },
+        { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
       ])
       expect(text).not.toContain(canary)
       expect(text).not.toContain("github/token")
@@ -503,6 +524,98 @@ describe("built-in host integration", () => {
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)
+
+  it("writes the names that primitives read on Cloudflare with D1, never values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-primitive-names-cloudflare-"))
+    const canary = "canary-value-cf-41d7a9c2e8b05f63"
+    const previous = process.env.VITEHUB_SECRET
+    process.env.VITEHUB_SECRET = canary
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await mkdir(join(root, "server", "databases"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await writeFile(join(root, "server", "databases", "default.ts"), [
+        "import { defineDatabase } from \"vite-hub/database\"",
+        "import { sqliteTable, text } from \"drizzle-orm/sqlite-core\"",
+        "const notes = sqliteTable(\"notes\", { title: text(\"title\") })",
+        "export default defineDatabase({",
+        "  cloudflare: { binding: \"DB\", databaseId: \"database-id\", databaseName: \"app\" },",
+        "  schema: { notes },",
+        "})",
+        "",
+      ].join("\n"))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({ console: true, database: { driver: "d1" }, host: "cloudflare", queue: false, rateLimit: false }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
+      // The D1 binding holds the connection, so no database variable is listed.
+      expect(JSON.parse(text).env).toEqual([
+        { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
+        { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+      ])
+      expect(text).not.toContain(canary)
+    }
+    finally {
+      if (previous === undefined) delete process.env.VITEHUB_SECRET
+      else process.env.VITEHUB_SECRET = previous
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
+
+  it("writes the names that primitives read on Vercel with libSQL and Blob, never values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-primitive-names-vercel-"))
+    const canary = "canary-value-vc-9e2b51d0a7c3f846"
+    const variables = { BLOB_READ_WRITE_TOKEN: `vercel_blob_rw_store_${canary}`, TURSO_AUTH_TOKEN: canary, TURSO_DATABASE_URL: `libsql://${canary}.turso.io`, VITEHUB_SECRET: canary }
+    const previous = Object.fromEntries(Object.keys(variables).map(name => [name, process.env[name]]))
+    Object.assign(process.env, variables)
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await mkdir(join(root, "server", "databases"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await writeFile(join(root, "server", "databases", "default.ts"), [
+        "import { defineDatabase } from \"vite-hub/database\"",
+        "import { sqliteTable, text } from \"drizzle-orm/sqlite-core\"",
+        "const notes = sqliteTable(\"notes\", { title: text(\"title\") })",
+        "export default defineDatabase({",
+        "  connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN },",
+        "  schema: { notes },",
+        "})",
+        "",
+      ].join("\n"))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({ blob: true, database: true, host: "vercel", queue: false, rateLimit: false }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".vercel", "output", "deployment.json"), "utf8")
+      expect(JSON.parse(text).env).toEqual([
+        { names: ["TURSO_DATABASE_URL"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+        { names: ["TURSO_AUTH_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+        { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
+        { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+      ])
+      expect(text).not.toContain(canary)
+    }
+    finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
 
   it("keeps one Wrangler entry per binding when the project's wrangler.json repeats generated ones", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-project-wrangler-build-"))
