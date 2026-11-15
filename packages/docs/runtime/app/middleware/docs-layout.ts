@@ -1,13 +1,16 @@
 import { defineNuxtRouteMiddleware, isDocsStartLink, navigateTo, useDocsConfig, useRuntimeConfig } from "#imports"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsSectionForPath, findDocsPage } from "#docs/navigation"
+import panels from "#docs/panels"
+import { docsAppPath, docsSectionForPath, findDocsPage, loadDocsPanels } from "#docs/navigation"
 import { ownsApp } from "#docs/shell"
 
 // A docs page renders in the docs shell whichever app page serves its path. A page outside the docs base, such as
 // `/about`, is a plain article under the site header, and a `home` page is its own blocks under it. A page that
 // `start.links` lists opens inside the start section, so it gets the shell too. With an app-owned `app.vue`, plain
 // articles use `docs-article`, so the app keeps its `default` layout.
-export default defineNuxtRouteMiddleware((to, from) => {
+export default defineNuxtRouteMiddleware(async (to, from) => {
+  // The pages inside a panel load when the reader opens it, before anything reads the manifest for this route.
+  await loadDocsPanels(manifest, to.path, panels)
   const found = findDocsPage(manifest, to.path)
   if (found) to.meta.layout = found.page.layout !== "home" && (found.section || found.page.path === manifest.root?.path || isDocsStartLink(useDocsConfig(), to.path)) ? "docs" : ownsApp ? "default" : "docs-article"
   // A new page that exists only as a Content draft renders in the shell of its section.
