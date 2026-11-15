@@ -353,7 +353,7 @@ describe("account Console", () => {
     expect(state.navigate).toHaveBeenLastCalledWith("/")
   })
 
-  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+  describe.each(["home", "team", "env", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)

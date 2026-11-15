@@ -21,10 +21,13 @@ import ConsoleToaster from "./console-toaster.vue";
 const views = inject(consoleAccountViewsKey, {});
 const pageCode = {
   team: () => import("./console-account-team.vue"),
+  env: () => import("./console-account-env.vue"),
   settings: () => import("./console-account-settings.vue"),
 };
-const loadedPages = shallowReactive<{ team?: Component, settings?: Component }>({ team: views.team, settings: views.settings });
+type PreparedPage = keyof typeof pageCode;
+const loadedPages = shallowReactive<{ team?: Component, env?: Component, settings?: Component }>({ team: views.team, env: views.env, settings: views.settings });
 const ConsoleAccountTeam = computed(() => loadedPages.team ?? defineAsyncComponent(pageCode.team));
+const ConsoleAccountEnv = computed(() => loadedPages.env ?? defineAsyncComponent(pageCode.env));
 const ConsoleAccountSettings = computed(() => loadedPages.settings ?? defineAsyncComponent(pageCode.settings));
 
 /**
@@ -51,6 +54,7 @@ const page = computed(() => {
 const currentApp = computed(() => page.value === "app" ? projects.current.value?.id : undefined);
 const title = computed(() => {
   if (page.value === "team") return "Members";
+  if (page.value === "env") return "Env values";
   if (page.value === "settings") return "Account settings";
   if (gate.value.kind === "setup") return `Connect ${appName(gate.value.project)}`;
   if (page.value === "app") return projects.current.value ? appName(projects.current.value) : "App";
@@ -88,7 +92,7 @@ watchEffect(() => {
 });
 
 /** Keep the code of a page that is not open, so the page renders at once when it opens. */
-function preparePage(target: "team" | "settings"): void {
+function preparePage(target: PreparedPage): void {
   if (loadedPages[target]) return;
   void pageCode[target]().then((module) => {
     // The open page keeps its component, so it does not mount again.
@@ -97,9 +101,9 @@ function preparePage(target: "team" | "settings"): void {
 }
 
 /** The pointer or the focus reached the link of a page: its data starts to load. */
-function intent(target: "team" | "settings"): void {
+function intent(target: PreparedPage): void {
   if (page.value === target) return;
-  void (target === "team" ? earlyConsoleTeam : earlyConsoleSignInState).start();
+  if (target !== "env") void (target === "team" ? earlyConsoleTeam : earlyConsoleSignInState).start();
   preparePage(target);
 }
 
@@ -107,6 +111,7 @@ onMounted(() => {
   const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 200));
   idle(() => {
     preparePage("team");
+    preparePage("env");
     preparePage("settings");
   });
   // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
@@ -157,6 +162,10 @@ async function retry(): Promise<void> {
         <a :href="pagePath('team')" class="vitehub-console__section-link" :aria-current="page === 'team' ? 'page' : undefined" @pointerenter="intent('team')" @focus="intent('team')" @click="follow($event, () => showConsoleAccountPage('team'))">
           <UIcon name="i-lucide-users" class="vitehub-console__section-icon" />
           <span class="truncate">Members</span>
+        </a>
+        <a :href="pagePath('env')" class="vitehub-console__section-link" :aria-current="page === 'env' ? 'page' : undefined" @pointerenter="intent('env')" @focus="intent('env')" @click="follow($event, () => showConsoleAccountPage('env'))">
+          <UIcon name="i-lucide-key-round" class="vitehub-console__section-icon" />
+          <span class="truncate">Env values</span>
         </a>
 
         <div class="vitehub-console__section-heading vitehub-account-shell__heading">
@@ -216,6 +225,7 @@ async function retry(): Promise<void> {
         <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
           <ConsoleAccountHome v-if="page === 'home'" :status="status" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
+          <component :is="ConsoleAccountEnv" v-else-if="page === 'env'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
           <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">

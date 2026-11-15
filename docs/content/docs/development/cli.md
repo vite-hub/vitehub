@@ -130,6 +130,7 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub env pull --from console` | Available | ViteHub CLI | Write the env values of a stage from a self-hosted Console to `.env.<stage>`, with mode `600`. Does not load the project config. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
@@ -595,6 +596,37 @@ The device flow did not finish: the Console did not answer, the person denied th
 ### `CLI_CONSOLE_SIGNED_OUT`
 
 The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
+
+## Pull env values from a Console
+
+A self-hosted Console can keep the env values of each app and stage when its operator turns them on. The hosted Console at console.vitehub.dev never stores values. `vitehub env pull --from console` writes the values of one stage to `.env.<stage>` with the key of `vitehub login`. It needs no project config.
+
+```bash [Terminal]
+vitehub env pull --from console                                # production of the only project of the key
+vitehub env pull --from console --stage preview --project <id>
+vitehub env pull --from console --yes                          # replace the file
+```
+
+```txt [Output]
+Wrote 2 values of production to .env.production (mode 600): API_TOKEN, DATABASE_URL.
+```
+
+- The command prints names, never values. The Console logs each value that it gives out, with the key and the person.
+- You must be an owner or admin of the team. A member gets `CONSOLE_ENV_FORBIDDEN`.
+- `--project` is needed when the key opens more than one project.
+- In a git repository, git must ignore the file and must not track it. The command checks this before it calls the Console.
+
+### `CLI_ENV_FILE_EXISTS`
+
+`.env.<stage>` exists. Pass `--yes` to replace it. A replaced file gets mode `600`.
+
+### `CLI_ENV_FILE_NOT_IGNORED`
+
+git tracks `.env.<stage>`, or `.gitignore` does not cover it, so the values could be committed. Add `.env.*` to `.gitignore`, and run `git rm --cached .env.<stage>` for a tracked file.
+
+### `CLI_ENV_PULL_FAILED`
+
+The Console refused the pull. The message has the Console's code, such as `CONSOLE_ENV_VALUES_OFF` when the Console stores no values, or `CONSOLE_ENV_FORBIDDEN` for a member.
 
 ## List deployments
 

@@ -257,6 +257,7 @@ body {
 
 .vitehub-account-boot[data-vitehub-page="home"] .vitehub-console__section-link[data-vitehub-page="home"],
 .vitehub-account-boot[data-vitehub-page="team"] .vitehub-console__section-link[data-vitehub-page="team"],
+.vitehub-account-boot[data-vitehub-page="env"] .vitehub-console__section-link[data-vitehub-page="env"],
 .vitehub-account-boot[data-vitehub-page="settings"] .vitehub-console__section-link[data-vitehub-page="settings"] {
   background: var(--ui-bg-accented);
   color: var(--ui-text-highlighted);

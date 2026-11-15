@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import * as v from "valibot";
 import type { SQL } from "drizzle-orm";
 import { envBridgeError } from "./bridge-error.ts";
-import type { EnvAccessStore, EnvSecretStore } from "./bridge.ts";
+import type { EnvAccessStore, EnvSecretMetadata, EnvSecretStore } from "./bridge.ts";
 import { importSealKey, sealedPayloadPattern, sealWithKey, unsealWithKey } from "./seal.ts";
 
 export interface EnvDatabase {
@@ -12,6 +12,10 @@ export interface EnvDatabase {
 export interface DatabaseEnvStore {
   /** SQL predicate for atomically updating related records at a secret revision. */
   revisionCondition(key: string, revision: string | null): Promise<SQL>;
+  /** The keys of the namespace with their metadata, by key. It never reads a value. */
+  list(): Promise<(EnvSecretMetadata & { key: string })[]>;
+  /** Delete a key. Returns `false` when the namespace has no such key. Activity and grants stay. */
+  remove(key: string): Promise<boolean>;
   secrets: EnvSecretStore;
   access: EnvAccessStore;
 }
@@ -31,7 +35,7 @@ const activity = v.object({
   timestamp,
   actor,
   key: identifier,
-  action: v.picklist(["inspect", "preview", "replace", "resolve", "use", "grant", "revoke"]),
+  action: v.picklist(["inspect", "preview", "replace", "remove", "resolve", "use", "grant", "revoke"]),
   outcome: v.picklist(["started", "succeeded", "failed", "denied"]),
   revision: v.optional(identifier),
   operation: v.optional(identifier),
@@ -58,6 +62,36 @@ const grantRow = v.object({
   actor_id: identifier,
 });
 const revisionRow = v.object({ revision: identifier });
+const listRow = v.object({ key: identifier, revision: identifier, updated_at: timestamp, preview: v.nullable(v.string()) });
+const namespaceRow = v.object({ namespace: v.string() });
+
+/** Create the Env tables when they are missing. Each store and `listDatabaseEnvNamespaces()` calls it first. */
+async function createEnvTables(db: EnvDatabase): Promise<void> {
+  await db.run(
+    sql`CREATE TABLE IF NOT EXISTS vitehub_env_secrets (namespace TEXT NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, revision TEXT NOT NULL, updated_at TEXT NOT NULL, preview TEXT, PRIMARY KEY (namespace, key))`,
+  );
+  await db.run(
+    sql`CREATE TABLE IF NOT EXISTS vitehub_env_activity (sequence INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, key TEXT NOT NULL, id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL)`,
+  );
+  await db.run(
+    sql`CREATE INDEX IF NOT EXISTS vitehub_env_activity_key ON vitehub_env_activity (namespace, key, sequence)`,
+  );
+  await db.run(
+    sql`CREATE TABLE IF NOT EXISTS vitehub_env_grants (namespace TEXT NOT NULL, key TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (namespace, key, actor_kind, actor_id))`,
+  );
+}
+
+/**
+ * The namespaces that start with `prefix` and hold at least one key, in text order. A Console that keeps one namespace
+ * for each project and stage, such as `<project>:production`, finds the stages of a project with it.
+ */
+export async function listDatabaseEnvNamespaces(db: EnvDatabase, prefix: string): Promise<string[]> {
+  await createEnvTables(db);
+  const rows = await db.all(
+    sql`SELECT DISTINCT namespace FROM vitehub_env_secrets WHERE substr(namespace, 1, ${prefix.length}) = ${prefix} ORDER BY namespace`,
+  );
+  return rows.map((row) => v.parse(namespaceRow, row).namespace);
+}
 
 function parseStoredJson(payload: string): unknown {
   try {
@@ -79,20 +113,7 @@ export function createDatabaseEnvStore(options: {
   const encryptionKey = importSealKey(options.encryptionKey);
   let ready: Promise<void> | undefined;
   const initialize = () =>
-    (ready ??= (async () => {
-      await options.db.run(
-        sql`CREATE TABLE IF NOT EXISTS vitehub_env_secrets (namespace TEXT NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, revision TEXT NOT NULL, updated_at TEXT NOT NULL, preview TEXT, PRIMARY KEY (namespace, key))`,
-      );
-      await options.db.run(
-        sql`CREATE TABLE IF NOT EXISTS vitehub_env_activity (sequence INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, key TEXT NOT NULL, id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL)`,
-      );
-      await options.db.run(
-        sql`CREATE INDEX IF NOT EXISTS vitehub_env_activity_key ON vitehub_env_activity (namespace, key, sequence)`,
-      );
-      await options.db.run(
-        sql`CREATE TABLE IF NOT EXISTS vitehub_env_grants (namespace TEXT NOT NULL, key TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (namespace, key, actor_kind, actor_id))`,
-      );
-    })().catch((error) => {
+    (ready ??= createEnvTables(options.db).catch((error: unknown) => {
       ready = undefined;
       throw error;
     }));
@@ -114,6 +135,28 @@ export function createDatabaseEnvStore(options: {
       return revision === null
         ? sql`NOT EXISTS (SELECT 1 FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key})`
         : sql`EXISTS (SELECT 1 FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key} AND revision = ${revision})`;
+    },
+    async list() {
+      await initialize();
+      const rows = await options.db.all(
+        sql`SELECT key, revision, updated_at, preview FROM vitehub_env_secrets WHERE namespace = ${namespace} ORDER BY key`,
+      );
+      return rows.map((row) => {
+        const stored = v.parse(listRow, row);
+        return {
+          key: stored.key,
+          revision: stored.revision,
+          updatedAt: stored.updated_at,
+          ...(stored.preview ? { preview: stored.preview } : {}),
+        };
+      });
+    },
+    async remove(key) {
+      await initialize();
+      const removed = await options.db.all(
+        sql`DELETE FROM vitehub_env_secrets WHERE namespace = ${namespace} AND key = ${key} RETURNING revision`,
+      );
+      return removed.length > 0;
     },
     secrets: {
       async inspect(key) {
