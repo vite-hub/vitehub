@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `startWorkflow`, `deferWorkflow`, `getWorkflowRun`, `cancelWorkflow`, `resumeWorkflow` from `vite-hub/workflow` | Start, defer, inspect, cancel, or resume runs. |
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
+| `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
