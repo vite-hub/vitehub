@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -187,7 +187,7 @@ describe("@vite-hub/source types", () => {
       cursor: row => row.id,
       cursorSchema: v.number(),
     })
-    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption | undefined>()
+    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption<Request & ViteHubContext> | undefined>()
     defineCollection(async () => [{ id: 1 }], { authorize: true, cursor: row => row.id, cursorSchema: v.number() })
     // @ts-expect-error Omit authorize for a public Collection.
     defineCollection(async () => [{ id: 1 }], { authorize: false, cursor: row => row.id, cursorSchema: v.number() })

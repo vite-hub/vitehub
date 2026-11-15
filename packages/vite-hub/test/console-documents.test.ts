@@ -328,8 +328,8 @@ describe("Console document editor discovery", () => {
   })
 
   it("leads its navigation group", () => {
-    expect(insertConsoleSection(["agents", "blob", "kv"], "content")).toEqual(["agents", "content", "blob", "kv"])
-    expect(insertConsoleSection(["agents"], "content")).toEqual(["agents", "content"])
+    expect(insertConsoleSection(["agents", "blob", "kv"], "content")).toEqual(["content", "agents", "blob", "kv"])
+    expect(insertConsoleSection(["agents"], "content")).toEqual(["content", "agents"])
     expect(insertConsoleSection(["content", "kv"], "content")).toEqual(["content", "kv"])
   })
 

@@ -118,7 +118,7 @@ export function toResponse(value: unknown): Response {
 }
 
 /** Recognize Responses created by another realm from their standard tag and surface. */
-function isResponse(value: unknown): value is Response {
+export function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (!isRuntimeObject(value)) return false
   try {
