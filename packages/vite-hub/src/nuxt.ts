@@ -92,12 +92,6 @@ async function readProjectWranglerConfig(rootDir: string): Promise<Record<string
   return isRecord(config) ? config : undefined
 }
 
-async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
-  const config = await readProjectWranglerConfig(rootDir)
-  const alias = isRecord(config?.alias) ? config.alias["#vitehub/env/server"] : undefined
-  return typeof alias === "string" ? alias : undefined
-}
-
 async function writeCloudflareAssetsMiddleware(projectRoot: string): Promise<string> {
   const file = join(projectRoot, ".vitehub/nitro/cloudflare-assets.mjs");
   await writeFileIfChanged(
@@ -522,7 +516,7 @@ async function installConsole({
   writePlugin,
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
-  const plugin = resolveGeneratedConsolePlugin(projectRoot)
+  const plugin = resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (nuxt.options.dev && nuxt.hook) {
     // Nuxt runs Nitro's app in a worker that never sees the client's address. The Nuxt process signs
@@ -1458,7 +1452,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           workflowDiscoveryRoot: rootDir,
         })
         await writeNuxtConsolePlugin(
-          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot),
+          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true),
           consoleCatalog,
         )
       }
@@ -1489,13 +1483,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           config.handlers = [...handlers, { handler, route: "/**", middleware: true }];
       }
       const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>;
-      const envServer = generatedAliases["#vitehub/env/server"];
-      if (envServer) {
-        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
-        const alias = (wrangler.alias ??= {}) as Record<string, string>
-        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
-        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
-      }
       if (cloudflare.nodeCompat === true) {
         const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
         const flags: unknown[] = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
