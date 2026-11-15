@@ -207,7 +207,7 @@ describe("form and action regressions", () => {
   })
 
   it("submits untouched required booleans and preserves optional, defaulted, and explicit values", async () => {
-    // Mount the real provider and renderer; the SDK button queries its native disabled state.
+    // Mount the real provider and renderer; the SDK button checks link and disabled selectors.
     interface Node { type: string, props: Record<string, unknown>, children: Node[], parent?: Node, matches: (selector: string) => boolean }
     const node = (type: string): Node => {
       const el: Node = {
@@ -215,6 +215,7 @@ describe("form and action regressions", () => {
         props: {},
         children: [],
         matches: (selector) => {
+          if (selector === "a[href]") return el.type === "a" && el.props.href != null
           expect(selector).toBe(":disabled")
           return el.props.disabled === true || el.props.disabled === ""
         },
