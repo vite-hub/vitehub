@@ -51,6 +51,71 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Babysitter merge.bypassInheritedChecks must map repositories to check names.",
       fix: "Set merge.bypassInheritedChecks to an object whose keys are owner/name repositories and whose values are arrays of non-empty required check names, such as { 'acme/app': ['ci'] }.",
     },
+    // Babysitter errors. The Babysitter options, the runtime options, the agent's tool input, or GitHub caused them.
+    PRESETS_BABYSITTER_AGENT_INVALID: {
+      why: "Babysitter runtime requires a configured Babysitter Agent Definition.",
+      fix: "Pass the Agent Definition that you made with defineAgent({ extends: babysitter, ... }) as agent to createBabysitterRuntime().",
+    },
+    PRESETS_BABYSITTER_BASE_COMMIT_UNREADABLE: {
+      why: "Conflict repair requires the exact live base branch commit.",
+      fix: "Check that the base branch of the pull request still exists and that the GitHub App has Contents: read permission. The Babysitter retries the pull request on its next pass.",
+    },
+    PRESETS_BABYSITTER_DRIVER_UNSUPPORTED: {
+      why: "Babysitter requires a Codex or Claude Code driver for its isolated Git checkout.",
+      fix: "Set driver to \"codex\" or \"claude-code\" in the Babysitter options, and do not replace the driver of the Agent that extends babysitter.",
+    },
+    PRESETS_BABYSITTER_EXTERNAL_STATE_MISSING: {
+      why: "Missing external pull-request state.",
+      fix: "Check that the pull request of the wait still exists and that the GitHub App can read its repository. The Babysitter checks the wait again later.",
+    },
+    PRESETS_BABYSITTER_GITHUB_LIST_MISSING: {
+      why: ({ path }: { path: string }) => `GitHub did not return a list for ${path}.`,
+      fix: "Check that the GitHub App can read the repository that the path names. The Babysitter retries on its next pass; if it keeps failing, check the GitHub status page.",
+    },
+    PRESETS_BABYSITTER_IGNORE_AUTHORS_INVALID: {
+      why: "[vitehub] Babysitter ignoreFeedbackAuthors must list GitHub logins.",
+      fix: "Set ignoreFeedbackAuthors in the Babysitter options to an array of GitHub logins, such as [\"renovate[bot]\"], without empty strings.",
+    },
+    PRESETS_BABYSITTER_INSTALL_COMMAND_FAILED: {
+      why: ({ output }: { output: string }) => output || "Dependency installation failed.",
+      fix: "Run the install.command of the Babysitter options in a checkout of the pull request and fix the failure that the output shows. The pull request waits and retries.",
+    },
+    PRESETS_BABYSITTER_LIFECYCLE_LABELS_CONFLICT: {
+      why: "[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.",
+      fix: "Keep lifecycle.labels or filter.labels in the Babysitter options and remove the other one.",
+    },
+    PRESETS_BABYSITTER_MERGE_QUEUE_QUERY_FAILED: {
+      why: ({ errors }: { errors: string }) => `GitHub merge queue query failed: ${errors}`,
+      fix: "Read the GitHub error in the message and check that the GitHub App has Pull requests: read permission. The Babysitter retries the merge on its next pass.",
+    },
+    PRESETS_BABYSITTER_NO_FINDINGS_PREFIX_EMPTY: {
+      why: "[vitehub] Babysitter noFindingsReviews cannot contain an empty prefix.",
+      fix: "Remove the empty string from noFindingsReviews in the Babysitter options, or give each entry the text that starts a no-findings review.",
+    },
+    PRESETS_BABYSITTER_TOOL_FIELD_INVALID: {
+      why: ({ key, expected }: { key: string, expected: string }) => `${key} must be ${expected}.`,
+      fix: "Pass the field that the message names as a string in the tool input. Only a body may be empty.",
+    },
+    PRESETS_BABYSITTER_TOOL_FIELD_MISSING: {
+      why: ({ key }: { key: string }) => `Missing ${key}.`,
+      fix: "Add the field that the message names to the tool input.",
+    },
+    PRESETS_BABYSITTER_TOOL_PATHS_MISSING: {
+      why: "Expected explicit repair paths.",
+      fix: "Pass paths to commitRepair as an array of file path strings, such as { message: \"fix: lint\", paths: [\"src/index.ts\"] }.",
+    },
+    PRESETS_BABYSITTER_TOOL_RUN_ID_MISSING: {
+      why: "Expected a run ID.",
+      fix: "Pass runId as a number, the workflow run ID from the check details URL, to readCheckLogs or readBaseCheckLogs.",
+    },
+    PRESETS_BABYSITTER_TOOL_UPDATE_EMPTY: {
+      why: "Expected a title or body.",
+      fix: "Pass title, body, or both to updatePullRequest.",
+    },
+    PRESETS_BABYSITTER_WAKE_REPOSITORY_UNKNOWN: {
+      why: "External wake repository is outside the configured repositories.",
+      fix: "Wait only on pull requests and checks in repositories that the Babysitter serves, or add the repository to filter.repository.allow and install the GitHub App on it.",
+    },
     PRESETS_DAILY_PUSH_BUDGET_SPENT: {
       why: ({ count, nextAt }: { count: number; nextAt: string }) => `Daily push budget spent: this PR has ${count} repair pushes in the last 24 hours, and the next push is allowed at ${nextAt}.`,
       fix: "Do not push or commit again in this pass. Reply to and resolve the remaining review threads, then report the current PR head as reviewedHead.",
