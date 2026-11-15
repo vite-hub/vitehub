@@ -41,6 +41,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./formisch": {
+      "types": "./dist/formisch.d.ts",
+      "import": "./dist/formisch.js",
+      "default": "./dist/formisch.js"
+    },
     "./guard": {
       "types": "./dist/guard.d.ts",
       "import": "./dist/guard.js",
@@ -81,6 +86,8 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@chat-adapter/slack": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
@@ -95,13 +102,15 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "chat": "catalog:chat",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "@formisch/vue": "^1.2.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@formisch/vue": {

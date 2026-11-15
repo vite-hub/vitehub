@@ -158,12 +158,34 @@ export default defineMcpHooks({
 
 | Function | Use |
 | --- | --- |
+| `verifyToken` | Accepts a bearer token that is not an access token of `mcpOAuth()`, such as an API key. It gets `{ event, token }` and returns the caller, with `user`, `scopes`, `clientId`, and `clientName`, or `undefined` to answer `401`. See [Accept API keys](#accept-api-keys). |
 | `resolveCaller` | Maps the caller to the app's own identity. It gets `{ event, caller }`, where `caller` is the signed-in caller of `mcpOAuth()`, else `undefined`. Its return value is `caller` in every tool, prompt, and resource handler. |
 | `onToolCall` | Runs after each tool call with `name`, `input`, `caller`, `event`, `durationMs`, `result`, and `error`. |
 
 `resolveCaller` runs once per request, when the first handler runs, so `initialize` and `tools/list` read no app data. A thrown error with a 4xx `status` refuses the call with its message. ViteHub writes `.vitehub/types/mcp.d.ts`, so `caller` in the handlers has the type that `resolveCaller` returns.
 
 `onToolCall` runs for each call whose arguments passed `input`, before the server sends the answer. `durationMs` is the time of the handler. `result` is what the Agent reads, with `isError: true` for a failed call. `error` is what the handler or `resolveCaller` threw, and is absent when nothing threw. An error that `onToolCall` throws is logged, and the result does not change.
+
+## Accept API keys
+
+Scripts that cannot do OAuth send another bearer token, such as an API key. `verifyToken` checks it and returns the caller, so `resolveCaller` and the handlers get it the same way as the caller of an access token:
+
+```ts [server/mcp.ts]
+import { defineMcpHooks } from 'vite-hub/mcp'
+
+const apiKeys = new Map([['fin_3kq9Xb7Lm2', { userId: 'user-1', name: 'Budget script' }]])
+
+export default defineMcpHooks({
+  verifyToken({ token }) {
+    const key = apiKeys.get(token)
+    return key && { user: { id: key.userId }, scopes: [], clientId: undefined, clientName: key.name }
+  },
+})
+```
+
+With the API key plugin of Better Auth, call `useAuth(event).api.verifyApiKey({ body: { key: token } })` there instead of the map.
+
+The server calls `verifyToken` only when `auth` is on and the bearer token is not a valid access token of `mcpOAuth()`. A request without a token never reaches it. When it returns `undefined`, the request gets `401` with `error="invalid_token"`. An error that it throws fails the request.
 
 ## Public imports
 

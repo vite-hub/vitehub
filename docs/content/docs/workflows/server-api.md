@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
+Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. The id that you pass is the run id: `startWorkflow()` returns it, and `getWorkflowRun()` and `cancelWorkflow()` take it, on Cloudflare, OpenWorkflow, and inline runs. A second start with the same id returns the first run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
 ## Runtime helpers
 
@@ -47,9 +47,11 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 | `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
-`WorkflowStartOptions` accepts `id`.
+`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
-Inline runs buffer the response body before they complete. Each inspection and duplicate start returns a new response, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
+The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
+
+Inline runs buffer a returned `Response` body before they complete. Each inspection and duplicate start returns a new `Response`, so reading or cancelling one result does not use up later ones. A failed body read marks the run as failed.
 
 Inspection holds a weak reference to an active inline run:
 
@@ -61,7 +63,7 @@ Use a durable provider when inspection must survive abandonment or a process res
 
 Cancellation works for native Vercel workflows and OpenWorkflow. On OpenWorkflow, `cancelWorkflow()` cancels a pending or running run in storage. A step that already runs finishes, but its worker records no more steps or result. A finished run keeps its status. A run of another workflow reports `unknown`. Cloudflare and inline Vercel runs report `WORKFLOW_OPERATION_UNSUPPORTED`.
 
-Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a registered hook token. You can choose a fixed opaque token. It becomes resumable when a native workflow registers the hook and waits for it. Pass it to `resumeWorkflow()`. It names the hook, not a run. Cloudflare and OpenWorkflow do not support signals.
+Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a registered hook token. You can choose a fixed opaque token. It becomes resumable when a native workflow registers the hook and waits for it. Pass it to `resumeWorkflow()`. It names the hook, not a run. Cloudflare, OpenWorkflow, and inline runs do not support signals: `resumeWorkflow()` throws `WORKFLOW_OPERATION_UNSUPPORTED`. In `vite dev` every run is inline, and so is an app with no native entry.
 
 ## Workflow Run shape
 
@@ -70,9 +72,11 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | `id` | `string` | Run id from the provider or ViteHub. |
 | `provider` | `WorkflowProvider` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
-| `result` | `TResult` | Result, when completed. |
+| `result` | `TResult` | The value that the handler returned, as JSON, when completed. A `Response` when the handler returned one. |
 | `payload` | `TPayload` | Original payload when the provider returns it. |
 | `metadata` | `unknown` | Provider metadata. |
+| `createdAt`, `startedAt`, `completedAt` | `Date` | Run times. OpenWorkflow and native Vercel runs set them. |
+| `steps` | `WorkflowRunStep[]` | One entry per step, with its latest `attempt`, `status`, times, and error `message`. OpenWorkflow and native Vercel runs set it in `getWorkflowRun()`. |
 
 Every provider uses the same statuses. A run that sleeps, waits, or waits between step retries reports `running`. A run that does not exist reports `unknown`. On Cloudflare, `waiting`, `waitingForPause`, and `paused` report `running`, and `terminated` reports `cancelled`. `metadata.status` keeps the Cloudflare status.
 
