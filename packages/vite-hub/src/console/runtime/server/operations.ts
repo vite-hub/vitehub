@@ -563,8 +563,8 @@ const siteOperations = [
   defineConsoleOperation({
     // A `vitehub` command signs as a key, not as a person, so the server refuses it with CONSOLE_TICKET_NO_PERSON and the fix.
     cli: { command: "open", format: (ticket: ConsoleTicket) => `${ticket.url}\nThe link works once, until ${ticket.expiresAt}.\n`, positional: ["path"] },
-    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone.",
-    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()) }),
+    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone. With the state of GET /_vitehub, it works only in the browser that opened that route.",
+    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()), state: v.optional(v.pipe(text, v.regex(/^[\w-]{43}$/))) }),
     kind: "write",
     mcp: false,
     name: "site.link",

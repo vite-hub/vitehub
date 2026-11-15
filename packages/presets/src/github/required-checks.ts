@@ -39,6 +39,7 @@ export function createGitHubRequiredCheckPolicyReader(
     try {
       const rules = await read(repository, branch);
       const details = githubBranchRuleDetails(rules);
+      // Internal invariant: the catch below turns it into an unknown policy with this reason.
       if (details.requiredWorkflows) throw new Error("Required workflow rules cannot be reduced to check contexts");
       return { ...base, status: "known", classicSource: details.classicSource, required: rules.requiredChecks.map(requiredCheck) };
     } catch (error) {
@@ -96,10 +97,13 @@ export function createGitHubRequiredCheckPolicyReader(
 }
 
 function requiredCheck(check: RequiredCheck): GitHubRequiredCheck {
+  // Internal invariant: fetch() catches it and turns it into an unknown policy with this reason.
   if (typeof check.name !== "string" || !check.name.trim()) throw new Error("Invalid required-check name");
   // GitHub reports app ID -1 for a classic check that any app may report.
+  // Internal invariant: fetch() catches it and turns it into an unknown policy with this reason.
   if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) throw new Error("Invalid required-check app ID");
   const appId = check.appId === undefined || check.appId === "-1" ? null : Number(check.appId);
+  // Internal invariant: fetch() catches it and turns it into an unknown policy with this reason.
   if (appId !== null && (!Number.isSafeInteger(appId) || appId < 0)) throw new Error("Invalid required-check app ID");
   return { context: check.name, appId };
 }
