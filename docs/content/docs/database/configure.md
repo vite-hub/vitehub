@@ -252,6 +252,8 @@ pnpm vitehub database migrate --dry-run
 
 `vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
 
+On SQLite, Drizzle Kit 0.x made a unique index for a `.unique()` column, and Drizzle Kit 1.0 declares a `UNIQUE` constraint in the table. `vitehub database up` records these indexes as the constraints of your Definitions in the converted snapshots, so the next `vitehub database generate` does not rebuild the tables. The database keeps its indexes, and they reject the same duplicate rows.
+
 ## Migrate when the server starts
 
 A self-hosted Node server, for example in Docker, often has only `.output`, with no sources or CLI for `vitehub database migrate`. ViteHub can apply pending migrations when the server starts, before it handles a request.
