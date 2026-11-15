@@ -1,4 +1,4 @@
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 
 const maxRequestStateBytes = 8 * 1024 * 1024
 
