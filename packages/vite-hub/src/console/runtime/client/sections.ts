@@ -26,6 +26,9 @@ export const consoleSectionsPath = "/_vitehub/api/sections"
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
 const navigationErrors = new Map<string, unknown>()
+// The last navigation of each base, so a subscriber that comes after a load or a seed, such as the router of
+// `main.js`, still gets it.
+const navigationValues = new Map<string, ConsoleNavigation>()
 
 /** Read an untrusted `sections.list` answer. Unknown sections and fields are left out. */
 export function parseConsoleNavigation(value: unknown): ConsoleNavigation {
@@ -72,6 +75,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
+        navigationValues.set(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
@@ -93,6 +97,7 @@ export function seedConsoleNavigation(base: string, navigation: ConsoleNavigatio
   if (navigationRequests.has(base)) return
   navigationErrors.delete(base)
   navigationRequests.set(base, Promise.resolve(navigation))
+  navigationValues.set(base, navigation)
   for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
 }
 
@@ -108,6 +113,8 @@ export function subscribeConsoleNavigation(
   const subscribers = navigationSubscribers.get(base) || new Set()
   subscribers.add(subscriber)
   navigationSubscribers.set(base, subscribers)
+  const known = navigationValues.get(base)
+  if (known) subscriber(known)
   return () => {
     subscribers.delete(subscriber)
     if (subscribers.size === 0) navigationSubscribers.delete(base)
