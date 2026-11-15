@@ -406,7 +406,7 @@ for the code format and an application catalog example.
 
 ## UI that an Agent sends
 
-An Agent can answer with UI: an approval card, a table, a plan, or a form, instead of text. It writes a [json-render](https://json-render.dev) spec, and `@vite-hub/agent/ui` is the contract for what it may send. In the C4 first-try evals, models wrote json-render correctly in 72 of 72 tries and A2UI in 57 of 72, so json-render is the wire format.
+An Agent can answer with UI: an approval card, a table, a plan, or a form, instead of text. It writes a [json-render](https://json-render.dev) spec, and `@vite-hub/agent/ui` is the contract for what it may send. In the C4 first-try evals, models wrote json-render correctly in 72 of 72 tries and A2UI in 57 of 72, so json-render is the wire format. The guide is [Agent UI](https://vitehub.dev/docs/agents/ui).
 
 The catalog holds layout and display components only: Stack, Text, Heading, KeyValue, Divider, Card, Button, Link, Image, Badge, Table, Tabs, and Form. A spec does not draw inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, and the form schema gives the fields, the same schema that the web form, the MCP elicitation, and the chat modal use.
 

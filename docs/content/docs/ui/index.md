@@ -71,7 +71,7 @@ An Agent can answer with UI instead of text, such as an approval card. It writes
 }
 ```
 
-A spec draws no inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, so one schema draws the web form, the MCP elicitation, and the Slack modal. Read [UI that an Agent sends](https://github.com/vite-hub/vitehub/blob/main/packages/agent/README.md#ui-that-an-agent-sends), [one schema on every surface](/docs/forms/server-api#one-schema-on-every-surface), and [Forms in Vue](/docs/forms/vue).
+A spec draws no inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, so one schema draws the web form, the MCP elicitation, and the Slack modal. [Agent UI](/docs/agents/ui) shows how to define the catalog, check a spec, and render it. Read also [one schema on every surface](/docs/forms/server-api#one-schema-on-every-surface) and [Forms in Vue](/docs/forms/vue).
 
 ## Work the live page
 
