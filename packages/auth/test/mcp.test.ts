@@ -248,6 +248,18 @@ describe("serveMcpOAuthDiscovery", () => {
     expect(await serveMcpOAuthDiscovery(new Request(`${app}/.well-known/oauth-protected-resource`, { method: "POST" }), { auth })).toBeUndefined()
   })
 
+  it("lets MCP clients in a browser read the documents from another origin", async () => {
+    const { auth } = await setup()
+    for (const path of ["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server/api/auth", "/.well-known/openid-configuration"]) {
+      const response = await serveMcpOAuthDiscovery(new Request(`${app}${path}`, { headers: { origin: "https://inspector.example.com" } }), { auth })
+      expect(response?.status, path).toBe(200)
+      expect(response?.headers.get("access-control-allow-origin"), path).toBe("*")
+      const preflight = await serveMcpOAuthDiscovery(new Request(`${app}${path}`, { headers: { "access-control-request-headers": "mcp-protocol-version", "access-control-request-method": "GET", "origin": "https://inspector.example.com" }, method: "OPTIONS" }), { auth })
+      expect(preflight?.status, path).toBe(204)
+      expect(Object.fromEntries(preflight?.headers ?? []), path).toMatchObject({ "access-control-allow-headers": "*", "access-control-allow-methods": "GET, HEAD, OPTIONS", "access-control-allow-origin": "*" })
+    }
+  })
+
   it("throws AUTH_MCP_OAUTH_MISSING for an Auth without mcpOAuth()", async () => {
     const database = new DatabaseSync(":memory:")
     databases.push(database)

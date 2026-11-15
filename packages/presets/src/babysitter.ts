@@ -117,8 +117,9 @@ export interface BabysitterOptions {
    */
   noFindingsReviews: string[];
   /**
-   * Logins whose comments and reviews never need an assessment, such as deployment preview bots.
-   * Their items do not block a direct merge or wake a waiting PR. Defaults to none.
+   * Logins whose comments and reviews never need an assessment. Their items do not block a direct
+   * merge or wake a waiting PR. Defaults to the deployment preview bots `pkg-pr-new[bot]`,
+   * `vercel[bot]`, `cloudflare-workers-and-pages[bot]` and `netlify[bot]`. A list replaces them.
    */
   ignoreFeedbackAuthors: string[];
   /**
@@ -423,6 +424,9 @@ function validAuthorAssociationRules(rules: unknown): boolean {
   return [rules.allow, rules.deny].every(list => list === undefined || (Array.isArray(list) && list.every(value => (githubAuthorAssociations as readonly unknown[]).includes(value))));
 }
 
+/** Deployment preview bots. They post status panels that they edit in place, never review findings. */
+const previewBots = ["pkg-pr-new[bot]", "vercel[bot]", "cloudflare-workers-and-pages[bot]", "netlify[bot]"];
+
 /** Authors that a filter without `author` or `authorAssociation` rules selects: people with write access. */
 const defaultAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
 /** The label that pauses a PR when neither `lifecycle.labels` nor `filter.labels` is configured. */
@@ -459,7 +463,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     merge: "direct" as BabysitterMerge,
     reviewChecks: [] as string[],
     noFindingsReviews: [] as string[],
-    ignoreFeedbackAuthors: [] as string[],
+    ignoreFeedbackAuthors: previewBots,
     noProgressBudget: 3 as number | false,
     reviewPushBudget: 3 as number | false,
     minorReviewRounds: false as number | false,

@@ -250,9 +250,9 @@ describe("Console access policies", () => {
     const signed = await run({ mode: "token" }, rpc({ headers: { "x-vitehub-signature": "key=CI, t=1, origin=http://localhost:3000, body=x, v1=y" } }))
     await expect(rejection(signed.result)).resolves.toMatchObject({ code: "CONSOLE_KEY_NOT_CONFIGURED", status: 500 })
     // console.authorize runs, as with console: { auth: false }.
-    const authorize = vi.fn(() => ({ sections: ["kv"] }))
+    const authorize = vi.fn(() => ({ sections: ["kv"], grants: ["comments-read"] }))
     const limited = await run({ mode: "token", authorize }, rpc())
-    expect(limited.result).toEqual({ mode: "open", sections: ["kv"] })
+    expect(limited.result).toEqual({ mode: "open", sections: ["kv"], grants: ["comments-read"] })
     expect(authorize).toHaveBeenLastCalledWith({ request: expect.any(Request) })
   })
 
@@ -376,7 +376,7 @@ describe("generated Console access", () => {
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [Object.assign(config, { root }), { command, mode: command === "build" ? "production" : "development" }])
-      return await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      return await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
     }
     finally {
       await rm(root, { force: true, recursive: true })
