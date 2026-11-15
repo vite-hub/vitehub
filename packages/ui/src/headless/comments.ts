@@ -157,6 +157,8 @@ export interface CommentsState {
   readonly shown: ComputedRef<ReadonlySet<string>>;
   /** The ids of threads that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out. */
   readonly leaving: ComputedRef<ReadonlySet<string>>;
+  /** Keeps page marks visible without opening a popover. Call the returned release function when the panel closes. */
+  retainMark: (id: string) => () => void;
   isShown: (id: string) => boolean;
   /** Shows the thread for `flashMs` while comments are hidden. `send()`, `create()`, and `reply()` call it. */
   flash: (id: string) => void;
@@ -249,6 +251,17 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const positions = shallowRef<ReadonlyMap<string, AnchorPosition>>(new Map());
   const draft = ref<CommentDraft | null>(null);
   const openId = ref<string | null>(null);
+  const retained = shallowRef<ReadonlyMap<symbol, string>>(new Map());
+  const retainedIds = computed(() => new Set(retained.value.values()));
+  const retainMark = (id: string): (() => void) => {
+    const key = Symbol();
+    retained.value = new Map(retained.value).set(key, id);
+    return () => {
+      const next = new Map(retained.value);
+      next.delete(key);
+      retained.value = next;
+    };
+  };
   const hoverId = ref<string | null>(null);
   const listOpen = ref(false);
   const blocked = ref(0);
@@ -279,19 +292,24 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   seen.subscribe(() => seenChanges.value++);
   watch(visibility, value => seen.set(value), { flush: "sync" });
   watch(openId, id => seen.open(id), { flush: "sync" });
-  // The open thread keeps its pin even when a filter would hide it.
+  // Open panels and active flashes keep their marks even when a filter would hide them.
   const marked = computed(() => {
+    void seenChanges.value;
     const ids = new Set(pageThreads.value.map(thread => thread.id));
     if (opened.value && onPage(opened.value)) ids.add(opened.value.id);
+    for (const thread of threads.value) {
+      const temporary = visibility.value === "hidden" && (seen.isShown(thread.id) || seen.leaving.includes(thread.id));
+      if (onPage(thread) && (retainedIds.value.has(thread.id) || temporary)) ids.add(thread.id);
+    }
     return ids;
   });
   const shown = computed<ReadonlySet<string>>(() => {
     void seenChanges.value;
-    return new Set([...marked.value].filter(id => seen.isShown(id)));
+    return new Set([...marked.value].filter(id => seen.isShown(id) || retainedIds.value.has(id)));
   });
   const leaving = computed<ReadonlySet<string>>(() => {
     void seenChanges.value;
-    return new Set(seen.leaving.filter(id => marked.value.has(id)));
+    return new Set(seen.leaving.filter(id => marked.value.has(id) && !retainedIds.value.has(id)));
   });
   const flash = (id: string): void => seen.flash(id);
 
@@ -300,10 +318,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   function measure(): void {
     const next = new Map<string, AnchorPosition>();
-    for (const thread of pageThreads.value) next.set(thread.id, resolveAnchor(thread.anchor, root()));
-    // An open thread keeps its pin even when a filter would hide it.
-    const current = opened.value;
-    if (current && onPage(current) && !next.has(current.id)) next.set(current.id, resolveAnchor(current.anchor, root()));
+    for (const thread of threads.value.filter(thread => marked.value.has(thread.id))) next.set(thread.id, resolveAnchor(thread.anchor, root()));
     if (draft.value) next.set(draftPositionKey, resolveAnchor(draft.value.anchor, root()));
     const previous = positions.value;
     const same = next.size === previous.size && [...next].every(([key, position]) => samePosition(position, previous.get(key)));
@@ -570,7 +585,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
     stops.push(watch(positions, follow, { flush: "post" }));
     stops.push(watch(
-      [pageThreads, () => draft.value?.anchor, openId],
+      [marked, () => draft.value?.anchor, openId],
       () => measure(),
       { flush: "post" },
     ));
@@ -641,6 +656,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     visibility,
     shown,
     leaving,
+    retainMark,
     isShown: id => shown.value.has(id),
     flash,
     enter,

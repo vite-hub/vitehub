@@ -168,6 +168,8 @@ comments.leaving.value; // The ids that just stopped showing, for their pop-out.
 comments.flash(id); // Show a thread for a moment. send(), create(), and reply() do it.
 ```
 
+`CommentPanel` keeps its selected thread’s page marks visible while comments are hidden, without opening a page popover. Returning to the list or unmounting the panel releases that exception. Custom panels can call `const release = comments.retainMark(id)` and call `release()` when they close or switch threads; active flashes keep their own timers.
+
 `CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
 
 To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:

@@ -634,9 +634,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (!highlights) return
     const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[] }
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
-    const threads: CommentThread[] = [...state.pageThreads.value]
-    const opened = state.opened.value
-    if (opened && opened.subject.kind === subject.value.kind && opened.subject.id === subject.value.id && !threads.includes(opened)) threads.push(opened)
+    const threads = state.threads.value.filter(thread => state.isShown(thread.id))
     for (const thread of threads) {
       // Hidden comments lose their highlight too, as their pins.
       if (thread.anchor.kind !== "text" || !state.isShown(thread.id)) continue
@@ -936,9 +934,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }))
     }
     const active = new Set([state.openId.value, state.hoverId.value])
-    for (const thread of state.pageThreads.value) box(thread.id, thread.anchor.kind, active.has(thread.id) ? "active" : thread.status)
-    const opened = state.opened.value
-    if (opened && !state.pageThreads.value.includes(opened)) box(opened.id, opened.anchor.kind, "active")
+    for (const thread of state.threads.value) box(thread.id, thread.anchor.kind, active.has(thread.id) ? "active" : thread.status)
     const draft = state.draft.value
     if (draft) box("draft", draft.anchor.kind, "active")
     return nodes

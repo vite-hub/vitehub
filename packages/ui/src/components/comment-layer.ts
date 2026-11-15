@@ -135,12 +135,9 @@ export const CommentLayer = defineComponent({
     const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
 
     const user = computed(() => state.user.value);
-    const pinned = computed(() => {
-      const threads = [...state.pageThreads.value];
-      const opened = state.opened.value;
-      if (opened && opened.subject.kind === state.subject.value.kind && opened.subject.id === state.subject.value.id && !threads.includes(opened)) threads.push(opened);
-      return threads;
-    });
+    const pinned = computed(() => state.threads.value.filter(thread =>
+      state.pageThreads.value.includes(thread) || state.shown.value.has(thread.id) || state.leaving.value.has(thread.id),
+    ));
     // While comments are hidden, only the threads that still show get a pin, and one that stops showing stays for its
     // pop-out. Opening or writing a comment never shows the others.
     const drawn = computed(() => pinned.value.filter((thread) => state.shown.value.has(thread.id) || state.leaving.value.has(thread.id)));
