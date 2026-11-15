@@ -78,3 +78,15 @@ it("reports unknown for an id of another Workflow", async () => {
 
   await expect(getWorkflowRun("checkout", "shared-1")).resolves.toEqual({ id: "shared-1", provider: "openworkflow", status: "unknown" })
 })
+
+it("reuses a provider-assigned run id without redirecting inspection or cancellation", async () => {
+  const first = await startWorkflow("checkout", { order: 1 })
+  const second = await startWorkflow("checkout", { order: 2 }, { id: first.id })
+  const runtime = await getOpenWorkflowRuntime(config)
+
+  expect(second.id).toBe(first.id)
+  expect((await runtime.backend.listWorkflowRuns({})).data).toHaveLength(1)
+  await expect(getWorkflowRun("checkout", first.id)).resolves.toMatchObject({ id: first.id, payload: { order: 1 }, status: "queued" })
+  await cancelWorkflow("checkout", first.id)
+  await expect(runtime.backend.getWorkflowRun({ workflowRunId: first.id })).resolves.toMatchObject({ status: "cancelled" })
+})

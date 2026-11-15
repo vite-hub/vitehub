@@ -19,8 +19,8 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
-import { cloudflareExportConditions, detectHost } from "./deployment.ts"
+import { normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { cloudflareExportConditions } from "./deployment.ts"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { nuxtPageRoutes } from "@vite-hub/bundle/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -90,12 +90,6 @@ async function readProjectWranglerConfig(rootDir: string): Promise<Record<string
   const extension = extname(configPath)
   const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
   return isRecord(config) ? config : undefined
-}
-
-async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
-  const config = await readProjectWranglerConfig(rootDir)
-  const alias = isRecord(config?.alias) ? config.alias["#vitehub/env/server"] : undefined
-  return typeof alias === "string" ? alias : undefined
 }
 
 async function writeCloudflareAssetsMiddleware(projectRoot: string): Promise<string> {
@@ -522,7 +516,7 @@ async function installConsole({
   writePlugin,
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
-  const plugin = resolveGeneratedConsolePlugin(projectRoot)
+  const plugin = resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (nuxt.options.dev && nuxt.hook) {
     // Nuxt runs Nitro's app in a worker that never sees the client's address. The Nuxt process signs
@@ -935,7 +929,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
   assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
-  const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
+  const moduleOptions = { ...configuredModuleOptions, host: resolveBuildHost(configuredModuleOptions.host) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
@@ -1458,7 +1452,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           workflowDiscoveryRoot: rootDir,
         })
         await writeNuxtConsolePlugin(
-          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot),
+          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true),
           consoleCatalog,
         )
       }
@@ -1489,13 +1483,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           config.handlers = [...handlers, { handler, route: "/**", middleware: true }];
       }
       const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>;
-      const envServer = generatedAliases["#vitehub/env/server"];
-      if (envServer) {
-        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
-        const alias = (wrangler.alias ??= {}) as Record<string, string>
-        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
-        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
-      }
       if (cloudflare.nodeCompat === true) {
         const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
         const flags: unknown[] = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
@@ -1637,7 +1624,7 @@ async function resolveNuxtContentDatabaseDependencies(nuxtInstance: unknown) {
   const nuxtOptions = (nuxtInstance as NuxtLike | undefined)?.options
   if (!nuxtOptions || nuxtOptions.dev) return {}
   const configured = { ...nuxtOptions.vitehub } as ViteHubNuxtOptions
-  if ((configured.host ?? detectHost()) === "cloudflare") return {}
+  if (resolveBuildHost(configured.host) === "cloudflare") return {}
   const project = { projectRoot: resolveViteHubProjectRoot(nuxtOptions.rootDir || process.cwd()), serverDirs: resolveNuxtServerDirs(nuxtOptions) }
   const { database } = withConnectionsDatabase(resolveCmsPresetFeatures(withComments(configured as ViteHubOptions), project))
   if (!database || (database !== true && database.driver !== undefined)) return {}

@@ -727,6 +727,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  /** Reads up to `limit` values of a list after row `after`, oldest first. Each `cursor` is the row's position. */
+  async getListPage(key: string, after: number, limit: number): Promise<Array<{ cursor: number; value: unknown }>> {
+    await this.cleanupExpiredStateIfDue()
+    const now = Date.now()
+    const valueRows = await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
+      return await execute(tx, `SELECT id, value FROM ${this.tables.lists} WHERE key = ? AND id > ? ORDER BY id ASC LIMIT ?`, [key, after, limit])
+    })
+    return valueRows.map(row => ({ cursor: Number(row.id), value: JSON.parse(String(row.value)) as unknown }))
+  }
+
   async isSubscribed(threadId: string): Promise<boolean> {
     await this.cleanupExpiredStateIfDue()
     const subscriptions = await execute(this.driver, `SELECT 1 FROM ${this.tables.subscriptions} WHERE thread_id = ? LIMIT 1`, [threadId])
