@@ -127,6 +127,7 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub env status` | Available | Env Package | Ask a running app, such as a deployment, for the status of its Server Env, without values. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
@@ -731,6 +732,14 @@ pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both load the Vite config in the stage mode, with `.env.<stage>` files, and process values win. They list each declared variable with status, source, and required and secret flags. `--json` also lists the host variable `names` of each env declaration, in read order. `env check` exits with status `1` when Server Env would fail to load, so it can gate CI or deploys.
+
+`env status` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/development/operations). Pass `--url` to check a deployment:
+
+```bash [Terminal]
+pnpm vitehub env status --url https://my-app.example.com
+```
+
+It returns `ok` and, for each declaration, the status, the `names` it reads, the `name` that supplied the value, and the required, secret, and blocking flags. Values never leave the app.
 
 ## Generate and derive secrets
 
