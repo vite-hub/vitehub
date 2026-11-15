@@ -1,5 +1,5 @@
 // The Console status route and the generated Nitro dev handler of `vitehub agent invocations cancel` still use these.
-export { createError, defineEventHandler } from "h3"
+export { createError, defineEventHandler } from "nitro/h3"
 
 export {
   createAgentHealthHandler,

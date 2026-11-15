@@ -1,6 +1,6 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it } from "vitest"
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
 import packageManifest from "../package.json" with { type: "json" }
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -20,14 +20,19 @@ function fixtureOperation(name: string, section: string) {
 const kvOperations = [fixtureOperation("kv.list", "kv"), fixtureOperation("kv.get", "kv"), defineOperation({ description: "Fixture.", input: v.strictObject({}), kind: "write", name: "kv.set", run: () => null, section: "kv" })]
 const contentOperations = [fixtureOperation("content.list", "content")]
 
-async function project(): Promise<{ status: number, value?: ConsoleProject }> {
+async function call(operation: string, headers: Record<string, string> = {}): Promise<{ status: number, value?: unknown }> {
   const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
-    body: operationRpcBody("project.get", {}),
-    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    body: operationRpcBody(operation, {}),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   }))
-  const body = await operationRpcResponseResult(response) as { value?: ConsoleProject }
+  const body = await operationRpcResponseResult(response) as { value?: unknown }
   return { status: response.status, value: body.value }
+}
+
+async function project(headers: Record<string, string> = {}): Promise<{ status: number, value?: ConsoleProject }> {
+  // SAFETY: project.get answers a ConsoleProject.
+  return await call("project.get", headers) as { status: number, value?: ConsoleProject }
 }
 
 afterEach(() => {
@@ -107,6 +112,18 @@ describe("project.get", () => {
     expect(value?.sections).toEqual([])
     expect(value?.operations).toEqual(expect.arrayContaining(["kv.list", "kv.get", "kv.set"]))
     expect(value?.operations).not.toContain("agents.list")
+  })
+
+  it("sends the Console page its sections.list answer, so the page opens the project with one call", async () => {
+    installConsoleSections("/work/app", ["kv"])
+    installConsoleProjectName("/work/app", "kv-app")
+    installConsoleOperations([{ operations: kvOperations, plugin: "@vite-hub/kv" }])
+    const sections = await call("sections.list")
+    const { value } = await project()
+    expect(value?.navigation).toMatchObject({ projectName: "kv-app", sections: ["kv"] })
+    expect(value?.navigation).toEqual(sections.value)
+    // `vitehub project info` reads the project, not the page.
+    expect((await project({ [operationSurfaceHeader]: "cli" })).value).not.toHaveProperty("navigation")
   })
 
   it("is refused to a caller that the Console refuses", async () => {

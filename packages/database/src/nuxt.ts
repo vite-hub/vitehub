@@ -390,7 +390,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
               for (const other of targets.slice(index + 1)) {
                 if (!managedTargets.has(target.path) && !managedTargets.has(other.path)) continue
                 if (target.path === other.path || target.path.startsWith(`${other.path}${sep}`) || other.path.startsWith(`${target.path}${sep}`)) {
-                  throw new Error(`D1 migration directories overlap for bindings ${target.binding} and ${other.binding}; configure an exclusive migrations_dir for each binding.`)
+                  throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_OVERLAP({ first: target.binding, second: other.binding })
                 }
               }
             }
@@ -408,7 +408,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const database = content && isRecord(content.database) ? content.database : undefined
             const bindingName = database?.type === "d1" && typeof database.bindingName === "string" ? database.bindingName : "DB"
             if ((!database || database.type === "sqlite" || database.type === "d1") && !findCompleteNitroConfigD1Binding(config, bindingName)) {
-              throw new Error("Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.")
+              throw databaseErrorDiagnostics.DATABASE_NUXT_CONTENT_D1_MISSING()
             }
           }
         }
@@ -573,6 +573,7 @@ async function installNitroLocalDatabaseRuntime(
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    postgresConnectionImport: pathToFileURL(resolve(databaseRuntimeDir, "postgres-connection.js")).href,
     ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
     migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
@@ -866,7 +867,7 @@ async function installNitroMigrateOnStart(config: Record<string, unknown>, root:
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {
   const normalizedTarget = relative(resolve("."), resolve(targetDir))
   if (isAbsolute(targetDir) || normalizedTarget === "" || normalizedTarget === ".." || normalizedTarget.startsWith(`..${sep}`)) {
-    throw new Error("D1 migrations_dir must be a relative directory inside Nitro's server output.")
+    throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_INVALID()
   }
   const modules = Array.isArray(config.modules) ? [...config.modules] : []
   modules.push((nitro: {

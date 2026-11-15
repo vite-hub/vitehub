@@ -60,6 +60,11 @@
       "import": "./dist/google.js",
       "default": "./dist/google.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -100,7 +105,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

@@ -307,5 +307,23 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
       fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
     },
+
+    // Setup errors. ViteHub throws them when the Wrangler config or the project packages do not fit the Database.
+    DATABASE_D1_MIGRATIONS_DIR_INVALID: {
+      why: "D1 migrations_dir must be a relative directory inside Nitro's server output.",
+      fix: "Set `migrations_dir` of the D1 binding in the Wrangler config to a relative folder, such as `migrations`, or remove it so that ViteHub picks the folder.",
+    },
+    DATABASE_D1_MIGRATIONS_DIR_OVERLAP: {
+      why: ({ first, second }: { first: string, second: string }) => `D1 migration directories overlap for bindings ${first} and ${second}; configure an exclusive migrations_dir for each binding.`,
+      fix: "Give each D1 binding in the Wrangler config its own `migrations_dir` folder, so that no folder is the same as another or inside it.",
+    },
+    DATABASE_NUXT_CONTENT_D1_MISSING: {
+      why: "Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.",
+      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_id` in the Wrangler config, or add a Database Definition in `server/databases/`.",
+    },
+    DATABASE_POSTGRES_DRIVER_MISSING: {
+      why: ({ name }: { name: "pg" | "postgres" }) => `Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`,
+      fix: "Install the Postgres driver that the message names in the project: `pnpm add postgres`, or `pnpm add pg` for a Database with `driver: \"node-postgres\"`.",
+    },
   },
 })
