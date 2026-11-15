@@ -516,10 +516,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -999,7 +996,6 @@ describe("workflow runtime", () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
-    const stepSleep = vi.fn(async () => {})
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
@@ -1011,7 +1007,6 @@ describe("workflow runtime", () => {
           throw error
         }
       }),
-      sleep: stepSleep,
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -1021,8 +1016,7 @@ describe("workflow runtime", () => {
       event: { id: "run-1" },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async (_payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
+        welcome: async () => ({ default: { handler: async () => {
           throw original
         } } }),
       },
@@ -1031,7 +1025,6 @@ describe("workflow runtime", () => {
 
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
     expect(step.do).toHaveBeenCalledOnce()
-    expect(stepSleep).toHaveBeenCalledWith("settle", "1 second")
   })
 
   it("isolates overlapping Cloudflare fetch environments", async () => {
@@ -1225,10 +1218,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -1259,10 +1249,14 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: {
+          // A folder Workflow orchestrator: only it may sleep.
+          options: { rootStep: false },
+          handler: async (payload, { step }) => {
+            await step?.sleep?.("settle", "1 second")
+            return { payload }
+          },
+        },
       }),
     })
 
