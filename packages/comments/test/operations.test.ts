@@ -188,7 +188,7 @@ it("lists page threads with comments.threads, with search, a page filter, and a 
   const format = registry.get("comments.threads")?.mcp
   if (!format || !format.format) throw new TypeError("Expected the MCP format of comments.threads.")
   const text = (format.format as (output: unknown) => string)(all.ok ? all.value : undefined)
-  expect(text).toBe(`- ${home.id} /: Fix the logo. (Ana, 0 replies)\n- ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
+  expect(text).toBe(`- #${home.n} ${home.id} /: Fix the logo. (Ana, 0 replies)\n- #${pricing.n} ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
 })
 
 it("passes custom user fields to policies without storing them in comments", async () => {

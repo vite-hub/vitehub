@@ -18,7 +18,7 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
-import { pgliteDatabases, renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { renderNuxtContentDatabasePlugin, resolveNuxtContentDatabase, type NuxtContentDatabase } from "./internal/nuxt-content.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
@@ -573,15 +573,16 @@ async function installNitroLocalDatabaseRuntime(
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    postgresConnectionImport: pathToFileURL(resolve(databaseRuntimeDir, "postgres-connection.js")).href,
     ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
     migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
       `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
       ...(usesPostgres(runtime)
-        ? [dev
-            ? `import { createDevPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "pglite.js")).href)}`
-            : `import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`]
+        ? dev
+          ? [`import { createDevPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "pglite.js")).href)}`]
+          : renderPostgresRuntimeImports(runtime, module => pathToFileURL(resolve(databaseRuntimeDir, `${module.slice("runtime/".length)}.js`)).href)
         : []),
       ...imports,
       "",

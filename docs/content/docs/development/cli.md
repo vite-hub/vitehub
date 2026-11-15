@@ -54,6 +54,7 @@ Available namespaces:
   cms         Inspect the CMS roles and their permissions.
   database    Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
+  cache       List, read, and invalidate the entries of Nitro's cache, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
   rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
   env         Server Env inspection workflows.
@@ -144,6 +145,9 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv delete` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub cache list` | Available | ViteHub Framework | List the entries of Nitro's cache with group, name, size, and expiry. |
+| `vitehub cache get` | Available | ViteHub Framework | Print one cache entry and its value. |
+| `vitehub cache delete` | Available | ViteHub Framework | Invalidate one cache entry, or the entries under a prefix. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
@@ -272,7 +276,7 @@ The command sets `<feature>: true`, or the object from `--option`. A feature tha
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
-Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
+Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `blob.driver=s3`, adds them to the install.
 
 `vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/development/console#sign-console-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
 
@@ -875,6 +879,25 @@ pnpm vitehub database rows users --database analytics --offset 20 --url https://
 
 `database rows` reads at most 100 rows at a time and cuts cells at 32 KiB. `--offset` pages, `--sort <column>` and `--direction asc|desc` sort, and `--search <text>` matches any column. Without a table, it reads the tables only. A table that does not exist fails with `CONSOLE_NOT_FOUND`. `--database` picks a named database. Access needs the `databases` section, and `databases:read` is enough.
 
+## Read and invalidate the cache
+
+With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/development/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
+
+```bash [Terminal]
+pnpm vitehub cache list
+pnpm vitehub cache list --prefix nitrofunctions --limit 20
+pnpm vitehub cache get 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete --prefix 'nitrofunctions.Cm3ZWo:getStars'
+```
+
+- Keys show as Nitro stores them: `<group>:<name>:<hash>.json`. Nitro adds a hash to a group or name that has other characters than letters, digits, and `_`, so `nitro/functions` is `nitrofunctions.<hash>`. Copy keys and prefixes from `cache list`.
+- `cache list` reads at most 100 entries per page. Pass the printed `--cursor` for the next page. The group is `functions` or `handlers`, and the name is the `name` option, or `_` without one.
+- `cache get` cuts the value at 256 KiB.
+- `cache delete` removes one key, or at most 1,000 entries under `--prefix` per call. There is no command that clears the whole cache. Nitro computes a removed value again on the next call.
+- The driver must list keys. Vercel Runtime Cache cannot, so `cache list` fails there.
+- Access needs the `cache` section. `cache:read` allows `list` and `get` only.
+
 ## Read and write KV keys
 
 Start the dev server, then run `vitehub kv` in another terminal. Each command runs a `kv.*` [operation](/docs/development/operations) of the app, so it uses the app's keys. With `--url`, it runs on a deployed app with the Console on, using the credentials in [Run any operation](#run-any-operation).
@@ -1075,7 +1098,7 @@ The generated commands need the Console RPC. `vitehub()` installs it. Standalone
 
 Operations that run app code (`workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`) exist only when `console.invoke` is on. It is on in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|undo|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|undo|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub site sessions|revoke|invite|invites|revoke-invite|grants|open`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins.
 
 | Option | Use it for |
 | --- | --- |
@@ -1438,10 +1461,10 @@ pnpm vitehub workflow runs clear --yes
 
 The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
 
-Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name.
+Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
 
 ### Inspect runs in development
 
 `vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. `vitehub workflow runs show <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs and does not change what `get` returns.
 
-The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
+The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so the history is empty there; read a run with `vitehub workflow get`. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
