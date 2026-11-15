@@ -109,8 +109,7 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     // The inline run keeps the function alive through `waitUntil` until it settles.
     expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(1)
     expect(settled.status).toBe("completed")
-    expect(settled.result).toBeInstanceOf(Response)
-    await expect((settled.result as Response).json()).resolves.toEqual({ greeting: "Hello Ada" })
+    expect(settled.result).toEqual({ greeting: "Hello Ada" })
   }
   finally {
     Reflect.deleteProperty(globalThis, "__vitehubWaitUntil")

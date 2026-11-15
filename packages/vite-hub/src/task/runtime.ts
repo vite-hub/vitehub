@@ -28,6 +28,7 @@ export interface TaskRunResult {
 }
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class TaskOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
     super(redactInspectionText(message))
