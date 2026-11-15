@@ -82,6 +82,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -89,6 +90,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
