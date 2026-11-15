@@ -1,10 +1,11 @@
-import { BlobNotFoundError, completeMultipartUpload, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
+import { BlobNotFoundError, completeMultipartUpload, copy, createMultipartUpload, del, get, head, list, put, uploadPart } from "@vercel/blob"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { blobSizeToBytes } from "../internal/size.ts"
 
 // Vercel needs the object key and upload ID on every multipart call, so the public upload ID carries both.
 // The client returns this ID, so it holds no authority: access always comes from the store config.
@@ -84,6 +85,67 @@ function resolveBlobAccess(url: string, fallback: "private" | "public") {
   return fallback
 }
 
+// The Vercel Blob API version that `@vercel/blob` 2.8 sends. A signed request replays what its client `upload()` sends.
+const vercelBlobApiVersion = "12"
+
+function base64(bytes: Uint8Array): string {
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+/**
+ * The client token of `generateClientTokenFromReadWriteToken()` in `@vercel/blob/client`: an HMAC-SHA256 of the
+ * payload with the read-write token. Web Crypto keeps Node's `crypto` module out of Worker and standalone bundles.
+ */
+async function vercelClientToken(readWriteToken: string, payload: Record<string, unknown>): Promise<string> {
+  const storeId = readWriteToken.split("_")[3]
+  if (!storeId) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign: the read-write token has no store ID. Use the BLOB_READ_WRITE_TOKEN of the store." })
+  }
+  const encoder = new TextEncoder()
+  const body = base64(encoder.encode(JSON.stringify(payload)))
+  const key = await globalThis.crypto.subtle.importKey("raw", encoder.encode(readWriteToken), { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
+  const signature = Array.from(new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, encoder.encode(body))), byte => byte.toString(16).padStart(2, "0")).join("")
+  return `vercel_blob_client_${storeId}_${base64(encoder.encode(`${signature}.${body}`))}`
+}
+
+/**
+ * Signs a `PUT` the way `@vercel/blob/client` uploads a file: a client token from the read-write token, which Vercel
+ * checks for the pathname, the content type, the size, and the expiry. The browser sends it to the Vercel Blob API.
+ */
+async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  if (signOptions.method === "GET") {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign a GET request. Serve the object through `blob.serve()`." })
+  }
+  const token = options.token || globalThis.process?.env?.BLOB_READ_WRITE_TOKEN
+  if (!token) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
+  }
+  const allowOverwrite = !signOptions.createOnly && (options.allowOverwrite ?? true)
+  const clientToken = await vercelClientToken(token, {
+    addRandomSuffix: false,
+    allowedContentTypes: signOptions.contentType ? [signOptions.contentType] : undefined,
+    allowOverwrite,
+    maximumSizeInBytes: signOptions.maxSize === undefined ? undefined : blobSizeToBytes(signOptions.maxSize),
+    pathname,
+    validUntil: Date.now() + signOptions.expiresIn * 1000,
+  })
+  const apiUrl = globalThis.process?.env?.VERCEL_BLOB_API_URL || "https://vercel.com/api/blob"
+  const headers: Record<string, string> = {
+    "authorization": `Bearer ${clientToken}`,
+    "x-add-random-suffix": "0",
+    "x-allow-overwrite": allowOverwrite ? "1" : "0",
+    "x-api-version": vercelBlobApiVersion,
+    "x-vercel-blob-access": options.access,
+  }
+  if (signOptions.contentType) {
+    headers["Content-Type"] = signOptions.contentType
+    headers["x-content-type"] = signOptions.contentType
+  }
+  return { headers, method: "PUT", url: `${apiUrl}/?${new URLSearchParams({ pathname })}` }
+}
+
 export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
   const auth = options.token ? { token: options.token } : {}
 
@@ -144,6 +206,24 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
     async resumeMultipartUpload(pathname, uploadId) {
       return multipartUpload(pathname, decodeMultipartState(uploadId))
     },
+    // Vercel Blob copies on the server, but does not keep the content type, so it reads it first.
+    async copy(from, to) {
+      try {
+        const source = await head(from, auth)
+        const result = await copy(source.url, to, {
+          ...auth,
+          access: options.access,
+          addRandomSuffix: false,
+          allowOverwrite: options.allowOverwrite ?? true,
+          contentType: source.contentType,
+        })
+        return toBlobObject(await head(result.url, auth))
+      }
+      catch (error) {
+        if (isMissingBlobError(error)) return null
+        throw error
+      }
+    },
     async delete(pathnames) {
       await del(pathnames, auth)
     },
@@ -184,7 +264,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
       const result = await put(pathname, body as Parameters<typeof put>[1], {
         ...auth,
-        access: putOptions.access || options.access,
+        access: options.access,
         addRandomSuffix: false,
         allowOverwrite: options.allowOverwrite ?? true,
         contentType: putOptions.contentType,
@@ -218,6 +298,7 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
         url: result.url,
       }
     },
+    sign: (pathname, signOptions) => signVercelUpload(options, pathname, signOptions),
   }
 }
 

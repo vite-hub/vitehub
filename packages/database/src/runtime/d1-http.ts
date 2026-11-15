@@ -95,7 +95,8 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
 
-function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+/** A Drizzle database that sends each query to a D1 `/raw` endpoint or a proxy with the same protocol. */
+export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: { token: string, url: string },
   relations: TRelations,
   request: typeof fetch,

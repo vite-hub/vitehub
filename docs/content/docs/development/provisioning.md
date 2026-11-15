@@ -64,6 +64,8 @@ exists  cloudflare-r2-bucket     uploads
 
 Apply uses the same credentials as the plan. Without them, `provision run` exits with code 1 before it plans. Cloudflare and Vercel need different credentials.
 
+Apply also needs a checked plan. When a step cannot look up its resources, such as Vercel Blob without `VERCEL_PROJECT_ID`, `provision run` applies nothing and exits with code 1. Fix the warning, then run it again. With `--json`, the result has `checked: false`.
+
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel

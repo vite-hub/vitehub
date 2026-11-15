@@ -187,7 +187,7 @@ const InvocationError = defineComponent({
             h("svg", { class: "vh-invocation-error__chevron", "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [h("path", { d: "m9 6 6 6-6 6", "stroke-linecap": "round", "stroke-linejoin": "round" })]),
             "Details",
           ]) : null,
-          h("span", { "aria-live": "polite", class: "vh-visually-hidden", role: "status" }, copyStatus.value === "copied" ? "Error copied" : copyStatus.value === "failed" ? "Could not copy the error" : ""),
+          h("span", { "aria-live": "polite", "data-slot": "visually-hidden", role: "status" }, copyStatus.value === "copied" ? "Error copied" : copyStatus.value === "failed" ? "Could not copy the error" : ""),
         ]),
         hasDetails ? h("pre", { class: "vh-invocation-error__details", hidden: !detailsOpen.value, id: detailsId }, payloadText(payload)) : null,
       ]);
@@ -349,7 +349,7 @@ const InvocationPayload = defineComponent({
           ]) : null,
           structured.value || text.value.length > 240
             ? h("label", { class: "vh-invocation-payload__search" }, [
-                h("span", { class: "vh-visually-hidden" }, `Search ${props.label}`),
+                h("span", { "data-slot": "visually-hidden" }, `Search ${props.label}`),
                 h("input", {
                   // SAFETY: Input events for this rendered control expose HTMLInputElement as target.
                   onInput: (event: Event) => { query.value = (event.target as HTMLInputElement).value; },
@@ -361,7 +361,7 @@ const InvocationPayload = defineComponent({
             : null,
           h("button", { class: "vh-invocation-payload__copy", onClick: () => void copyPayload(), type: "button" }, copied.value ? "Copied" : "Copy"),
         ]),
-        h("span", { "aria-live": "polite", class: "vh-visually-hidden", role: "status" }, copyFailed.value ? `${props.label} could not be copied` : copied.value ? `${props.label} copied` : ""),
+        h("span", { "aria-live": "polite", "data-slot": "visually-hidden", role: "status" }, copyFailed.value ? `${props.label} could not be copied` : copied.value ? `${props.label} copied` : ""),
         query.value && structured.value && mode.value === "tree"
           ? matches.value.rows.length
             ? h("ol", { class: "vh-invocation-payload__matches" }, [
@@ -431,7 +431,7 @@ function renderMessage(
     },
     [
       progressNote
-        ? h("span", { class: "vh-visually-hidden" }, `${roleLabel} message`)
+        ? h("span", { "data-slot": "visually-hidden" }, `${roleLabel} message`)
         : h("span", { class: "vh-invocation-message__role" }, roleLabel),
       activity.attributes["input.mode"] === "steer"
         ? h("small", { class: "vh-invocation-message__method" }, "Steered")
@@ -460,7 +460,7 @@ function renderMessage(
               title: copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
               type: "button",
             }, copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : [renderCopyIcon()]),
-            copyStatus ? h("span", { class: "vh-visually-hidden", "aria-live": "polite", role: "status" }, copyStatus === "copied" ? "Message copied" : "Message could not be copied") : null,
+            copyStatus ? h("span", { "data-slot": "visually-hidden", "aria-live": "polite", role: "status" }, copyStatus === "copied" ? "Message copied" : "Message could not be copied") : null,
           ])
         : null,
     ],
@@ -696,7 +696,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
         ? h("span", { class: "vh-invocation-event__icon", "data-icon": "channel" }, [channelIcon(activityChannel(activity))])
         : renderActivityIcon(activity),
     title,
-    activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
+    activity.status === "failed" ? h("span", { "data-slot": "visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
       ? renderDisclosureChevron("vh-invocation-event__disclosure")
@@ -1151,7 +1151,7 @@ function inspectorMcpServers(servers: readonly { name: string; status?: string }
     }, [
       server.status ? h("span", { "aria-hidden": "true", class: "vh-invocation-inspector__dot", "data-status": server.status }) : null,
       server.name,
-      server.status ? h("span", { class: "vh-visually-hidden" }, `, ${server.status}`) : null,
+      server.status ? h("span", { "data-slot": "visually-hidden" }, `, ${server.status}`) : null,
     ]))),
   ]);
 }
@@ -1914,7 +1914,7 @@ const agentInvocationInspector = defineComponent({
           ]),
           h("div", { class: "vh-invocation-inspector__content" }, [
             h("span", {
-              class: "vh-visually-hidden",
+              "data-slot": "visually-hidden",
               role: "status",
             }, copied.value
               ? `${copied.value === "trace" ? "Trace" : "Invocation"} ID copied`

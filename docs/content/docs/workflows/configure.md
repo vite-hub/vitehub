@@ -57,9 +57,11 @@ export default defineConfig({
 | `sqlite.path` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow SQLite path. |
 | `sqlite.namespaceId` | `string` | provider default | OpenWorkflow SQLite namespace id. |
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
-| `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
+| `worker` | `false` or `{ concurrency }` | started | The OpenWorkflow worker that each Nitro server starts. `false` keeps the server from starting it. |
+| `remote` | `boolean` | `false` | Lets `vite dev` keep OpenWorkflow runs in the Postgres of `OPENWORKFLOW_POSTGRES_URL` or the Postgres Default Database. Without it, `vite dev` uses the local SQLite file. Builds ignore it. |
+| `worker.concurrency` | `number` | `1` | The number of runs that one worker executes at the same time. |
 
-Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on other supported hosts. Netlify cannot infer one, so set `provider` or turn Workflow off there. On Node or Docker, ViteHub picks OpenWorkflow when you set `postgres.url` or `sqlite.path`.
+Without `provider`, ViteHub picks Cloudflare on Cloudflare, OpenWorkflow on Node or Docker (also in `vite dev` with the `node` host), and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Each Node server starts the OpenWorkflow worker. [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) tells how it picks storage. Netlify cannot infer a provider, so set `provider` or turn Workflow off there. An explicit `provider` always wins.
 
 ## Define a workflow
 
@@ -134,4 +136,4 @@ async function inlineOnboard(payload: OnboardPayload) {
 export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
 ```
 
-ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.
+ViteHub transforms `native` when it builds Vercel output. Other providers use the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put side effects in `use step` functions and make them safe to repeat, because a step can be retried.

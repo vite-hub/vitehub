@@ -43,11 +43,13 @@ export interface ConsoleRecord {
 export type ConsoleOperationTone = "error" | "info" | "neutral" | "success" | "warning"
 
 export interface ConsoleOperationColumn {
-  format?: "datetime" | "excerpt" | "status"
+  format?: "datetime" | "excerpt" | "status" | "switch"
   key: string
   label: string
   /** The tone of each value of a `status` column. */
   tones?: Readonly<Record<string, ConsoleOperationTone>>
+  /** The operation that a `switch` column calls, and its input keys as dot paths of the item. */
+  switch?: { operation: string, input: Readonly<Record<string, string>> }
 }
 
 export interface ConsoleOperationFilter {
@@ -234,13 +236,17 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
   const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
     const column = record(entry)
     if (!text(column?.key) || !text(column.label)) return []
-    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" ? column.format : undefined
+    const toggle = record(column.switch)
+    const toggleInput = Object.entries(record(toggle?.input) ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
+    // A switch without its operation would do nothing, so it shows the value as text.
+    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" || (column.format === "switch" && text(toggle?.operation)) ? column.format : undefined
     const tones = format === "status" ? record(column.tones) : undefined
     return [{
       key: column.key,
       label: column.label,
       ...(format ? { format } : {}),
       ...(tones ? { tones: Object.fromEntries(Object.entries(tones).filter((entry): entry is [string, ConsoleOperationTone] => operationTones.has(String(entry[1])))) } : {}),
+      ...(format === "switch" && text(toggle?.operation) ? { switch: { input: Object.fromEntries(toggleInput), operation: toggle.operation } } : {}),
     }]
   })
   const filters = Array.isArray(view.filters)

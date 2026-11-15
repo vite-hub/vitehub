@@ -48,6 +48,7 @@ export default defineConfig({
       "src/console.ts",
       "src/console-runtime.ts",
       "src/database.ts",
+      "src/forward.ts",
       "src/mcp.ts",
       "src/index.ts",
       "src/internal/server.ts",

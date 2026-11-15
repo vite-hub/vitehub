@@ -4,9 +4,9 @@ import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
-import { defineAuth } from "../src/index.ts";
 import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -161,7 +161,7 @@ describe("one-time values and the app session", () => {
   });
 
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
-    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } });
+    const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
     const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));
     const [saveError] = await consoles[0]!.saveVerification("ticket:memory", "value", new Date(Date.now() + 60_000));
     expect(saveError).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
@@ -186,6 +186,7 @@ describe("users and sessions that a host signs in", () => {
 
   it("adds roles to the user with the email, and signs a browser in with a Better Auth session", async () => {
     const fixture = await app();
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
     const [error, user] = await api.hostUser({ email: "Ada@Example.com", name: "Ada", roles: ["console", "comments-read"] });
     expect(error).toBeUndefined();
@@ -195,6 +196,25 @@ describe("users and sessions that a host signs in", () => {
     expect(cookie).toMatch(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=\d+; HttpOnly; SameSite=Lax/);
     const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookie.split(";")[0]! }) });
     expect(session?.user).toMatchObject({ id: fixture.member.id, role: "user,console,comments-read" });
+  });
+
+  it("refuses to adopt an account whose email is not verified, so a sign-up with someone else's email gets no roles", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, user] = await api.hostUser({ email: "ada@example.com", name: "Ada", roles: ["console"] });
+    expect(user).toBeUndefined();
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
+    expect(error?.cause).toMatchObject({ message: expect.stringContaining("not verified") });
+    expect(fixture.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(fixture.member.id)).toEqual({ role: "user" });
+  });
+
+  it("makes a verified user for a new member email, so the next sign-in adopts the same account", async () => {
+    const fixture = await app();
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [, first] = await api.hostUser({ email: "grace@example.com", name: "Grace", roles: ["console"] });
+    const [error, second] = await api.hostUser({ email: "grace@example.com", name: "Grace", roles: ["comments-read"] });
+    expect(error).toBeUndefined();
+    expect(second).toEqual({ id: first!.id, roles: ["console", "comments-read"] });
   });
 
   it("creates a guest without an email, lists the sessions of role holders, and revokes and removes them", async () => {
@@ -228,6 +248,7 @@ describe("users and sessions that a host signs in", () => {
         return value;
       },
     } });
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
     const roles = kind === "member" ? ["console"] : ["guest", "comments-read"];
     const [userError, user] = await api.hostUser({

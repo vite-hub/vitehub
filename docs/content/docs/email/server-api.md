@@ -33,13 +33,32 @@ The direct `@vite-hub/email` and `@vite-hub/email/markdown` paths remain stable 
 | `to` | `EmailAddressList` | Yes | One address or a non-empty array. |
 | `cc`, `bcc`, `replyTo` | `EmailAddressList` | No | More recipients. |
 | `subject` | `string` | Yes | The message subject. |
-| `html`, `text` | `string` | No | Body versions that the driver supports. |
-| `headers` | `Record<string, string>` | No | Custom headers that the driver supports. |
+| `text`, `html` | `string` | One of them | The plain-text body, the HTML body, or both. |
+| `headers` | `Record<string, string>` | No | Custom headers. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
+| `unsubscribe` | `{ url?, mailto?, oneClick? }` | No | Adds the `List-Unsubscribe` headers. |
+| `tags`, `metadata` | `readonly { name, value }[]`, `Record<string, string>` | No | Resend only. |
+| `scheduledAt` | `string \| Date` | No | Resend only. |
+| `idempotencyKey` | `string` | No | Resend only. |
 
-`EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` also has scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields. Built-in drivers pass on only the fields their provider supports.
+`EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. The Cloudflare Email driver returns an error for the fields marked Resend only.
 
-The driver decides field support, validation, address rules, message limits, and sender authorization. Check the driver reference and provider docs before you use optional fields.
+A message without `text` and `html` does not compile, and `send()` returns `EMAIL_INVALID_MESSAGE` for it. ViteHub does not render provider templates, React, JSX, MJML, Handlebars, or Liquid. Render the body yourself, for example with [`renderEmailMarkdown()`](#compose-dynamic-markdown) or `render()` from `@react-email/render`, and pass the result:
+
+```ts [server/welcome.ts]
+import { email } from 'vite-hub/email'
+
+function renderWelcome(workspaceUrl: string) {
+  return `<p>Your workspace is ready. <a href="${workspaceUrl}">Open it</a>.</p>`
+}
+
+export async function sendWelcome(to: string, workspaceUrl: string) {
+  const [error] = await email.send({ from: 'hello@example.com', to, subject: 'Welcome', html: renderWelcome(workspaceUrl) })
+  if (error) throw error
+}
+```
+
+The driver decides address rules, message limits, and sender authorization. Check the provider docs for those limits.
 
 `send()` returns `Promise<Result<EmailSendResult, EmailErrorCode>>`, an `[error, sent]` tuple. When `error` is set, read `error.code`, `error.why`, and `error.fix` ([Limits and errors](/docs/email/limits-and-errors)). On success, `sent` is an `EmailSendResult`:
 

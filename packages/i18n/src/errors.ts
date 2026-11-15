@@ -13,6 +13,12 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "i18n needs Nitro 3, which runs each request in an async context. Nuxt 4 builds the server with Nitro 2.",
       fix: "Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.",
     },
+    I18N_UNKNOWN_WORKSPACE: {
+      why: ({ workspace, workspaces }: { workspace: string, workspaces: readonly string[] | undefined }) => workspaces === undefined
+        ? `\`i18n.workspace\` is ${JSON.stringify(workspace)}, and Workspace is not enabled.`
+        : `\`i18n.workspace\` is ${JSON.stringify(workspace)}, and the app defines ${workspaces.length ? `only these Workspaces: ${workspaces.map(name => JSON.stringify(name)).join(", ")}` : "no Workspace"}.`,
+      fix: "Set `i18n.workspace` to the name of a Workspace, or define it, such as `server/workspaces/translations/config.ts` for `\"translations\"`.",
+    },
     // Thrown when code calls a message macro that the ViteHub build did not compile.
     I18N_MACRO_NOT_COMPILED: {
       why: ({ name }: { name: string }) => `\`${name}\` from \`vite-hub/i18n\` ran without the ViteHub build, so it has no message ID.`,

@@ -17,7 +17,7 @@ import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1Query } from "./d1-migrations.ts"
 
 /** Where `vitehub database export` reads a database. Only `local` is on this machine. */
-type ExportTarget =
+export type ExportTarget =
   | { kind: "local", path: string }
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "d1", accountId?: string, databaseId?: string, databaseName?: string, token?: string }
@@ -35,8 +35,8 @@ interface ExportOptions {
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
 }
 
-/** Resolves the export target with the same connection rules as `vitehub database migrate`. */
-function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
+/** Resolves the target of `vitehub database export` and `seed` with the same connection rules as `vitehub database migrate`. */
+export function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
   if (database.dialect === "postgresql") {
     const url = resolveConfigValue(database.connection?.url, env)?.trim() || undefined
     if (runsOnPglite(database.driver, url, env)) return { kind: "pglite", path: resolve(projectRoot, localPgliteDir(database.name)) }

@@ -85,6 +85,22 @@ export function operationStatus(item: unknown, column: ConsoleOperationColumn): 
   return { label: `${text.charAt(0).toUpperCase()}${text.slice(1)}`, tone }
 }
 
+/**
+ * The call of a `switch` column for one item: its operation, and an input with each `input` key read from the item and
+ * the column key set to `checked`. Undefined when the column is not a switch or the item lacks a value.
+ */
+export function operationSwitchCall(item: unknown, column: ConsoleOperationColumn, checked: boolean): { operation: string, input: Record<string, unknown> } | undefined {
+  if (column.format !== "switch" || !column.switch) return undefined
+  const input: Record<string, unknown> = {}
+  for (const [key, path] of Object.entries(column.switch.input)) {
+    const value = operationValue(item, path)
+    if (value === undefined || value === null) return undefined
+    input[key] = value
+  }
+  input[column.key] = checked
+  return { input, operation: column.switch.operation }
+}
+
 /** The items of an operation result. Anything else is a failure of the owner operation. */
 export function operationItems(result: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(result)) return []

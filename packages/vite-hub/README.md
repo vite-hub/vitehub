@@ -97,7 +97,7 @@ and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
-The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`.
+The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`. `vitehub deploy --host <host>` is the exception: it builds with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, and that host wins over `host`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare host uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
@@ -152,6 +152,10 @@ A successful build proves that ViteHub discovered the configured definitions and
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, or Vite virtual module IDs. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).
 
 Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
+
+`vitehub({ health: true })` adds `/api/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, commit }`, where `commit` is the commit of the build from the CI or host variables, else from Git, else `null`. With `database`, it also runs `SELECT 1` on each Database and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, databases: { default: false } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
+
+`vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
@@ -251,7 +255,7 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 
 ## Record Agent invocations
 
-An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify host and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
+An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or `agent-invocations.sqlite` next to a `file:` Agent State database on the node host, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify host and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
 import { vitehub } from "vite-hub"
@@ -286,7 +290,7 @@ Set `agent: { invocations: "database" }` in the `vitehub()` options to give ever
 
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
-On a Postgres Database, the store does not create tables. ViteHub adds `vitehub_agent_invocations` and `vitehub_agent_invocations_observations` to that Database, so `vitehub database generate` writes their migration and `vitehub database migrate` applies it. Without the tables, the first journal operation fails with `AGENT_R1044`. Claims expire by the database clock, so several Node instances can share one journal.
+On a Postgres Database, the store does not create tables. ViteHub adds `vitehub_agent_invocations` and `vitehub_agent_invocations_observations` to that Database, so `vitehub database generate` writes their migration and `vitehub database migrate` applies it. Without the tables, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. Claims expire by the database clock, so several Node instances can share one journal.
 
 Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAge, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
@@ -346,7 +350,7 @@ With the Cloudflare host and `observability.logs` set, ViteHub defaults the gene
 
 ## Agent Skills
 
-`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. Read the [Agent Skills guide](https://vitehub.dev/docs/development/skills).
+`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. `skillSettings(skills, { store: kv })` adds a switch to each skill: default-export it from `server/skills.ts`, serve `settings.enabled`, and turn skills on and off without a deploy in the Console **Served skills** section or with `vitehub served-skills set <name> false`. Read the [Agent Skills guide](https://vitehub.dev/docs/development/skills).
 
 ```ts
 // server/middleware/skills.ts

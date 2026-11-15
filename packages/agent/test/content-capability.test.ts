@@ -43,7 +43,7 @@ const auth = {
 }
 
 /** Editors may do anything. Other signed-in users may read. */
-const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read" && Boolean(user))
+const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read-draft" && Boolean(user))
 
 const fields = {
   title: z.string().min(1),
@@ -499,7 +499,7 @@ describe("content capability", () => {
   it("never shows a document that authorize hides from the user", async () => {
     // Everyone signed in may read, except the `secret` post, which only editors may read.
     const runtime = await setup({
-      authorize: ({ user, action, id }) => user?.role === "editor" || (action === "read" && Boolean(user) && id !== "secret"),
+      authorize: ({ user, action, id }) => user?.role === "editor" || (action === "read-draft" && Boolean(user) && id !== "secret"),
     })
     const posts = runtime.collection("posts")
     await posts.save("hello", { data: { ...hello, title: "Hello launch" }, body: "Hello\n" })
@@ -583,9 +583,9 @@ describe("content capability", () => {
     await run(editorTools.content_status, { collection: "posts", id: "hello" })
     await run(editorTools.content_status, { collection: "pages" })
     expect(decisions).toEqual([
-      { action: "read", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
-      { action: "read", actor: editor, collection: "pages", user: authUsers.user_1 },
-      { action: "read", actor: editor, collection: "pages", id: "about", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "pages", user: authUsers.user_1 },
+      { action: "read-draft", actor: editor, collection: "pages", id: "about", user: authUsers.user_1 },
     ])
   })
 

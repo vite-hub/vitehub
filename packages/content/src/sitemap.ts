@@ -377,10 +377,13 @@ async function absoluteLinks(markdown: string, site: string | undefined): Promis
 
 const trimRoute = (route: string) => route.replace(/\/+$/, "") || "/"
 
-/** Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. */
-async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string, locale?: string } | null> {
+/**
+ * Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. `singletons` reads
+ * only singletons, which `resolve()` does not index, so a miss does not list every document.
+ */
+async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string, singletons = false): Promise<{ collection: string, id: string, locale?: string } | null> {
   for (const collection of collections) {
-    if (!collection.routable || collection.format !== "markdown") continue
+    if (!collection.routable || collection.format !== "markdown" || (singletons && collection.kind !== "singleton")) continue
     let cursor: string | undefined
     do {
       const result = await collection.list({ ref: "published", limit: 1_000, ...(cursor ? { cursor } : {}) })
@@ -412,6 +415,19 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
   const description = stringField(seo, "description") ?? stringField(document.data, "description")
   return await renderMarkdownCopy({ title, description, body: document.body }, site)
+}
+
+/**
+ * Whether the published document that a path plus `.md` names has a Markdown copy, without reading its body. A path
+ * that `resolve()` misses checks the singletons only: every other document with a URL is in its index.
+ */
+export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string): Promise<boolean> {
+  const page = contentMarkdownCopyPage(path)
+  if (page === undefined) return false
+  const resolved = await runtime.resolve(page, { ref: "published" })
+  const collection = resolved ? runtime.collection(resolved.collection) : undefined
+  if (collection?.routable && collection.format === "markdown") return true
+  return await routedMarkdown(runtime.collections.values(), page, !resolved) !== null
 }
 
 /**

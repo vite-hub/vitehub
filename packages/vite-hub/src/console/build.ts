@@ -6,6 +6,8 @@ import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
+import { servedSkillsConsoleSection } from "../skills/console.ts"
+import { findServedSkillsEntry } from "../skills/vite.ts"
 
 import type { CollectedOperationContribution } from "@vite-hub/internal/operations"
 import type { ConsoleSectionDiscoveryContext } from "./contributions.ts"
@@ -145,6 +147,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
     // No section registers Forms, so the folder turns it on here.
     if (!entries.includes("forms")) entries.push("forms")
+  }
+  // `server/skills.ts` runs the served skill operations, so the Console section lists the skills with a switch each.
+  if (findServedSkillsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content["served-skills"] = await readViteHubConsoleSection(servedSkillsConsoleSection, undefined)
+    sectionOverrides["served-skills"] = describeViteHubConsoleSection(servedSkillsConsoleSection)
+    if (!entries.includes("served-skills")) entries.push("served-skills")
   }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)

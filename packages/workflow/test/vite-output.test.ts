@@ -947,13 +947,14 @@ it("removes only a prior Workflow-owned Vercel function when the active host cha
   })
 })
 
-it("writes no Vercel function for an inferred Vercel provider on a Node host", async () => {
+it("writes no Vercel function for OpenWorkflow on a Node host", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-node-host-")
   const workflowFunction = join(rootDir, ".vercel", "output", "functions", "__server.func")
 
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
   expect(existsSync(workflowFunction)).toBe(true)
 
+  // The Node host infers OpenWorkflow, so a build without a provider does not fail.
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })
 
   expect(existsSync(workflowFunction)).toBe(false)

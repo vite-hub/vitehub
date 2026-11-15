@@ -206,7 +206,7 @@ describe("one-time links", () => {
     const { defineAuth } = await import("@vite-hub/auth")
     const { createAuthForRequest } = await import("@vite-hub/auth/internal/server")
     const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
-    const definition = defineAuth({ emailAndPassword: { enabled: true }, runtime: { secret: "console-tickets-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin } })
+    const definition = defineAuth(() => ({ baseURL: origin, emailAndPassword: { enabled: true }, secret: "console-tickets-memory-secret-abcdefghijklmnopqrstuvwxyz" }))
     authServer.console = request => createAuthConsole(createAuthForRequest(definition, request))
     installConsoleSections(root, ["content", "auth"])
     contentSection()

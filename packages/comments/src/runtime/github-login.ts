@@ -102,7 +102,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         // The app's own Auth may use Better Auth's default cookie names.
         advanced: { cookiePrefix: "vitehub_comments" },
       }))
-      instance = (await import("@vite-hub/auth/internal/server")).createAuthForRequest(definition, request, undefined, event)
+      instance = (await import("@vite-hub/auth/internal/server")).createAuthForRequest(definition, request, event)
       if (instances.size > 20) instances.clear()
       instances.set(key, instance)
     }

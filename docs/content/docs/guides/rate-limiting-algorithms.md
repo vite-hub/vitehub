@@ -225,10 +225,10 @@ export default defineAgent({
 })
 ```
 
-The Capability picks the key. With the default `identity: 'auto'`, it uses the Agent Invoker (the caller). There is always an Invoker, with the fallback id `anonymous:<origin>` when the caller has no identity.
+The Capability picks the key. With the default `identity: 'auto'`, it uses the Agent Invoker (the caller) when the caller has an identity. An unauthenticated call gets its own counter from its thread or channel, then from the `trustedIpHeaders` that you name.
 
 ::warning
-Unauthenticated calls from the same origin share one counter. `auto` does not split them by thread, channel, or IP address, so here they share 20 runs per minute.
+Unauthenticated calls with no thread, no channel, and no trusted IP header share one counter, so here they share 20 runs per minute.
 ::
 
 For a per-user limit, pass the signed-in user's identity as the Invoker. Use `identity: 'run'` for thread or channel metadata, or `identity: 'ip'` with `trustedIpHeaders` for IP limits. See [Choose identity](/docs/rate-limit/agent-capability#choose-identity).

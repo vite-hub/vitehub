@@ -30,6 +30,9 @@ import { PromptInput, type PromptInputSubmit } from "./prompt-input.ts";
 
 export type CommentComposerVariant = "comment" | "reply" | "edit";
 
+/** `md` fits a panel. `sm` is for a small floating card: 14px text, a shorter field, and smaller buttons. */
+export type CommentComposerSize = "sm" | "md";
+
 /** What `submit` sends: the text, the ids of the people mentioned in it, and the attached files. */
 export interface CommentComposerSubmit {
   body: string;
@@ -145,6 +148,9 @@ export const CommentComposer = defineComponent({
      */
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     layout: { default: "box", type: String as PropType<"box" | "row"> },
+    /** `sm` is a compact box for a small card: a shorter field, smaller buttons, and a focus edge without a halo. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    size: { default: "md", type: String as PropType<CommentComposerSize> },
   },
   emits: ["update:modelValue", "update:mentions", "update:files", "submit", "cancel"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -421,6 +427,7 @@ export const CommentComposer = defineComponent({
           "data-dragging": dragging.value ? "true" : undefined,
           "data-layout": props.layout,
           "data-shake": shaking.value ?? undefined,
+          "data-size": props.size,
           "data-slot": "comment-composer",
           "data-variant": props.variant,
           // Capture, so the mention menu and Esc see the key before the prompt does.

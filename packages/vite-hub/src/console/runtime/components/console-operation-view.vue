@@ -4,7 +4,10 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { Status } from "@vite-hub/ui";
 
-import { loadOperationItems, operationCell, operationLink, operationStatus, operationTime, operationValue } from "../client/operation-view";
+import { loadOperationItems, operationCell, operationLink, operationStatus, operationSwitchCall, operationTime, operationValue } from "../client/operation-view";
+import { isConsoleSectionReadOnly } from "../client/read-only";
+import { requestConsoleOperation } from "../client/request";
+import { useConsoleToast } from "../client/toast";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -72,6 +75,27 @@ async function load(): Promise<void> {
   }
 }
 
+// A `switch` column flips a value with its operation. The row stays disabled until the list loads again.
+const toast = useConsoleToast();
+const readOnly = ref(false);
+const switching = ref(new Set<string>());
+async function flip(item: Record<string, unknown>, column: ConsoleOperationView["columns"][number], checked: boolean): Promise<void> {
+  const call = operationSwitchCall(item, column, checked);
+  const id = itemId(item);
+  if (!call || switching.value.has(id)) return;
+  switching.value = new Set([...switching.value, id]);
+  try {
+    await requestConsoleOperation(call.operation, call.input);
+    await load();
+  } catch {
+    toast.error(`Couldn't change ${column.label.toLowerCase()}. Try again.`);
+  } finally {
+    const next = new Set(switching.value);
+    next.delete(id);
+    switching.value = next;
+  }
+}
+
 const detail = computed(() => view.value.detail);
 // The row button holds the text of the item, such as the comment, so a screen reader names what it opens.
 const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
@@ -94,7 +118,10 @@ function choose(id: string): void {
   filterId.value = id === filters.value[0]?.id ? undefined : id;
 }
 
-onMounted(() => void load());
+onMounted(() => {
+  void load();
+  if (view.value.columns.some(column => column.format === "switch")) void isConsoleSectionReadOnly(props.sectionsBase, props.details.id).then((value) => { readOnly.value = value; });
+});
 watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
 </script>
@@ -175,6 +202,16 @@ onBeforeUnmount(() => controller?.abort());
                       class="rounded-md text-left after:absolute after:inset-0"
                       @click="selectThread(itemId(item))"
                     >{{ operationCell(item, column) }}</button>
+                    <!-- Above the row button, so a flip does not open the item. The first column names the row. -->
+                    <USwitch
+                      v-else-if="column.format === 'switch'"
+                      class="relative"
+                      size="sm"
+                      :model-value="operationValue(item, column.key) === true"
+                      :disabled="readOnly || switching.has(itemId(item))"
+                      :aria-label="`${column.label}: ${operationCell(item, view.columns[0] ?? column)}`"
+                      @update:model-value="flip(item, column, $event === true)"
+                    />
                     <template v-else-if="column.format === 'status' && operationStatus(item, column)">
                       <Status :tone="operationStatus(item, column)!.tone" :label="operationStatus(item, column)!.label" />
                     </template>

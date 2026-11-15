@@ -318,6 +318,8 @@ export default defineConfig({
 :::
 ::
 
+`i18n.workspace` must name a Workspace that the app defines. Otherwise `vite dev` and `vite build` stop with [`I18N_UNKNOWN_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_unknown_workspace).
+
 The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
 
 - **`draft`** gets every save. The site does not show it.

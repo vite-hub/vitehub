@@ -79,6 +79,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./forward": {
+      "types": "./dist/forward.d.ts",
+      "import": "./dist/forward.js",
+      "default": "./dist/forward.js"
+    },
     "./internal/server": {
       "types": "./dist/internal/server.d.ts",
       "import": "./dist/internal/server.js",
@@ -179,7 +184,7 @@
     "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@better-auth/oauth-provider": {

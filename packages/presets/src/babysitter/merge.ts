@@ -7,6 +7,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
+import { reviewerLabeledSevere } from "../github/index.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -31,6 +32,7 @@ export type BabysitterMergeReady = (input: BabysitterMergeReadinessInput) => tru
  *   is not an owner, member or collaborator of the repository merges only after a reviewer with write
  *   access approves its current head, and while no such reviewer's latest review requests changes.
  *   A push after the approval needs a new one. `ready: () => true` merges every ready PR.
+ *   `trustedAuthors` lets more authors through the default gate, such as dependency bots.
  */
 export type BabysitterMerge =
   | false
@@ -40,6 +42,12 @@ export type BabysitterMerge =
     strategy: "direct";
     method?: BabysitterMergeMethod;
     ready?: BabysitterMergeReady | "approved-if-outside";
+    /**
+     * Logins whose PRs the `"approved-if-outside"` gate merges without an approval, like an author with
+     * write access, such as `renovate[bot]`. Write a bot with its `[bot]` suffix: an entry with it matches
+     * only a bot account, and one without it matches only a user. Not allowed with a `ready` callback.
+     */
+    trustedAuthors?: readonly string[];
     /**
      * Required checks, by repository (`owner/name`), that the host may merge past when they fail only
      * because the same check fails the same way on the base branch tip. The merge bypasses branch
@@ -89,13 +97,23 @@ export interface BabysitterMergeEvidence {
    * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
    */
   automatedReviewSettled?: boolean;
+  /**
+   * The PR spent twice its review push budget. Until then, bot findings that their reviewer labeled P0
+   * or P1 still need an assessment after `automatedReviewSettled`.
+   */
+  severeReviewSettled?: boolean;
+  /**
+   * Review threads a worker declined while their reviewer labeled them P0 or P1. While one is
+   * unresolved, the PR waits for a person.
+   */
+  heldThreads?: ReadonlySet<string>;
   /** Current-head checks that fail the same way on the base tip. They are the base's failures, not this PR's. */
   inheritedCheckIds?: ReadonlySet<number>;
   /** Unresolved review threads with only bot comments do not block once their comments are assessed. */
   ignoreAssessedBotThreads?: boolean;
 }
 
-type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
+type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled" | "severeReviewSettled">;
 
 function feedbackAuthor(value: GitHubEvidence): string {
   return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
@@ -120,7 +138,7 @@ export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: Reado
  */
 function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean {
   if (value.deleted) return true;
-  if (policy.automatedReviewSettled && botAuthor(value)) return true;
+  if (policy.automatedReviewSettled && botAuthor(value) && (policy.severeReviewSettled || !reviewerLabeledSevere(value.body))) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
   if (hasGitHubLogin(policy.workerAuthors, author) || hasGitHubLogin(policy.ignoreFeedbackAuthors, author)) return true;
@@ -200,9 +218,22 @@ const hasWriteAccess = (association: unknown) => writeAccess.has(String(associat
  * The `"approved-if-outside"` merge gate. Each write-access reviewer's latest APPROVED or
  * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing.
  */
-export function approvedIfOutside({ head, snapshot }: BabysitterMergeReadinessInput): true | string {
+export function approvedIfOutside(input: BabysitterMergeReadinessInput): true | string {
+  return approvedIfOutsideGate(input, new Set());
+}
+
+/** A login with `[bot]` for a bot account, so a user cannot pass as a trusted bot of the same name. */
+function accountLogin(user: GitHubEvidence["user"]): string {
+  const login = String(user?.login ?? "").trim().toLowerCase();
+  if (!login) return "";
+  const bot = login.endsWith("[bot]") || String(user?.type ?? user?.__typename ?? "").toLowerCase() === "bot";
+  return bot && !login.endsWith("[bot]") ? `${login}[bot]` : login;
+}
+
+function approvedIfOutsideGate({ head, snapshot }: BabysitterMergeReadinessInput, trustedAuthors: ReadonlySet<string>): true | string {
   const pr = snapshot.pr;
   if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
+  if (trustedAuthors.has(accountLogin(pr?.user ?? pr?.author))) return true;
   const latest = new Map<string, GitHubEvidence>();
   const decisive = Object.values(snapshot.reviews)
     .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
@@ -235,8 +266,18 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
     if (drafts !== undefined && (!Array.isArray(drafts) || !drafts.every(login => hasRuntimeType(login, "string") && login.trim()))) {
       throw presetsErrorDiagnostics.PRESETS_MERGE_DRAFT_AUTHORS_INVALID();
     }
+    const trusted = merge.trustedAuthors;
+    if (trusted !== undefined && (!Array.isArray(trusted) || !trusted.every(login => hasRuntimeType(login, "string") && login.trim()))) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.trustedAuthors", expected: 'a list of GitHub logins, such as ["renovate[bot]"]' });
+    }
+    const builtIn = merge.ready === undefined || merge.ready === "approved-if-outside";
+    if (trusted?.length && !builtIn) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.trustedAuthors", expected: 'left out with a ready callback, which decides every author itself' });
+    }
+    const trustedAuthors = new Set(trusted?.map((login: string) => login.trim().toLowerCase()));
+    const gate = trustedAuthors.size ? (input: BabysitterMergeReadinessInput) => approvedIfOutsideGate(input, trustedAuthors) : approvedIfOutside;
     // SAFETY: the guard above proves ready is undefined, the built-in policy name, or a function with the documented contract.
-    const ready = merge.ready === undefined || merge.ready === "approved-if-outside" ? approvedIfOutside : merge.ready as BabysitterMergeReady | undefined;
+    const ready = builtIn ? gate : merge.ready as BabysitterMergeReady | undefined;
     const bypassInheritedChecks = new Map<string, ReadonlySet<string>>();
     if (merge.bypassInheritedChecks !== undefined) {
       if (!isRuntimeRecord(merge.bypassInheritedChecks)) throw presetsErrorDiagnostics.PRESETS_MERGE_BYPASS_CHECKS_INVALID();
@@ -304,8 +345,12 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
+  const held = (thread: GitHubReviewThread) => assessment.heldThreads?.has(String(thread.node_id ?? thread.id)) === true;
   const botThreadsSettled = settled || assessment.ignoreAssessedBotThreads === true;
-  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && !held(thread) && (!botThreadsSettled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
+  // Checked last, so a pass still runs for any other open work.
+  const waiting = snapshot.threads.filter(thread => thread.isResolved !== true && held(thread)).length;
+  if (waiting) return no(`a person to resolve ${waiting === 1 ? "a review thread" : `${waiting} review threads`} the worker declined although the reviewer labeled ${waiting === 1 ? "it" : "them"} P0 or P1`);
   return { ready: true, head };
 }
 

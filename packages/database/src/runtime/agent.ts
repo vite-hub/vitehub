@@ -62,6 +62,25 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
 }
 
 /**
+ * Runs `SELECT 1` on each named Database and returns whether it answered, by name. A Database that fails is `false`,
+ * and its error goes to the server log, so the result holds no connection details.
+ */
+export async function pingDatabaseEntries(databases: Record<string, AgentDatabaseEntry>, names: readonly string[]): Promise<Record<string, boolean>> {
+  const handle = createAgentDatabase(databases)
+  const results = await Promise.all(names.map(async (name) => {
+    try {
+      await handle.database(name).exec("SELECT 1")
+      return [name, true] as const
+    }
+    catch (error) {
+      console.error(`[vitehub] Database ${JSON.stringify(name)} did not answer SELECT 1.`, error)
+      return [name, false] as const
+    }
+  }))
+  return Object.fromEntries(results)
+}
+
+/**
  * The operations shared by a Cloudflare D1 binding and the request's D1 session with read replication.
  * Consumers such as the D1 Agent Invocation store accept this contract; it is not the full `D1Database` API.
  */

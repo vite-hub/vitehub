@@ -5,12 +5,13 @@ import {
   runWithNuxtContext,
 } from "@nuxt/kit";
 import { icons as viteHubIcons } from "@vite-hub/icons";
-import type { ViteHubUIOptions } from "./config.ts";
+import type { ViteHubUIIconOptions, ViteHubUIOptions } from "./config.ts";
 import { componentNames } from "./component-names.ts";
 import { viteHubUIIcons } from "./icons.ts";
 
 // Components are not serializable, so the module takes the defaults only. Pass components to `createViteHubUI()` in a plugin.
-export interface ViteHubUINuxtOptions extends Omit<ViteHubUIOptions, "components"> {
+// Icons come from the app config, below.
+export interface ViteHubUINuxtOptions extends Omit<ViteHubUIOptions, "components" | "icons"> {
   /** Prefix for auto-imported component names, for example `Vh` registers `VhTrace`. Use it when the app has its own `Message` or `Trace`. */
   prefix?: string;
 }
@@ -18,6 +19,13 @@ export interface ViteHubUINuxtOptions extends Omit<ViteHubUIOptions, "components
 export interface ViteHubUINuxtModule {
   (inlineOptions: ViteHubUINuxtOptions, nuxt: never): unknown;
   getMeta?: () => Promise<Record<string, unknown>>;
+}
+
+declare module "@nuxt/schema" {
+  interface AppConfigInput {
+    /** The icons of the parts that Nuxt UI's `appConfig.ui.icons` has no name for, such as `edit` and `delete`. */
+    viteHubUI?: { icons?: ViteHubUIIconOptions };
+  }
 }
 
 /** The parts of a Nuxt instance that `addViteHubUIRuntime()` uses. */

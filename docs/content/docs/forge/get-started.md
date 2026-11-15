@@ -84,7 +84,7 @@ Set `VITEHUB_GITHUB_APP_ID` on the host and provide the private key in a form th
 - On Cloudflare, store the PEM itself in a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding. Remove the local `VITEHUB_GITHUB_PRIVATE_KEY_PATH` setting: a deployed Worker does not have your local `github-app.pem` file. `useForge()` reads the bindings of the request.
 - On hosts where a private key file is available at runtime, set `VITEHUB_GITHUB_PRIVATE_KEY_PATH` to that file. Otherwise, store the PEM in `VITEHUB_GITHUB_PRIVATE_KEY` through the host's secret settings.
 
-When the App has many installations, `useForge()` finds the installation of each repository. Set `VITEHUB_GITHUB_INSTALLATION_ID` to use one fixed installation.
+When the App has many installations, `useForge()` finds the installation of each repository. To skip that lookup, see [Installations](/docs/forge/configure#installations).
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/forge/configure"}

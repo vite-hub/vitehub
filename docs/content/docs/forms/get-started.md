@@ -44,7 +44,7 @@ import { ContactSchema } from '../../shared/schemas'
 export default defineForm({ schema: ContactSchema })
 ```
 
-The folder `server/forms/` turns the Database on when you did not set `database`. Forms adds its table to the default Database. Write and apply the migration:
+The folder `server/forms/` turns the Database on when you did not set `database`. Forms adds its table to the default Database. With `database: false`, a development server keeps messages in memory, and a build fails with `FORMS_B0002` unless each form sets `store: false`. Write and apply the migration:
 
 ```bash [commands/migrate]
 vitehub database generate

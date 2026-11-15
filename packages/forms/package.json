@@ -81,9 +81,13 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@chat-adapter/slack": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@ui-sdk/core": "0.1.0-beta.2",
+    "@ui-sdk/vue": "0.1.0-beta.2",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
@@ -93,13 +97,15 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "chat": "catalog:chat",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "@formisch/vue": "^1.2.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@formisch/vue": {

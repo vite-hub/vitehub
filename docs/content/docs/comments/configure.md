@@ -633,12 +633,20 @@ The Comments segment works like the one in Drop. **Comments** shows the number o
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and the segment shows **Whole page**, **All comments**, and **×**. |
-| <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws a highlighter stroke over the page. |
+| <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws with the marker. With another tip in hand, <kbd>B</kbd> takes the marker. |
+| <kbd>P</kbd>, <kbd>A</kbd>, <kbd>T</kbd> | With **Highlight** on, take the pen, the arrow, or the text tip. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
-| <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. |
-| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the strokes. |
+| <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. In a label, put the label down. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the ink. In a label, put the label down. |
 
-**Highlight** works like the Marker in Drop. Pick a color, draw on the page, and select **Done**. The overlay takes a picture of the screen with the strokes on it, and opens a comment on the area that the strokes cover with the picture attached. The strokes stay on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
+**Highlight** works like the Marker in Drop. Pick a tip and one of four colors, draw on the page, and select **Done**. The overlay takes a picture of the screen with the ink on it, and opens a comment on the area that the ink covers with the picture attached. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
+
+| Tip | What a drag or a click does |
+| --- | --- |
+| Marker | A see-through stroke. The words under it stay dark. <kbd>Shift</kbd> keeps the stroke on its line. |
+| Pen | A thin solid line. <kbd>Shift</kbd> draws it straight. |
+| Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
+| Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
 Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 

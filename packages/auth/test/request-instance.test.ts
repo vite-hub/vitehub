@@ -109,12 +109,12 @@ describe("Auth request instances", () => {
     expect(provider.betterAuth).toHaveBeenCalledTimes(2)
   })
 
-  it.each([false, true])("does not read the environment values that the options replace in a callback=%s Definition", async (callback) => {
+  it("does not read the environment values that the options replace", async () => {
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", "not-a-hash")
     vi.stubEnv("VITEHUB_SECRET", "short")
     const secret = "explicit-secret-at-least-32-characters"
     for (const runtime of [{ secret }, { secrets: [{ version: 1, value: secret }] }]) {
-      const definition = callback ? defineAuth(() => ({ adminClaim: false, ...runtime })) : defineAuth({ adminClaim: false, runtime })
+      const definition = defineAuth(() => ({ adminClaim: false as const, ...runtime }))
       expect((await handleAuthRequest(definition, request("https://app.example/api/auth/ok"))).status).toBe(200)
       expect(await withAuth(() => "ok", definition)(request("https://app.example/private"))).toBe("ok")
     }

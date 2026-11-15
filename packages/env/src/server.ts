@@ -115,13 +115,14 @@ export async function deriveSecret(purpose: string, options: DeriveSecretOptions
   return await deriveViteHubSecret(root, purpose)
 }
 
-function hasRuntimeName(entry: RuntimeEnvEntry, env: RuntimeEnv, name: string): boolean {
-  return Object.hasOwn(env, name) && env[name] !== undefined && !(entry.source.skipEmpty && env[name] === "")
+/** An empty variable counts as missing, so it never shadows a later name or satisfies a required value. */
+function hasRuntimeName(env: RuntimeEnv, name: string): boolean {
+  return Object.hasOwn(env, name) && env[name] !== undefined && env[name] !== ""
 }
 
 function readRuntimeSource(entry: RuntimeEnvEntry, env: RuntimeEnv): { found: boolean, name?: string, value?: unknown } {
   for (const name of entry.source.names || [entry.source.name]) {
-    if (hasRuntimeName(entry, env, name)) return { found: true, name, value: env[name] }
+    if (hasRuntimeName(env, name)) return { found: true, name, value: env[name] }
   }
   return { found: false }
 }
@@ -132,7 +133,7 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   if (!source.found || canonical === undefined || canonical === false) return {}
   if (source.name !== canonical) return { via: "conventional" }
   const conflict = (entry.source.names || [entry.source.name])
-    .some(name => name !== canonical && hasRuntimeName(entry, env, name) && env[name] !== source.value)
+    .some(name => name !== canonical && hasRuntimeName(env, name) && env[name] !== source.value)
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
@@ -500,6 +501,15 @@ function inspectionPath(path: string): { path?: string } {
   return /^(?:env|runtime)(?:\.[A-Za-z_$][A-Za-z0-9_$-]{0,63}){0,8}$/.test(path) ? { path } : {}
 }
 
+// A host variable name. Anything else is withheld, since a name with other characters may hold data.
+const hostVariableName = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
+
+/** The host variable names an env declaration reads, in read order. Never values. */
+function inspectionNames(entry: RuntimeEnvEntry): { names?: readonly string[] } {
+  const names = (entry.source.names || [entry.source.name]).filter(name => hostVariableName.test(name))
+  return names.length ? { names } : {}
+}
+
 function inspectionProvider(entry: RuntimeProviderEntry): { provider?: string } {
   return /^[A-Za-z0-9_-]{1,64}$/.test(entry.source.provider) ? { provider: entry.source.provider } : {}
 }
@@ -518,7 +528,7 @@ async function inspectRegistryEntry(
   }
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    entries.push({ masked: value.secret, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found, path), ...runtimeSourceOrigin(value, env, source) })
+    entries.push({ masked: value.secret, ...inspectionNames(value), ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found, path), ...runtimeSourceOrigin(value, env, source) })
     return
   }
   if (isRuntimeProviderEntry(value)) {
@@ -626,7 +636,7 @@ export function describeServerEnv(registry: EnvRuntimeRegistry): ServerEnvDescri
     if (isRuntimeEnvEntry(value) || isRuntimeProviderEntry(value)) {
       entries.push({
         ...inspectionPath(path),
-        ...(isRuntimeEnvEntry(value) && value.source.canonical && /^[A-Z_][A-Z0-9_]{0,127}$/.test(value.source.canonical) ? { canonicalName: value.source.canonical } : {}),
+        ...(isRuntimeEnvEntry(value) ? inspectionNames(value) : {}),
         source: value.source.kind,
         ...(isRuntimeProviderEntry(value) ? inspectionProvider(value) : {}),
         secret: value.secret,

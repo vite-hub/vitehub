@@ -325,7 +325,7 @@ describe("scheduled publishing in the Console", { timeout: 30_000 }, () => {
     const scoped = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) },
-      authorize: ({ action, id }) => action === "read" && id !== "secret",
+      authorize: ({ action, id }) => action === "read-draft" && id !== "secret",
       logger: false,
     })
     cleanup.push(() => scoped.dispose())

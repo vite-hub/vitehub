@@ -264,7 +264,13 @@ import { defineChannel, webhook } from 'vite-hub/channels'
 import { ticketEvent } from './events'
 
 export default defineChannel({
-  adapter: webhook({ kind: 'tickets', path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] }),
+  adapter: webhook({
+    kind: 'tickets',
+    path: '/api/tickets/webhook',
+    aliases: ['/webhooks/tickets'],
+    signature: 'bearer',
+    secret: () => process.env.TICKETS_WEBHOOK_SECRET,
+  }),
   on: {
     webhook: defineChannelTrigger({
       input: ticketEvent,
@@ -297,6 +303,9 @@ export default defineChannel({
     path: '/api/airtable/webhook',
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
+    header: 'x-airtable-content-mac',
+    secret: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -307,12 +316,26 @@ export default defineChannel({
 
 ### Verify a webhook signature
 
-Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHeader`, `secretToken`, and `signature` on a webhook registration of `channelAdapter()`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secretToken`, `secretHeader`, or `signature`, or set `secretToken: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
+
+`webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
+
+```ts [server/channels/public-events.ts]
+import { defineChannel, webhook } from 'vite-hub/channels'
+
+export default defineChannel({
+  // Anyone who knows the URL can send events.
+  adapter: webhook({ secret: false }),
+  on: { /* ... */ },
+})
+```
 
 | `signature` | The header carries |
 | --- | --- |
-| Not set | The `secretToken` value itself. |
-| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
+| `'token'` on `webhook()`, not set on a registration | The secret itself, compared in constant time. Set `header`, such as `'x-gitlab-token'`. |
+| `'bearer'` | `Bearer <secret>`. The header defaults to `'authorization'`. |
 | `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
 | `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
 | `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
@@ -320,7 +343,7 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
 
-`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When `secretToken` gives no secret, the webhook answers `500` naming the Channel, so a missing secret never leaves the route open. Return `false` from `secretToken` to turn verification off.
+`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When the secret function gives no secret, the webhook does not run the trigger: `bearer` answers `500` naming the Channel, and the other signatures answer `401`. A missing secret never leaves the route open. Return `false` from the secret function to turn verification off for that request.
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
@@ -424,8 +447,9 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - The stored request is removed when admission ends. If the process stops first, or admission ends in a 5xx, the next process replays it through the route at startup.
 - Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
+- A second delivery of a request that is still being admitted gets `202` once the first delivery's copy is stored. If that copy is not stored within `ackTimeoutMs` of arrival, it gets a `503` with `retry-after`.
 
-The request is stored at `<scope>inbox:<id>`, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+The request is stored at `<scope>inbox:<id>` for one day, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. Replay finds it through an hourly index list at `<scope>inbox-index:<hour>`, which holds only IDs and expires a day after its last entry. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
 ```ts [server/agents/support.ts] fragment
 webhooks: {
@@ -638,7 +662,7 @@ With the Console on, the Vite dev loop uses the Console's Invocation journal (th
 
 An authenticated replay uses the saved item, so it needs no provider signature. Live webhooks still verify signatures, and replayed input still passes the trigger schema.
 
-`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end.
+`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end. A `completed` item has the Agent's answer in `output`, such as the result of a [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) question. `vitehub channels replay` does not get `output`, because it can quote the message.
 
 ### How replay avoids duplicate runs
 
@@ -928,7 +952,7 @@ A GitHub Source is a repository declared as Workspace files. One with the same r
 
 A github() Channel with `app` gives its Agent forge access (GitHub repository access) for the PR checkout, the [`git()`](/docs/agents/capabilities/git) and `forge()` Capabilities, and provider Drivers, which get `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
 
-Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
+Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional [installations](/docs/forge/configure#installations)), else `VITEHUB_GITHUB_TOKEN`. The installation of the webhook delivery or `app.installationId` comes first.
 
 Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 

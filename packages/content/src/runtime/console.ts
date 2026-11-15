@@ -34,6 +34,9 @@ import type {
   ViteHubConsoleMediaAccess,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
+
+/** The Content actions that target one collection. */
+type CollectionAction = Exclude<ContentAction, "read">
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions, ContentPage } from "../collections-types.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
@@ -390,12 +393,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return content.collection(collectionName)
   }
 
-  async function allow(context: ViteHubConsoleDocumentActionContext, collection: AnyContentCollection, action: ContentAction, id?: string): Promise<void> {
+  async function allow(context: ViteHubConsoleDocumentActionContext, collection: AnyContentCollection, action: CollectionAction, id?: string): Promise<void> {
     const allowed = await content.can(id === undefined
       ? { user: context.user, collection: collection.name, action }
       : { user: context.user, collection: collection.name, action, id })
     if (!allowed) {
-      throw failure(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`)
+      throw failure(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read-draft" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`)
     }
   }
 
@@ -425,7 +428,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   /** The ids the user may read. The Console checks each document so a list, count, or title never shows one it hides. */
   async function readableIds(context: ViteHubConsoleDocumentActionContext, collection: AnyContentCollection, ids: Iterable<string>): Promise<Set<string>> {
     const list = [...new Set(ids)]
-    const allowed = await Promise.all(list.map(id => content.can({ user: context.user, collection: collection.name, action: "read", id })))
+    const allowed = await Promise.all(list.map(id => content.can({ user: context.user, collection: collection.name, action: "read-draft", id })))
     return new Set(list.filter((_id, index) => allowed[index]))
   }
 
@@ -473,9 +476,9 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   async function readable(context: ViteHubConsoleDocumentActionContext): Promise<AnyContentCollection[]> {
     const collections = content.collections()
     const allowed = await Promise.all(collections.map(async (collection) => {
-      const collectionAllowed = await content.can({ user: context.user, collection: collection.name, action: "read" })
+      const collectionAllowed = await content.can({ user: context.user, collection: collection.name, action: "read-draft" })
       if (!collectionAllowed || collection.kind !== "singleton") return collectionAllowed
-      return await content.can({ user: context.user, collection: collection.name, action: "read", id: collection.id })
+      return await content.can({ user: context.user, collection: collection.name, action: "read-draft", id: collection.id })
     }))
     return collections.filter((_collection, index) => allowed[index])
   }
@@ -496,12 +499,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const collections: ViteHubConsoleDocumentCollection[] = []
       for (const collection of content.collections()) {
         const id = collection.kind === "singleton" ? collection.id : undefined
-        const [read, write, publish] = await Promise.all((["read", "write", "publish"] as const).map(action =>
+        const [read, write, publish] = await Promise.all((["read-draft", "write", "publish"] as const).map(action =>
           content.can({ user: context.user, collection: collection.name, action, ...(id === undefined ? {} : { id }) })))
         if (!read) continue
         // A singleton's fixed document can have a stricter policy than collection discovery.
         // Do not expose its metadata when that document is not readable.
-        if (collection.kind === "singleton" && !await content.can({ user: context.user, collection: collection.name, action: "read", id: collection.id })) continue
+        if (collection.kind === "singleton" && !await content.can({ user: context.user, collection: collection.name, action: "read-draft", id: collection.id })) continue
         const schema = json(collection.schema)
         const entry: ViteHubConsoleDocumentCollection = {
           name: collection.name,
@@ -551,7 +554,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     async list(input: ViteHubConsoleDocumentListInput, context): Promise<ViteHubConsoleDocumentPage> {
       if (!isRecord(input)) throw invalidInput("list() requires { collection }.")
       const collection = open(input.collection)
-      await allow(context, collection, "read")
+      await allow(context, collection, "read-draft")
       if (input.state !== undefined && !documentStates.includes(input.state)) throw invalidInput("state must be draft, published, changed, or deleted.")
       const limit = input.limit ?? 50
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximumListLimit) throw invalidInput(`limit must be an integer from 1 to ${maximumListLimit}.`)
@@ -625,7 +628,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const id = text(input.id, "id")
       const ref = input.ref ?? "draft"
       if (ref !== "draft" && ref !== "published") throw invalidInput("ref must be draft or published.")
-      await allow(context, collection, "read", id)
+      await allow(context, collection, "read-draft", id)
       const { locale } = localeInput(input)
       return await attempt(async () => {
         const document = await collection.get(id, locale === undefined ? { ref } : { ref, locale })
@@ -637,7 +640,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("preview() requires { collection, id }.")
       const collection = open(input.collection)
       const id = text(input.id, "id")
-      await allow(context, collection, "read", id)
+      await allow(context, collection, "read-draft", id)
       if (!content.preview) throw failure(404, "CONTENT_PREVIEW_UNAVAILABLE", "This Content runtime has no draft preview.")
       const preview = content.preview
       return await attempt(async () => {
@@ -655,7 +658,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         for (const ref of ["published", "draft"] as const) {
           const found = await content.resolve(path, { ref })
           if (!found) continue
-          if (!await content.can({ user: context.user, collection: found.collection, action: "read", id: found.id })) return null
+          if (!await content.can({ user: context.user, collection: found.collection, action: "read-draft", id: found.id })) return null
           const status = await content.collection(found.collection).status(found.id)
           return { collection: found.collection, id: found.id, state: status?.state ?? ref }
         }
@@ -667,7 +670,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("raw() requires { collection, id }.")
       const collection = open(input.collection)
       const id = text(input.id, "id")
-      await allow(context, collection, "read", id)
+      await allow(context, collection, "read-draft", id)
       const revision = optionalText(input.revision, "revision")
       return await attempt(async () => {
         const file = await collection.raw(id, revision ? { revision, ...localeInput(input) } : { ref: "draft", ...localeInput(input) })
@@ -745,7 +748,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("unschedule() requires { collection, schedule }.")
       const collection = open(input.collection)
       const id = text(input.schedule, "schedule")
-      await allow(context, collection, "read")
+      await allow(context, collection, "read-draft")
       const schedule = (await attempt(() => content.schedules({ collection: collection.name }))).find(entry => entry.id === id)
       if (!schedule) throw failure(404, "CONTENT_SCHEDULE_NOT_FOUND", "This schedule already ran or was cancelled.")
       // Cancelling decides what gets published, so it needs publish access to every document of the schedule.
@@ -765,7 +768,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("revisions() requires { collection, id }.")
       const collection = open(input.collection)
       const id = text(input.id, "id")
-      await allow(context, collection, "read", id)
+      await allow(context, collection, "read-draft", id)
       const cursor = optionalText(input.cursor, "cursor")
       return await attempt(async () => {
         // Saves live on `draft` and publishes on `published`. Later pages continue the draft history only.
@@ -806,7 +809,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const action = input.action
       if (!sessionActions.includes(action)) throw invalidInput("action must be report, acquire, takeover, or release.")
       // Viewing needs read access. Taking the lease, free or held, needs write access: readers never see Take over.
-      await allow(context, collection, action === "acquire" || action === "takeover" ? "write" : "read", id)
+      await allow(context, collection, action === "acquire" || action === "takeover" ? "write" : "read-draft", id)
       if (input.kind !== undefined && input.kind !== "view" && input.kind !== "edit") throw invalidInput("kind must be view or edit.")
       const user = sessionUser(context)
       const sessionsUser = user ? { id: user.id, name: user.name, image: user.image ?? null } : { id: "anonymous", name: "Someone" }
@@ -853,7 +856,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const options = isRecord(input) ? input : {}
       const session = optionalText(options.session, "session")
       const collections = options.collection === undefined ? await readable(context) : [open(options.collection)]
-      if (options.collection !== undefined) await allow(context, collections[0]!, "read")
+      if (options.collection !== undefined) await allow(context, collections[0]!, "read-draft")
       const user = sessionUser(context)
       if (!content.sessions) return { user, available: false, reason: "This Content runtime does not track sessions.", sessions: [] }
       const names = new Set(collections.map(collection => collection.name))
@@ -1021,7 +1024,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     async mediaAccess(context): Promise<ViteHubConsoleMediaAccess> {
       // Media is shared by every collection, so it follows the widest access: anyone who may edit a collection may upload
       // for it. Moves and deletes change published documents without a publish, so they need publish access.
-      const access = await Promise.all(content.collections().map(collection => Promise.all((["read", "write", "publish"] as const).map(action =>
+      const access = await Promise.all(content.collections().map(collection => Promise.all((["read-draft", "write", "publish"] as const).map(action =>
         content.can({ user: context.user, collection: collection.name, action })))))
       return {
         read: access.some(([read]) => read),

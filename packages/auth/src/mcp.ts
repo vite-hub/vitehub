@@ -4,6 +4,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { jwt } from "better-auth/plugins"
 
+import { findAccessPolicyPlugin } from "./access-policy.ts"
 import { authForRequest } from "./auth-instance.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
@@ -231,6 +232,16 @@ export interface McpOAuthDiscoveryOptions {
   resourceDocumentation?: string
 }
 
+// The documents are public. MCP clients that run in a browser, such as the MCP Inspector, read them from another origin.
+const discoveryCors = {
+  "access-control-allow-headers": "*",
+  "access-control-allow-methods": "GET, HEAD, OPTIONS",
+  "access-control-allow-origin": "*",
+  "access-control-max-age": "86400",
+}
+
+const discoveryDocuments = ["oauth-protected-resource", "oauth-authorization-server", "openid-configuration"] as const
+
 /**
  * Answer the OAuth discovery documents that MCP clients read at the origin root, or return `undefined` for another path:
  *
@@ -238,6 +249,8 @@ export interface McpOAuthDiscoveryOptions {
  *   describes the first resource at the request origin.
  * - `/.well-known/oauth-authorization-server<issuer path>` (RFC 8414) and `/.well-known/openid-configuration<issuer path>`,
  *   which Better Auth serves only below its own base path. The bare paths answer too.
+ *
+ * Every answer allows any origin with CORS, and an `OPTIONS` preflight gets `204`, so MCP clients in a browser read them.
  *
  * ```ts [server/middleware/mcp-oauth.ts]
  * import { defineHandler } from "h3"
@@ -247,11 +260,21 @@ export interface McpOAuthDiscoveryOptions {
  * ```
  */
 export async function serveMcpOAuthDiscovery(request: Request, options: McpOAuthDiscoveryOptions = {}): Promise<Response | undefined> {
-  if (request.method !== "GET" && request.method !== "HEAD") return undefined
-  const { origin, pathname } = new URL(request.url)
-  const documents = ["oauth-protected-resource", "oauth-authorization-server", "openid-configuration"] as const
-  const document = documents.find(name => pathname === `/.well-known/${name}` || pathname.startsWith(`/.well-known/${name}/`))
+  const { pathname } = new URL(request.url)
+  const document = discoveryDocuments.find(name => pathname === `/.well-known/${name}` || pathname.startsWith(`/.well-known/${name}/`))
   if (!document) return undefined
+  if (request.method === "OPTIONS") return new Response(null, { headers: discoveryCors, status: 204 })
+  if (request.method !== "GET" && request.method !== "HEAD") return undefined
+  const response = await discoveryDocument(request, document, options)
+  if (!response) return undefined
+  // A copy, since the headers of a Response that another library made can be immutable.
+  const answer = new Response(response.body, response)
+  for (const [name, value] of Object.entries(discoveryCors)) answer.headers.set(name, value)
+  return answer
+}
+
+async function discoveryDocument(request: Request, document: typeof discoveryDocuments[number], options: McpOAuthDiscoveryOptions): Promise<Response | undefined> {
+  const { origin, pathname } = new URL(request.url)
   const suffix = pathname.slice(`/.well-known/${document}`.length).replace(/\/+$/, "")
   const auth = options.auth ?? appAuth(request)
   const state = await stateOf(auth)
@@ -343,6 +366,9 @@ export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">
   const context = await auth.$context
   const user = await context.internalAdapter.findUserById(String(payload.sub))
   if (!isRecord(user) || typeof user.id !== "string" || banned(user)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the user does not exist or is banned." }), undefined]
+  const policy = findAccessPolicyPlugin(context.options.plugins)
+  // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
+  if (policy && !await policy.allows(user as Parameters<typeof policy.allows>[0], `mcp:${user.id}`)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "`access.policy` does not allow the user." }), undefined]
   const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
   const client = clientId ? await context.adapter.findOne({ model: "oauthClient", where: [{ field: "clientId", value: clientId }] }) : undefined
   if (!isRecord(client) || client.disabled) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the OAuth client does not exist or is disabled." }), undefined]

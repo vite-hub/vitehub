@@ -5,25 +5,30 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
+import { isAuthProcessMemoryDatabase } from "../src/runtime-state.ts"
 import type { AuthRuntimeContext } from "../src/types.ts"
 import { requestEvent } from "./request-event.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 describe("Auth option resolution", () => {
-  it("rejects runtime overrides of an owned Database target", () => {
+  it("rejects `runtime` returned by a Definition callback", () => {
+    const definition = defineAuth(() => ({ advanced: { cookiePrefix: "acme" }, runtime: { advanced: { trustedProxyHeaders: true } } }) as never)
+    expect(() => resolveAuthOptions(definition).options).toThrow(expect.objectContaining({ code: "AUTH_C0039" }))
+  })
+
+  it("keeps the owned Database next to runtime values from the callback", () => {
     const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
-    const other = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "other" })
-    for (const runtime of [{ database: other }, () => ({ database: other })]) {
-      const definition = defineAuth({ database, runtime })
-      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/statically invariant Database/)
-    }
-    const definition = defineAuth({ database })
-    expect(() => resolveAuthOptions(definition, { runtimeOptions: { database: other } }).providerOptions).toThrow(/statically invariant Database/)
-    expect(resolveAuthOptions(defineAuth({ database, runtime: { secret: "runtime-secret" } })).providerOptions.database).toBe(database)
+    expect(resolveAuthOptions(defineFixedAuth({ database, secret: "runtime-secret" })).providerOptions.database).toBe(database)
+  })
+
+  it("keeps every nested option of the callback result", () => {
+    const definition = defineAuth(() => ({ advanced: { cookiePrefix: "acme", trustedProxyHeaders: true } }))
+    expect(resolveAuthOptions(definition).providerOptions.advanced).toMatchObject({ cookiePrefix: "acme", trustedProxyHeaders: true })
   })
 
   it.each(["serial", "uuid", false] as const)("rejects runtime ID strategy %s for owned text IDs", (generateId) => {
     const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
-    const definition = defineAuth({ database, runtime: () => ({ advanced: { database: { generateId } } }) })
+    const definition = defineAuth(() => ({ database, advanced: { database: { generateId } } }))
     expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/text IDs/)
   })
 
@@ -33,11 +38,9 @@ describe("Auth option resolution", () => {
     for (const definition of [
       defineAuth({ database, user }),
       defineAuth(() => ({ database, user })),
-      defineAuth({ database, runtime: () => ({ user }) }),
     ]) {
       expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/user.additionalFields/)
     }
-    expect(() => resolveAuthOptions(defineAuth({ database }), { runtimeOptions: { user } }).providerOptions).toThrow(/user.additionalFields/)
     expect(resolveAuthOptions(defineAuth({ user })).providerOptions.user).toEqual(user)
     expect(resolveAuthOptions(defineAuth({ database, user: { additionalFields: {} } })).providerOptions.database).toBe(database)
   })
@@ -48,11 +51,9 @@ describe("Auth option resolution", () => {
     for (const definition of [
       defineAuth({ database, ...options }),
       defineAuth(() => ({ database, ...options })),
-      defineAuth({ database, runtime: () => options }),
     ]) {
       expect(() => resolveAuthOptions(definition).providerOptions).toThrow(`${model}.additionalFields`)
     }
-    expect(() => resolveAuthOptions(defineAuth({ database }), { runtimeOptions: options }).providerOptions).toThrow(`${model}.additionalFields`)
     expect(database).not.toHaveBeenCalled()
   })
 
@@ -60,7 +61,7 @@ describe("Auth option resolution", () => {
     const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
     const plugins = [username()]
     expect(() => resolveAuthOptions(defineAuth({ database, plugins })).providerOptions).toThrow(/user.username/)
-    expect(() => resolveAuthOptions(defineAuth({ database, runtime: () => ({ plugins }) })).providerOptions).toThrow(/user.username/)
+    expect(() => resolveAuthOptions(defineAuth(() => ({ database, plugins }))).providerOptions).toThrow(/user.username/)
     expect(resolveAuthOptions(defineAuth({ plugins })).providerOptions.plugins).toContain(plugins[0])
     expect(database).not.toHaveBeenCalled()
   })
@@ -97,22 +98,20 @@ describe("Auth option resolution", () => {
     const request = new Request("https://auth.example.com/api/auth")
     const event = requestEvent(request)
     const env = vi.fn(() => ({ secret: "env-secret" }))
-    const runtime = vi.fn(({ requestOrigin, env: values }: AuthRuntimeContext) => ({ baseURL: requestOrigin, secret: String(values.secret) }))
-    const definition = defineAuth({
+    const runtime = vi.fn(({ requestOrigin, env: values }: AuthRuntimeContext) => ({
       appName: "ViteHub",
       basePath: "/auth/",
-      database: { name: "auth", dedicated: true },
-      secondaryStorage: { store: "auth" },
       access: { routes: ["/private"] },
-      runtime,
-    })
-    const resolved = resolveAuthOptions(definition, { request, event, env, runtimeOptions: { secret: "override" } })
+      baseURL: requestOrigin,
+      secret: String(values.secret),
+    }))
+    const resolved = resolveAuthOptions(defineAuth(runtime), { request, event, env })
 
-    expect(resolved.options).toMatchObject({ access: { routes: ["/private"] }, secret: "override" })
+    expect(resolved.options).toMatchObject({ access: { routes: ["/private"] }, secret: "env-secret" })
     expect(resolved.requestRuntimeOptions).toMatchObject({ baseURL: "https://auth.example.com", trustedOrigins: ["https://auth.example.com"] })
-    expect(resolved.providerOptions).toMatchObject({ appName: "ViteHub", basePath: "/auth", secret: "override" })
-    for (const name of ["access", "runtime", "secondaryStorage"]) expect(resolved.providerOptions).not.toHaveProperty(name)
-    // Database metadata is not an adapter, so Better Auth gets the shared in-memory store.
+    expect(resolved.providerOptions).toMatchObject({ appName: "ViteHub", basePath: "/auth", secret: "env-secret" })
+    for (const name of ["access", "secondaryStorage"]) expect(resolved.providerOptions).not.toHaveProperty(name)
+    // Without a database adapter, Better Auth gets the shared in-memory store.
     expect(resolved.providerOptions.database).toBeTypeOf("function")
     expect(runtime).toHaveBeenCalledOnce()
     expect(env).toHaveBeenCalledExactlyOnceWith(event)
@@ -141,6 +140,59 @@ describe("Auth option resolution", () => {
     expect(resolved.requestRuntimeOptions).toEqual({ baseURL: "https://request.example.com" })
     expect(resolved.providerOptions.trustedOrigins).toEqual(["https://trusted.example.com"])
     expect(env).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { name: "a callback", definition: () => defineAuth(() => ({ database: { name: "auth", dedicated: true } }) as never) },
+    { name: "a callback with `true`", definition: () => defineAuth(() => ({ database: true }) as never) },
+  ])("rejects database placement from $name instead of using memory", ({ definition }) => {
+    expect(() => resolveAuthOptions(definition()).providerOptions).toThrow(expect.objectContaining({
+      code: "AUTH_C0061",
+      fix: expect.stringContaining("authDatabase()"),
+    }))
+  })
+
+  describe("memory store outside a development server", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    })
+
+    function buildRuntime() {
+      vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+      vi.stubEnv("NODE_ENV", "production")
+    }
+
+    it.each([
+      { name: "static options", definition: () => defineAuth({ appName: "ViteHub" }) },
+      { name: "a callback", definition: () => defineAuth(() => ({ appName: "ViteHub" })) },
+    ])("rejects a Definition without database from $name", ({ definition }) => {
+      buildRuntime()
+      expect(() => resolveAuthOptions(definition()).providerOptions).toThrow(expect.objectContaining({
+        code: "AUTH_C0063",
+        fix: expect.stringContaining("authDatabase()"),
+      }))
+    })
+
+    it.each([
+      { name: "static options", definition: () => defineAuth({ appName: "ViteHub", database: "memory" }) },
+      { name: "a callback", definition: () => defineAuth(() => ({ appName: "ViteHub", database: "memory" as const })) },
+    ])("keeps users in memory with database: \"memory\" from $name", ({ definition }) => {
+      buildRuntime()
+      const database = resolveAuthOptions(definition()).providerOptions.database
+      expect(database).toBeTypeOf("function")
+      expect(isAuthProcessMemoryDatabase(database)).toBe(true)
+    })
+
+    it("keeps the implicit memory store on a development server", () => {
+      vi.stubGlobal("__VITEHUB_AUTH_DEV__", true)
+      expect(isAuthProcessMemoryDatabase(resolveAuthOptions(defineAuth({ appName: "ViteHub" })).providerOptions.database)).toBe(true)
+    })
+  })
+
+  it.each([true, { store: "auth" }])("rejects secondary storage placement %j", (secondaryStorage) => {
+    const definition = defineAuth(() => ({ secondaryStorage }) as never)
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0062" }))
   })
 
   it("preserves runtime placement objects with inherited metadata names", () => {
@@ -181,29 +233,6 @@ describe("Auth option resolution", () => {
     expect(resolved.providerOptions.appName).toBe("ViteHub")
     expect(appName).toHaveBeenCalledOnce()
   })
-
-  it.each([
-    { name: "request", request: new Request("https://request.example.com/api/auth"), expectedOrder: ["runtime", "env"], expectedSecret: "early" },
-    { name: "default", request: undefined, expectedOrder: ["env", "runtime"], expectedSecret: "late" },
-  ])("preserves static runtime and environment evaluation order for $name options", ({ request, expectedOrder, expectedSecret }) => {
-    const order: string[] = []
-    const definition = defineAuth({ appName: "ViteHub" })
-    Object.defineProperty(definition.options, "runtime", {
-      enumerable: true,
-      get() {
-        order.push("runtime")
-        return { secret: order.includes("env") ? "late" : "early" }
-      },
-    })
-    const env = () => {
-      order.push("env")
-      return {}
-    }
-
-    const resolved = resolveAuthOptions(definition, { request, env })
-    expect(resolved.requestRuntimeOptions.secret).toBe(expectedSecret)
-    expect(order).toEqual(expectedOrder)
-  })
 })
 
 describe("Better Auth secret from VITEHUB_SECRET", () => {
@@ -238,10 +267,10 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
 
   it("keeps an explicit secret, secrets, or Better Auth environment secret", () => {
     vi.stubEnv("VITEHUB_SECRET", root)
-    expect(resolveAuthOptions(definition, { runtimeOptions: { secret: "explicit" } }).providerOptions.secret).toBe("explicit")
-    expect(resolveAuthOptions(definition, { runtimeOptions: { secret: "" } }).providerOptions.secret).toBe("")
+    expect(resolveAuthOptions(defineAuth(() => ({ secret: "explicit" }))).providerOptions.secret).toBe("explicit")
+    expect(resolveAuthOptions(defineAuth(() => ({ secret: "" }))).providerOptions.secret).toBe("")
     const secrets = [{ version: 1, value: "rotated" }]
-    expect(resolveAuthOptions(definition, { runtimeOptions: { secrets } }).providerOptions).not.toHaveProperty("secret")
+    expect(resolveAuthOptions(defineAuth(() => ({ secrets }))).providerOptions).not.toHaveProperty("secret")
     for (const name of ["BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) {
       vi.stubEnv(name, "1:from-better-auth-env")
       expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")

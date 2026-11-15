@@ -62,6 +62,11 @@ export interface ReplayChannelItem {
   invocationStatus?: AgentInvocationRecordStatus
   key: string
   /**
+   * What the Agent returned for a `completed` item, such as the structured result of `driver.ask`.
+   * Only `replayChannel()` and `context.dispatch()` callers get it; the replay HTTP route leaves it out.
+   */
+  output?: unknown
+  /**
    * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
    * already queued, or its `order.version` was not newer than the last one admitted for its `order.key`.
    */
@@ -262,7 +267,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     const resolved = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
     // Replay records each item in the replaying Agent's Invocation journal, so it cannot start another Agent's Invocation.
     if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.agent && resolved.agent !== run.agent) {
-      throw new Error(`Task "${resolved.task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`)
+      throw agentDiagnostics.AGENT_REPLAY_TASK_OTHER_AGENT({ task: resolved.task })
     }
     // Preparation and task callbacks must use the same run ID as execution.
     const replayInvocation = isResolvedAgentTriggerHandledInvocation(resolved)
@@ -276,16 +281,16 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
       ...(run.label !== undefined ? { triggeredBy: run.label } : {}),
     } }
     if (reservation && !await reservation.setRunMetadata({ ...runMetadata, annotations: pendingAgentInvocationAnnotations(runMetadata.annotations) })) {
-      throw new Error("Could not persist the claimed Invocation run metadata.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the claimed Invocation run metadata" })
     }
     const token = await reservation?.handoffClaim()
-    if (reservation && !token) throw new Error("Could not transfer the Invocation execution claim.")
+    if (reservation && !token) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "transfer the Invocation execution claim" })
     const output = await runAgentWithContext(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
       ...invocation.input,
       ...(run.invoker ? { context: { ...invocation.input.context, invoker: run.invoker } } : {}),
       ...(run.dryRun ? { dryRun: true } : {}),
     })
-    return { id, key, status: isWorkflowRun(output) ? "started" : "completed" }
+    return isWorkflowRun(output) ? { id, key, status: "started" } : { id, key, output, status: "completed" }
   }
   catch (error) {
     await reservation?.releaseClaim()
@@ -485,7 +490,7 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
   const maxLimit = options.maxLimit ?? Number.POSITIVE_INFINITY
   try {
     if (describe === true) return replayJson(describeChannelHistory(agent, channel))
-    return replayJson(await replayChannel(agent, channel, {
+    const result = await replayChannel(agent, channel, {
       ...(cursor ? { cursor } : {}),
       ...(dryRun === true ? { dryRun: true } : {}),
       ...(force === true ? { force: true } : {}),
@@ -495,7 +500,9 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
       ...(options.invoker ? { invoker: options.invoker } : {}),
       ...(options.runtime ? { runtime: options.runtime } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
-    }))
+    })
+    // Agent output can quote the private data of an item. The CLI prints only IDs and statuses.
+    return replayJson({ ...result, items: result.items.map(({ output: _output, ...item }) => item) })
   }
   catch (error) {
     const code = isRuntimeRecord(error) && typeof error.code === "string" ? error.code : undefined

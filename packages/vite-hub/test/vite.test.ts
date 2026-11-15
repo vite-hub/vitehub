@@ -20,7 +20,7 @@ vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   }
 })
 
-const kvCacheDriver = "/kv/dist/runtime/nitro-cache.js"
+const kvCacheDriver = "/kv/dist/runtime/unstorage-driver.js"
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -101,7 +101,8 @@ vi.mock("@vite-hub/auth/vite", () => ({
   hubAuth: integrationMocks.hubAuth,
   resolveAuthViteConfig: integrationMocks.resolveAuthViteConfig,
 }))
-vi.mock("@vite-hub/blob/vite", () => ({
+vi.mock("@vite-hub/blob/vite", async () => ({
+  hasS3BlobEnv: (await vi.importActual<typeof import("../../blob/src/config.ts")>("../../blob/src/config.ts")).hasS3BlobEnv,
   hubBlob: integrationMocks.hubBlob,
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
@@ -123,7 +124,7 @@ vi.mock("@vite-hub/env/vite", async importOriginal => ({
 vi.mock("@vite-hub/kv/vite", () => ({
   hubKV: integrationMocks.hubKV,
   hubKVOptionalPeerResolver: integrationMocks.hubKVOptionalPeerResolver,
-  kvNitroCacheDriver: "/kv/dist/runtime/nitro-cache.js",
+  kvStorageDriver: "/kv/dist/runtime/unstorage-driver.js",
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
@@ -426,7 +427,7 @@ describe("vitehub", () => {
           expect.objectContaining({ route: "/_vitehub/rpc" }),
         ]),
       })
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")).resolves.toContain(
         `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","workflows"])`,
       )
     }
@@ -476,7 +477,7 @@ describe("vitehub", () => {
         await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
         await callHook(inactive.configResolved, [inactiveConfig])
 
-        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
         expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
@@ -494,7 +495,7 @@ describe("vitehub", () => {
       })
       await callHook(named.configResolved, [namedConfig])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('"kv"')
       expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
@@ -519,12 +520,37 @@ describe("vitehub", () => {
       config[VITEHUB_FEATURES] = { blob: { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } } }
       await callHook(plugin.configResolved, [config])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('installConsoleBlob(')
       expect(generated).toContain('["archive","media"]')
     }
     finally {
       await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("installs the Cache section and its operations only when cache is set", async () => {
+    for (const cache of [true, false]) {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-console-cache-"))
+      try {
+        const plugins = vitehub({ cache, comments: false, console: { auth: false }, host: "node" })
+        const plugin = dependencyPluginByName(plugins, "vite-hub/console")
+        const config: Record<string, unknown> = { root, plugins }
+        await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
+        await callHook(plugin.configResolved, [config])
+        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+        if (cache) {
+          expect(generated).toMatch(/cacheOperations: vitehubConsoleOperations\d+ \}/)
+          expect(generated).toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+        else {
+          expect(generated).not.toContain("cacheOperations")
+          expect(generated).not.toMatch(/installConsoleSections\([^\n]+"cache"/)
+        }
+      }
+      finally {
+        await rm(root, { force: true, recursive: true })
+      }
     }
   })
 
@@ -544,7 +570,7 @@ describe("vitehub", () => {
       const config = { root, [VITEHUB_FEATURES]: { database: { connection: { url: "file::memory:" } } } }
       await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
       await callHook(plugin.configResolved, [config])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
@@ -706,6 +732,7 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
+      "vite-hub/skills",
       "vite-hub/durability/nitro",
       "vite-hub/durability",
       "vite-hub/nitro-cache-bypass",
@@ -769,6 +796,7 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
+      "vite-hub/skills",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
       "vite-hub/nitro-order",
@@ -808,6 +836,7 @@ describe("vitehub", () => {
         email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
+        realtime: false,
       },
       workflowModules: { index: "vite-hub/workflow", state: "/workflow/dist/runtime/state.js" },
       workspaceDependencyRuntimeImports: {
@@ -849,6 +878,7 @@ describe("vitehub", () => {
       },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
+      databaseImport: "vite-hub/database",
       hosting: "node-server",
       importBase: "vite-hub/workflow",
       providerImportAliases: {
@@ -2000,6 +2030,20 @@ describe("vitehub", () => {
       expect.objectContaining({ driver }),
       { importBase: "vite-hub/blob", presetDriver: expect.any(Function) },
     )
+  })
+
+  it.each(["cloudflare", "netlify", "node", "vercel"] as const)("lets NuxtHub S3 env pick the Blob driver on the %s host", (preset) => {
+    vi.stubEnv("S3_ACCESS_KEY_ID", "test-key")
+    vi.stubEnv("S3_SECRET_ACCESS_KEY", "test-secret")
+    vi.stubEnv("S3_BUCKET", "assets")
+    try {
+      integrationMocks.hubBlob.mockClear()
+      vitehub({ host: preset, blob: true })
+      expect(integrationMocks.hubBlob.mock.lastCall?.[0]).not.toHaveProperty("driver")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it.each([

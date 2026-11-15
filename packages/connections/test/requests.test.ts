@@ -264,7 +264,7 @@ it("applies the policy to Connection fetch calls", async () => {
     fetch: provider.request,
     store: createStore(),
   })
-  await runtime.setKey({ key: "key-1", name: "items" })
+  await runtime.setKey({ actor: "user:owner", key: "key-1", name: "items" })
   const response = await runtime.client("items", {}).fetch(ITEMS)
   expect(response.status).toBe(200)
   expect(provider.starts).toHaveLength(2)

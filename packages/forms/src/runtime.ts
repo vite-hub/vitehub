@@ -16,9 +16,14 @@ export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undef
 export interface FormsRuntimeOptions {
   /** The default export of each `server/forms/<name>.ts`, by name. */
   forms: Record<string, unknown>
-  /** The Database registry, and the name that the forms use. Without it, submissions stay in memory. */
+  /** The Database registry, and the name that the forms use. */
   databases?: FormsDatabaseRegistry
   database?: string
+  /**
+   * Without `databases`, keep submissions in the memory of this process. The generated handler sets it only on a
+   * development server. Without both, a form that stores submissions answers 503.
+   */
+  memory?: boolean
   /** `email.send` of ViteHub Email. */
   sendEmail?: (message: FormEmailMessage) => Promise<[unknown, unknown]>
   /** The signed-in user of a request. */
@@ -73,6 +78,14 @@ function selectDatabase(databases: FormsDatabaseRegistry, name?: string): FormsD
 
 const installedKey = Symbol.for("vitehub.forms.installed")
 
+/** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
+const emptyFormsStore: FormsStore = {
+  insert: () => Promise.reject(new Error("[vitehub] Forms has no store.")),
+  list: async () => [],
+  get: async () => undefined,
+  setStatus: async () => undefined,
+}
+
 /** The forms and inbox of the running app, for the Console and MCP tools. */
 export interface InstalledForms {
   names: string[]
@@ -96,21 +109,21 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     forms.set(name, form)
   }
   const { databases } = options
-  const store: FormsStore = databases
+  const store: FormsStore | undefined = databases
     ? createDrizzleFormsStore(() => {
         const db = selectDatabase(databases, options.database)
         if (!db) throw new Error(`[vitehub] Forms has no Database${options.database ? ` named ${JSON.stringify(options.database)}` : ""}.`)
         return db
       })
-    : createMemoryFormsStore()
-  Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store) } satisfies InstalledForms)
+    : options.memory ? createMemoryFormsStore() : undefined
+  Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
   const memoryLimit = memoryFormRateLimit()
   const { sendEmail, session, context } = options
   const services = (request: Request): FormServices => {
     const host = context?.(request)
     const address = addressKey(host?.runtime?.clientAddress ?? (host?.runtime?.cloudflare ? request.headers.get("cf-connecting-ip") : undefined) ?? "unknown")
     return {
-      store,
+      ...(store ? { store } : {}),
       // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
       rateLimit: async (_, key, policy) => memoryLimit(`${key}:${address}`, policy),
       ...(sendEmail ? { email: async (message: FormEmailMessage) => {

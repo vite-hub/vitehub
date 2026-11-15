@@ -52,11 +52,11 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 
 | Host | Default journal |
 | --- | --- |
-| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root |
+| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
-The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
 
 The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
@@ -385,9 +385,9 @@ export default defineDatabase({
 })
 ```
 
-#### AGENT_R1044: Postgres journal tables are missing
+#### AGENT_INVOCATION_POSTGRES_TABLES_MISSING: Postgres journal tables are missing
 
-The first journal operation fails with `AGENT_R1044` when a table does not exist. The error names the tables. Run `vitehub database generate` and `vitehub database migrate`, or add `postgresAgentInvocationTables()` to the schema of the Database that the store uses.
+The first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING` when a table does not exist. The error names the tables. Run `vitehub database generate` and `vitehub database migrate`, or add `postgresAgentInvocationTables()` to the schema of the Database that the store uses.
 
 ## Delete or prune records
 
@@ -569,7 +569,7 @@ vitehub agent invocations show INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With a deployed `--url`, such as `https://app.example.com`, `list`, `show`, `tail`, and `cancel` use that deployment's Console.
+Without `--url`, the CLI reads `http://localhost:5173/api/invocations`. Use `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
 See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
@@ -664,6 +664,10 @@ It opens the file read-only with `node:sqlite` and never migrates or writes it, 
 A Workflow is a durable runner that can retry steps after a crash. Journals also keep failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct Invocation IDs. Durable Channel deliveries keep their run ID across preparation attempts.
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
+
+Each Agent turn on Cloudflare Workflows or OpenWorkflow starts two Workflow runs: the turn, and a recovery run named `vitehub-agent-invocation-recovery-<workflow>`. The recovery run reads the turn run until it ends, then writes the same final status to the journal record. The turn writes its own outcome when its handler returns or throws. But when the process stops and the provider fails the run after its last retry, or a run is cancelled or terminated from outside, no turn code runs, and only the recovery run can close the record. ViteHub starts the recovery run right after the provider accepts the turn, and creates the journal record only after that, so no record exists without a run that can close it. The recovery run cannot be skipped when a turn ends normally, because it must exist before anyone knows how the turn ends.
+
+The recovery run reads every second for one minute, then every minute for one hour, then every 30 minutes, for up to one day. After a normal turn it ends at its next read, about one second later. Count two runs per turn when you size the OpenWorkflow worker concurrency. In `vitehub workflow` output and `getWorkflowRun()`, the recovery run is a normal run; its result is empty.
 
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 

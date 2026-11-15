@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { defineAuth } from "../src/index.ts"
 
 describe("defineAuth", () => {
-  it("creates an Auth Definition with ViteHub placement metadata", () => {
+  it("creates an Auth Definition with ViteHub options", () => {
     const authorize = ({ user }: { user: Record<string, unknown> }) => user.isAdmin === true
     expect(defineAuth({
       appName: "ViteHub",
@@ -19,10 +19,7 @@ describe("defineAuth", () => {
         },
       },
       basePath: "/auth",
-      database: { dedicated: true, name: "auth" },
       route: false,
-      runtime: () => ({ secret: "runtime-secret" }),
-      secondaryStorage: { store: "auth" },
     })).toEqual({
       options: {
         appName: "ViteHub",
@@ -38,10 +35,7 @@ describe("defineAuth", () => {
           },
         },
         basePath: "/auth",
-        database: { dedicated: true, name: "auth" },
         route: false,
-        runtime: expect.any(Function),
-        secondaryStorage: { store: "auth" },
       },
     })
   })
@@ -70,12 +64,21 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ secrets: [{ value: "secret", version: 1 }] } as never)).toThrow(/resolved at runtime/)
   })
 
-  it("requires placement metadata to use own properties", () => {
-    const inheritedDatabase = Object.create({ name: "inherited-auth" })
-    const inheritedSecondaryStorage = Object.create({ store: "inherited-auth" })
+  it("accepts only authDatabase() as a static database", () => {
+    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "auth" })
+    expect(defineAuth({ database }).options.database).toBe(database)
+    for (const placement of [true, { name: "auth" }, { name: "auth", dedicated: true }, { dedicated: true }]) {
+      expect(() => defineAuth({ database: placement } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0021",
+        fix: expect.stringContaining("authDatabase('auth')"),
+      }))
+    }
+  })
 
-    expect(() => defineAuth({ database: inheritedDatabase } as never)).toThrow(/database.name/)
-    expect(() => defineAuth({ secondaryStorage: inheritedSecondaryStorage } as never)).toThrow(/secondaryStorage.store/)
+  it("rejects static secondary storage", () => {
+    for (const placement of [true, { store: "auth" }, { get: async () => null, set: async () => {}, delete: async () => {}, getAndDelete: async () => null, increment: async () => 1 }]) {
+      expect(() => defineAuth({ secondaryStorage: placement } as never)).toThrow(expect.objectContaining({ code: "AUTH_C0024" }))
+    }
   })
 
   it("rejects unsupported route, database, and secondary storage shapes", () => {
@@ -83,13 +86,20 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ basePath: "api/auth" } as never)).toThrow(/basePath must start/)
     expect(() => defineAuth({ basePath: "/" } as never)).toThrow(/basePath must resolve to a non-empty path/)
     expect(() => defineAuth({ basePath: "//" } as never)).toThrow(/basePath must resolve to a non-empty path/)
-    expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`, `true`/)
-    expect(() => defineAuth({ database: { dedicated: true } } as never)).toThrow(/database.name/)
-    expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database does not support/)
-    expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage must be `true`/)
-    expect(() => defineAuth({ secondaryStorage: {} } as never)).toThrow(/secondaryStorage.store/)
-    expect(() => defineAuth({ secondaryStorage: { driver: "kv" } } as never)).toThrow(/secondaryStorage does not support/)
-    expect(() => defineAuth({ runtime: "secret" } as never)).toThrow(/runtime must be an object or a function/)
+    expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`/)
+    expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database must be `authDatabase\(\)`/)
+    expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage takes only a Better Auth adapter/)
+  })
+
+  it("rejects the removed runtime option and shows the callback form", () => {
+    // `runtime.advanced` used to replace the whole static `advanced`, so `cookiePrefix` was lost without an error.
+    const removed = { advanced: { cookiePrefix: "acme" }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }
+    for (const runtime of [removed.runtime, { secret: "secret" }, "secret"]) {
+      expect(() => defineAuth({ ...removed, runtime } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0039",
+        fix: expect.stringContaining("defineAuth(({ env }) => ({"),
+      }))
+    }
   })
 
   it("rejects unsupported access config", () => {

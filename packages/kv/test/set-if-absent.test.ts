@@ -132,6 +132,7 @@ describe("upstash", () => {
   function createDriver() {
     // unstorage loads this Redis class instead of `@upstash/redis`, so the test stays offline.
     const options = {
+      base: "app",
       driver: "upstash" as const,
       token: "test",
       url: "https://example.com",
@@ -142,11 +143,11 @@ describe("upstash", () => {
 
   it("sends one SET NX command and reports whether Redis wrote the key", async () => {
     await expect(createDriver().setIfAbsentItem!("uploads:ticket", "1", 59.2)).resolves.toBe(true)
-    expect(set).toHaveBeenCalledWith("uploads:ticket", "1", { ex: 60, nx: true })
+    expect(set).toHaveBeenCalledWith("app:uploads:ticket", "1", { ex: 60, nx: true })
 
     set.mockResolvedValueOnce(null)
     await expect(createDriver().setIfAbsentItem!("uploads:ticket", "1")).resolves.toBe(false)
-    expect(set).toHaveBeenLastCalledWith("uploads:ticket", "1", { nx: true })
+    expect(set).toHaveBeenLastCalledWith("app:uploads:ticket", "1", { nx: true })
   })
 })
 

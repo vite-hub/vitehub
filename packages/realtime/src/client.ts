@@ -9,10 +9,13 @@ import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
+  decodeRealtimeRequestFramePayload,
   decodeWorkspaceChangePayload,
+  encodeRealtimeRequestFrame,
   encodeWorkspaceChange,
   messageAwareness,
   messageRealtimeControl,
+  messageRealtimeRequest,
   messageWorkspaceChange,
   workspaceRoomId,
 } from "./protocol.ts"
@@ -20,6 +23,12 @@ import {
 import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 
 export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
+
+/** Answers one request from the server. Its value goes back as JSON. */
+export type RealtimeRequestHandler = (body: unknown) => unknown
+
+// A WebSocket message from the browser may be up to 1 MiB, with the frame's own bytes.
+const maxAnswerBytes = 1024 * 1024 - 1024
 
 export interface RealtimeRoomOptions {
   /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
@@ -58,6 +67,12 @@ export interface RealtimeRoom {
   onUpdate(listener: () => void): () => void
   /** Runs for each change hint from another browser. Needs `changes: true`. Returns a function that removes it. */
   onChange(listener: (change: RealtimeWorkspaceChange) => void): () => void
+  /**
+   * Answers the server's `requestRealtimeRoom()` calls to this room with what `handler` returns, as JSON. A thrown
+   * error, or an answer over 1 MiB, reaches the caller as `REALTIME_ROOM_REFUSED`. One handler at a time: a new one
+   * replaces the last. Needs a Definition with `requests: true`. Returns a function that removes it.
+   */
+  onRequest(handler: RealtimeRequestHandler): () => void
   destroy(): void
 }
 
@@ -70,6 +85,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   const updateListeners = new Set<() => void>()
   const changeListeners = new Set<(change: RealtimeWorkspaceChange) => void>()
   const pendingChanges: RealtimeWorkspaceChange[] = []
+  let requestHandler: RealtimeRequestHandler | undefined
   let currentStatus: RealtimeRoomStatus = "connecting"
   let destroyed = false
   let document: Y.Doc
@@ -102,6 +118,11 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       current.destroy()
       document.destroy()
       if (!destroyed) connect()
+    }
+    current.messageHandlers[messageRealtimeRequest] = (_encoder, decoder) => {
+      // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
+      const frame = decodeRealtimeRequestFramePayload(decoder as decoding.Decoder)
+      if (frame?.kind === "request") void answer(current, frame.id, frame.body)
     }
     // Send only this client's awareness: the server closes a connection that changes clients it does not own.
     current.awareness.off("update", current._awarenessUpdateHandler)
@@ -143,6 +164,22 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     })
   }
 
+  async function answer(current: WebsocketProvider, id: string, body: unknown) {
+    let frame: Uint8Array
+    try {
+      // Internal invariant: caught below and sent to the caller as the refusal reason.
+      if (!requestHandler) throw new Error("This page does not answer requests.")
+      frame = encodeRealtimeRequestFrame({ kind: "answer", id, ok: true, body: await requestHandler(body) })
+      // Internal invariant: caught below and sent to the caller as the refusal reason.
+      if (frame.byteLength > maxAnswerBytes) throw new Error(`The answer has ${frame.byteLength} bytes, over the 1 MiB limit.`)
+    }
+    catch (error) {
+      frame = encodeRealtimeRequestFrame({ kind: "answer", id, ok: false, why: error instanceof Error ? error.message : String(error) })
+    }
+    const socket = current.ws
+    if (current.wsconnected && socket && socket.readyState === socket.OPEN) socket.send(Uint8Array.from(frame))
+  }
+
   function flush() {
     const socket = changes?.ws
     if (!changes?.wsconnected || !socket || socket.readyState !== socket.OPEN) return
@@ -181,6 +218,12 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       changeListeners.add(listener)
       return () => changeListeners.delete(listener)
     },
+    onRequest(handler) {
+      requestHandler = handler
+      return () => {
+        if (requestHandler === handler) requestHandler = undefined
+      }
+    },
     destroy() {
       destroyed = true
       provider.destroy()
@@ -189,6 +232,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       changes?.doc.destroy()
       updateListeners.clear()
       changeListeners.clear()
+      requestHandler = undefined
     },
   }
 }

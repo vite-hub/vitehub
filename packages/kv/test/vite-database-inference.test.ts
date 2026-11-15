@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveDBViteConfig } from "@vite-hub/database/config"
 
@@ -79,6 +79,28 @@ describe("KV driver inference in a build", () => {
     const output = await generatedConfig(root, [], { hosting: "node-server" })
 
     expect(output).toContain(`"driver":"fs-lite"`)
+  })
+})
+
+describe("KV Redis env warning in a build", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("prints the fix once when the build has REDIS_URL and infers the Database", async () => {
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379")
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const root = await createApp("postgresql")
+    const plugin = hubKV(undefined, { hosting: "node-server" })
+    // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.
+    await (plugin.configResolved as Hook<[ResolvedConfig], Promise<void>>).handler({ command: "build", envDir: false, mode: "production", plugins: [databasePlugin(root)], root } as unknown as ResolvedConfig)
+    // SAFETY: buildStart reads only the provider output catalog, which this test does not use.
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toBe("[vitehub] The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses the table vitehub_kv of the Database \"default\". To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.")
   })
 })
 

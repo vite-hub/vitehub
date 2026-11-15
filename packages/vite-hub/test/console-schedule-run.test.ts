@@ -115,7 +115,7 @@ describe("Console Schedule runs", () => {
     await Reflect.apply(config, {}, [{ root }, { command: "serve", mode: "development" }])
 
     const handler = pathToFileURL(join(root, "server/schedules/daily-report.ts")).href
-    expect(await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
+    expect(await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
   })
 
   it("discovers manual Static Schedule Definitions for the Console", async () => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
+import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";
 import { useElementSize } from "@vueuse/core";
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
@@ -282,7 +282,7 @@ watch(
 watch(activeSurface, async () => {
   await nextTick();
   const scroller = tabstrip.value?.querySelector<HTMLElement>(".session-inspector__tabs");
-  const activeTab = scroller?.querySelector<HTMLElement>('[data-state="active"]');
+  const activeTab = scroller?.querySelector<HTMLElement>("[data-selected]");
   if (!scroller || !activeTab) return;
   const scrollerBounds = scroller.getBoundingClientRect();
   const tabBounds = activeTab.getBoundingClientRect();
@@ -359,7 +359,8 @@ function closeFile(path: string) {
   }
 }
 
-function activateSurface(value: string | number) {
+function activateSurface(value: string | number | null) {
+  if (value === null) return;
   const id = String(value);
   if (id.startsWith("file:")) openFile(id.slice(5));
   else if (id.startsWith("view:")) {
@@ -579,15 +580,15 @@ function message(error: unknown) {
     <header v-if="!props.view" class="session-inspector__header">
       <div ref="tabstrip" class="session-inspector__tabstrip">
         <!--
-          Reka tabs, not UTabs: each tab has its own close button beside the trigger, and UTabs renders its trailing
+          Kit tabs, not UTabs: each tab has its own close button beside the trigger, and UTabs renders its trailing
           slot inside the trigger button, where a second button is not valid. The look follows the theme's underline tabs.
         -->
-        <TabsRoot
+        <Tabs
           v-if="surfaceItems.length"
-          :model-value="activeSurface"
+          :value="activeSurface"
           class="session-inspector__tabs"
           orientation="horizontal"
-          @update:model-value="activateSurface"
+          @update:value="activateSurface"
         >
           <TabsList class="session-inspector__tablist">
             <div
@@ -596,13 +597,13 @@ function message(error: unknown) {
               class="session-inspector__tab"
               :data-active="activeSurface === String(item.value)"
             >
-              <TabsTrigger
+              <TabsTab
                 :value="String(item.value)"
-                class="flex h-7 min-w-0 max-w-36 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted hover:text-highlighted data-[state=active]:text-highlighted"
+                class="flex h-7 min-w-0 max-w-36 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted hover:text-highlighted data-selected:text-highlighted"
               >
                 <UIcon :name="item.icon" class="session-inspector__surface-icon" aria-hidden="true" />
                 <span class="truncate">{{ item.label }}</span>
-              </TabsTrigger>
+              </TabsTab>
               <UButton
                 icon="i-lucide-x"
                 variant="ghost"
@@ -612,7 +613,7 @@ function message(error: unknown) {
               />
             </div>
           </TabsList>
-        </TabsRoot>
+        </Tabs>
         <UDropdownMenu
           :items="launcherItems"
           :content="{ align: 'start', side: 'bottom', sideOffset: 6 }"

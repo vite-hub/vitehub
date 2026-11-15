@@ -1,4 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { pageRealtimeDefinition } from "./internal/page.ts"
 import { channelSimulationEnv } from "./internal/channel-simulation.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
@@ -315,6 +316,8 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "email", name: "email", packageName: "@vite-hub/email", pluginName: "@vite-hub/email/vite" },
   { importName: "agentI18n", name: "i18n", packageName: "@vite-hub/i18n/server", pluginName: "@vite-hub/i18n/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
+  // The `page()` Capability asks the person's page through a Realtime room.
+  { importName: "agentRealtime", name: "realtime", packageName: "@vite-hub/realtime/agent", pluginName: "@vite-hub/realtime/vite" },
 ]
 
 function configuredGeneratedAgentRuntimeCapabilities(
@@ -1574,7 +1577,7 @@ async function writeAgentRuntimeRegistry(
   const seen = new Set<string>()
   for (const definition of definitions) {
     if (seen.has(definition.name)) {
-      throw new Error(`Duplicate Agent name discovered: ${definition.name}`)
+      throw agentDiagnostics.AGENT_NAME_DUPLICATE({ name: definition.name })
     }
     seen.add(definition.name)
   }
@@ -1757,6 +1760,7 @@ async function generateAgentDeploymentCatalog(
             `const standaloneChannelAgents${typescript ? ": Record<string, AgentInput>" : ""} = {}`,
             ...standaloneChannels.flatMap((channel, index) => [
               `if (!channelHosts[${JSON.stringify(channel.name)}]) {`,
+              // Internal invariant: generated app source without the Agent catalog; the message names the Channel trigger to fix.
               `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
               `  agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
               "}",
@@ -2934,6 +2938,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     },
     load(id) {
       if (id === chatgptModelProviderWithoutConnections) {
+        // Internal invariant: generated stub source without the Agent catalog; the message names the vitehub() option to fix.
         return `export function createOpenAI() { throw new Error(${JSON.stringify("[vitehub] The ChatGPT model needs Connections. Enable connections in vitehub() and rebuild.")}) }`
       }
       // Generated code imports Agent and Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
@@ -3613,7 +3618,7 @@ export function discoverAgentDefinitionEntries(
   ]
   const names = new Set<string>()
   for (const entry of entries) {
-    if (names.has(entry.name)) throw new Error(`Duplicate Agent name "${entry.name}" discovered.`)
+    if (names.has(entry.name)) throw agentDiagnostics.AGENT_NAME_DUPLICATE({ name: entry.name })
     names.add(entry.name)
   }
   return [...new Map(entries.map(definition => [definition.handler, {
@@ -3638,3 +3643,20 @@ export { processAgentHost } from './process-host-vite.ts'
 
 export { agentHostRoutes } from './host-routes-vite.ts'
 export type { AgentHostRoute } from './host-routes-vite.ts'
+
+/**
+ * The Realtime Definition of page rooms, for `hubRealtime({ contribute })`: a presence room per page, which takes
+ * requests, so the `page()` Capability can ask the page through `requestRealtimeRoom()`. vite-hub adds it when the app
+ * has Agents and Realtime.
+ */
+export async function contributeAgentPageRealtime(context: { directory: string }): Promise<{ definitions: Array<{ handler: string, name: string }> }> {
+  const handler = join(context.directory, `${pageRealtimeDefinition}.mjs`)
+  await mkdir(context.directory, { recursive: true })
+  await writeFileIfChanged(handler, [
+    "// A room for each page that `connectPage()` joins, kept per person: the Agent's `page()` Capability asks the one",
+    "// browser in the room of the run's own person. Pages need no sign-in, so the definition is public.",
+    "export default { access: \"public\", document: false, requests: true, scope: \"user\" }",
+    "",
+  ].join("\n"))
+  return { definitions: [{ handler, name: pageRealtimeDefinition }] }
+}

@@ -4,6 +4,7 @@ import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
 import { useDatabase } from "@vite-hub/database"
 import { trackD1Database, trackPostgresClient } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createPostgresAgentInvocationStore } from "./postgres-store.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "./d1.ts"
@@ -62,6 +63,7 @@ const sqliteDialect = new SQLiteDialect()
 function statementSql(query: string, values: readonly unknown[]): SQL {
   const parts = query.split("?")
   if (parts.length - 1 !== values.length) {
+    // Internal invariant: ViteHub writes these statements and passes one value for each placeholder.
     throw new TypeError("[vitehub] Database Agent Invocation statement parameters do not match its placeholders.")
   }
   return sql.join(parts.map((part, index) => index === 0 ? sql.raw(part) : sql`${values[index - 1]}${sql.raw(part)}`))
@@ -70,7 +72,7 @@ function statementSql(query: string, values: readonly unknown[]): SQL {
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The caller supplies the row projection after the runtime named-column check.
 function statementResult<T = Record<string, unknown>>(rows: unknown[]): InvocationResult<T> {
   if (rows.some(row => typeof row !== "object" || row === null || Array.isArray(row))) {
-    throw new TypeError("[vitehub] Database Agent Invocations require a driver that returns named columns. The Cloudflare D1 HTTP driver is not supported.")
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED({ need: "a driver that returns named columns. The Cloudflare D1 HTTP driver is not supported" })
   }
   return {
     meta: { changes: rows.length },
@@ -90,15 +92,15 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
   if (client) {
     const results = await client.batch(statements.map(statement => client.prepare(statement.sql).bind(...statement.params)))
     return results.map(result => {
-      if (!isRecord(result)) throw new TypeError("[vitehub] Database Agent Invocations require a D1 batch driver that returns results.")
+      if (!isRecord(result)) throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED({ need: "a D1 batch driver that returns results" })
       const rows = Reflect.get(result, "results")
-      if (!Array.isArray(rows)) throw new TypeError("[vitehub] Database Agent Invocations require a D1 batch driver that returns rows.")
+      if (!Array.isArray(rows)) throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED({ need: "a D1 batch driver that returns rows" })
       return rows
     })
   }
   const results = await database.batch([database.all(first), ...rest.map(query => database.all(query))])
   return results.map(result => {
-    if (!Array.isArray(result)) throw new TypeError("[vitehub] Database Agent Invocations require a SQLite batch driver that returns rows.")
+    if (!Array.isArray(result)) throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED({ need: "a SQLite batch driver that returns rows" })
     return result
   })
 }

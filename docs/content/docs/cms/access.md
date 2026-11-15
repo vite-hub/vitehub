@@ -10,9 +10,9 @@ The CMS has four roles. Each role has the permissions of the one above it:
 
 | Role | Content | Comments |
 | --- | --- | --- |
-| `viewer` | Read drafts | None |
-| `commenter` | Read drafts | Read, comment, and resolve |
-| `editor` | Read drafts, and save, remove, and restore them | Read, comment, and resolve |
+| `viewer` | Read `/api/content/**` and drafts | None |
+| `commenter` | Read `/api/content/**` and drafts | Read, comment, and resolve |
+| `editor` | All `viewer` actions, and save, remove, and restore drafts | Read, comment, and resolve |
 | `publisher` | All `editor` actions, and publish | Read, comment, resolve, and delete threads |
 
 Two roles come from Better Auth:
@@ -20,7 +20,15 @@ Two roles come from Better Auth:
 - `admin` has every CMS and Better Auth admin permission.
 - `user` is the role of each new user. It has no CMS permission, so a new user cannot read drafts until you give them a role.
 
-Published documents stay public through `/api/content/**`. The roles control drafts, edits, publishes, and comments.
+The role policy also decides `read`, the [`/api/content/**` route](/docs/content/configure#public-access), so a visitor without a role gets `401`. When visitors read that route, set `access: 'public'`. The roles still decide drafts, writes, and publishing:
+
+```ts [server/content.ts] fragment
+export default defineContent({
+  extends: [cms, { access: 'roles' }],
+  collections: { posts },
+  access: 'public',
+})
+```
 
 ## Set up the roles
 
@@ -29,9 +37,11 @@ Install the Better Auth [`admin` plugin](https://www.better-auth.com/docs/plugin
 ```ts [server/auth.ts]
 import { admin } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { cmsAccess } from 'vite-hub/cms/access'
 
 export default defineAuth({
+  database: authDatabase(),
   plugins: [admin(cmsAccess)],
 })
 ```
@@ -115,7 +125,7 @@ import { cmsCommentsAuthorize } from 'vite-hub/cms/access'
 export const comments = defineComments({ authorize: cmsCommentsAuthorize })
 ```
 
-`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
+`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

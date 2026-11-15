@@ -32,8 +32,25 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
   return token
 }
 
-// Continuation ownership is established only by this registry. Never decode a
-// caller-provided cursor, since providers own the complete opaque cursor space.
+// Reads a token that another module instance issued, such as another Worker
+// isolate. The tag must match, so a provider cursor is never misread as a token.
+// The full history stays in the issuing instance, so repeat detection restarts here.
+function decodeContinuation(token: string): string | undefined {
+  const match = /^vhc1:[0-9a-f-]{36}:([^:]+):([0-9a-f]{32})$/.exec(token)
+  if (!match || continuationTag(match[1]!) !== match[2]) return undefined
+  let payload: unknown
+  try {
+    payload = JSON.parse(decodeURIComponent(match[1]!))
+  }
+  catch {
+    return undefined
+  }
+  if (!payload || typeof payload !== "object" || Reflect.get(payload, "format") !== "vitehub-continuation") return undefined
+  const providerCursor: unknown = Reflect.get(payload, "providerCursor")
+  return typeof providerCursor === "string" && providerCursor.length > 0 && providerCursor.length <= MAX_CURSOR_LENGTH ? providerCursor : undefined
+}
+
+// The registry owns locally issued and adopted portable continuations.
 const continuations = new Map<string, Continuation>()
 const continuationOwners = new Map<string, Set<string>>()
 const consumedContinuations = new Map<string, Continuation>()
@@ -54,7 +71,7 @@ export function createCursorHistory(namespace = "default") {
   const ownedContinuations = new Set<string>()
   const ownedConsumedContinuations = new Set<string>()
   function take(cursor: string, requestedNamespace = namespace): Continuation {
-    const continuation = continuations.get(cursor)
+    let continuation = continuations.get(cursor)
     if (continuation && continuation.namespace !== requestedNamespace) {
       throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "foreign" })
     }
@@ -65,11 +82,17 @@ export function createCursorHistory(namespace = "default") {
       if (invalidatedContinuations.has(cursor)) {
         throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
       }
-      // A prefix alone does not identify a portable token: providers own opaque cursors.
-      if (cursor.length > MAX_CURSOR_LENGTH) {
-        throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
+      const providerCursor = cursor.length <= MAX_CONTINUATION_LENGTH ? decodeContinuation(cursor) : undefined
+      if (providerCursor) {
+        continuation = { providerCursor, history: new Set([providerCursor]), namespace: requestedNamespace }
       }
-      return { providerCursor: cursor, history: new Set([cursor]), namespace }
+      else {
+        // A prefix alone does not identify a portable token: providers own opaque cursors.
+        if (cursor.length > MAX_CURSOR_LENGTH) {
+          throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
+        }
+        return { providerCursor: cursor, history: new Set([cursor]), namespace }
+      }
     }
     continuations.delete(cursor)
     continuationOwners.get(cursor)?.delete(cursor)

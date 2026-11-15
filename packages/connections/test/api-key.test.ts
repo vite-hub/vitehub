@@ -102,7 +102,7 @@ describe("API key Connections", () => {
   it("sends the key to the provider mcp endpoint and reports it", async () => {
     const test = harness(apiKey({ mcp: "https://mcp.example.com/mcp", origins: ["https://api.example.com"] }), { server: { read: true, write: ["fetch"] } })
     expect(await test.runtime.inspect("executor")).toMatchObject({ mcp: "https://mcp.example.com/mcp" })
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
 
     await test.runtime.client("executor", {}).fetch("https://mcp.example.com/mcp", { body: "{}", method: "POST" })
     expect(test.calls.at(-1)).toMatchObject({ body: "{}", method: "POST", url: "https://mcp.example.com/mcp" })
@@ -137,7 +137,7 @@ describe("API key Connections", () => {
       if (failures--) throw new Error("state unavailable")
       return putForToken(...args)
     }
-    await expect(test.runtime.setKey({ key: KEY, name: "executor" })).rejects.toThrow("state unavailable")
+    await expect(test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })).rejects.toThrow("state unavailable")
     expect(await test.runtime.inspect("executor")).toMatchObject({ status: "reauth_required" })
   })
 
@@ -149,7 +149,7 @@ describe("API key Connections", () => {
       if (++calls === 1) throw new Error("state inspection unavailable")
       return get(name)
     }
-    await expect(test.runtime.setKey({ key: KEY, name: "executor" })).rejects.toThrow("state inspection unavailable")
+    await expect(test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })).rejects.toThrow("state inspection unavailable")
     test.store.state.get = get
     const stored = await test.store.secrets.inspect("connection/executor")
     expect(stored?.revision).toBeTruthy()
@@ -164,7 +164,7 @@ describe("API key Connections", () => {
       scheme: "Token",
     })
     const test = harness(provider)
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
     expect(await test.runtime.client("executor", {}).call("items.items.list")).toEqual({ items: ["a"] })
     expect(test.calls.at(-1)!.headers.get("authorization")).toBe(`Token ${KEY}`)
     expect((await test.runtime.inspect("executor")).actions.map(action => action.id)).toEqual(["items.items.create", "items.items.list"])
@@ -172,7 +172,7 @@ describe("API key Connections", () => {
 
   it("does not refresh or quarantine a key that the provider rejects", async () => {
     const test = harness()
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
     test.routes.set("https://api.example.com/items", () => new Response(null, { status: 401 }))
     expect((await test.runtime.client("executor", {}).fetch("https://api.example.com/items")).status).toBe(401)
     expect(test.calls).toHaveLength(1)
@@ -181,7 +181,7 @@ describe("API key Connections", () => {
 
   it("removes the key when a redirect leaves the first origin", async () => {
     const test = harness(apiKey({ header: "x-api-key", origins: ["https://api.example.com"] }))
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
     test.routes.set("https://api.example.com/start", () => new Response(null, { headers: { location: "/next" }, status: 307 }))
     test.routes.set("https://api.example.com/next", () => new Response(null, { headers: { location: "https://evil.example.net/steal" }, status: 302 }))
     test.routes.set("https://evil.example.net/steal", () => new Response(null, { headers: { location: "https://api.example.com/back" }, status: 302 }))
@@ -205,58 +205,58 @@ describe("API key Connections", () => {
         return response.ok && key === KEY ? { account: { email: "ada@example.com", id: "acct_1" } } : false
       },
     }))
-    await expect(test.runtime.setKey({ key: "wrong-key", name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_KEY_REJECTED" })
+    await expect(test.runtime.setKey({ actor: "user:owner", key: "wrong-key", name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_KEY_REJECTED" })
     expect((await test.runtime.inspect("executor")).status).toBe("disconnected")
-    expect(await test.runtime.setKey({ key: KEY, name: "executor" })).toMatchObject({ account: { email: "ada@example.com", id: "acct_1" }, status: "connected" })
+    expect(await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })).toMatchObject({ account: { email: "ada@example.com", id: "acct_1" }, status: "connected" })
     expect(seen).toEqual(["wrong-key", KEY])
   })
 
   it("hides verify failures that could contain the key", async () => {
     const throwing = harness(apiKey({ origins: ["https://api.example.com"], verify: async key => { throw new Error(`bad ${key}`) } }))
-    const error = await throwing.runtime.setKey({ key: KEY, name: "executor" }).catch((cause: unknown) => cause)
+    const error = await throwing.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" }).catch((cause: unknown) => cause)
     expect(error).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect(String(error)).not.toContain(KEY)
     // SAFETY: The test checks that a verify result outside the declared type is rejected at runtime.
     const invalid = harness(apiKey({ origins: ["https://api.example.com"], verify: (async () => "yes") as unknown as () => Promise<boolean> }))
-    await expect(invalid.runtime.setKey({ key: KEY, name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
+    await expect(invalid.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
   })
 
   it.each(["", "has space", "line\nbreak", "k".repeat(8193)])("rejects a key that is not a header value (%j)", async (key) => {
-    await expect(harness().runtime.setKey({ key, name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    await expect(harness().runtime.setKey({ actor: "user:owner", key, name: "executor" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("keeps OAuth and API key flows separate", async () => {
     const test = harness()
-    await expect(test.runtime.authorize({ name: "executor", redirectUri: "http://127.0.0.1:8976/callback" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
+    await expect(test.runtime.authorize({ actor: "user:owner", name: "executor", redirectUri: "http://127.0.0.1:8976/callback" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     const { createTestRuntime } = await import("./helpers.ts")
-    await expect(createTestRuntime().runtime.setKey({ key: KEY, name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    await expect(createTestRuntime().runtime.setKey({ actor: "user:owner", key: KEY, name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("revokes by deleting the stored key", async () => {
     const test = harness()
-    await test.runtime.setKey({ key: KEY, name: "executor" })
-    expect(await test.runtime.revoke({ name: "executor" })).toMatchObject({ status: "revoked" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
+    expect(await test.runtime.revoke({ actor: "user:owner", name: "executor" })).toMatchObject({ status: "revoked" })
     expect(test.calls).toHaveLength(0)
     await expect(test.runtime.client("executor", {}).fetch("https://api.example.com/items")).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
-    expect(await test.runtime.setKey({ key: KEY, name: "executor" })).toMatchObject({ status: "connected" })
+    expect(await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })).toMatchObject({ status: "connected" })
   })
 
   it("applies access rules and replays approved writes with the current key", async () => {
     const test = harness(apiKey({ origins: ["https://api.example.com"] }), { "agent:support": { read: true, write: ["fetch"] } })
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
     const agent = test.runtime.client("executor", { access: agentEnvAccess({ name: "support" }) })
     const error = await agent.fetch("https://api.example.com/items", { body: "{}", method: "POST" }).catch((cause: unknown) => cause)
     expect(error).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     await expect(test.runtime.client("executor", { actor: "server" }).fetch("https://api.example.com/items")).rejects.toMatchObject({ code: "CONNECTIONS_DENIED" })
     const [approval] = (await test.runtime.approvals({ name: "executor", status: "pending" })).approvals
-    expect(await test.runtime.approve({ id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { status: 200 } })
+    expect(await test.runtime.approve({ actor: "user:owner", id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { status: 200 } })
     expect(test.calls.at(-1)).toMatchObject({ body: "{}", method: "POST", url: "https://api.example.com/items" })
     expect(test.calls.at(-1)!.headers.get("authorization")).toBe(`Bearer ${KEY}`)
   })
 
   it("skips writes in dry run", async () => {
     const test = harness(apiKey({ origins: ["https://api.example.com"] }), { server: { read: true, write: ["fetch"] } })
-    await test.runtime.setKey({ key: KEY, name: "executor" })
+    await test.runtime.setKey({ actor: "user:owner", key: KEY, name: "executor" })
     const effects: unknown[] = []
     const response = await test.runtime.client("executor", { dryRun: true, onEffect: effect => effects.push(effect) }).fetch("https://api.example.com/items", { method: "DELETE" })
     expect(response.status).toBe(204)

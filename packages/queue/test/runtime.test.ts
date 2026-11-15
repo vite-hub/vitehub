@@ -94,7 +94,7 @@ describe("cloudflare queue runtime", () => {
   it("selects an explicit Queue client without generated runtime state", async () => {
     const cloudflareSend = vi.fn(async () => {})
     const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
-    expect(await cloudflare.send("cloudflare")).toEqual([undefined, { messageId: expect.any(String), status: "queued" }])
+    expect(await cloudflare.send("cloudflare")).toEqual([undefined, { status: "queued" }])
     expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
 
     const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))

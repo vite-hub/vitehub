@@ -141,7 +141,7 @@ describe.skipIf(!url)("Postgres Agent Invocation store", () => {
     const journal = store(first, { database: "main", tablePrefix: missing })
 
     await expect(journal.create(invocation("no-table"))).rejects.toMatchObject({
-      code: "AGENT_R1044",
+      code: "AGENT_INVOCATION_POSTGRES_TABLES_MISSING",
       fix: expect.stringContaining("vitehub database migrate"),
       why: expect.stringContaining(`"${missing}invocations"`),
     })

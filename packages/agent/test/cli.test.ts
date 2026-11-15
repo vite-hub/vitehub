@@ -1773,9 +1773,12 @@ describe("agent CLI", () => {
         { id: "invocation-1", outcome: "terminal", status: "completed" },
         { delivery: "journal", id: "invocation-1", outcome: "requested", status: "running" },
       ]
-      const fetchCancel = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-        ? Response.json(results.shift())
-        : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      // This dev server has no Console, so `--url` falls back to the dev endpoint for one minor version.
+      const fetchCancel = vi.fn(async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/_vitehub/rpc")
+        ? new Response("Not found", { status: 404 })
+        : init?.method === "POST"
+          ? Response.json(results.shift())
+          : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       const run = async (args: string[]) => {
         const stdout = stream()
         const stderr = stream()
@@ -1794,6 +1797,8 @@ describe("agent CLI", () => {
       const json = await run(["cancel", "invocation-1", "--json", "--url", "http://127.0.0.1:5174"])
       expect(json.exitCode).toBe(0)
       expect(JSON.parse(json.stdout)).toEqual({ id: "invocation-1", outcome: "terminal", status: "cancelled" })
+      expect(json.stderr).toContain("AGENT_R1053")
+      expect(fetchCancel.mock.calls[2]?.[0]).toBe("http://127.0.0.1:5174/_vitehub/rpc")
       expect(fetchCancel.mock.calls[3]?.[0]).toBe("http://127.0.0.1:5174/__vitehub/agent/invocations/dev")
 
       expect(await run(["cancel", "invocation-1"])).toEqual({ exitCode: 1, stderr: "", stdout: "invocation-1 already completed\n" })

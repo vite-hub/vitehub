@@ -53,7 +53,7 @@ No allowed manager is signed in, or the authorization belongs to another actor. 
 
 ### CONNECTIONS_INVALID_ACTOR
 
-Pass `user:<id>` or `service:<id>`.
+Pass `user:<id>` or `service:<id>`. The runtime methods `approve`, `deny`, `authorize`, `complete`, `revoke`, and `setKey` require `actor` and have no default.
 
 ### CONNECTIONS_INVALID_APPROVAL
 
