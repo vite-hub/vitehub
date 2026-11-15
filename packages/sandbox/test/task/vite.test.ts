@@ -239,11 +239,12 @@ describe("hubSandboxTask", () => {
     ])
     expect(facade).toContain("setSandboxTaskRuntimeConfig")
     expect(facade).toContain("setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)")
+    expect(facade).toContain("setSandboxTaskRuntimeDevelopment(true)")
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     const facadePackageImports = [
-      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toEqual([
@@ -286,6 +287,7 @@ describe("hubSandboxTask", () => {
     const { default: definition } = await registry["__proto__"]!()
     expect(definition.options).toEqual({ timeout: 5000 })
     expect(definition.bundle.modules[definition.bundle.entry]).toContain("prototype sandbox")
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"), "utf8")).resolves.toContain("setSandboxTaskRuntimeDevelopment(false)")
   })
 
   it("loads only the selected generated Definition payload", async () => {

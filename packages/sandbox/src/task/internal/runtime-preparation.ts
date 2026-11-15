@@ -188,6 +188,7 @@ function createSandboxTaskRuntimeFacadeContents(
   file: string,
   runtimeConfig: AgentSandboxTaskConfig | false,
   registryFile: string,
+  development: boolean,
   providerLoaderImport?: string,
 ) {
   return [
@@ -195,9 +196,10 @@ function createSandboxTaskRuntimeFacadeContents(
     ...(providerLoaderImport
       ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(providerLoaderImport)}`]
       : []),
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
+    `setSandboxTaskRuntimeDevelopment(${development})`,
     'setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)',
     '',
     'export default sandboxTaskRegistry',
@@ -506,6 +508,7 @@ export async function prepareSandboxTaskRuntime(options: {
       file,
       context.runtimeConfig.sandboxTask,
       registryFile,
+      context.command === 'serve',
       providerLoaderImport,
     ),
     options.platform,
