@@ -24,7 +24,7 @@ describe("submitForm", () => {
 
   it("returns the field issues of a 400", async () => {
     const [error] = await submitForm("feedback", { message: "x" }, { fetch: server() })
-    expect(error).toMatchObject({ name: "FormSubmitError", status: 400, issues: [{ message: "Too short.", path: ["message"] }] })
+    expect(error).toMatchObject({ code: "FORMS_SUBMIT_INVALID", fix: expect.stringContaining("fieldErrors"), status: 400, issues: [{ message: "Too short.", path: ["message"] }] })
   })
 
   it("sends FormData as form fields, which the server decodes to the schema types", async () => {

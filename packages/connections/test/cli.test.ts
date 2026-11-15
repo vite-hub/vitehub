@@ -361,7 +361,7 @@ describe("vitehub connections", () => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
     })) as typeof globalThis.fetch
     expect(await runConnectionsCli("list", ["--url", "http://127.0.0.1:4741"], context, { fetch, openBrowser: false, requestTimeout: 0.05 })).toBe(1)
-    expect(output.stderr).toBe("http://127.0.0.1:4741 did not answer in 0.05 seconds. If the server is restarting, wait until it is ready, then run the command again.\n")
+    expect(output.stderr).toBe("http://127.0.0.1:4741 did not answer in 0.05 seconds. If the server is restarting, wait until it is ready, then run the command again.\nFix: Start the development server with `vite dev`, or pass `--url <origin>` of an app that uses Connections. A retry helps when the server was restarting.\n")
   })
 
   it("reports errors and unknown options", async () => {

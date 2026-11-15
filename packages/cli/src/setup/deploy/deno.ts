@@ -4,7 +4,7 @@ import process from "node:process"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupExitCodes, setupFailure } from "../envelope.ts"
 import { findUrl, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
 
 import type { SetupLink } from "../link.ts"
@@ -18,8 +18,8 @@ const runnerFirstLine = "import { spawn } from \"node:child_process\""
 export async function denoAdapter(context: DeployContext, organization: string): Promise<DeployAdapter> {
   const runner = join(context.outputDir, "deploy.mjs")
   const source = await readFile(runner, "utf8").catch(() => undefined)
-  if (source === undefined) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: runner }), setupExitCodes.error)
-  if (!source.startsWith(runnerFirstLine)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command: runner }), setupExitCodes.error)
+  if (source === undefined) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: runner }), setupExitCodes.error)
+  if (!source.startsWith(runnerFirstLine)) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command: runner }), setupExitCodes.error)
   const env = { ...context.env, DENO_DEPLOY_APP: context.projectName, DENO_DEPLOY_ORG: organization }
 
   return {
@@ -37,7 +37,7 @@ export async function denoAdapter(context: DeployContext, organization: string):
 /** The Deno Deploy organization: the linked account, else `DENO_DEPLOY_ORG`. */
 export function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
   const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
-  if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
+  if (!organization) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
   return organization
 }
 

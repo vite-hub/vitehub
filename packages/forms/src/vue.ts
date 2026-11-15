@@ -11,7 +11,8 @@ import type { PropType, Ref, VNode } from "vue"
 import type { FormAnchor, FormFieldErrors, FormSubmitError, SubmitFormOptions } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
 
-export { FormSubmitError, fieldErrors, formRoute, submitForm } from "./client.ts"
+export { fieldErrors, formRoute, submitForm } from "./client.ts"
+export type { FormSubmitError } from "./client.ts"
 export type { FormAnchor, FormFieldErrors, FormIssue, SubmitFormOptions } from "./client.ts"
 
 /** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */

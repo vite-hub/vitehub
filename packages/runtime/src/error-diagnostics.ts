@@ -3,7 +3,7 @@ import { defineDiagnostics } from "nostics"
 import type { Diagnostics } from "nostics"
 
 interface RuntimeCodeDefinition {
-  why: (params: { message?: unknown }) => string
+  why: (params: { counter?: string, message?: unknown }) => string
   fix?: string
 }
 
@@ -27,6 +27,7 @@ type RuntimeErrorCode =
   | "RUNTIME_R0016"
   | "RUNTIME_R0017"
   | "RUNTIME_R0018"
+  | "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
   | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
@@ -48,6 +49,10 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_R0017: dynamicError,
   RUNTIME_R0018: dynamicError,
   // Named errors. Keep these codes in alphabetical order.
+  RUNTIME_EXECUTION_BUDGET_EXCEEDED: {
+    why: ({ counter }) => `[vitehub] Execution budget exhausted for ${counter}.`,
+    fix: "Raise the `executionBudget` limit that `error.counter` names, such as `maxToolCalls`, `maxRetries`, `maxInputBytes`, or `maxOutputBytes`, or give the run less work.",
+  },
   RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID: {
     why: () => "[vitehub] Execution budget limits must be finite non-negative numbers.",
     fix: "Set each limit of `executionBudget`, such as `maxToolCalls` or `maxOutputBytes`, to a finite number of 0 or more, or remove it.",

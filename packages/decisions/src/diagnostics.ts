@@ -23,5 +23,14 @@ export const decisionsDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     /** The model answer misses a question that was asked. */
     DECISIONS_R0006: dynamicError,
+    // Named errors. Keep these codes in alphabetical order.
+    DECISIONS_CLI_ARGUMENTS_INVALID: {
+      why: ({ problem }: { problem: string }) => problem,
+      fix: "Run `vitehub decisions run <file> <text>`, pass `--context` as a JSON object, and pass `--export <name>` when the file has several `defineChoices()` exports.",
+    },
+    DECISIONS_CLI_CHOICES_NOT_FOUND: {
+      why: ({ problem }: { problem: string }) => problem,
+      fix: "Run `vitehub decisions list` to find the files and exports that call `defineChoices()`, and pass one of them to `vitehub decisions run`.",
+    },
   },
 })

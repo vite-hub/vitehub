@@ -108,5 +108,5 @@ export async function gitlab() {
 | `forgeBlob(provider, repo, sha, { signal })` | The bytes of one blob by sha. GitHub only. |
 | `forgeCommitFiles(provider, repo, input, options)` | `contents.commitFiles()` that can also set git file modes (`100644`, `100755`, `120000`). Returns the commit sha. |
 | `BranchMovedError` | The bundled `forges` error for a branch that moved before a commit. |
-| `forgeErrorStatus(error)`, `ForgeResponseError` | Classify Forge request failures. |
+| `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |

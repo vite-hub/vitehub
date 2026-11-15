@@ -6,7 +6,7 @@ import { join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { applySetupAdd, planSetupAdd, readAddArgs, shellQuote } from "./add.ts"
 import { setupCatalog } from "./catalog.ts"
-import { SetupFailure, setupExitCodes, writeSetupError } from "./envelope.ts"
+import { setupExitCodes, setupFailure, writeSetupError } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { applySetupRemove, planSetupRemove, readRemoveArgs } from "./remove.ts"
 import { setupStatus } from "./status.ts"
@@ -205,18 +205,18 @@ export function createSetupSession(options: SetupSessionOptions): SetupSession {
   async function applyStored(planId: unknown, onOutput: (text: string, stream: "stdout" | "stderr") => void): Promise<SetupSessionResult> {
     try {
       const stored = typeof planId === "string" ? plans.get(planId) : undefined
-      if (!stored || typeof planId !== "string") throw new SetupFailure(cliErrorDiagnostics.SETUP_PLAN_UNKNOWN(), setupExitCodes.error)
+      if (!stored || typeof planId !== "string") throw setupFailure(cliErrorDiagnostics.SETUP_PLAN_UNKNOWN(), setupExitCodes.error)
       // A plan applies once, also when the apply fails.
       plans.delete(planId)
       const current = await fingerprint(options.root, stored.files.keys())
       for (const [path, hash] of stored.files) {
-        if (current.get(path) !== hash) throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: path }), setupExitCodes.stalePlan)
+        if (current.get(path) !== hash) throw setupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: path }), setupExitCodes.stalePlan)
       }
       // Files that the plan did not record, such as an import that `remove` scans for, can still change the plan.
       const project = await readSetupProject(options.root, options.env)
       const again = stored.action === "add" ? await planSetupAdd(project, stored.args, options.env) : await planSetupRemove(project, stored.args, options.env)
       if (!sameChange(stored.planned.plan, again.plan)) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: project.configFile ?? "the project" }), setupExitCodes.stalePlan)
+        throw setupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: project.configFile ?? "the project" }), setupExitCodes.stalePlan)
       }
       const spawn: ViteHubCliSpawn = async (command, args, spawnOptions) => await options.run(command, args, { cwd: spawnOptions?.cwd ?? project.root, env: spawnOptions?.env ?? options.env, onOutput })
       const context = { env: options.env, spawn }
