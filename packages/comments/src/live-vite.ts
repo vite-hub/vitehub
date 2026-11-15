@@ -13,6 +13,7 @@ import { parseDatabaseLocation } from "@vite-hub/database/config"
 import { readForgeBuild } from "@vite-hub/forge/build/node"
 import { parseJSONC, parseTOML } from "confbox"
 
+import { commentsDeploymentEnv } from "./deployment-env.ts"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
@@ -20,6 +21,7 @@ import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from 
 import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { NitroModule, NitroOptions } from "nitro/types"
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -113,6 +115,8 @@ export interface CommentsComponent {
 export type CommentsVitePlugin = Plugin & {
   nitro?: NitroModule
   api: {
+    /** The variables that Comments reads on the deployed host. See `commentsDeploymentEnv()`. */
+    deploymentEnv: DeploymentEnvContribution
     /** Supplies Nuxt's effective component names, and refreshes the generated map after a rescan. */
     setComponents(components: readonly CommentsComponent[]): Promise<void>
     /**
@@ -530,6 +534,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
       },
     } : undefined,
     api: {
+      deploymentEnv: context => enabled() ? commentsDeploymentEnv(options, context) : [],
       async setComponents(components) {
         resolvedComponents = components
         await writeComponents()
