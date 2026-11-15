@@ -516,7 +516,7 @@ async function installConsole({
   writePlugin,
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
-  const plugin = resolveGeneratedConsolePlugin(projectRoot)
+  const plugin = resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (nuxt.options.dev && nuxt.hook) {
     // Nuxt runs Nitro's app in a worker that never sees the client's address. The Nuxt process signs
@@ -1452,7 +1452,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           workflowDiscoveryRoot: rootDir,
         })
         await writeNuxtConsolePlugin(
-          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot),
+          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true),
           consoleCatalog,
         )
       }
