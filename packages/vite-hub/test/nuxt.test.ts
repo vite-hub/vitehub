@@ -2880,6 +2880,20 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/"')
   })
 
+  it("leaves the Console link and the page tools script out of the pages with console.pill false", async () => {
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ console: { ...productionConsole, pill: false }, host: "node" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
+    expect(plugin).not.toContain("installConsolePageTool")
+    expect(plugin).toContain("export default function viteHubConsolePlugin() {}")
+  })
+
+  it("rejects console.pill true", async () => {
+    await expect(viteHubNuxtModule({ console: { ...productionConsole, pill: true as never }, host: "node" }, createNuxt(false).nuxt)).rejects.toThrow("console.pill must be false")
+  })
+
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {
     const application = createNuxt(auth === false)
     const applicationHandlers = [
