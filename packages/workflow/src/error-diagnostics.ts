@@ -99,5 +99,9 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] Agent Workflows need the Agent package, and the project does not resolve `@vite-hub/agent`.",
       fix: "Install `@vite-hub/agent`, or turn the Agent on with `vitehub({ agent: true })`.",
     },
+    WORKFLOW_ROOT_STEP_SLEEP: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.step.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.step.sleep()` between the steps.",
+    },
   },
 })

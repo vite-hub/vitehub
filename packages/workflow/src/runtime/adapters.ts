@@ -181,6 +181,21 @@ function isCloudflareInstanceNotFound(error: unknown): boolean {
   }
 }
 
+/**
+ * The Cloudflare Workflows service refused the call: its error carries a service code such as `(instance.already_exists)`,
+ * or local Miniflare rejected the instance id. A lost connection has neither.
+ */
+function isCloudflareRejection(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  try {
+    const message: unknown = Reflect.get(error, "message")
+    return typeof message === "string" && /\((?:instance|workflow)\.[a-z_]+\)|^Workflow instance has invalid id/.test(message)
+  }
+  catch {
+    return false
+  }
+}
+
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   // SAFETY: Workflow provider normalization establishes the asserted run contract.
@@ -231,7 +246,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           "cloudflare",
           "create",
           async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
-          { acknowledgementUnknown: (_error, status) => status === undefined },
+          {
+            acknowledgement: (error, status) => status === undefined
+              ? isCloudflareRejection(error) ? "rejected" : "unknown"
+              : status < 500 ? "rejected" : undefined,
+          },
         )
         const instance = await start().catch(async (firstError) => {
           try {

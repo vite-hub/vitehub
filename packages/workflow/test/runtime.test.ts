@@ -376,8 +376,10 @@ describe("workflow runtime", () => {
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,
-    details: { acknowledgement?: "unknown", operation: string, provider: string, status?: number },
+    expected: { acknowledgement?: "rejected" | "unknown", operation: string, provider: string, reason?: string, status?: number },
   ) {
+    // Every provider failure carries a short redacted reason. A case that does not name one accepts any reason.
+    const details = { reason: expect.any(String), ...expected }
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -392,7 +394,8 @@ describe("workflow runtime", () => {
       message: "Workflow provider operation failed.",
       name: "ViteHubError",
     })
-    expect(JSON.stringify(error)).not.toContain("provider-secret")
+    // The reason keeps the first line of the provider message. A value after a secret name is redacted.
+    expect(JSON.stringify(error)).not.toMatch(/provider-secret:(?!\[redacted\])/)
   }
 
   async function expectInvalidProviderResult(
@@ -513,10 +516,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -996,7 +996,6 @@ describe("workflow runtime", () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
-    const stepSleep = vi.fn(async () => {})
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
@@ -1008,7 +1007,6 @@ describe("workflow runtime", () => {
           throw error
         }
       }),
-      sleep: stepSleep,
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -1018,8 +1016,7 @@ describe("workflow runtime", () => {
       event: { id: "run-1" },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async (_payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
+        welcome: async () => ({ default: { handler: async () => {
           throw original
         } } }),
       },
@@ -1028,7 +1025,6 @@ describe("workflow runtime", () => {
 
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
     expect(step.do).toHaveBeenCalledOnce()
-    expect(stepSleep).toHaveBeenCalledWith("settle", "1 second")
   })
 
   it("isolates overlapping Cloudflare fetch environments", async () => {
@@ -1222,10 +1218,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -1256,10 +1249,14 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: {
+          // A folder Workflow orchestrator: only it may sleep.
+          options: { rootStep: false },
+          handler: async (payload, { step }) => {
+            await step?.sleep?.("settle", "1 second")
+            return { payload }
+          },
+        },
       }),
     })
 
@@ -1997,6 +1994,7 @@ describe("workflow runtime", () => {
     })
 
     await expectProviderFailure(startWorkflow("welcome", {}, { id: "source-run" }), cause, {
+      acknowledgement: "rejected",
       operation: "run",
       provider: "openworkflow",
       status: 403,
@@ -3555,6 +3553,30 @@ describe("workflow runtime", () => {
       provider: "cloudflare",
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { acknowledgement: "rejected", message: "(instance.already_exists) Workflow instance already exists" },
+    { acknowledgement: "rejected", message: "Workflow instance has invalid id" },
+    { acknowledgement: "unknown", message: "Network connection lost." },
+  ] as const)("reports a Cloudflare create that fails with \"$message\" as $acknowledgement", async ({ acknowledgement, message }) => {
+    const cause = new Error(message)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: async () => { throw cause }, get: vi.fn() },
+      } } } },
+    })
+
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "welcome-1" }), cause, {
+      acknowledgement,
+      operation: "create",
+      provider: "cloudflare",
+      reason: `Error: ${message}`,
+    })
   })
 
   it.each([
