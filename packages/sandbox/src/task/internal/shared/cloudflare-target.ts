@@ -1,3 +1,5 @@
+import type { CloudflareInstanceType } from '../../size.ts'
+
 export interface WranglerKVNamespace {
   binding: string
   id?: string
@@ -17,7 +19,7 @@ export interface WranglerContainer {
   class_name: string
   image?: string
   image_build_context?: string
-  instance_type?: string
+  instance_type?: CloudflareInstanceType
   max_instances?: number
   name?: string
 }

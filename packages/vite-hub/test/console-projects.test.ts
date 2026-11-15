@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
+import { consoleProjectBuildOf, consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
@@ -129,6 +129,22 @@ describe("project.get probe", () => {
     expect(init.credentials).toBe("same-origin")
     expect(init.headers).toEqual({ "content-type": "application/json", [consoleRpcHeader]: "1" })
     expect(operationRpcRequest(init.body)).toEqual({ operation: "project.get", input: {} })
+  })
+
+  it("reads the build of the project, and drops a build without a valid time", async () => {
+    const commit = { author: "Ada", branch: "main", message: "feat: ship", sha: "4f9c2e1" }
+    const built = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, build: { commit: { ...commit, extra: 1 }, time: "2026-11-14T10:00:00.000Z" } } }) })
+    expect(built).toMatchObject({ kind: "ready", info: { build: { commit, time: "2026-11-14T10:00:00.000Z" } } })
+    const broken = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, build: { commit, time: "yesterday" } } }) })
+    expect(broken.kind === "ready" && broken.info).not.toHaveProperty("build")
+    expect(consoleProjectBuildOf({ commit: { message: "no sha" }, time: "2026-11-14T10:00:00.000Z" })).toEqual({ time: "2026-11-14T10:00:00.000Z" })
+  })
+
+  it("keeps the build of a connected app from the check of the Console server", async () => {
+    const build = { commit: { sha: "4f9c2e1" }, time: "2026-11-14T10:00:00.000Z" }
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build }, linked: true, status: 200 })))
+    const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
+    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, status: "connected" })
   })
 
   it("reads a refused signature by its code, and any other 401 as a refused signature", async () => {
@@ -353,7 +369,18 @@ describe("account Console", () => {
     expect(state.navigate).toHaveBeenLastCalledWith("/")
   })
 
-  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+  it("opens the account page that the path names, such as /team-settings", async () => {
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(session)))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", search: "", showPath: () => {} }
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings" })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "team-settings" })
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings-old" })
+    expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
+  })
+
+  describe.each(["home", "team", "team-settings", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)

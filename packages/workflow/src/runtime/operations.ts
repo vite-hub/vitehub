@@ -17,6 +17,7 @@ export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult
 const maxRememberedRuns = 1024
 
 /** A failure of a Workflow operation, with the status and code that every surface reports. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 export class WorkflowOperationError extends Error {
   readonly code: string
   readonly fix?: string

@@ -227,7 +227,7 @@ function applyReview(current: TranslationRecord | undefined, transition: ReviewT
   if (transition.ok) return { ...transition.record, by: transition.record.by || undefined }
   // Repeated saves keep the current text's provenance, editor, and review stamps.
   if (transition.code === "unchanged" && current) return current
-  throw new Error(`Cannot save translation: ${transition.message}`)
+  throw i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem: transition.message })
 }
 
 /**
