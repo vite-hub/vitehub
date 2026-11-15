@@ -223,7 +223,7 @@ describe("Netlify Blobs driver", () => {
       index: Number.MAX_SAFE_INTEGER,
     }))
 
-    await expect(createDriver(options).list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(createDriver(options).list({ cursor })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
 
     expect(fetch).toHaveBeenCalledOnce()
     expect(store.getMetadata).not.toHaveBeenCalled()
