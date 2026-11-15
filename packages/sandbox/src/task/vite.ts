@@ -16,8 +16,7 @@ import {
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
 import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
-import { describeCloudflareSandboxTaskSize, inspectSandboxTaskDefinitions, inspectSandboxTaskResources, type SandboxTaskResourceInspectionOptions } from './inspect'
-import { describeVercelSandboxTaskSize } from './size'
+import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources, type SandboxTaskResourceInspectionOptions } from './inspect'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
 import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
@@ -255,7 +254,6 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
   let cloudflareSandbox: SandboxTaskResourceInspectionOptions | undefined
-  let vercelSandboxSize: string | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
   const sandboxTaskNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
@@ -371,8 +369,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
           label: 'Sandbox Tasks',
           list: () => {
             const sandboxTaskRoot = rootDir ?? resolvedConfig?.root ?? process.cwd()
-            const size = cloudflareSandbox ? describeCloudflareSandboxTaskSize(cloudflareSandbox) : vercelSandboxSize
-            return inspectSandboxTaskDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxTaskRoot), rootDir: sandboxTaskRoot, size })
+            return inspectSandboxTaskDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxTaskRoot), rootDir: sandboxTaskRoot })
           },
         }],
         resources: () => cloudflareSandbox ? inspectSandboxTaskResources(cloudflareSandbox) : [],
@@ -390,7 +387,6 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       definitions = prepared.definitions
       rootDir = prepared.rootDir
       selectedProvider = prepared.provider
-      vercelSandboxSize = prepared.providerOptions?.provider === 'vercel' ? describeVercelSandboxTaskSize(prepared.providerOptions) : undefined
       // SAFETY: Vite integrations may contribute Nitro config outside Vite's public UserConfig type.
       const nitro = (config as { nitro?: unknown }).nitro
       if (isPlainObject(nitro)) {
@@ -430,7 +426,6 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       const prepared = await refreshSandboxTaskRuntime()
       sandboxTaskEnabled = getResolvedFeatureOptions<SandboxTaskOptions>(rawConfig, 'sandboxTask') !== false && integrationOptions !== false
       selectedProvider = prepared.provider
-      vercelSandboxSize = prepared.providerOptions?.provider === 'vercel' ? describeVercelSandboxTaskSize(prepared.providerOptions) : undefined
       const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
         for (const key of ['cloudflare', 'rollupConfig']) {
@@ -450,7 +445,6 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
         const previousResolvedFiles = await resolveGeneratedSandboxTaskModuleIds(previousFiles)
         const prepared = await refresh()
         selectedProvider = prepared.provider
-        vercelSandboxSize = prepared.providerOptions?.provider === 'vercel' ? describeVercelSandboxTaskSize(prepared.providerOptions) : undefined
         if (resolvedConfig)
           await composeCloudflareSandbox(resolvedConfig, prepared, true)
         const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]

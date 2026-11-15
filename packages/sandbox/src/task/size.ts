@@ -33,7 +33,6 @@ export const defaultCloudflareInstanceType = 'standard-1'
 // Vercel gives 2048 MiB of memory for each vCPU. https://vercel.com/docs/vercel-sandbox/pricing
 const vercelMemoryPerVcpu = 2048
 const vercelMaxVcpus = 32
-const vercelDefaultVcpus = 2
 
 function readPositiveNumber(options: SandboxTaskSizeOptions & { maxInstances?: number }, key: 'cpu' | 'memory' | 'maxInstances', integer = false) {
   // Config files are not type-checked, so the value can be any JSON value.
@@ -97,12 +96,6 @@ export function resolveVercelSandboxTaskVcpus(options: SandboxTaskSizeOptions): 
   if (vcpus > vercelMaxVcpus)
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_SIZE_TOO_LARGE({ provider: 'Vercel', size: formatRequest(cpu, memory), max: `${vercelMaxVcpus} vCPU (${vercelMaxVcpus * vercelMemoryPerVcpu} MiB memory)` })
   return vcpus
-}
-
-/** The Vercel size label for inspection. */
-export function describeVercelSandboxTaskSize(options: SandboxTaskSizeOptions) {
-  const vcpus = resolveVercelSandboxTaskVcpus(options)
-  return `${vcpus ?? vercelDefaultVcpus} vCPU (${(vcpus ?? vercelDefaultVcpus) * vercelMemoryPerVcpu} MiB memory)${vcpus === undefined ? ', the Vercel default' : ''}`
 }
 
 function formatRequest(cpu: number | undefined, memory: number | undefined) {

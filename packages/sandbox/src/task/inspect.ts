@@ -10,17 +10,12 @@ import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from '@vite-hub
 export interface SandboxTaskInspectionOptions {
   projectRoot: string
   rootDir: string
-  /** The provider size that runs every Sandbox Task, such as `standard-1 (1/2 vCPU, 4096 MiB memory)`. */
-  size?: string
 }
 
 /** Lists Sandbox Task Definitions and package entries as serializable inspection summaries. */
 export function inspectSandboxTaskDefinitions(options: SandboxTaskInspectionOptions): ViteHubDefinitionSummary[] {
   return discoverSandboxTaskDefinitions({ rootDir: options.rootDir }).map(definition => ({
-    fields: [
-      { label: 'Kind', value: definition.kind === 'package-entry' ? 'Package entry' : 'Definition' },
-      ...(options.size ? [{ label: 'Size', value: options.size }] : []),
-    ],
+    fields: [{ label: 'Kind', value: definition.kind === 'package-entry' ? 'Package entry' : 'Definition' }],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,
     source: definition.source,
@@ -32,8 +27,8 @@ export type SandboxTaskResourceInspectionOptions = CloudflareSandboxEntrypointOp
   instanceType?: CloudflareInstanceType
 }
 
-/** The Cloudflare instance type and instance limit, as the Container resource and the Definition list report them. */
-export function describeCloudflareSandboxTaskSize(options: SandboxTaskResourceInspectionOptions) {
+/** The Cloudflare instance type and instance limit, as the Container resource reports them. */
+function describeCloudflareSandboxTaskSize(options: SandboxTaskResourceInspectionOptions) {
   const instanceType = options.instanceType === undefined
     ? undefined
     : describeCloudflareInstanceType(options.instanceType)?.label ?? JSON.stringify(options.instanceType)

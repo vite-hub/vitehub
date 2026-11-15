@@ -21,9 +21,9 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 
 ### Size
 
-Set the size of the machine that runs every Sandbox Task with `cpu` and `memory`. The two options work the same on both providers.
+Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `hubSandboxTask()`. The two options work the same on both providers.
 
-```ts [vite.config.ts]
+```ts fragment
 hubSandboxTask({ provider: 'cloudflare', cpu: 1, memory: 4096 })
 ```
 
@@ -43,7 +43,7 @@ A size above the largest fails the build with `SANDBOX_TASK_SIZE_TOO_LARGE`.
 
 On Cloudflare, the size belongs to the Container class in `wrangler.json`, so it applies to every Sandbox Task of the app. It is not a per-run value. When your own `containers` entry sets `instance_type`, ViteHub keeps it. If that instance type is smaller than `cpu` or `memory`, the build fails with `SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL`. ViteHub does not change your entry, and it does not let a task run with less memory than you asked for.
 
-`vitehub inspect definitions` shows the size on each Sandbox Task. On Cloudflare, `vitehub inspect resources` also shows the instance type and the instance limit of the Container.
+On Cloudflare, `vitehub inspect resources` shows the instance type and the instance limit of the Container.
 
 ### Vercel options
 
