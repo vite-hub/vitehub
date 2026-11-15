@@ -3,7 +3,7 @@ import type { AuthConsoleHostOptions, AuthConsoleOptions } from "../console-type
 import abilities from "#vitehub/auth/abilities"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 import { resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
