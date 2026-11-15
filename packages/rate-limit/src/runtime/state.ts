@@ -55,7 +55,7 @@ async function resolveKVProvider(kv: RateLimitKVRuntime, memoryFallback: boolean
     return "kv"
   }
   if (!memoryFallback) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0048({ message: `[vitehub] The kv Rate Limit provider needs a KV store that every server process shares, but the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED({ message: `[vitehub] The kv Rate Limit provider needs a KV store that every server process shares, but the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment.` })
   }
   console.warn(`[vitehub] Rate Limit counts in the memory of this process, because the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.`)
   return "memory"

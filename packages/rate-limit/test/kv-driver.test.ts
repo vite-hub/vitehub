@@ -212,7 +212,7 @@ describe("kv provider at runtime", () => {
     setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
 
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).rejects.toMatchObject({
-      code: "RATE_LIMIT_R0048",
+      code: "RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED",
       message: expect.stringContaining('the KV store "default" uses fs-lite'),
     })
     expect(kv.values.size).toBe(0)

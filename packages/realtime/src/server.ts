@@ -1,6 +1,6 @@
 import { assertAuthOrigin } from "@vite-hub/auth/internal/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
-import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
+import { HTTPError, defineEventHandler, defineWebSocketHandler } from "nitro/h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
@@ -214,6 +214,7 @@ function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
+// Internal invariant: public class. The room refuses the write of the peer with its message.
 export class RealtimeWriteRejected extends Error {
   constructor(message: string) {
     super(message)
@@ -537,23 +538,26 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
     const legacyUpdate = storedUpdate(row.update_blob)
     if (!legacyUpdate) continue
     const blob = Uint8Array.from(legacyUpdate).buffer
-    try {
-      if (!clientUpdateColumn) throw new Error("client_update column unavailable")
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
-        key,
-        blob,
-      )
+    if (clientUpdateColumn) {
+      try {
+        sql.exec(
+          "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
+          key,
+          blob,
+        )
+        continue
+      }
+      catch {
+        // Fall back to the two-column journal schema below.
+      }
     }
-    catch {
-      // Hosts that reject ALTER TABLE may still expose the intermediate
-      // two-column journal schema. Preserve those rows so the room can open.
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
-        key,
-        blob,
-      )
-    }
+    // Hosts that reject ALTER TABLE may still expose the intermediate
+    // two-column journal schema. Preserve those rows so the room can open.
+    sql.exec(
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+      key,
+      blob,
+    )
   }
 }
 

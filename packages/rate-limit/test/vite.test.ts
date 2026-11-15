@@ -124,7 +124,7 @@ describe("hubRateLimit", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "build", logger: { warn: vi.fn() }, plugins: [kvPlugin], root } as never)
 
     await expect(runBuildStart(plugin)).rejects.toMatchObject({
-      code: "RATE_LIMIT_B0005",
+      code: "RATE_LIMIT_KV_STORE_UNSUPPORTED",
       message: expect.stringContaining("the default KV store uses fs-lite, which has no shared atomic increment"),
     })
   })
@@ -147,7 +147,7 @@ describe("hubRateLimit", () => {
     await writeFile(join(root, "login.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "login", { enforcement: "strict", limit: 5, window: "1m" })\n')
     const resolve = (command: "build" | "serve") => (hubRateLimit({ provider: "memory" }).configResolved as (config: unknown) => Promise<void>)({ command, logger: { warn: vi.fn() }, plugins: [], root } as never)
 
-    await expect(resolve("build")).rejects.toMatchObject({ code: "RATE_LIMIT_B0006", message: expect.stringContaining('Rate Limit "login" requires strict enforcement') })
+    await expect(resolve("build")).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED", message: expect.stringContaining('Rate Limit "login" requires strict enforcement') })
     await expect(resolve("serve")).resolves.toBeUndefined()
   })
 
@@ -534,7 +534,7 @@ describe("hubRateLimit", () => {
       const warn = vi.fn()
       const build = serve(hubRateLimit({ provider: "cloudflare" }), { ...config, command: "build", logger: { warn } })
       // A build that counts in memory cannot keep a strict limit across server processes.
-      if (enforcement === "strict") return await expect(build).rejects.toMatchObject({ code: "RATE_LIMIT_B0006" })
+      if (enforcement === "strict") return await expect(build).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED" })
       await build
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts requests in the memory of each server process"))
     })

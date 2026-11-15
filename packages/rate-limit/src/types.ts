@@ -189,7 +189,7 @@ export interface RateLimitRuntimeConfig {
   provider: Exclude<RateLimitProvider, "auto">
   /**
    * With the `kv` provider: count in the memory of this process, with a warning, when the KV store cannot share counts.
-   * Without it, such a store fails with `RATE_LIMIT_R0048`. ViteHub sets it in `vite dev` and when it selects `kv` itself.
+   * Without it, such a store fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED`. ViteHub sets it in `vite dev` and when it selects `kv` itself.
    */
   memoryFallback?: boolean
 }

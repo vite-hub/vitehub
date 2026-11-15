@@ -15,6 +15,7 @@ import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { createDbCliContributor } from "./cli.ts"
+import { databaseDeploymentEnv } from "./deployment-env.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
@@ -36,6 +37,7 @@ import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DBProvider } from "./internal/vite-build.ts"
 import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
@@ -85,6 +87,8 @@ const DB_REGISTRY_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dis
 const DB_ROOT_ENTRY_PATTERN = /(?:^|\/)(?:(?:@vite-hub\/database|database)\/dist\/index|vite-hub\/dist\/database)\.js$/
 
 export interface DBVitePluginAPI {
+  /** The variables that the Database Definitions read on the deployed host. See `databaseDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedDBViteConfig | undefined
   /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
   getProjectRoot: () => string
@@ -487,6 +491,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     name: DB_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: context => databaseDeploymentEnv(runtimeConfig, context),
       getConfig: () => runtimeConfig,
       getProjectRoot: databaseRoot,
       isEnabled: () => resolvedOptions() !== false,

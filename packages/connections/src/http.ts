@@ -1,7 +1,7 @@
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
-import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
+import { completeConsoleCallback, connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
 import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
@@ -22,7 +22,7 @@ export interface ConnectionsHandlerOptions {
   /**
    * Access policy for every route. A function authenticates the request and returns the manager
    * as `user:<id>`, `undefined` to deny it, or a `Response` to deny it with that response. `"development"` allows every request as
-   * `user:local`, but only on a development server.
+   * `user:local`, but only on a development server. The callback of a flow that the Console started needs no policy.
    */
   actor: ConnectionsAccessPolicy;
   basePath?: string;
@@ -66,6 +66,11 @@ export function createConnectionsHandler(options: ConnectionsHandlerOptions): Co
     async fetch(request) {
       const path = new URL(request.url).pathname.replace(/\/+$/, "");
       try {
+        // A flow that the Console started comes back without an app session, so it skips the access policy.
+        if (path === `${base}/callback`) {
+          const completed = await completeConsoleCallback(request, runtime);
+          if (completed) return completed;
+        }
         const check = await checkConnectionsAccess(options.actor, request, runtime, options.agentName);
         if (check.rejection) return check.rejection;
         const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));

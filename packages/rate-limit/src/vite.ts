@@ -189,11 +189,11 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       const kvPlugin = resolved.plugins.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
       const kv = kvPlugin?.api?.getConfig?.().kv
       const store = kv ? `the default KV store uses ${kv.store.driver}, which has no shared atomic increment` : "the app has no KV store"
-      throw rateLimitErrorDiagnostics.RATE_LIMIT_B0005({ message: `[vitehub] rateLimit.provider is "kv", but ${store}. Each server process would count in its own memory.` })
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_STORE_UNSUPPORTED({ message: `[vitehub] rateLimit.provider is "kv", but ${store}. Each server process would count in its own memory.` })
     }
     const strict = declarations.find(declaration => normalizeRateLimitPolicy(declaration.policy).enforcement === "strict")
     if (strict) {
-      throw rateLimitErrorDiagnostics.RATE_LIMIT_B0006({ message: `[vitehub] Rate Limit "${strict.name}" requires strict enforcement, but this build counts in the memory of each server process, so several instances each allow the full limit.` })
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED({ message: `[vitehub] Rate Limit "${strict.name}" requires strict enforcement, but this build counts in the memory of each server process, so several instances each allow the full limit.` })
     }
   }
 
