@@ -133,9 +133,14 @@ interface VercelWorkflowBuilders {
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
-export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+/**
+ * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
+ * fails on import, as the missing package would.
+ */
+export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
-  const namespace = "vitehub-optional-vite-devtools"
+  const namespace = "vitehub-optional-package"
   return {
     name: namespace,
     setup(build) {
@@ -150,7 +155,17 @@ export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
           return { namespace, path: args.path }
         }
       })
-      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+      build.onResolve({ filter: /^@vite-hub\/kv$/ }, async (args) => {
+        if (args.pluginData === namespace) return
+        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
+        return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onLoad({ filter: /.*/, namespace }, args => ({
+        contents: optionalViteDevtoolsPattern.test(args.path)
+          ? "export {}"
+          : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${args.path}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`,
+        loader: "js",
+      }))
     },
   }
 }
@@ -1333,7 +1348,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
-      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
+      plugins: [createOptionalPackagesPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -1393,7 +1408,7 @@ function createVercelOutput(
       format: "esm",
       platform: "node",
       plugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
+        createOptionalPackagesPlugin(rootDir),
         ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
       ],
     },
