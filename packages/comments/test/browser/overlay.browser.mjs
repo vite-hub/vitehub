@@ -104,6 +104,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     assert.equal((await highlights(page))["vitehub-comment-active"], 1)
     await composer.fill("Say which airport")
+    // The bubble takes ViteHub's theme, as Drop does: no focus ring around it, a neutral send button, and Geist first.
+    const bubble = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").evaluate((element) => {
+      const send = [...element.querySelectorAll("button")].at(-1)
+      const [red, green, blue] = getComputedStyle(send).backgroundColor.match(/\d+/g).map(Number)
+      return { outline: getComputedStyle(element).outlineStyle, neutral: Math.max(red, green, blue) - Math.min(red, green, blue) < 8, font: getComputedStyle(element).fontFamily }
+    })
+    assert.deepEqual({ ...bubble, font: bubble.font.split(",")[0] }, { outline: "none", neutral: true, font: "\"Geist Variable\"" })
     await composer.press("Enter")
     await page.waitForFunction(() => CSS.highlights.get("vitehub-comment")?.size === 1, undefined, { timeout: 5000 })
     const [thread] = await api.threads()
