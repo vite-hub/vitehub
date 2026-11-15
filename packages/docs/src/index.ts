@@ -29,6 +29,6 @@ export {
   normalizeDocsBase,
   normalizeDocsPath,
 } from "./navigation.ts"
-export type { DocsCatalogGroup, DocsGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsRailEntry, DocsSidebarGroup, DocsSidebarSection, DocsSidebarSectionBlock } from "./navigation.ts"
+export type { DocsCatalogGroup, DocsGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsPanelLoaders, DocsRailEntry, DocsSidebarGroup, DocsSidebarSection, DocsSidebarSectionBlock } from "./navigation.ts"
 
 export type { DocsContentSource, DocsSource, DocsSourceInput } from "./manifest.ts"

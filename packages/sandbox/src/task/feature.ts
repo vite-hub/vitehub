@@ -20,6 +20,7 @@ import { extractSandboxTaskDefinitionMetadata } from './definition-options'
 import { getSandboxTaskFeatureProvider } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
+import { resolveCloudflareSandboxTaskInstanceType, resolveVercelSandboxTaskVcpus } from './size'
 import { createSandboxTaskTypeTemplateContents } from './type-template'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
@@ -273,12 +274,20 @@ export async function createSandboxTaskFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxTaskProviderLoaderTarget(defaultProviderName, deps)
+  // Reject a size that the provider cannot give at build time, not at the first run.
+  if (defaultProvider?.provider === 'cloudflare')
+    resolveCloudflareSandboxTaskInstanceType(defaultProvider)
+  else if (defaultProvider?.provider === 'vercel')
+    resolveVercelSandboxTaskVcpus(defaultProvider)
   const cloudflareOptions = defaultProvider?.provider === 'cloudflare'
     ? {
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,
         migrationTag: typeof defaultProvider.migrationTag === 'string' ? defaultProvider.migrationTag : defaultCloudflareSandboxMigrationTag,
         name: typeof defaultProvider.name === 'string' ? defaultProvider.name : undefined,
+        cpu: defaultProvider.cpu,
+        memory: defaultProvider.memory,
+        maxInstances: defaultProvider.maxInstances,
       }
     : undefined
 
@@ -312,7 +321,8 @@ export async function createSandboxTaskFeaturePlan(
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-task-provider-loader',
-            filename: 'runtime/sandbox-task-provider-loader.mjs',
+            // Nitro resolves its aliases to real paths once at startup, so this file stays outside the runtime generations.
+            filename: 'sandbox-task-provider-loader.mjs',
             contents: createSandboxTaskProviderLoaderContents(providerLoaderTarget),
           }]
         : []),

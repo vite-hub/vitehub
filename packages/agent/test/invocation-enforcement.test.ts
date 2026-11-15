@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
@@ -238,5 +239,47 @@ describe("Agent Invocation enforcement", () => {
 
     await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).rejects.toThrow(/could not be persisted|Could not persist/)
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not start the Driver again when a Workflow retry finds the claim of an interrupted attempt", async () => {
+    const backing = createMemoryAgentInvocationStore()
+    // After the first attempt stops, its store calls get no answer, as when its process exits.
+    const firstAttempt = new AsyncLocalStorage<true>()
+    let stopped = false
+    const never = new Promise<never>(() => {})
+    const frozen = () => stopped && firstAttempt.getStore() === true
+    const store: AgentInvocationStore = {
+      ...backing,
+      claim: (...args) => frozen() ? never : backing.claim(...args),
+      getSummary: id => frozen() ? never : backing.getSummary(id),
+      release: (...args) => frozen() ? never : backing.release(...args),
+      update: (...args) => frozen() ? never : backing.update(...args),
+    }
+    const invocations = defineAgentInvocations({ store })
+    let driverStarted: () => void = () => {}
+    const firstDriver = new Promise<void>(resolve => { driverStarted = resolve })
+    const run = vi.fn(async () => {
+      driverStarted()
+      return await never
+    })
+    const agent = defineAgent({ driver: { run }, invocations, name: "interrupted-turn", runtime: false })
+    const attempt = { id: "interrupted-turn-run", name: "interrupted-turn", payload: { input: { prompt: "hello" } }, provider: "openworkflow" as const }
+
+    void firstAttempt.run(true, () => runAgentWorkflowDefinition(agent, attempt, runAgentInline))
+    await firstDriver
+    stopped = true
+
+    // The retry waits for the 30 second claim lease of the stopped attempt.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const retry = runAgentWorkflowDefinition(agent, attempt, runAgentInline)
+      const settled = expect(retry).rejects.toThrow("Could not persist the Invocation running state.")
+      await vi.advanceTimersByTimeAsync(31_000)
+      await settled
+    }
+    finally {
+      vi.useRealTimers()
+    }
+    expect(run).toHaveBeenCalledOnce()
   })
 })

@@ -37,7 +37,7 @@ export async function startConsoleAgentInvocation(
   const body: ConsoleAgentInvocationInput = { prompt: message.text }
   if (invokerProfileId) body.invokerProfileId = invokerProfileId
   const files = [...message.files ?? []]
-  if (files.length > 10) throw new Error("Use at most ten images.")
+  if (files.length > 10) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_INVOCATION_FILES_LIMIT()
   if (files.length) {
     body.files = files.map(file => ({ url: file.url, filename: file.filename?.slice(0, 255) || "image" }))
   }

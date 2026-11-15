@@ -225,7 +225,7 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 
 ### DATABASE_INVALID_DRIVER
 
-`driver` of a Postgres Definition is not `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with `connection.url`.
+`driver` of a Postgres Definition is not `node-postgres` or `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with postgres.js.
 
 ### DATABASE_INVALID_NAME
 
@@ -291,7 +291,7 @@ A Database Definition still uses `config.ts`. The Database `<name>` is now `serv
 
 ### DATABASE_MISSING_D1_RESOURCE
 
-D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --host cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 

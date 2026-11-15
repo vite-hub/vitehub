@@ -1,4 +1,5 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { H3Event } from "h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -382,8 +383,8 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
   /**
    * Answer a `GET` or `HEAD` request for one object. The `Response` has the final status and headers: `200`, `206` or
-   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, and `404` for a missing object or a
-   * reserved ViteHub path. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
+   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, `404` for a missing object or a
+   * reserved ViteHub path, and `405` with `Allow: GET, HEAD` for another method. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
    * an H3 handler, pass `event.req`.
    */
   serve(request: Request, pathname: string, options?: BlobServeResponseOptions): Promise<Response>
@@ -605,10 +606,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
-export type BlobServeAuthorize = AccessAuthorize
+export type BlobServeAuthorize = AccessAuthorize<H3Event>
 
 /** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
-export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>
 
 export interface BlobServeConfig {
   access?: "public"
