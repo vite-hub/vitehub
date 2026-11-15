@@ -113,7 +113,7 @@ describe("authenticated", () => {
 
     const response = getStandardContext(request).res
     expect(response.headers?.getSetCookie()).toEqual(["better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"])
-    expect(response.headers?.get("cache-control")).toBe("private")
+    expect(response.headers?.get("cache-control")).toBe("no-store")
   })
 
   it("maps an authenticated Better Auth session to an Agent Invoker by default", async () => {

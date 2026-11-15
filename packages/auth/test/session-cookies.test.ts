@@ -1,9 +1,19 @@
 import { defineHandler, HTTPError } from "h3"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { getStandardContext, installStandardContext } from "@vite-hub/runtime/internal/h3"
+import { Response as UndiciResponse } from "undici"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, withAuth, withAuthorization } from "../src/internal/server.ts"
+import {
+  createAuthAccessHandler,
+  getAuthForDefinition,
+  handleAuthRequest,
+  requireAuth,
+  resetAuth,
+  withAnonymousAuthorization,
+  withAuth,
+  withAuthorization,
+} from "../src/internal/server.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
 
 import type { H3Event } from "h3"
@@ -19,15 +29,20 @@ afterEach(() => {
   resetAuth()
 })
 
-function createStoredAuth() {
+function createStoredAuth(session?: { cookieCache: { enabled: boolean, maxAge: number } }) {
   const db: Record<string, MemoryRow[]> = { account: [], session: [], user: [], verification: [] }
   const definition = defineFixedAuth({
     access: { routes: ["/private"] },
     emailAndPassword: { enabled: true },
     database: memoryAdapter(db),
     secret: "vitehub-session-cookies-test-secret-3d9e1a7c5b",
+    ...session ? { session } : {},
   })
   return { db, definition }
+}
+
+function withoutCookie(cookie: string, name: string): string {
+  return cookie.split("; ").filter(pair => !pair.startsWith(`${name}=`)).join("; ")
 }
 
 async function signUp(definition: AuthDefinition): Promise<string> {
@@ -58,6 +73,10 @@ function storedExpiry(db: Record<string, MemoryRow[]>): number {
 /** The `Set-Cookie` values that renew the session token for the default `expiresIn` of seven days. */
 function renewals(headers: Headers): string[] {
   return headers.getSetCookie().filter(cookie => /^better-auth\.session_token=[^;]+;/.test(cookie) && /Max-Age=604800/i.test(cookie))
+}
+
+function cookieCaches(headers: Headers): string[] {
+  return headers.getSetCookie().filter(cookie => /^better-auth\.session_data=[^;]+;/.test(cookie))
 }
 
 function deletions(headers: Headers): string[] {
@@ -189,7 +208,8 @@ describe("session cookies of guarded requests", () => {
     const middleware = await serve(async event => await access(event) ?? { ok: true })(cookie)
     expect(middleware.status).toBe(200)
     expect(renewals(middleware.headers)).toHaveLength(1)
-    expect(middleware.headers.get("cache-control")).toBe("private")
+    // Middleware cannot see the response of the route, so it asks for the strictest policy.
+    expect(middleware.headers.get("cache-control")).toBe("no-store")
 
     ageSession(db)
     const inline = await serve(async (event) => {
@@ -214,6 +234,137 @@ describe("session cookies of guarded requests", () => {
     expect(blob.headers.get("cache-control")).toBe("private, max-age=300")
   })
 
+  it("moves the cookies of an inline guard to the Response of a Fetchable guard", async () => {
+    const { db, definition } = createStoredAuth()
+    const cookie = await signUp(definition)
+    ageSession(db)
+    const route = {
+      fetch: withAuth(async (request: Request) => {
+        await requireAuth(request, definition)
+        return new Response("ok")
+      }, definition),
+    }
+    const request = fetchRequest(cookie)
+
+    const response = await route.fetch(request)
+
+    expect(response.status).toBe(200)
+    expect(renewals(response.headers)).toHaveLength(1)
+    expect(response.headers.get("cache-control")).toBe("private")
+    // The cookies moved, so a host that also copies `res.headers` does not send them twice.
+    expect(getStandardContext(request).res.headers?.getSetCookie()).toEqual([])
+    expect(getStandardContext(request).res.headers?.has("cache-control")).toBe(false)
+  })
+
+  it("keeps the no-store of a route behind access middleware", async () => {
+    const { db, definition } = createStoredAuth()
+    const cookie = await signUp(definition)
+    const access = createAuthAccessHandler([{ route: "/private" }], definition)
+    const noStore = () => new Response("secret", { headers: { "cache-control": "no-store" } })
+
+    ageSession(db)
+    const guarded = await serve(async event => await access(event) ?? withAuth(noStore, definition)(event))(cookie)
+    expect(renewals(guarded.headers)).toHaveLength(1)
+    expect(guarded.headers.get("cache-control")).toBe("no-store")
+
+    ageSession(db)
+    const plain = await serve(async event => await access(event) ?? noStore())(cookie)
+    expect(renewals(plain.headers)).toHaveLength(1)
+    expect(plain.headers.get("cache-control")).toBe("no-store")
+
+    ageSession(db)
+    const request = fetchRequest(cookie)
+    expect(await access(request)).toBeUndefined()
+    const fetched = await withAuth(noStore, definition)(request)
+    expect(renewals(fetched.headers)).toHaveLength(1)
+    expect(fetched.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("sends the cookies with a Response of another Fetch implementation", async () => {
+    const { db, definition } = createStoredAuth()
+    const cookie = await signUp(definition)
+    ageSession(db)
+    const route = withAuth(() => new UndiciResponse("file", { headers: { "cache-control": "public, max-age=60" } }), definition)
+
+    const response = await route(fetchRequest(cookie))
+
+    expect(renewals(response.headers)).toHaveLength(1)
+    expect(response.headers.get("cache-control")).toBe("private, max-age=60")
+    expect(await response.text()).toBe("file")
+  })
+
+  it("sends the cookies when an authorize callback throws", async () => {
+    const deny = () => {
+      throw new HTTPError({ status: 403, message: "Denied." })
+    }
+    // Better Auth deletes an ended session from the database, so each request gets its own.
+    async function signedIn() {
+      const { db, definition } = createStoredAuth()
+      return { cookie: await signUp(definition), db, definition }
+    }
+
+    const ended = await signedIn()
+    endSession(ended.db)
+    const anonymous = await serve(withAnonymousAuthorization(deny, () => ({ ok: true }), ended.definition))(ended.cookie)
+    expect(anonymous.status).toBe(403)
+    expect(deletions(anonymous.headers)).toHaveLength(1)
+
+    const aged = await signedIn()
+    ageSession(aged.db)
+    const authorized = await serve(withAuthorization(deny, () => ({ ok: true }), aged.definition))(aged.cookie)
+    expect(authorized.status).toBe(403)
+    expect(renewals(authorized.headers)).toHaveLength(1)
+
+    // A plain Fetch host gets the error, so the cookies stay in `res.headers` of the Standard Context.
+    const fetched = await signedIn()
+    endSession(fetched.db)
+    const request = fetchRequest(fetched.cookie)
+    await expect(withAnonymousAuthorization(deny, () => new Response("ok"), fetched.definition)(request)).rejects.toThrow("Denied.")
+    expect(deletions(getStandardContext(request).res.headers ?? new Headers())).toHaveLength(1)
+  })
+
+  it("sends each cookie once when the route sets it too", async () => {
+    const { db, definition } = createStoredAuth({ cookieCache: { enabled: true, maxAge: 300 } })
+    // Without the cookie cache, each read of the session goes to the database and sets `session_data` again.
+    const cookie = withoutCookie(await signUp(definition), "better-auth.session_data")
+    const auth = getAuthForDefinition(definition)
+    // Like the Console account route: it reads the session itself and sends the cookies of its own read.
+    const route = withAuthorization(true, async (input: Request | H3Event) => {
+      const request = input instanceof Request ? input : input.req
+      const { headers } = await auth.api.getSession({ headers: request.headers, returnHeaders: true })
+      const response = new Response("ok")
+      for (const value of headers.getSetCookie()) response.headers.append("set-cookie", value)
+      return response
+    }, definition)
+
+    ageSession(db)
+    const served = await serve(route)(cookie)
+    expect(cookieCaches(served.headers)).toHaveLength(1)
+    expect(renewals(served.headers)).toHaveLength(1)
+
+    ageSession(db)
+    const fetched = await route(fetchRequest(cookie))
+    expect(cookieCaches(fetched.headers)).toHaveLength(1)
+    expect(renewals(fetched.headers)).toHaveLength(1)
+  })
+
+  it("sends each cookie once when an error Response copies the prepared headers", async () => {
+    const { db, definition } = createStoredAuth()
+    const cookie = await signUp(definition)
+    const access = createAuthAccessHandler([{ route: "/private" }], definition)
+    // Like a Blob serve route: H3 drops the middleware headers of an error Response, so the route copies them.
+    const notFound = withAuthorization(true, (event: H3Event) => new Response("Blob not found.", {
+      headers: new Headers(getStandardContext(event).res.headers),
+      status: 404,
+    }), definition)
+
+    ageSession(db)
+    const response = await serve(async event => await access(event) ?? notFound(event))(cookie)
+
+    expect(response.status).toBe(404)
+    expect(renewals(response.headers)).toHaveLength(1)
+  })
+
   it("puts the renewed cookie in the Standard Context of a plain Request when access middleware allows it", async () => {
     const { db, definition } = createStoredAuth()
     const cookie = await signUp(definition)
@@ -224,6 +375,6 @@ describe("session cookies of guarded requests", () => {
 
     const { headers } = getStandardContext(request).res
     expect(renewals(headers ?? new Headers())).toHaveLength(1)
-    expect(headers?.get("cache-control")).toBe("private")
+    expect(headers?.get("cache-control")).toBe("no-store")
   })
 })
