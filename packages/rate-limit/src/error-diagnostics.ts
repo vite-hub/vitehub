@@ -10,7 +10,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     RATE_LIMIT_R0001: {
       ...dynamicError,
-      fix: "Call `requireRateLimit()` or `checkRateLimit()` at the place that the message names with a static string ID and an object literal of static `key`, `limit`, `window`, `enforcement`, and `failure` options, without spreads.",
+      fix: "Call `requireRateLimit()` or `checkRateLimit()` at the place that the message names with a static string ID and an object literal of static `limit`, `window`, `enforcement`, and `failure` options, without spreads. `key` can stay a runtime value.",
     },
     RATE_LIMIT_R0002: {
       ...dynamicError,
