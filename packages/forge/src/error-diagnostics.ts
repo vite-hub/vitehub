@@ -24,5 +24,10 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
     FORGE_R0007: { ...dynamicError, fix: "Read the branch rules with a GitHub token that can read the branch protection and rulesets of the repository, and pass the result of `provider.repos.branchRules()` unchanged." },
     /** A GitHub-only Forge helper received a reference that is not a numbered pull request, or an empty input. */
     FORGE_R0009: { ...dynamicError, fix: "Pass a pull request thread with a `number` and a nonempty base branch. For `forgeMerge({ bypassRules })`, also pass `method` and `sha`." },
+    // Named errors. Keep these codes in alphabetical order.
+    FORGE_UNSUPPORTED: {
+      why: "Unsupported Forge.",
+      fix: "Set `forge` of the Forge connection to `github`, `gitlab`, or `forgejo`.",
+    },
   },
 })

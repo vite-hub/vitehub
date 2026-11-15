@@ -9,6 +9,7 @@ import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
 import { resolveAuthOptions } from "../runtime-options.ts"
 import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "../session.ts"
+import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 import { withSessionMarker } from "../session-marker.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
@@ -406,6 +407,13 @@ async function createSignInResponse(
 // Standard Context, so H3 middleware, the Fetchable route, and handler guards of one request share it.
 const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthenticationSessionSnapshot | null>>>()
 
+async function readSession(input: AuthRequestInput, auth: ViteHubAuth, headers: Headers): Promise<AuthenticationSessionSnapshot | null> {
+  const { session, setCookies } = await getAuthenticationSession(auth, { headers })
+  // Before any check, so a refusal or an error of an authorize callback sends the cookies too.
+  prepareSessionCookies(input, setCookies)
+  return session
+}
+
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
   const event = authRequestEvent(input)
@@ -414,7 +422,7 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   let reads = sessionReads.get(request)
   if (!reads) sessionReads.set(request, reads = new WeakMap())
   let session = reads.get(definition)
-  if (!session) reads.set(definition, session = getAuthenticationSession(auth, { headers: request.headers }))
+  if (!session) reads.set(definition, session = readSession(input, auth, request.headers))
   return { auth, event, options: resolved.options, request, session: await session }
 }
 
@@ -730,8 +738,8 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
-    if (rejection.response) return rejection.response
-    return handler(input, authorization)
+    if (rejection.response) return sendSessionCookies(input, rejection.response)
+    return sendSessionCookies(input, await handler(input, authorization))
   }
 }
 
@@ -747,9 +755,9 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
-    const check = await checkAuthRequest(input, definition ?? resolveDefaultDefinition())
-    if (check.response) return check.response
-    return handler(input, check.authorization)
+    const { authorization, response } = await checkAuthRequest(input, definition ?? resolveDefaultDefinition())
+    if (response) return sendSessionCookies(input, response)
+    return sendSessionCookies(input, await handler(input, authorization))
   }
 }
 
@@ -770,9 +778,9 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {
-    const check = await checkAuthorizeRequest(input, authorize, definition ?? resolveDefaultDefinition())
-    if (check.response) return check.response
-    return handler(input, check.authorization)
+    const { authorization, response } = await checkAuthorizeRequest(input, authorize, definition ?? resolveDefaultDefinition())
+    if (response) return sendSessionCookies(input, response)
+    return sendSessionCookies(input, await handler(input, authorization))
   }
 }
 
@@ -781,7 +789,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
  * `location` and `set-cookie` of a sign-in redirect. JSON object fields stay in the error body; other JSON values
  * become `data`. Text becomes the error message, with H3's JSON content type.
  */
-async function rejectionError(response: Response): Promise<HTTPError> {
+async function rejectionError(response: Response, code = refusalCodes.get(response)): Promise<HTTPError> {
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   const isJson = headers.get("content-type")?.toLowerCase().includes("json") === true
@@ -800,7 +808,6 @@ async function rejectionError(response: Response): Promise<HTTPError> {
     if ("error" in body && typeof body.error === "string") message = body.error
     else if ("message" in body && typeof body.message === "string") message = body.message
   }
-  const code = refusalCodes.get(response)
   return new HTTPError({
     body: jsonBody,
     data: code ? { code } : jsonBody === undefined ? body : undefined,
@@ -811,10 +818,11 @@ async function rejectionError(response: Response): Promise<HTTPError> {
   })
 }
 
-async function requireCheck(check: Promise<AuthCheck>): Promise<AuthAuthorization> {
-  const result = await check
-  if (result.response) throw await rejectionError(result.response)
-  return result.authorization
+async function requireCheck(input: AuthRequestInput, check: Promise<AuthCheck>): Promise<AuthAuthorization> {
+  const { authorization, response } = await check
+  // A plain Fetch host gets the cookies on a copy of the refusal, so keep the code of the original.
+  if (response) throw await rejectionError(sendSessionCookies(input, response), refusalCodes.get(response))
+  return authorization
 }
 
 /**
@@ -829,7 +837,7 @@ async function requireCheck(check: Promise<AuthCheck>): Promise<AuthAuthorizatio
  * ```
  */
 export function requireAuth(event: AuthRequestInput, definition?: AuthDefinition): Promise<AuthAuthorization> {
-  return requireCheck(checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
+  return requireCheck(event, checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
 }
 
 /**
@@ -845,7 +853,7 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  return requireCheck(checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
+  return requireCheck(event, checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
 }
 
 // One session read per request, however many abilities the handler checks.
@@ -913,12 +921,12 @@ async function checkAuthAccessRequest(
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
   const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname), options.signIn)
-  if (!response && (options.reuse || options.remember)) {
+  if (response) return sendSessionCookies(input, response)
+  if (options.reuse || options.remember) {
     if (!definitions) reusableAccessChecks.set(request, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
     accepted.set(key, options.reuse === true)
   }
-  return response
 }
 
 /** Bind discovered access routes to a Web Request or host request handler. */

@@ -190,6 +190,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
     return [
+      // Internal invariant: generated drizzle.config source. This module does not throw it.
       `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub database generate\` and \`vitehub database migrate\`.`)})`,
       "",
     ].join("\n")

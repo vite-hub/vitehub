@@ -1089,6 +1089,31 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
   })
 
+  it("initializes Workflow and forwards its server transform in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    const transform = vi.fn(() => ({ code: "native-with-workflow-id" }))
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/workflow/vite",
+      configResolved,
+      transform: { filter: { code: /use workflow/ }, handler: transform },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ workflow: true, host: "vercel" }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/workflow/vite")
+    const hook = resolver?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered Workflow transform.")
+    expect(hook.filter).toEqual({ code: /use workflow/ })
+    const result = await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts", { moduleType: "ts" }])
+    expect(result).toEqual({ code: "native-with-workflow-id" })
+    expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
+    await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
+    expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
@@ -3403,6 +3428,38 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       virtual: { "#vitehub/kv/config": "export const hosting = undefined\nexport const kv = false\nexport const loadDatabases = undefined\nexport default { hosting, kv }\n" },
       workflows: true,
     })
+  })
+
+  it("writes primitive deployment env on a Nuxt Nitro-only cache hit", async () => {
+    const { viteHubPlugins } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-host", "vite-hub/deployment-output", "@vite-hub/blob/vite"].includes(String(plugin.name)),
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const outputDir = await mkdtemp(resolve(tmp, "deployment-env-"))
+    try {
+      await viteHubNuxtModule({ host: "node", blob: { driver: "fs" }, env: false, queue: false, rateLimit: false }, nuxt)
+      const config: Record<string, unknown> = {}
+      // Nuxt 5 cache hits skip Vite configResolved and buildStart entirely.
+      await runNitroConfigHook(config)
+      const compiled: Array<() => Promise<void>> = []
+      const nitro = {
+        options: { ...config, preset: "node-server", rootDir: nuxt.options.rootDir, commands: {}, output: { dir: outputDir, serverDir: resolve(outputDir, "server") } },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") compiled.push(callback) } },
+      }
+      for (const module of config.modules as Array<unknown>) {
+        if (typeof module === "function") await module(nitro)
+      }
+      await mkdir(resolve(outputDir, "server"), { recursive: true })
+      await writeFile(resolve(outputDir, "server/index.mjs"), "export default {}\n")
+      for (const callback of compiled) await callback()
+      const manifest = JSON.parse(await readFile(resolve(outputDir, "deployment.json"), "utf8"))
+      expect(manifest.env).toContainEqual({ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["blob"] })
+    }
+    finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
   })
 
   it("binds deployment output to an existing Env plugin selected for replay", async () => {

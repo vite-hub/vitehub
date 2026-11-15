@@ -26,5 +26,22 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
     FORMS_R0001: { ...dynamicError, fix: "Apply the Forms tables with `vitehub database generate` and `vitehub database migrate`. `error.cause` holds the Database error." },
     /** No submission has that id. */
     FORMS_R0002: { ...dynamicError, fix: "Pass the id of a form submission that the inbox lists." },
+    // Named errors. Keep these codes in alphabetical order.
+    FORMS_AUTOFORM_SCHEMA_INVALID: {
+      why: "[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).",
+      fix: "Pass AutoForm the Valibot `v.object({ ... })` schema of the form, with one entry for each field.",
+    },
+    FORMS_DATABASE_MISSING: {
+      why: ({ database }: { database?: string }) => `[vitehub] Forms has no Database${database ? ` named ${JSON.stringify(database)}` : ""}.`,
+      fix: "Enable `vitehub({ database: true })` and add the Database that the forms name, or set `store: false` in forms that do not need stored submissions.",
+    },
+    FORMS_NOT_INSTALLED: {
+      why: "[vitehub] The app has no forms. Add server/forms/<name>.ts with defineForm().",
+      fix: "Add `server/forms/<name>.ts` that default-exports `defineForm({ ... })`, then build or start the app again.",
+    },
+    FORMS_SUBMISSION_STATUS_INVALID: {
+      why: ({ status }: { status: string }) => `[vitehub] A form submission status is open, done, or spam, not ${status}.`,
+      fix: "Pass `setStatus()` one of `open`, `done`, or `spam`.",
+    },
   },
 })
