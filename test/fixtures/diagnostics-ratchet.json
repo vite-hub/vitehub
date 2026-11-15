@@ -1088,5 +1088,8 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/agent/src/invocations/database.ts": 1,
+    "packages/agent/src/invocations/postgres-store.ts": 2
+  }
 }

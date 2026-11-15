@@ -3,6 +3,7 @@ import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
 import { useDatabase } from "@vite-hub/database"
 import { trackD1Database, trackPostgresClient } from "@vite-hub/database/runtime/request-stats"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { createD1AgentInvocationStore } from "./d1.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createPostgresAgentInvocationStore } from "./postgres-store.ts"
@@ -184,7 +185,7 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     client() {
       const client = postgresClient(runtime().$client)
       // Internal invariant: the driver was Postgres when this store was created.
-      if (!client) throw new TypeError(`[vitehub] Database "${name}" changed from Postgres to another driver.`)
+      if (!client) throw invariantError(`Database "${name}" changed from Postgres to another driver.`)
       // Count the journal's queries in the request's database stats. One tracked client per pool keeps the table check cached.
       let tracked = trackedClients.get(client)
       if (!tracked) {
