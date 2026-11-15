@@ -5,7 +5,7 @@ import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
-import { configureCloudflareSandboxNitro } from './cloudflare'
+import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName, type CloudflareSandboxEntrypointOptions } from './cloudflare'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
@@ -16,7 +16,7 @@ import {
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
 import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
-import { inspectSandboxTaskDefinitions } from './inspect'
+import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources } from './inspect'
 import { sandboxDeploymentEnv } from './deployment-env'
 import type { DeploymentEnvContribution } from '@vite-hub/internal/build/deployment-plan-output'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
@@ -257,6 +257,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
+  let cloudflareSandbox: CloudflareSandboxEntrypointOptions | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
   const sandboxTaskNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
@@ -344,14 +345,20 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxTaskRuntime>>,
     finalizeWrangler = false,
   ) {
-    if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
+    if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare') {
+      cloudflareSandbox = undefined
       return false
-    config.nitro = await configureCloudflareSandboxNitro(
+    }
+    const nitro = await configureCloudflareSandboxNitro(
       mutableSandboxTaskNitroTarget(config.nitro),
       prepared.rootDir,
       prepared.cloudflare,
       finalizeWrangler,
     )
+    config.nitro = nitro
+    const className = prepared.cloudflare.className || defaultCloudflareSandboxClassName
+    const container = nitro.cloudflare?.wrangler?.containers?.find(entry => entry.class_name === className)
+    cloudflareSandbox = { ...prepared.cloudflare, name: container?.name }
     return true
   }
 
@@ -375,6 +382,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
             return inspectSandboxTaskDefinitions({ projectRoot: resolveViteHubProjectRoot(sandboxTaskRoot), rootDir: sandboxTaskRoot })
           },
         }],
+        resources: () => cloudflareSandbox ? inspectSandboxTaskResources(cloudflareSandbox) : [],
       }) : undefined,
     },
     async config(config, env) {

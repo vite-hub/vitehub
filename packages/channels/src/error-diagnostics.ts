@@ -33,13 +33,34 @@ const dynamicError = {
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
-    CHANNELS_B0001: dynamicError,
-    CHANNELS_C0001: dynamicError,
-    CHANNELS_C0007: dynamicError,
-    CHANNELS_C0008: dynamicError,
-    CHANNELS_C0009: dynamicError,
-    CHANNELS_C0010: dynamicError,
-    CHANNELS_C0011: dynamicError,
+    CHANNELS_B0001: {
+      ...dynamicError,
+      fix: "Set `agent: true` next to `channels: true` in `vitehub()`, and install the Agent package with `pnpm add @vite-hub/agent`.",
+    },
+    CHANNELS_C0001: {
+      ...dynamicError,
+      fix: "Pass an object with an `adapter` to `defineChannel()`, such as `export default defineChannel({ adapter: stripe() })` in server/channels/<name>.ts.",
+    },
+    CHANNELS_C0007: {
+      ...dynamicError,
+      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()` or `webhook()` from `vite-hub/channels`, `slack()` from `vite-hub/agent/channels`, or your own `{ kind, send }`.",
+    },
+    CHANNELS_C0008: {
+      ...dynamicError,
+      fix: "Make `send` of the adapter in `defineChannel({ adapter })` a function, or remove `send` from the adapter.",
+    },
+    CHANNELS_C0009: {
+      ...dynamicError,
+      fix: "Pass `defineChannel({ on })` an object that maps each non-empty event name to a function or to a trigger from `defineChannelTrigger()`.",
+    },
+    CHANNELS_C0010: {
+      ...dynamicError,
+      fix: "Use `webhook()` or `stripe()` as the adapter of a Channel with `on` handlers, or make the target a trigger from `defineChannelTrigger()`.",
+    },
+    CHANNELS_C0011: {
+      ...dynamicError,
+      fix: "Set both `signature` and `secret` in `webhook()`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`, and a `header` for `signature: 'token'`. To accept unsigned requests, set `secret: false` and no `signature`.",
+    },
     CHANNELS_R0002: dynamicError,
     CHANNELS_R0003: dynamicError,
   },

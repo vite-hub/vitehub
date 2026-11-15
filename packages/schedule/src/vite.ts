@@ -181,7 +181,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
     throw scheduleErrorDiagnostics.SCHEDULE_B0002({ message: "Schedule Process Runtime prefix must be a string." })
   }
   if (value.catchUpMs !== undefined && (typeof value.catchUpMs !== "number" || !Number.isFinite(value.catchUpMs) || value.catchUpMs < 0)) {
-    throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: "Schedule Process Runtime catchUpMs must be a non-negative number." })
+    throw scheduleErrorDiagnostics.SCHEDULE_RUNTIME_CATCH_UP_INVALID()
   }
   if (value.intervalMs !== undefined && (typeof value.intervalMs !== "number" || !Number.isFinite(value.intervalMs) || value.intervalMs <= 0 || value.intervalMs > 60_000)) {
     throw scheduleErrorDiagnostics.SCHEDULE_B0003({ message: "Schedule Process Runtime intervalMs must be a positive number no greater than 60000." })

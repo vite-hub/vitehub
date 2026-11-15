@@ -7,6 +7,8 @@ import type { ChildProcess } from "node:child_process"
 import type { Socket } from "node:net"
 import type { Connection } from "ssh2"
 
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
+
 const maxTimeoutMs = 2_147_483_647
 
 export interface SshLaunchOptions {
@@ -51,6 +53,7 @@ try {
   if (config.hostKeyFile) {
     knownHostsFile = join(temporary, "known_hosts")
     const key = (await readFile(config.hostKeyFile, "utf8")).trim()
+    // Internal invariant: launcher script source. It runs in its own Node process without ViteHub packages.
     if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+(?: .*)?$/.test(key)) throw new Error("Invalid SSH host public key")
     await writeFile(knownHostsFile, "vitehub-runner " + key + "\n", { mode: 0o600 })
   }
@@ -123,21 +126,21 @@ try {
 
 /** Launch a command on a trusted SSH host with the same working-directory path. */
 export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[]; prepare: (context: { abortSignal?: AbortSignal }) => Promise<void> } {
-  if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw new TypeError("[vitehub] SSH host is invalid.")
-  if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(options.user)) throw new TypeError("[vitehub] SSH user is invalid.")
-  if (!options.identityFile || options.identityFile.includes("\0")) throw new TypeError("[vitehub] SSH identityFile is required.")
+  if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "host" })
+  if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(options.user)) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "user" })
+  if (!options.identityFile || options.identityFile.includes("\0")) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "identityFile" })
   const port = options.port ?? 22
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new TypeError("[vitehub] SSH port must be between 1 and 65535.")
-  if (options.hostKeyFile && options.knownHostsFile) throw new TypeError("[vitehub] Select hostKeyFile or knownHostsFile.")
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "port" })
+  if (options.hostKeyFile && options.knownHostsFile) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "hostKey" })
   const connectRetryMs = options.connectRetryMs ?? 30_000
-  if (!Number.isSafeInteger(connectRetryMs) || connectRetryMs < 0) throw new TypeError("[vitehub] SSH connectRetryMs must be a non-negative integer of milliseconds.")
+  if (!Number.isSafeInteger(connectRetryMs) || connectRetryMs < 0) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "connectRetryMs" })
   const forwardEnvironment = [...new Set(options.forwardEnvironment ?? [])]
-  if (forwardEnvironment.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
+  if (forwardEnvironment.some(name => !environmentName.test(name))) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "environment" })
   return ({ command, cwd, environment, requiredEnvironment }: SshLaunchContext) => {
     const names = options.forwardEnvironment === undefined ? Object.keys(environment || {}).filter(name => environmentName.test(name)) : forwardEnvironment
     const forwarded = [...new Set([...names, ...(requiredEnvironment || [])])]
-    if (forwarded.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
-    if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw new TypeError("[vitehub] SSH command and cwd are required and cannot contain NUL.")
+    if (forwarded.some(name => !environmentName.test(name))) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "environment" })
+    if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "command" })
     const args = (command: string, cwd: string) => ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, connectRetryMs, forwardEnvironment: forwarded, command, cwd })]
     return {
       command: process.execPath,
@@ -183,7 +186,7 @@ export interface SshServer {
 
 /** An authenticated command server, not a filesystem or network sandbox. */
 export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
-  if (process.platform === "win32") throw new Error("[vitehub] SSH command supervision requires a POSIX host.")
+  if (process.platform === "win32") throw sandboxErrorDiagnostics.SANDBOX_SSH_POSIX_REQUIRED()
   const { default: ssh2 } = await import("ssh2")
   const [hostKey, authorizedKey] = await Promise.all([readFile(options.hostKeyFile), readFile(options.authorizedKeyFile)])
   const parsedKey = ssh2.utils.parseKey(authorizedKey)
@@ -271,6 +274,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   listener.listen(options.port ?? 2222, options.host ?? "127.0.0.1")
   await listening
   const address = listener.address()
+  // Internal invariant: the listener listens on a TCP host and port, so it always has a TCP address.
   if (!address || !(address instanceof Object)) throw new Error("[vitehub] SSH listener has no TCP address.")
   let closing: Promise<void> | undefined
   return {
@@ -279,7 +283,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       return sockets.size
     },
     close({ drainTimeoutMs = 0 } = {}) {
-      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0 || drainTimeoutMs > maxTimeoutMs) throw new TypeError("[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.")
+      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0 || drainTimeoutMs > maxTimeoutMs) throw sandboxErrorDiagnostics.SANDBOX_SSH_DRAIN_TIMEOUT_INVALID()
       if (closing) {
         if (!drainTimeoutMs) endDrain?.()
         return closing
