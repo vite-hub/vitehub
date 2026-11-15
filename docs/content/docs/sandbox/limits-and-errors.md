@@ -41,6 +41,6 @@ const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)
 ```
 
-Use provider controls such as Vercel `networkPolicy`. Keep secrets in the server environment or provider config. A container alone does not make untrusted code safe to run.
+Set `networkPolicy` to `'deny-all'` or to an allowlist of hostnames to limit outbound traffic on Vercel and Cloudflare. See [Network policy](/docs/sandbox/hosts#network-policy). Keep secrets in the server environment or provider config. A container alone does not make untrusted code safe to run.
 
 Run `vitehub inspect definitions` to list Sandbox Tasks without starting a server.
