@@ -49,7 +49,7 @@ test('signup saves the user and sends the welcome email', async () => {
 })
 ```
 
-Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
+Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. It also adds the installed ViteHub packages to Vitest's `test.server.deps.inline`, so Vite transforms them instead of Node loading them as they are. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
 
 ```ts [vite.config.ts]
 /// <reference types="vitest/config" />
