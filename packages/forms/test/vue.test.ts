@@ -77,6 +77,18 @@ describe("AutoForm", () => {
     return { app, root, store, sent, element, type, submit }
   }
 
+  it("initializes and restores defaults inside optional wrappers", async () => {
+    const schema = v.object({ topic: v.optional(v.nullable(v.picklist(["bug", "idea"]), "idea")) })
+    const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema }))
+    expect(html).toContain('<option value="idea" selected>')
+    const { element, type, submit, sent } = await mount(schema, schema)
+    expect(element<HTMLSelectElement>("select").value).toBe("idea")
+    await type("select", "bug")
+    await submit()
+    expect(sent).toHaveBeenCalled()
+    expect(element<HTMLSelectElement>("select").value).toBe("idea")
+  })
+
   it("draws labelled controls, the honeypot, and the submit button", async () => {
     const { root } = await mount()
     expect([...root.querySelectorAll("label")].map(label => label.textContent)).toEqual(["Email", "Topic", "Your message", " Newsletter"])

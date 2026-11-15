@@ -220,9 +220,15 @@ const AutoFormControl = defineComponent({
 function initialValues(schema: unknown, fields: readonly AutoFormField[]): Record<string, unknown> {
   const entries = (schema as SchemaNode).entries ?? {}
   return Object.fromEntries(fields.map((field) => {
-    const fallback = entries[field.key]?.default
-    // Valibot calls a default function with no dataset when it reads the default of a schema.
-    const value: unknown = typeof fallback === "function" ? fallback() : fallback
+    let node: SchemaNode | undefined = entries[field.key]
+    let value: unknown
+    while (node) {
+      const fallback = node.default
+      // Valibot calls a default function with no dataset when it reads the default of a schema.
+      value = typeof fallback === "function" ? fallback() : fallback
+      if (value !== undefined || !["optional", "nullish", "nullable", "exact_optional", "undefinedable"].includes(node.type)) break
+      node = node.wrapped
+    }
     if (value instanceof Promise) return [field.key, field.control === "checkbox" ? false : undefined]
     return [field.key, value === undefined && field.control === "checkbox" ? false : value]
   }))
