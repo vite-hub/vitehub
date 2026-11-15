@@ -354,7 +354,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(await transport.delete({ threadId: thread.id })).toBeNull()
     expect(transport.subscribe).toBeUndefined()
     await expect(transport.get({ id: "x" })).resolves.toBeNull()
-    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", name: "CommentsRpcError", status: 404 })
+    await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", fix: expect.stringMatching(/\S/), status: 404 })
   })
 })
 

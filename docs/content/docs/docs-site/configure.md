@@ -156,7 +156,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
+The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
 
 Rules added in a module's `nitro:config` hook are also checked, and keep the link checker's own redirect warnings.
 
@@ -577,7 +577,7 @@ export default defineNuxtConfig({
 })
 ```
 
-A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DocsCommentsSetupError`](/docs/docs-site/limits-and-errors#docscommentssetuperror).
+A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DOCS_COMMENTS_VITEHUB_MISSING`](/docs/docs-site/diagnostics/docs_comments_vitehub_missing).
 
 ## Edit in the Console
 

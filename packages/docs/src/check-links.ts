@@ -4,6 +4,7 @@ import { join, posix, relative, resolve, sep } from "node:path";
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml";
 
 import { docsErrorDiagnostics } from "./error-diagnostics.ts";
+import type { Diagnostic } from "nostics";
 
 export interface DocsLinkCheckOptions {
   dir: string;
@@ -20,15 +21,9 @@ export interface DocsLinkCheckOptions {
   redirect?: (url: URL) => string | undefined;
 }
 
-// Internal invariant: public error class with the list of problems. The build prints it and stops.
-export class DocsLinkError extends Error {
-  readonly problems: string[];
-
-  constructor(problems: string[]) {
-    super(`Broken docs links:\n${problems.map((problem) => `- ${problem}`).join("\n")}`);
-    this.name = "DocsLinkError";
-    this.problems = problems;
-  }
+/** `DOCS_LINKS_BROKEN`, with the list of problems in `problems`. */
+export function docsLinkError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
+  return Object.assign(docsErrorDiagnostics.DOCS_LINKS_BROKEN({ problems }), { problems });
 }
 
 /**
@@ -163,7 +158,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
         );
     }
   }
-  if (problems.size) throw new DocsLinkError([...problems].sort());
+  if (problems.size) throw docsLinkError([...problems].sort());
   return { pages };
 }
 

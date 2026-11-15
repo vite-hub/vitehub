@@ -51,10 +51,6 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Writing a comment needs a signed-in user.",
       fix: "Sign in, then try again. Without ViteHub Auth or `identify`, sign in with GitHub so comments know who writes.",
     },
-    COMMENTS_R0013: {
-      why: "The comments request did not get an answer from the server.",
-      fix: "Check the connection and the app URL, then try again.",
-    },
     COMMENTS_R0014: {
       why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
       fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
@@ -110,9 +106,17 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    COMMENTS_GITHUB_CREDENTIALS_MISSING: {
+      why: "Comments needs GitHub credentials to post to pull requests: VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_TOKEN.",
+      fix: "Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` of a GitHub App that is installed on the repository, or set `VITEHUB_GITHUB_TOKEN`.",
+    },
     COMMENTS_GITHUB_REQUEST_FAILED: {
       why: ({ path, status }: { path: string, status: number }) => `GitHub GET ${path} failed with ${status}`,
       fix: "Sign in with GitHub again, because a status of 401 means that the token expired. For other statuses, check that the GitHub OAuth app of the Comments login is active and that GitHub is reachable.",
+    },
+    COMMENTS_GITHUB_SYNC_FAILED: {
+      why: ({ reason, request, status }: { reason: string, request: string, status: number }) => `GitHub ${request} failed with ${status}: ${reason}`,
+      fix: "Check that the GitHub App or `VITEHUB_GITHUB_TOKEN` can write pull request comments in the repository. A retry helps for a 5xx status.",
     },
     COMMENTS_MIGRATION_DATABASE_UNSUPPORTED: {
       why: ({ dialect }: { dialect: "postgresql" | "sqlite" }) => dialect === "postgresql"

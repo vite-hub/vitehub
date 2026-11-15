@@ -33,8 +33,8 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
+import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
@@ -45,11 +45,7 @@ import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
 import type { DocsPage } from "./types.ts"
 
-export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
-export { DocsCommentsSetupError } from "./comments-nuxt.ts"
-export { DocsRedirectError } from "./redirects.ts"
 export type { DocsThemeScope } from "./theme.ts"
-export { DocsSeoError } from "./seo-audit.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
@@ -141,7 +137,7 @@ export interface DocsModuleOptions {
    * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
    * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
    * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
-   * build with `DocsSeoError`. `false` turns the check off.
+   * build with `DOCS_SEO_FAILED`. `false` turns the check off.
    */
   seoAudit?: "warn" | "error" | boolean
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
@@ -746,7 +742,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
-        if (problems.length) throw new DocsRedirectError(problems)
+        if (problems.length) throw docsRedirectError(problems)
         nitro.hooks?.hook("compiled", () => {
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
@@ -775,7 +771,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap)
           if (!problems.length) return
-          const error = new DocsSeoError(problems)
+          const error = docsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
           useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
         })

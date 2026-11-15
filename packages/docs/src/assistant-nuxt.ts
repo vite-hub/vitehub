@@ -1,5 +1,6 @@
 import type {} from "nuxt/schema"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { viteHubModuleOptions } from "./module-options.ts"
 
 import type { ModuleOptionsNuxt } from "./module-options.ts"
@@ -7,15 +8,6 @@ import type { ModuleOptionsNuxt } from "./module-options.ts"
 /** Only the host fields used here: Nuxt and @nuxt/kit can load different compatible schema versions. */
 interface DocsAssistantNuxt extends ModuleOptionsNuxt {
   hook: (name: "modules:done", callback: () => Promise<void>) => unknown
-}
-
-/** The error that the build shows when the assistant cannot run. */
-// Internal invariant: this class puts the why and the fix in its message, and the build prints it.
-export class DocsAssistantSetupError extends Error {
-  constructor(why: string, fix: string) {
-    super(`[@vite-hub/docs] ${why} ${fix}`)
-    this.name = "DocsAssistantSetupError"
-  }
 }
 
 /**
@@ -34,10 +26,7 @@ export function setupDocsAssistant(nuxt: DocsAssistantNuxt, config: { assistant:
   nuxt.hook("modules:done", async () => {
     const vitehub = await viteHubModuleOptions(nuxt)
     if (!vitehub?.agent) {
-      throw new DocsAssistantSetupError(
-        `docs.assistant needs ViteHub Agents to answer from the "${assistant.agent}" Agent.`,
-        `Add "vite-hub/nuxt" to modules and set vitehub: { agent: true, connections: true } in nuxt.config.ts, or set docs.assistant to false.`,
-      )
+      throw docsErrorDiagnostics.DOCS_ASSISTANT_AGENTS_MISSING({ agent: assistant.agent })
     }
   })
 }

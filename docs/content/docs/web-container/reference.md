@@ -12,7 +12,7 @@ Runs in the browser. `vite-hub/web-container` re-exports it.
 
 ### `bootWebContainer(options?)`
 
-Boots a WebContainer, mounts the snapshot and the files, and resolves with a container. Throws `WebContainerUnsupportedError` when the page cannot run one.
+Boots a WebContainer, mounts the snapshot and the files, and resolves with a container. Throws `WEB_CONTAINER_UNSUPPORTED` when the page cannot run one.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |

@@ -51,12 +51,6 @@ export interface NodeModulesSnapshot {
   lockfile: string
 }
 
-/** A supplied lockfile is out of sync with the app's dependencies or required wasm aliases. */
-// Internal invariant: public error class. Callers check it with instanceof and pass frozenLockfile: false.
-export class SnapshotLockfileMismatchError extends Error {
-  override name = "SnapshotLockfileMismatchError"
-}
-
 /**
  * Installs the dependencies of an app on this machine as npm in a WebContainer does, and returns a snapshot that holds
  * only `node_modules`. Mount it with `bootWebContainer({ snapshot })`, so the container skips `npm install`.
@@ -96,13 +90,13 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
         if (frozen && error instanceof Error && "stderr" in error && typeof error.stderr === "string"
           && error.stderr.includes("code EUSAGE")
           && error.stderr.includes("`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync.")) {
-          throw new SnapshotLockfileMismatchError("The lockfile does not match the app. Pass frozenLockfile: false to update it.", { cause: error })
+          throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ cause: error, wasm: false })
         }
         throw error
       }
       const needed = await neededAliases(modules)
       if (sameRecord(needed, aliases)) break
-      if (frozen) throw new SnapshotLockfileMismatchError("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
+      if (frozen) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ wasm: true })
       // Internal invariant: the second install pins every wasm alias, so a third round means the resolver changed between rounds.
       if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
       aliases = needed
