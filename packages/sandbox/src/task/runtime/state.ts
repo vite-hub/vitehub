@@ -17,6 +17,7 @@ type GeneratedSandboxTaskRuntimeRegistryEntry = {
 type GeneratedSandboxTaskRuntimeRegistry = Record<string, GeneratedSandboxTaskRuntimeRegistryEntry>
 
 let sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined
+let sandboxTaskDevelopment = false
 let sandboxTaskRegistry: SandboxTaskRuntimeRegistry | undefined
 const generatedRegistries = new Map<string, GeneratedSandboxTaskRuntimeRegistry>()
 const generatedRegistryOwnership = new WeakMap<SandboxTaskRuntimeRegistry, { registry: GeneratedSandboxTaskRuntimeRegistry, scope: string }>()
@@ -84,6 +85,15 @@ export function setSandboxTaskRuntimeConfig(config: false | AgentSandboxTaskConf
   sandboxTaskConfig = config
 }
 
+/** `vite dev` sets this. Task error Responses then keep the stack and process output. */
+export function isSandboxTaskRuntimeDevelopment() {
+  return sandboxTaskDevelopment
+}
+
+export function setSandboxTaskRuntimeDevelopment(development: boolean) {
+  sandboxTaskDevelopment = development
+}
+
 export function setSandboxTaskRuntimeRegistry(registry: SandboxTaskRuntimeRegistry | undefined) {
   sandboxTaskRegistry = registry
   const generated = registry && generatedRegistryOwnership.get(registry)
@@ -93,6 +103,7 @@ export function setSandboxTaskRuntimeRegistry(registry: SandboxTaskRuntimeRegist
 
 export function resetSandboxTaskRuntimeState() {
   sandboxTaskConfig = undefined
+  sandboxTaskDevelopment = false
   sandboxTaskRegistry = undefined
   generatedRegistries.clear()
 }
