@@ -232,9 +232,9 @@ function createCloudflareSession(
       );
       return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
     } finally {
-      // Neither a kill signal nor a transport deadline acknowledges process exit.
-      // Keep invocation files and the same-ID queue until every remote exec settles.
-      await Promise.allSettled(executions);
+      // Cancellation must acknowledge exit before invocation cleanup or same-ID reuse.
+      // A transport deadline must still bound an unresponsive RPC.
+      if (options.abortSignal?.aborted) await Promise.allSettled(executions);
     }
   };
   return {

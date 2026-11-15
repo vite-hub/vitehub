@@ -441,10 +441,11 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const cancelled = session.exec("long-running", [], { signal: controller.signal });
     await vi.waitFor(() => expect(running()).toHaveLength(1));
     controller.abort(new Error("cancel exec"));
-    await expect(cancelled).rejects.toThrow("cancel exec");
+    const rejection = expect(cancelled).rejects.toThrow("cancel exec");
     // GNU timeout treats SIGALRM as its deadline and kills the command's process group.
     await vi.waitFor(() => expect(running()[0]!.signals).toEqual([14]));
     running()[0]!.exit(137);
+    await rejection;
 
     await expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
     await vi.waitFor(() => expect(running()[1]!.signals).toEqual([14]));
