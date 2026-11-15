@@ -145,6 +145,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ detail }: { detail: string }) => `[vitehub] Cloudflare process log stream failed: ${detail}`,
       fix: "Read the Container error in the message, and check the Container logs of the Sandbox Durable Object in the Cloudflare dashboard. Start the process again to retry.",
     },
+    SANDBOX_NETWORK_POLICY_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
+      fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",
+    },
     SANDBOX_SSH_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.",
       fix: "Pass `close({ drainTimeoutMs })` a whole number of milliseconds from 0 to 2147483647, or omit it to close at once.",

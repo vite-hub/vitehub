@@ -118,8 +118,14 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
   }
 }
 
+/** The Worker entrypoint that sends the allowed outbound requests of a Sandbox Container on unchanged. */
+export function cloudflareSandboxOutboundEntrypoint(className: string) {
+  return `${className}Outbound`
+}
+
 function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypointOptions = {}): Plugin {
   const { className } = resolveCloudflareSandboxEntrypointOptions(options)
+  const outboundEntrypoint = cloudflareSandboxOutboundEntrypoint(className)
   const cloudflareSandboxEntrypoint = resolveCloudflareSandboxEntrypoint()
   const durableObjectEntrypoint = resolveModule(durableObjectModule)
   const moduleId = 'virtual:vitehub-sandbox-task-cloudflare-exports'
@@ -150,11 +156,13 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       handler(id) {
         if (id === resolvedModuleId) {
           return [
-            `import { DurableObject } from 'cloudflare:workers'`,
+            `import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers'`,
             `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
             `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
             ``,
-            `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`,
+            // Cloudflare already matched the host against networkPolicy.allow before it called this entrypoint.
+            `export class ${outboundEntrypoint} extends WorkerEntrypoint { fetch(request) { return fetch(request) } }`,
+            `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: '${outboundEntrypoint}', SandboxFileError }) {}`,
             ``,
           ].join('\n')
         }
@@ -164,9 +172,10 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       if (!chunk.isEntry)
         return null
       const exportedNames = new Set(chunk.exports)
-      const missingExports = [className].filter(name => !exportedNames.has(name))
-      if (!missingExports.length)
+      // An entry that already exports the class owns its Durable Object, so ViteHub adds nothing.
+      if (exportedNames.has(className))
         return null
+      const missingExports = [className, outboundEntrypoint].filter(name => !exportedNames.has(name))
       const exportsPath = relative(dirname(chunk.fileName), 'sandbox-task-cloudflare-exports.mjs').replace(/\\/g, '/')
       const importPath = exportsPath.startsWith('.') ? exportsPath : `./${exportsPath}`
 

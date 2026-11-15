@@ -26,12 +26,18 @@ export interface CloudflareContainer {
     stdin?: ReadableStream | "pipe";
     stdout?: "pipe" | "ignore";
   }): Promise<CloudflareContainerExecProcess>;
+  /** Sends HTTP requests on port 80 to `target` through `handler`. Missing on Workers runtimes without outbound interception. */
+  interceptOutboundHttp?(target: string, handler: unknown): Promise<void>;
+  /** Decrypts HTTPS requests on port 443 to `target` and sends them through `handler`. */
+  interceptOutboundHttps?(target: string, handler: unknown): Promise<void>;
   setInactivityTimeout(durationMs: number | bigint): Promise<void>;
   start(options?: { enableInternet?: boolean; labels?: Record<string, string> }): void;
 }
 
 export interface CloudflareDurableObjectState {
   readonly container?: CloudflareContainer;
+  /** The Worker's exported entrypoints. Needs compatibility date 2025-11-17 or later, or the `enable_ctx_exports` flag. */
+  readonly exports?: Readonly<Record<string, unknown>>;
   readonly id: { toString(): string; readonly name?: string };
   readonly storage: {
     get<T>(key: string): Promise<T | undefined>;
@@ -52,11 +58,15 @@ export interface CloudflareSandboxFiles {
 export interface CloudflareSandboxDurableObjectDependencies {
   DurableObject: abstract new (ctx: any, env: any) => object;
   Files: new (container: Pick<CloudflareContainer, "exec">) => CloudflareSandboxFiles;
+  /** The name of the exported `WorkerEntrypoint` that sends allowed outbound requests on unchanged. */
+  outboundEntrypoint?: string;
   SandboxFileError: { is(cause: unknown): cause is Error & { code: string } };
 }
 
 export interface CloudflareSandboxConfiguration {
   keepAlive?: boolean;
+  /** Validated by the caller. Missing means `"allow-all"`, as for Containers that started before this option existed. */
+  networkPolicy?: "allow-all" | "deny-all" | { allow: readonly string[] };
   sleepAfter?: number | string;
 }
 
@@ -232,7 +242,7 @@ export interface CloudflareExecOptions {
 export function createCloudflareSandboxDurableObject(
   dependencies: CloudflareSandboxDurableObjectDependencies,
 ): new (ctx: CloudflareDurableObjectState, env: unknown) => CloudflareSandboxDurableObject {
-  const { DurableObject, Files, SandboxFileError } = dependencies;
+  const { DurableObject, Files, outboundEntrypoint, SandboxFileError } = dependencies;
   const missing = (cause: unknown) => SandboxFileError.is(cause) && cause.code === "ENOENT";
 
   return class ViteHubCloudflareSandbox extends DurableObject implements CloudflareSandboxDurableObject {
@@ -243,17 +253,25 @@ export function createCloudflareSandboxDurableObject(
     readonly #cancelled = new Set<string>();
     #configuration: Promise<CloudflareSandboxConfiguration> | undefined;
     #files: CloudflareSandboxFiles | undefined;
+    #starting: Promise<void> | undefined;
 
     constructor(ctx: CloudflareDurableObjectState, env: unknown) {
       super(ctx, env);
       this.#ctx = ctx;
     }
 
-    /** Stores the idle policy. Applied now when the Container runs, otherwise when it starts. */
+    /**
+     * Stores the idle and network policy. The idle policy applies now when the Container runs, otherwise when it starts.
+     * The network is fixed when the Container starts, so a running Container with another network policy stops.
+     */
     async configure(configuration: CloudflareSandboxConfiguration) {
+      const running = this.#ctx.container?.running === true;
+      const previous = running ? await this.#readConfiguration() : undefined;
       this.#configuration = Promise.resolve(configuration);
       await this.#ctx.storage.put(configurationKey, configuration);
-      if (this.#ctx.container?.running) await this.#applyConfiguration();
+      if (!running) return;
+      if (networkKey(previous?.networkPolicy) !== networkKey(configuration.networkPolicy)) await this.destroy();
+      else await this.#applyIdlePolicy(configuration);
     }
 
     async destroy() {
@@ -404,10 +422,40 @@ export function createCloudflareSandboxDurableObject(
     async #running() {
       const container = this.#container();
       if (!container.running) {
-        container.start({ enableInternet: true });
-        await this.#applyConfiguration();
+        this.#starting ??= this.#start(container).finally(() => { this.#starting = undefined; });
+        await this.#starting;
       }
       return container;
+    }
+
+    async #start(container: CloudflareContainer) {
+      const configuration = await this.#readConfiguration();
+      const network = configuration.networkPolicy ?? "allow-all";
+      const outbound = typeof network === "object" ? this.#outboundHandler(container) : undefined;
+      // Without internet, only intercepted HTTP and HTTPS hosts leave the Container. Other traffic has no route.
+      container.start({ enableInternet: network === "allow-all" });
+      try {
+        if (typeof network === "object") {
+          for (const host of network.allow) {
+            await container.interceptOutboundHttp!(host, outbound);
+            await container.interceptOutboundHttps!(host, outbound);
+          }
+        }
+        await this.#applyIdlePolicy(configuration);
+      } catch (error) {
+        // A Container without its intercepts would run with a different network than its policy.
+        if (typeof network === "object") await container.destroy().catch(() => undefined);
+        throw error;
+      }
+    }
+
+    #outboundHandler(container: CloudflareContainer) {
+      const handler = outboundEntrypoint ? this.#ctx.exports?.[outboundEntrypoint] : undefined;
+      // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
+      if (!handler) throw new Error(`[vitehub] Cloudflare Sandbox networkPolicy { allow } needs the ${JSON.stringify(outboundEntrypoint ?? "SandboxOutbound")} entrypoint in ctx.exports. Set compatibility_date to 2025-11-17 or later, or add the enable_ctx_exports compatibility flag, and build the Worker with ViteHub.`);
+      // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
+      if (!container.interceptOutboundHttp || !container.interceptOutboundHttps) throw new Error("[vitehub] This Workers runtime cannot intercept Container traffic, so Cloudflare Sandbox networkPolicy { allow } is not available. Update Wrangler.");
+      return handler;
     }
 
     async #fileOperations() {
@@ -416,7 +464,7 @@ export function createCloudflareSandboxDurableObject(
       return this.#files;
     }
 
-    async #applyConfiguration() {
+    async #readConfiguration() {
       if (!this.#configuration) {
         const reading: Promise<CloudflareSandboxConfiguration> = this.#ctx.storage.get<CloudflareSandboxConfiguration>(configurationKey).then(value => value ?? {}).catch((error: unknown) => {
           // A failed storage read lets the next start try again. configure() can store a newer policy meanwhile.
@@ -425,12 +473,19 @@ export function createCloudflareSandboxDurableObject(
         });
         this.#configuration = reading;
       }
-      const configuration = await this.#configuration;
+      return await this.#configuration;
+    }
+
+    async #applyIdlePolicy(configuration: CloudflareSandboxConfiguration) {
       await this.#container().setInactivityTimeout(
         configuration.keepAlive ? keepAliveTimeout : parseDuration(configuration.sleepAfter) ?? defaultSleepAfter,
       );
     }
   };
+}
+
+function networkKey(policy: CloudflareSandboxConfiguration["networkPolicy"]) {
+  return JSON.stringify(policy ?? "allow-all");
 }
 
 function execOptions(options: { cwd?: string; env?: Record<string, string | undefined> }) {

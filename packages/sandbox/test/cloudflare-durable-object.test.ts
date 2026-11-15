@@ -68,10 +68,17 @@ function fakeContainer() {
   const encoder = new TextEncoder();
   const executions: Execution[] = [];
   const timeouts: number[] = [];
-  const container: CloudflareContainer & { destroyed: number; starts: unknown[] } = {
+  const container: CloudflareContainer & { destroyed: number; intercepts: Array<[string, string, unknown]>; starts: unknown[] } = {
     destroyed: 0,
+    intercepts: [],
     running: false,
     starts: [],
+    async interceptOutboundHttp(target, handler) {
+      this.intercepts.push(["http", target, handler]);
+    },
+    async interceptOutboundHttps(target, handler) {
+      this.intercepts.push(["https", target, handler]);
+    },
     async destroy() {
       this.destroyed++;
       (this as { running: boolean }).running = false;
@@ -182,13 +189,19 @@ function groupFile(execution: Execution) {
   return execution.command.at(-1);
 }
 
-function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"]) {
+const outbound = { name: "SandboxOutbound loopback" };
+
+function setup(
+  cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"],
+  networkPolicy?: Parameters<typeof createCloudflareRuntime>[0]["networkPolicy"],
+) {
   const { container, executions, timeouts } = fakeContainer();
   const { Files, files } = fakeFiles();
   const storage = new Map<string, unknown>();
   const Sandbox = createCloudflareSandboxDurableObject({
     DurableObject: FakeDurableObject,
     Files,
+    outboundEntrypoint: "SandboxOutbound",
     SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
   });
   const names: string[] = [];
@@ -199,6 +212,7 @@ function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloud
       if (!objects.has(name)) {
         objects.set(name, new Sandbox({
           container,
+          exports: { SandboxOutbound: outbound },
           id: { name, toString: () => name },
           storage: {
             async get<T>(key: string) { return storage.get(key) as T | undefined; },
@@ -213,7 +227,7 @@ function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloud
       return name;
     },
   };
-  const runtime = createCloudflareRuntime({ cloudflare, namespace, sandboxId: "Task-1" });
+  const runtime = createCloudflareRuntime({ cloudflare, namespace, networkPolicy, sandboxId: "Task-1" });
   return { container, executions, files, names, objects, runtime, storage, timeouts };
 }
 
@@ -578,6 +592,95 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
     expect(container.destroyed).toBe(0);
     await session.close();
+  });
+
+  it("starts the Container without internet for networkPolicy deny-all", async () => {
+    const { container, executions, runtime } = setup(undefined, "deny-all");
+    const sandbox = await resolveSandbox({ runtime }, {});
+    const session = await sandbox.open();
+
+    expect(sandbox.plan.executionAuthority.network).toBe("none");
+    await session.exec("true");
+    expect(container.starts).toEqual([{ enableInternet: false }]);
+    expect(container.intercepts).toEqual([]);
+    expect(executions.at(-1)!.options?.env?.NODE_EXTRA_CA_CERTS).toBeUndefined();
+    await session.close();
+  });
+
+  it("sends only allowed hosts through the outbound entrypoint and trusts the interception CA in every command", async () => {
+    const { container, executions, runtime } = setup(undefined, { allow: ["API.example.com", "*.github.com", "api.example.com."] });
+    const sandbox = await resolveSandbox({ runtime }, {});
+    const session = await sandbox.open();
+
+    expect(sandbox.plan.executionAuthority.network).toBe("restricted");
+    await session.exec("curl", ["https://api.example.com"], { env: { NAME: "value" } });
+    expect(container.starts).toEqual([{ enableInternet: false }]);
+    expect(container.intercepts).toEqual([
+      ["http", "*.github.com", outbound],
+      ["https", "*.github.com", outbound],
+      ["http", "api.example.com", outbound],
+      ["https", "api.example.com", outbound],
+    ]);
+    const ca = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
+    const caEnv = { CURL_CA_BUNDLE: ca, GIT_SSL_CAINFO: ca, NODE_EXTRA_CA_CERTS: ca, REQUESTS_CA_BUNDLE: ca, SSL_CERT_FILE: ca };
+    expect(executions.at(-1)!.options?.env).toMatchObject({ ...caEnv, NAME: "value" });
+
+    const child = await session.spawn!("node", ["fetch.mjs"]);
+    expect(executions.at(-1)!.options?.env).toMatchObject(caEnv);
+    await child.wait();
+    await session.close();
+  });
+
+  it("restarts a running Container that started with another network policy", async () => {
+    const { container, executions, timeouts } = fakeContainer();
+    const { Files } = fakeFiles();
+    const storage = new Map<string, unknown>();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const ctx = {
+      container,
+      exports: { SandboxOutbound: outbound },
+      id: { name: "shared", toString: () => "shared" },
+      storage: {
+        async get<T>(key: string) { return storage.get(key) as T | undefined; },
+        async put(key: string, value: unknown) { storage.set(key, value); },
+      },
+    };
+    await new Sandbox(ctx, {}).exec("true");
+    expect(container.starts).toEqual([{ enableInternet: true }]);
+
+    // A new Durable Object instance, as after an eviction, with the same policy keeps the Container.
+    await new Sandbox(ctx, {}).configure({ networkPolicy: "allow-all", sleepAfter: "30s" });
+    expect(container.destroyed).toBe(0);
+    expect(timeouts.at(-1)).toBe(30_000);
+
+    const object = new Sandbox(ctx, {});
+    await object.configure({ networkPolicy: { allow: ["api.example.com"] } });
+    expect(container.destroyed).toBe(1);
+    await object.exec("true");
+    expect(container.starts).toEqual([{ enableInternet: true }, { enableInternet: false }]);
+    expect(container.intercepts.map(([protocol, host]) => `${protocol}:${host}`)).toEqual(["http:api.example.com", "https:api.example.com"]);
+    expect(executions.length).toBe(2);
+  });
+
+  it("does not start a Container for an allowlist when the Worker does not export the outbound entrypoint", async () => {
+    const { container } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const configuration = { networkPolicy: { allow: ["api.example.com"] } };
+    const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get: async <T>() => configuration as T, put: async () => {} } }, {});
+
+    await expect(sandbox.exec("true")).rejects.toThrow("needs the \"SandboxOutbound\" entrypoint in ctx.exports");
+    expect(container.starts).toEqual([]);
   });
 
   it("reads sleepAfter in 0.x units", () => {
