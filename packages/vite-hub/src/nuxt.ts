@@ -19,8 +19,8 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
-import { cloudflareExportConditions, detectHost } from "./deployment.ts"
+import { normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { cloudflareExportConditions } from "./deployment.ts"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { nuxtPageRoutes } from "@vite-hub/bundle/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -931,7 +931,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
   assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
-  const moduleOptions = { ...configuredModuleOptions, host: configuredModuleOptions.host ?? detectHost() ?? "node" }
+  const moduleOptions = { ...configuredModuleOptions, host: resolveBuildHost(configuredModuleOptions.host) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
@@ -1627,7 +1627,7 @@ async function resolveNuxtContentDatabaseDependencies(nuxtInstance: unknown) {
   const nuxtOptions = (nuxtInstance as NuxtLike | undefined)?.options
   if (!nuxtOptions || nuxtOptions.dev) return {}
   const configured = { ...nuxtOptions.vitehub } as ViteHubNuxtOptions
-  if ((configured.host ?? detectHost()) === "cloudflare") return {}
+  if (resolveBuildHost(configured.host) === "cloudflare") return {}
   const project = { projectRoot: resolveViteHubProjectRoot(nuxtOptions.rootDir || process.cwd()), serverDirs: resolveNuxtServerDirs(nuxtOptions) }
   const { database } = withConnectionsDatabase(resolveCmsPresetFeatures(withComments(configured as ViteHubOptions), project))
   if (!database || (database !== true && database.driver !== undefined)) return {}

@@ -7,9 +7,11 @@ import * as v from "valibot"
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleRpcPath } from "./console-signature.ts"
-import { consoleOperationRegistry } from "./operation-contributions.ts"
+import { consoleOperationRegistry, isHeldBackConsoleOperation } from "./operation-contributions.ts"
 import { installedConsoleProjectRoot } from "./project-root.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
+import { consoleDiagnostic } from "../diagnostics.ts"
+import { consoleHttpError, type ConsoleHttpError } from "./http-error.ts"
 import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
 import type { ConsoleRoute } from "./request.ts"
@@ -214,6 +216,17 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
 }
 
 /**
+ * The failure for a call that names no registered operation. A caller that reaches this app with a name that it does
+ * not know has another ViteHub version, so reloading does not help.
+ */
+function unknownConsoleOperation(name: string): ConsoleHttpError {
+  const [message, fix] = isHeldBackConsoleOperation(name)
+    ? [`\`${name}\` runs app code, so the app has it only when \`console.invoke\` is on.`, "Set `console: { invoke: true }` in `vitehub()`, then build and deploy the app again."]
+    : ["Console operation not found.", "Use a Console or `vitehub` CLI of the same ViteHub version as the app, or deploy the app again with the feature that has this operation."]
+  return consoleHttpError(404, Object.assign(consoleDiagnostic("CONSOLE_NOT_FOUND", message), { fix }))
+}
+
+/**
  * Answer one birpc call from one checked request, so any host instance can serve any call. The status is the status of
  * the failure, or the success status that the operation set, such as 202.
  */
@@ -226,7 +239,7 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
       failure: consoleRpcFailure,
       operations: consoleOperationTable(),
       run: (operation, input) => runConsoleOperation(operation, input, request, { ...context, response }),
-      unknown: () => consoleRequestError(404, "Console operation not found."),
+      unknown: unknownConsoleOperation,
     })
   }
   catch (error) {
