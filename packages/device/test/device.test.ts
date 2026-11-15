@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeBrowser, createFakeDisk, openPage } from "./support.ts"
 
-import type { DeviceEvent } from "../src/device.ts"
+import type { Device, DeviceEvent } from "../src/device.ts"
 
 const day = 24 * 60 * 60 * 1000
 
@@ -43,7 +43,7 @@ describe("stored copies", () => {
     expect(page.inspect()).toMatchObject({ account: null, persisted: false })
     expect(page.read("projects", day)?.value).toEqual(["p1"])
     await page.setAccount("ada")
-    expect(disk.meta).toEqual({ account: "ada", version: "" })
+    expect(disk.meta).toMatchObject({ account: "ada", version: "" })
     expect(disk.keys).toEqual(["projects"])
   })
 
@@ -72,7 +72,7 @@ describe("stored copies", () => {
     expect(events).toEqual([{ type: "load", keys: ["projects"] }, { type: "drop", keys: ["projects"] }])
     expect(reload.read("projects", day)).toBeUndefined()
     expect(reload.inspect()).toMatchObject({ account: "grace", persisted: true, entries: [{ key: "settings" }] })
-    expect(disk.meta).toEqual({ account: "grace", version: "" })
+    expect(disk.meta).toMatchObject({ account: "grace", version: "" })
     expect(disk.keys).toEqual(["settings"])
   })
 
@@ -99,7 +99,7 @@ describe("stored copies", () => {
     await reload.open()
     await reload.settled()
     expect(reload.read("projects", day)).toBeUndefined()
-    expect(disk.meta).toEqual({ account: "grace", version: "" })
+    expect(disk.meta).toMatchObject({ account: "grace", version: "" })
     expect(disk.keys).toEqual([])
   })
 
@@ -111,7 +111,7 @@ describe("stored copies", () => {
     await page.settled()
     expect(page.read("projects", day)).toBeUndefined()
     expect(page.inspect()).toMatchObject({ account: null, persisted: false, entries: [] })
-    expect(disk.meta).toEqual({ account: null, version: "" })
+    expect(disk.meta).toMatchObject({ account: null, version: "" })
     expect(disk.keys).toEqual([])
   })
 
@@ -127,7 +127,7 @@ describe("stored copies", () => {
     expect(next.read("projects", day)).toBeUndefined()
     await next.settled()
     expect(disk.keys).toEqual([])
-    expect(disk.meta).toEqual({ account: "ada", version: "2" })
+    expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
     // The account stays, so the new build keeps writing for it.
     await next.setAccount("ada")
     next.write("projects", ["p1", "p2"], day)
@@ -205,10 +205,10 @@ describe("tabs", () => {
     const second = openPage(disk, browser)
     await second.open()
     await second.setAccount("ada")
-    const dropped: DeviceEvent[] = []
-    second.subscribe(event => dropped.push(event))
+    const events: DeviceEvent[] = []
+    second.subscribe(event => events.push(event))
     expect(await first.clear()).toEqual([undefined, undefined])
-    expect(dropped).toEqual([{ type: "drop", keys: ["projects"] }])
+    expect(events).toEqual([{ type: "reset" }])
     expect(first.read("projects", day)).toBeUndefined()
     expect(second.read("projects", day)).toBeUndefined()
     expect(disk.keys).toEqual([])
@@ -241,9 +241,97 @@ describe("tabs", () => {
     await second.setAccount("grace")
     first.write("secrets", ["ada only"], day)
     await first.settled()
-    expect(disk.meta).toEqual({ account: "grace", version: "" })
+    expect(disk.meta).toMatchObject({ account: "grace", version: "" })
     expect(disk.keys).toEqual([])
     expect(first.inspect().persisted).toBe(false)
+  })
+
+  it("drops every copy of a tab whose write finds another account on the disk, and writes again only after it names an account", async () => {
+    const disk = createFakeDisk()
+    const first = await pageWithProjects(disk)
+    const events: DeviceEvent[] = []
+    first.subscribe(event => events.push(event))
+    // A second tab with no channel to the first, as a tab that missed the message.
+    const second = openPage(disk)
+    await second.open()
+    await second.setAccount("grace")
+    first.write("settings", { theme: "dark" }, day)
+    await first.settled()
+    // The copies of `ada` must not seed a new read of this tab.
+    expect(first.read("projects", day)).toBeUndefined()
+    expect(first.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
+    expect(events).toEqual([{ type: "reset" }])
+    first.write("settings", { theme: "light" }, day)
+    await first.settled()
+    expect(disk.keys).toEqual([])
+  })
+
+  it.each([
+    ["a clear", (tab: Device) => tab.clear()],
+    ["a sign-out and a sign-in as the same account", async (tab: Device) => {
+      await tab.setAccount(null)
+      await tab.setAccount("ada")
+    }],
+  ])("refuses a write that a tab queued before %s that it missed", async (_, change) => {
+    const disk = createFakeDisk()
+    const first = await pageWithProjects(disk)
+    // A second tab with no channel to the first, as a suspended tab that missed the messages.
+    const second = openPage(disk)
+    await second.open()
+    await second.setAccount("ada")
+    await change(second)
+    expect(disk.keys).toEqual([])
+    first.write("projects", [{ id: "p1", name: "Docs" }], day)
+    await first.settled()
+    expect(disk.keys).toEqual([])
+    expect(first.read("projects", day)).toBeUndefined()
+    // The account on the disk is still the account of the tab, so its next answers are stored.
+    expect(first.inspect()).toMatchObject({ account: "ada", persisted: true, entries: [] })
+    first.write("projects", [], day)
+    await first.settled()
+    expect(disk.keys).toEqual(["projects"])
+  })
+
+  it.each([
+    ["clears the device", (tab: Device) => tab.clear()],
+    ["names another account", (tab: Device) => tab.setAccount("grace")],
+  ])("does not show the copies that a tab read from the disk when another tab %s meanwhile", async (_, change) => {
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    const first = await pageWithProjects(disk, browser)
+    const second = openPage(disk, browser, { openTimeout: 5000 })
+    const events: DeviceEvent[] = []
+    second.subscribe(event => events.push(event))
+    const release = disk.holdNextRead()
+    const opening = second.open()
+    // The second tab has read the disk, and the answer waits.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await change(first)
+    release()
+    await opening
+    expect(second.read("projects", day)).toBeUndefined()
+    expect(second.inspect()).toMatchObject({ storage: "indexeddb", entries: [] })
+    expect(events.filter(event => event.type === "load")).toEqual([])
+  })
+
+  it("keeps the shared disk under its size cap when several tabs write", async () => {
+    let time = 1
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    // Each value is 10 bytes of JSON. Each tab holds 20 bytes, under the cap, and the disk would hold 40.
+    const first = openPage(disk, browser, { maxBytes: 25, now: () => time++ })
+    await first.open()
+    await first.setAccount("ada")
+    const second = openPage(disk, browser, { maxBytes: 25, now: () => time++ })
+    await second.open()
+    await second.setAccount("ada")
+    first.write("a", "x".repeat(8), day)
+    second.write("b", "x".repeat(8), day)
+    first.write("c", "x".repeat(8), day)
+    second.write("d", "x".repeat(8), day)
+    await first.settled()
+    await second.settled()
+    expect(disk.keys).toEqual(["c", "d"])
   })
 })
 

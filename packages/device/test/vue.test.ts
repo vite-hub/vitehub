@@ -34,6 +34,8 @@ async function openPage() {
   return { ...device, ...vue }
 }
 
+type Page = Awaited<ReturnType<typeof openPage>>
+
 /** Mounts a component that renders what `read` returns, and returns its root and the read. */
 function mount<T>(read: () => UseStoredDataReturn<T, unknown>) {
   let result: UseStoredDataReturn<T, unknown> | undefined
@@ -226,6 +228,99 @@ describe("useStoredData", () => {
     await tick()
     expect(shown.root.textContent).toBe("[] pending")
     expect(browser.disk.keys).toEqual([])
+  })
+
+  it("drops the answer of a loader call that started before another account, also when no copy is stored", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
+    await page.setDeviceAccount("grace")
+    expect(calls[0]!.signal.aborted).toBe(true)
+    // The loader of `ada` answers late and does not look at its signal.
+    calls[0]!.resolve(["ada only"])
+    await tick()
+    expect(root.textContent).toBe("[] pending")
+    expect(browser.disk.keys).toEqual([])
+    expect(calls).toHaveLength(2)
+    calls[1]!.resolve(["grace"])
+    await tick()
+    expect(root.textContent).toBe("[\"grace\"] success")
+    await tick()
+    expect(browser.disk.entry("projects")?.json).toBe("[\"grace\"]")
+  })
+
+  it.each([
+    ["a sign-out", (page: Page) => page.setDeviceAccount(null)],
+    ["another account", (page: Page) => page.setDeviceAccount("grace")],
+    ["clearDevice()", (page: Page) => page.clearDevice()],
+  ])("shows the default and calls the loader again after %s, also for a read whose loader answered", async (_, change) => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
+    calls[0]!.resolve(["ada only"])
+    await tick()
+    expect(root.textContent).toBe("[\"ada only\"] success")
+    await change(page)
+    await tick()
+    expect(root.textContent).toBe("[] pending")
+    expect(calls).toHaveLength(2)
+  })
+
+  it("shows the default in a tab whose read answered when another tab signs out", async () => {
+    const first = await openPage()
+    await first.openDevice()
+    await first.setDeviceAccount("ada")
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => first.useStoredData("projects", loader, { default: () => [] }))
+    calls[0]!.resolve(["ada only"])
+    await tick()
+    const second = await openPage()
+    await second.openDevice()
+    await second.setDeviceAccount(null)
+    await tick()
+    expect(root.textContent).toBe("[] pending")
+    expect(calls).toHaveLength(2)
+  })
+
+  it("aborts the loader call of a read that nobody shows, so a late answer does not replace a newer one", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const slow = deferredLoader<string>()
+    mount(() => page.useStoredData("status", slow.loader))
+    for (const unmount of unmounts.splice(0)) unmount()
+    expect(slow.calls[0]!.signal.aborted).toBe(true)
+    const newer = mount(() => page.useStoredData("status", async () => "new"))
+    await tick()
+    expect(newer.root.textContent).toBe("\"new\" success")
+    slow.calls[0]!.resolve("old")
+    await tick()
+    await tick()
+    expect(newer.root.textContent).toBe("\"new\" success")
+    expect(browser.disk.entry("status")?.json).toBe("\"new\"")
+  })
+
+  it("aborts the loader call of the previous key when the key changes", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const id = ref("p1")
+    const { calls, loader } = deferredLoader<string>()
+    mount(() => page.useStoredData(() => `project:${id.value}`, loader))
+    id.value = "p2"
+    await tick()
+    expect(calls[0]!.signal.aborted).toBe(true)
+    const again = mount(() => page.useStoredData("project:p1", async () => "Docs v2"))
+    await tick()
+    calls[0]!.resolve("Docs v1")
+    await tick()
+    await tick()
+    expect(again.root.textContent).toBe("\"Docs v2\" success")
+    expect(browser.disk.entry("project:p1")?.json).toBe("\"Docs v2\"")
   })
 
   it("throws for an empty key and a negative maxAge", async () => {

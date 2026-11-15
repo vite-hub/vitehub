@@ -7,7 +7,14 @@ import type { DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEnt
 export function createFakeDisk() {
   let meta: DeviceMeta | undefined
   const entries = new Map<string, StoredEntry>()
+  let gate: Promise<void> | undefined
   const disk = {
+    /** Holds the answer of the next `read()`, which reads the disk as it is now, until the test calls the function. */
+    holdNextRead(): () => void {
+      let release = () => undefined as void
+      gate = new Promise(resolve => release = resolve)
+      return release
+    },
     /** Makes each call of the storage fail. */
     failing: false,
     /** Makes `openStorage()` reject, as a sandboxed frame or a private window does. */
@@ -21,10 +28,6 @@ export function createFakeDisk() {
       return [...entries.keys()].sort()
     },
     entry: (key: string) => entries.get(key),
-    put(entry: StoredEntry, at: DeviceMeta) {
-      meta = { ...at }
-      entries.set(entry.key, { ...entry })
-    },
     open(): Promise<DeviceStorage> {
       if (disk.hang) return new Promise(() => undefined)
       if (disk.refuse) return Promise.reject(new DOMException("The user denied permission to access the database.", "SecurityError"))
@@ -34,23 +37,38 @@ export function createFakeDisk() {
       const storage: DeviceStorage = {
         async read() {
           await fail()
-          return structuredClone({ meta, entries: [...entries.values()] })
+          const snapshot = structuredClone({ meta, entries: [...entries.values()] })
+          const held = gate
+          gate = undefined
+          await held
+          return snapshot
         },
         async reset(next) {
           await fail()
           entries.clear()
           meta = { ...next }
         },
-        async write(expected, puts, deletes) {
+        async write(expected, { puts, deletes, maxBytes }) {
           await fail()
-          if (!meta || meta.account !== expected.account || meta.version !== expected.version) return false
+          const found = meta && { ...meta }
+          if (found?.generation !== expected.generation || found.account !== expected.account || found.version !== expected.version) return found
           for (const key of deletes) entries.delete(key)
           for (const entry of puts) entries.set(entry.key, structuredClone(entry))
-          return true
+          // The cap counts the copies of every tab, and the oldest go first.
+          let total = 0
+          for (const entry of entries.values()) total += entry.bytes
+          for (const entry of [...entries.values()].sort((a, b) => a.storedAt - b.storedAt)) {
+            if (total <= maxBytes) break
+            entries.delete(entry.key)
+            total -= entry.bytes
+          }
+          return found
         },
-        async clear() {
+        async clear(generation) {
           await fail()
           entries.clear()
+          if (meta) meta = { ...meta, generation }
+          return meta && { ...meta }
         },
         close: () => undefined,
       }

@@ -56,8 +56,9 @@ async function openBrowser(t, { initScript } = {}) {
     }
     return route.fulfill({ status: 404, body: "" })
   })
-  async function open(path = "/") {
+  async function open(path = "/", { pageScript } = {}) {
     const page = await context.newPage()
+    if (pageScript) await page.addInitScript(pageScript)
     page.on("console", (message) => {
       if (message.type() === "warning") warnings.push(message.text())
     })
@@ -193,6 +194,46 @@ test("the device keeps at most 5 MB, deletes the oldest copies first, and opens 
   // The answer of `/api/projects` can join them: it has 6 bytes.
   assert.deepEqual((await inspect(page)).entries.map(entry => entry.key).filter(key => key !== "projects"), ["b", "c", "d", "e", "f"])
   t.diagnostic(`openDevice() with 5 MB of copies took ${opened.toFixed(1)} ms`)
+})
+
+test("tabs share the 5 MB cap: the oldest copies go, also copies of another tab", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  await profile.answer(["p1"])
+  const first = await profile.open()
+  await mount(first, { account: "ada" })
+  const second = await profile.open()
+  await mount(second, { account: "ada" })
+  await until(async () => (await text(first)) === "p1 success" && (await text(second)) === "p1 success")
+  // Each tab holds 3 MB, under the cap. Together they would put 6 MB on the disk.
+  for (const key of ["a", "b", "c"]) await first.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
+  for (const key of ["d", "e", "f"]) await second.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
+  // `projects` and `a` are the oldest copies.
+  await until(async () => (await storedKeys(first)).join() === "b,c,d,e,f")
+})
+
+test("a tab that missed a clear does not fill the device again", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  await profile.answer(["p1"])
+  // This tab hears no other tab, as a suspended tab that missed the message.
+  const deaf = await profile.open("/", { pageScript: () => delete globalThis.BroadcastChannel })
+  await mount(deaf, { account: "ada" })
+  await until(async () => (await text(deaf)) === "p1 success" && (await storedKeys(deaf)).includes("projects"))
+  const other = await profile.open()
+  await mount(other, { account: "ada" })
+  await until(async () => (await text(other)) === "p1 success")
+  profile.hold()
+  const [error] = await other.evaluate(() => window.deviceTest.clearDevice())
+  assert.equal(error, undefined)
+  assert.deepEqual(await storedKeys(other), [])
+  // The deaf tab still shows its answer and stores another one.
+  assert.equal(await text(deaf), "p1 success")
+  await deaf.evaluate(() => window.deviceTest.store("settings", { theme: "dark" }))
+  // Its write finds a new generation on the disk: the tab drops what it had and reads again.
+  await until(async () => (await text(deaf)) === "empty pending")
+  assert.deepEqual(await storedKeys(deaf), [])
+  assert.deepEqual((await inspect(deaf)).entries, [])
+  await profile.answer(["p2"])
+  await until(async () => (await text(deaf)) === "p2 success" && (await storedKeys(deaf)).join() === "projects")
 })
 
 test("a sandboxed frame, where IndexedDB throws, keeps copies in memory", { timeout: 120_000 }, async (t) => {

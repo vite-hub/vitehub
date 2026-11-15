@@ -2,7 +2,7 @@ import { deviceErrors, warn } from "./errors.ts"
 import { browserChannel, openIndexedDB } from "./indexeddb.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEntry } from "./storage.ts"
+import type { DeviceChange, DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEntry } from "./storage.ts"
 
 /** What `inspectDevice()` returns. */
 export interface DeviceInspection {
@@ -27,11 +27,11 @@ export interface OpenDeviceOptions {
   version?: string
 }
 
-/** `drop`: the copies of these keys are gone and must not show. `load`: copies for these keys came from the disk. */
-export interface DeviceEvent {
-  type: "drop" | "load"
-  keys: string[]
-}
+/**
+ * `drop`: the copies of these keys are gone and must not show. `load`: copies for these keys came from the disk.
+ * `reset`: every copy and every answer in memory is gone, so each read shows its default and calls its loader again.
+ */
+export type DeviceEvent = { type: "drop" | "load", keys: string[] } | { type: "reset" }
 
 /** The device of one page. `openDevice()` and `useStoredData()` use the device of the browser tab. */
 export interface Device {
@@ -41,6 +41,12 @@ export interface Device {
   setAccount: (account: string | null) => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   clear: () => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   inspect: () => DeviceInspection
+  /**
+   * Changes each time the copies and the answers in memory stop being valid: another account or a sign-out after the
+   * page named an account, a clear, or such a change in another tab. The answer of a loader call that started in an
+   * older epoch must not show.
+   */
+  epoch: () => number
   /** The stored copy of `key` that is at most `maxAge` milliseconds old. */
   read: (key: string, maxAge: number) => { value: unknown, storedAt: number } | undefined
   /** Keeps `value` as the copy of `key`. It goes to the disk once an account is named. */
@@ -92,6 +98,11 @@ export function checkMaxAge(maxAge: unknown): number {
   return maxAge
 }
 
+/** A random id for a new generation of the disk. */
+function newGeneration(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 export function createDevice(options: DeviceOptions): Device {
   const now = options.now ?? (() => Date.now())
   const maxBytes = options.maxBytes ?? maxDeviceBytes
@@ -103,12 +114,17 @@ export function createDevice(options: DeviceOptions): Device {
   let storage: DeviceStorage | undefined
   let opening: Promise<void> | undefined
   let version = ""
-  /** The meta that this tab expects on the disk. `undefined` on a new device, or after another tab changed it. */
+  /** The meta that this tab expects on the disk. A write applies only when the disk still has its generation. */
   let stored: DeviceMeta | undefined
-  /** The account that this page named. `undefined` before it calls `setAccount()`. */
+  /** The account that this page named. `undefined` before it calls `setAccount()`, or after another tab named another account. */
   let named: string | null | undefined
   /** The account of the latest `setAccount()` call, also while the device opens. */
   let requested: string | null | undefined
+  /**
+   * Changes each time the copies and the answers in memory stop being valid. Nothing that started in an older epoch
+   * reaches the screen or the disk: not a loader answer, and not the copies of a disk read.
+   */
+  let epoch = 0
   let queue: Promise<unknown> = Promise.resolve()
   let flushQueued = false
   const stopReceiving = options.channel.receive(receive)
@@ -120,7 +136,7 @@ export function createDevice(options: DeviceOptions): Device {
   }
 
   function emit(event: DeviceEvent): void {
-    if (!event.keys.length) return
+    if (event.type !== "reset" && !event.keys.length) return
     for (const listener of listeners) listener(event)
   }
 
@@ -139,6 +155,28 @@ export function createDevice(options: DeviceOptions): Device {
     warnOnce("storage", deviceErrors.DEVICE_STORAGE_FAILED({ action: "store a copy", cause }))
   }
 
+  /** Forgets every copy and answer in memory, and tells the reads to start over. */
+  function invalidate(): void {
+    epoch++
+    entries.clear()
+    dirty.clear()
+    emit({ type: "reset" })
+  }
+
+  /** Writes `change` when the disk still has the generation `expected`. */
+  async function persist(target: DeviceStorage, expected: DeviceMeta, change: DeviceChange): Promise<void> {
+    const found = await target.write(expected, change)
+    // The change applied, or this tab heard of the new generation in the meantime and dropped what it had.
+    if (found?.generation === expected.generation || stored?.generation !== expected.generation) return
+    // Another tab cleared the device, named an account, or opened another version, and this tab missed its message.
+    stored = found
+    // Another build owns the disk. The copies in memory still fit this build and its account, and this tab stops writing.
+    if (found && found.account === named && found.version !== version) return
+    // Another account: this tab writes again only after it names an account. The same account: it writes its next answers.
+    if (found?.account !== named) named = undefined
+    invalidate()
+  }
+
   /** Writes the dirty keys in one change, after the changes that are already queued. */
   function flush(): void {
     if (flushQueued || !dirty.size || !persisting()) return
@@ -146,8 +184,8 @@ export function createDevice(options: DeviceOptions): Device {
     enqueue(async () => {
       flushQueued = false
       const target = storage
-      if (!target || !persisting() || typeof named !== "string") return
-      const meta: DeviceMeta = { account: named, version }
+      const expected = stored
+      if (!target || !expected || !persisting()) return
       const puts: StoredEntry[] = []
       const deletes: string[] = []
       for (const key of dirty) {
@@ -156,12 +194,11 @@ export function createDevice(options: DeviceOptions): Device {
         else deletes.push(key)
       }
       dirty.clear()
-      // Another tab named another account or opened another version. Its message tells this tab what to do.
-      if (!await target.write(meta, puts, deletes)) stored = undefined
+      if (puts.length || deletes.length) await persist(target, expected, { puts, deletes, maxBytes })
     }).catch(backgroundFailure)
   }
 
-  /** Deletes the oldest copies until the device is under its size cap. Returns their keys. */
+  /** Deletes the oldest copies in memory until this tab is under the size cap. Returns their keys. */
   function evict(keep?: string): string[] {
     let total = 0
     for (const entry of entries.values()) total += entry.bytes
@@ -177,26 +214,19 @@ export function createDevice(options: DeviceOptions): Device {
     return evicted
   }
 
-  /** Forgets every copy in memory, and tells the reads to stop showing them. */
-  function dropAll(): void {
-    const keys = [...entries.keys()]
-    entries.clear()
-    dirty.clear()
-    emit({ type: "drop", keys })
-  }
-
   function receive(message: DeviceMessage): void {
-    if (message.type === "clear") return dropAll()
-    stored = { account: message.account, version: message.version }
-    if (message.account === named && message.version === version) {
-      // Another tab started this account over, and this tab has copies of the same account.
+    // The disk changed: this tab writes with its new generation, or not at all.
+    if (message.meta) stored = message.meta
+    if (message.type === "account" && message.account === named && message.version === version) {
+      // Another tab started this tab's account over on the disk. This tab writes its copies again.
+      if (!message.meta) return
       for (const key of entries.keys()) dirty.add(key)
       return flush()
     }
-    // Another tab signed in as another account, or out. This tab keeps nothing, and writes again only after it names an
-    // account itself.
-    named = undefined
-    dropAll()
+    // Another tab signed in as another account, signed out, or cleared the device. This tab drops everything, also the
+    // answers of loader calls that still run. After another account, it writes again only after it names an account.
+    if (message.type === "account") named = undefined
+    invalidate()
   }
 
   async function connect(): Promise<{ storage: DeviceStorage, meta: DeviceMeta | undefined, entries: StoredEntry[] } | undefined> {
@@ -212,6 +242,7 @@ export function createDevice(options: DeviceOptions): Device {
   }
 
   async function load(): Promise<void> {
+    const started = epoch
     let timer: ReturnType<typeof setTimeout> | undefined
     const connecting = connect()
     const found = await Promise.race([connecting, new Promise<undefined>((resolve) => {
@@ -224,49 +255,83 @@ export function createDevice(options: DeviceOptions): Device {
       return
     }
     storage = found.storage
-    const { meta } = found
-    if (meta && meta.version !== version) {
-      stored = { account: meta.account, version }
-      const target = found.storage
-      enqueue(() => target.reset({ account: meta.account, version })).catch(backgroundFailure)
-    }
-    else if (meta) {
-      stored = meta
-      // Copies of an account other than the one that the page asked for would show for a moment. Leave them out.
-      const usable = meta.account !== null && (requested === undefined || requested === meta.account)
-      const time = now()
-      const loaded: string[] = []
-      const deletes: string[] = []
-      for (const entry of usable ? found.entries : []) {
-        if (entry.expiresAt <= time) deletes.push(entry.key)
-        // An answer that this page got while the device opened is newer.
-        else if (!entries.has(entry.key)) {
-          entries.set(entry.key, { ...entry, account: meta.account ?? undefined })
-          loaded.push(entry.key)
-        }
-      }
-      deletes.push(...evict())
-      if (deletes.length) enqueue(() => found.storage.write(meta, [], deletes)).catch(backgroundFailure)
-      emit({ type: "load", keys: loaded.filter(key => entries.has(key)) })
-    }
+    if (epoch === started) publish(found.storage, found.meta, found.entries)
+    // Another tab cleared the device or named another account while this tab read the disk. The copies that this tab
+    // read are of an older generation. The message of the other tab has the meta, when it changed the disk.
+    else stored ??= found.meta
     // The page named its account before it opened the device. The disk starts over when it holds another account.
     if (named !== undefined && (stored?.account !== named || stored.version !== version)) {
-      void reset({ account: named, version }, found.storage).then(([error]) => error && warnOnce("storage", error))
+      void startOver({ account: named, version, generation: newGeneration() }).then(([error]) => error && warnOnce("storage", error))
       return
     }
     flush()
   }
 
-  async function reset(meta: DeviceMeta, target: DeviceStorage): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+  /** Takes the copies that the disk had when the device opened. */
+  function publish(target: DeviceStorage, meta: DeviceMeta | undefined, found: StoredEntry[]): void {
+    if (!meta) return
+    if (meta.version !== version) {
+      // Copies of another version can have another shape. The disk starts over for this version, and the account stays.
+      const next = { account: meta.account, version, generation: newGeneration() }
+      stored = next
+      enqueue(() => target.reset(next)).catch(backgroundFailure)
+      return
+    }
+    stored = meta
+    // Copies of an account other than the one that the page asked for would show for a moment. Leave them out.
+    const usable = meta.account !== null && (requested === undefined || requested === meta.account)
+    const time = now()
+    const loaded: string[] = []
+    const deletes: string[] = []
+    for (const entry of usable ? found : []) {
+      if (entry.expiresAt <= time) deletes.push(entry.key)
+      // An answer that this page got while the device opened is newer.
+      else if (!entries.has(entry.key)) {
+        entries.set(entry.key, { ...entry, account: meta.account ?? undefined })
+        loaded.push(entry.key)
+      }
+    }
+    deletes.push(...evict())
+    if (deletes.length) enqueue(() => persist(target, meta, { puts: [], deletes, maxBytes })).catch(backgroundFailure)
+    emit({ type: "load", keys: loaded.filter(key => entries.has(key)) })
+  }
+
+  /** Deletes every copy on the disk and gives it `meta`, then writes the copies of this page. Tells the other tabs. */
+  async function startOver(meta: DeviceMeta): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+    const target = storage
+    if (!target) {
+      options.channel.post({ type: "account", account: meta.account, version: meta.version, meta: undefined })
+      return ok
+    }
     stored = meta
     for (const key of entries.keys()) dirty.add(key)
     try {
-      await enqueue(() => target.reset(meta))
+      await enqueue(() => {
+        const change = target.reset(meta)
+        // After the change starts, so that the writes of other tabs for the new generation come after it.
+        options.channel.post({ type: "account", account: meta.account, version: meta.version, meta })
+        return change
+      })
     }
     catch (cause) {
       stored = undefined
       return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
     }
+    flush()
+    await queue
+    return ok
+  }
+
+  /** The same account as before: its copies stay, and the answers of this page join them. */
+  async function keep(account: string | null): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
+    if (account === null) return ok
+    for (const entry of entries.values()) {
+      if (entry.account !== undefined) continue
+      entry.account = account
+      dirty.add(entry.key)
+    }
+    if (!storage) return ok
+    if (stored?.account !== account || stored.version !== version) return startOver({ account, version, generation: newGeneration() })
     flush()
     await queue
     return ok
@@ -278,47 +343,47 @@ export function createDevice(options: DeviceOptions): Device {
     if (opening) await opening
     // A later call decides.
     if (requested !== account) return ok
-    const previous = named !== undefined ? named : (stored?.account ?? null)
+    const first = named === undefined
+    const same = first ? account !== null && account === stored?.account : account === named
     named = account
-    if (account !== null && account === previous) {
-      // The same account: the copies from the last visit stay, and the answers of this page join them.
+    if (same) return keep(account)
+    if (first) {
+      // The first account of this page. The answers that it got, and the loader calls that still run, came with the
+      // same session, so they are of this account. The copies of the last visit go.
+      const dropped: string[] = []
       for (const entry of entries.values()) {
-        if (entry.account !== undefined) continue
-        entry.account = account
-        dirty.add(entry.key)
+        if (entry.account === undefined && account !== null) entry.account = account
+        else {
+          entries.delete(entry.key)
+          dropped.push(entry.key)
+        }
       }
-      if (!storage) return ok
-      if (stored?.account !== account || stored.version !== version) return reset({ account, version }, storage)
-      flush()
-      await queue
-      return ok
+      emit({ type: "drop", keys: dropped })
     }
-    // Another account, or a sign-out. The answers that this page got before it named an account are of the new
-    // account, because they came with the same session. Every other copy goes.
-    const dropped: string[] = []
-    for (const entry of entries.values()) {
-      if (entry.account === undefined && account !== null) entry.account = account
-      else {
-        entries.delete(entry.key)
-        dropped.push(entry.key)
-      }
-    }
-    emit({ type: "drop", keys: dropped })
-    options.channel.post({ type: "account", account, version })
-    if (!storage) return ok
-    return reset({ account, version }, storage)
+    // Another account, or a sign-out, after this page named an account. Everything of the previous account goes, also
+    // the answers of loader calls that still run, and each read calls its loader again.
+    else invalidate()
+    return startOver({ account, version, generation: newGeneration() })
   }
 
   async function clear(): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
     if (opening) await opening
-    dropAll()
-    options.channel.post({ type: "clear" })
+    invalidate()
     const target = storage
-    if (!target) return ok
+    if (!target) {
+      options.channel.post({ type: "clear", meta: undefined })
+      return ok
+    }
     try {
-      await enqueue(() => target.clear())
+      await enqueue(async () => {
+        const meta = await target.clear(newGeneration())
+        if (meta) stored = meta
+        options.channel.post({ type: "clear", meta })
+      })
     }
     catch (cause) {
+      // The other tabs still drop their copies.
+      options.channel.post({ type: "clear", meta: undefined })
       return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the stored copies", cause }), undefined]
     }
     return ok
@@ -375,6 +440,7 @@ export function createDevice(options: DeviceOptions): Device {
         .map(entry => ({ key: entry.key, storedAt: new Date(entry.storedAt), bytes: entry.bytes }))
         .sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
     }),
+    epoch: () => epoch,
     read(key, maxAge) {
       const entry = entries.get(key)
       if (!entry || now() - entry.storedAt > maxAge) return undefined

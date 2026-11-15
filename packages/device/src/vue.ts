@@ -15,7 +15,10 @@ export interface UseStoredDataOptions<TDefault> {
   maxAge?: number
 }
 
-/** What the loader gets. `signal` aborts when a newer `refresh()` starts. */
+/**
+ * What the loader gets. `signal` aborts when a newer call starts, when the last component of the read unmounts or
+ * moves to another key, and when another account, a sign-out, or a clear makes the answer old.
+ */
 export interface StoredDataContext {
   signal: AbortSignal
 }
@@ -43,6 +46,8 @@ interface SharedRead {
   answered: boolean
   users: number
   controller: AbortController | undefined
+  /** The loader of the last call, which a reset of the device calls again. */
+  loader: (context: StoredDataContext) => Promise<unknown>
   fallback: () => unknown
   maxAge: number
 }
@@ -51,11 +56,15 @@ const week = 7 * 24 * 60 * 60 * 1000
 const reads = new Map<string, SharedRead>()
 let watching = false
 
-/** Follows the device: a copy that loads late shows, and a copy of another account goes away. */
+/** Follows the device: a copy that loads late shows, a copy of another account goes away, and a reset starts every read over. */
 function watchDevice(device: Device): void {
   if (watching) return
   watching = true
   device.subscribe((event) => {
+    if (event.type === "reset") {
+      for (const read of reads.values()) restart(read, device)
+      return
+    }
     for (const key of event.keys) {
       const read = reads.get(key)
       if (!read || read.answered) continue
@@ -75,14 +84,34 @@ function show(read: SharedRead, device: Device): void {
   read.storedAt.value = new Date(stored.storedAt)
 }
 
+/**
+ * Another account, a sign-out, or a clear: the read shows its default, also when its loader answered, and calls the
+ * loader again. The answer of the older call never shows.
+ */
+function restart(read: SharedRead, device: Device): void {
+  read.controller?.abort()
+  read.controller = undefined
+  read.answered = false
+  read.data.value = read.fallback()
+  read.storedAt.value = undefined
+  read.error.value = undefined
+  // A read that waits for its component to mount calls its loader then.
+  if (read.status.value !== "idle") void load(read, read.loader, device)
+}
+
 async function load(read: SharedRead, loader: (context: StoredDataContext) => Promise<unknown>, device: Device): Promise<void> {
+  // No component shows a released read, and its answer must not replace the answer of a newer read of the key.
+  if (!read.users) return
   read.controller?.abort()
   const controller = new AbortController()
   read.controller = controller
+  read.loader = loader
   read.status.value = "pending"
+  const epoch = device.epoch()
   try {
     const value = await loader({ signal: controller.signal })
-    if (controller.signal.aborted) return
+    // A newer call, the release of the read, or a reset of the device came first.
+    if (controller.signal.aborted || device.epoch() !== epoch) return
     read.answered = true
     read.data.value = value
     read.storedAt.value = undefined
@@ -91,7 +120,7 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     device.write(read.key, value, read.maxAge)
   }
   catch (error) {
-    if (controller.signal.aborted) return
+    if (controller.signal.aborted || device.epoch() !== epoch) return
     read.error.value = error instanceof Error ? error : new Error(String(error), { cause: error })
     read.status.value = "error"
   }
@@ -113,6 +142,7 @@ function acquire(key: string, loader: (context: StoredDataContext) => Promise<un
     answered: false,
     users: 1,
     controller: undefined,
+    loader,
     fallback,
     maxAge,
   }
@@ -123,9 +153,12 @@ function acquire(key: string, loader: (context: StoredDataContext) => Promise<un
   return read
 }
 
+/** When the last component of a read goes, its loader call stops, so a late answer cannot replace a newer one. */
 function release(read: SharedRead): void {
   read.users--
-  if (!read.users && reads.get(read.key) === read) reads.delete(read.key)
+  if (read.users) return
+  read.controller?.abort()
+  if (reads.get(read.key) === read) reads.delete(read.key)
 }
 
 /**

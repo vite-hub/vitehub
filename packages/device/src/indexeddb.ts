@@ -1,11 +1,14 @@
 // The device storage in IndexedDB, with no dependency. One database holds the copies of one account: `meta` has one
-// record with the account and the version, and `entries` has one record for each key. Each change is one transaction.
+// record with the account, the version, and the generation, and `entries` has one record for each key. Each change is
+// one transaction, and a write checks the generation inside its transaction.
 import type { DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEntry } from "./storage.ts"
 
 const databaseName = "vitehub-device"
 // The version of the database format. A database of another format starts empty.
-const format = 1
+const format = 2
 const metaKey = "device"
+// The entries by age, with their size: `[storedAt, bytes]`. The size cap reads it without the values.
+const ageIndex = "age"
 const channelName = "vitehub-device"
 
 function done(transaction: IDBTransaction): Promise<void> {
@@ -27,7 +30,7 @@ export function openIndexedDB(): Promise<DeviceStorage> {
       const database = request.result
       for (const name of Array.from(database.objectStoreNames)) database.deleteObjectStore(name)
       database.createObjectStore("meta")
-      database.createObjectStore("entries", { keyPath: "key" })
+      database.createObjectStore("entries", { keyPath: "key" }).createIndex(ageIndex, ["storedAt", "bytes"])
     }
     request.onsuccess = () => {
       const database = request.result
@@ -37,6 +40,28 @@ export function openIndexedDB(): Promise<DeviceStorage> {
     }
     request.onerror = () => reject(request.error)
   })
+}
+
+/** Deletes the oldest entries, of every tab, until the entries hold at most `maxBytes`. Runs inside the write. */
+function evict(entries: IDBObjectStore, maxBytes: number): void {
+  const rows: { key: IDBValidKey, bytes: number }[] = []
+  let total = 0
+  const cursor = entries.index(ageIndex).openKeyCursor()
+  cursor.onsuccess = () => {
+    const row = cursor.result
+    if (row) {
+      // SAFETY: the key of the age index is `[storedAt, bytes]`.
+      const [, bytes] = row.key as [number, number]
+      rows.push({ key: row.primaryKey, bytes })
+      total += bytes
+      return row.continue()
+    }
+    for (const { key, bytes } of rows) {
+      if (total <= maxBytes) return
+      entries.delete(key)
+      total -= bytes
+    }
+  }
 }
 
 function indexedDBStorage(database: IDBDatabase): DeviceStorage {
@@ -54,32 +79,50 @@ function indexedDBStorage(database: IDBDatabase): DeviceStorage {
       transaction.objectStore("meta").put(meta, metaKey)
       await done(transaction)
     },
-    async write(meta, puts, deletes) {
+    async write(meta, { puts, deletes, maxBytes }) {
       const transaction = database.transaction(["meta", "entries"], "readwrite")
       const entries = transaction.objectStore("entries")
       const current = transaction.objectStore("meta").get(metaKey)
-      let applied = false
+      let found: DeviceMeta | undefined
       current.onsuccess = () => {
-        const stored = current.result as DeviceMeta | undefined
-        if (stored?.account !== meta.account || stored.version !== meta.version) return
-        applied = true
+        found = current.result as DeviceMeta | undefined
+        if (found?.generation !== meta.generation || found.account !== meta.account || found.version !== meta.version) return
         for (const key of deletes) entries.delete(key)
         for (const entry of puts) entries.put(entry)
+        if (puts.length) evict(entries, maxBytes)
       }
       await done(transaction)
-      return applied
+      return found
     },
-    async clear() {
-      const transaction = database.transaction("entries", "readwrite")
+    async clear(generation) {
+      const transaction = database.transaction(["meta", "entries"], "readwrite")
       transaction.objectStore("entries").clear()
+      const metas = transaction.objectStore("meta")
+      const current = metas.get(metaKey)
+      let next: DeviceMeta | undefined
+      current.onsuccess = () => {
+        const found = current.result as DeviceMeta | undefined
+        if (!found) return
+        next = { ...found, generation }
+        metas.put(next, metaKey)
+      }
       await done(transaction)
+      return next
     },
     close: () => database.close(),
   }
 }
 
+function isMeta(value: unknown): value is DeviceMeta {
+  if (!value || typeof value !== "object") return false
+  const account: unknown = Reflect.get(value, "account")
+  return (account === null || typeof account === "string") && typeof Reflect.get(value, "version") === "string" && typeof Reflect.get(value, "generation") === "string"
+}
+
 function isDeviceMessage(value: unknown): value is DeviceMessage {
   if (!value || typeof value !== "object") return false
+  const meta: unknown = Reflect.get(value, "meta")
+  if (meta !== undefined && !isMeta(meta)) return false
   const type: unknown = Reflect.get(value, "type")
   if (type === "clear") return true
   const account: unknown = Reflect.get(value, "account")
