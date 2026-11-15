@@ -392,7 +392,7 @@ describe("generated Console access", () => {
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
   })
 
-  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("marks only the Console RPC route below %s for app Auth access routes to leave to it", async (base, route) => {
+  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("marks the Console RPC and entry routes below %s for app Auth access routes to leave to them", async (base, route) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -406,7 +406,10 @@ describe("generated Console access", () => {
     // The exception follows the route that Nitro dispatches to, not a path, so the generated plugin names none.
     expect(plugin).not.toContain("vite-hub/auth/runtime/server")
     const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
-    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } })])
+    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
+      expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
+      expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
+    ])
   })
 
   it("serves development operations with Setup-only navigation and no app-served pages", async () => {
@@ -420,14 +423,14 @@ describe("generated Console access", () => {
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers only the RPC and the page tools session, and no Console page, client, MCP, or assets, below %s", async (base) => {
+  it.each(["/", "/portal/"])("registers the entry, RPC and page tools session, and no Console page, client, MCP, or assets, below %s", async (base) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/page/session`])
-    for (const removed of ["/_vitehub", "/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/page/session`])
+    for (const removed of ["/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
       expect(routes, removed).not.toContain(`${mount}${removed}`)
     }
     expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|client\.get)\.js$/) }))
