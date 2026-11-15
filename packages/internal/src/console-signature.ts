@@ -18,6 +18,7 @@
  */
 
 import { isRecord } from "./object.ts"
+import { invariant } from "./invariant.ts"
 
 /** The signature header: `key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>`. */
 export const consoleSignatureHeader = "x-vitehub-signature"
@@ -150,8 +151,7 @@ async function importPrivateKey(seed: string) {
 /** A new key pair: the public key for the app, the private key (the seed) for the caller. Both are base64url. */
 export async function createConsoleKeyPair(): Promise<{ publicKey: string, privateKey: string }> {
   const pair = await crypto.subtle.generateKey(ed25519, true, ["sign", "verify"])
-  // Internal invariant: Ed25519 generateKey() always returns a key pair; the check narrows the CryptoKey union.
-  if (!("privateKey" in pair)) throw new TypeError("Ed25519 key generation did not return a key pair.")
+  invariant("privateKey" in pair, "Ed25519 generateKey() returns a key pair")
   const pkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))
   const publicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))
   return { privateKey: base64url(pkcs8.slice(-32)), publicKey: base64url(publicKey) }

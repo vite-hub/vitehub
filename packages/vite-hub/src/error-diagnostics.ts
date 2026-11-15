@@ -271,5 +271,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
     },
+    VITE_HUB_SETUP_BODY_TOO_LARGE: {
+      why: ({ limit }: { limit: number }) => `The request body is too large. The dev Setup endpoints accept at most ${limit} bytes.`,
+      fix: "Send one Setup plan or apply request at a time, with only the fields that `vitehub add` and `vitehub remove` take.",
+    },
   },
 })

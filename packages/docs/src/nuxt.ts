@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -925,8 +926,7 @@ function stylesheet(name: string): string {
   // `@nuxt/ui` does not export its package.json, so walk up from its entry.
   let root = dirname(fileURLToPath(import.meta.resolve(name)))
   while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
-    // Internal invariant: a package that resolved has a package.json above its entry.
-    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    if (dirname(root) === root) throw invariantError(`a resolved package has a package.json above its entry, but ${name} has none`)
     root = dirname(root)
   }
   const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }

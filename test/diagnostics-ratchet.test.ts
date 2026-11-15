@@ -31,7 +31,8 @@ interface Baseline {
 function sourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return []
   return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter(entry => entry.isFile() && /\.(?:[cm]?ts|vue)$/.test(entry.name) && !entry.name.endsWith(".d.ts"))
+    // A `*.injected.ts` file holds source text that runs elsewhere, such as a CDP script or generated app code, so its errors stay plain.
+    .filter(entry => entry.isFile() && /\.(?:[cm]?ts|vue)$/.test(entry.name) && !/\.(?:d|injected)\.ts$/.test(entry.name))
     .map(entry => join(entry.parentPath, entry.name))
 }
 

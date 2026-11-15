@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer"
 import { devNull } from "node:os"
 
 import { forgeGitAuthHeader } from "@vite-hub/forge"
+import { invariantError } from "@vite-hub/internal/invariant"
 import type { ForgeGitCredentials } from "@vite-hub/forge"
 
 import { normalizeSourcePath } from "../../core/path.ts"
@@ -92,8 +93,7 @@ async function runGit(args: string[], options: GitOptions = {}): Promise<Uint8Ar
         return
       }
       const command = args[0] === "-C" ? args[2] : args[0]
-      // Internal invariant: github() catches every error of loadGitArchiveFiles() and reads the GitHub archive instead.
-      reject(new Error(`git ${command || "command"} exited with ${code ?? "an unknown status"}.`))
+      reject(invariantError(`github() reads the GitHub archive when git fails, and git ${command || "command"} exited with ${code ?? "an unknown status"}`))
     })
   })
 }
@@ -149,8 +149,7 @@ async function readGitArchiveFiles<TKey extends string>(
       const key = input.keyForRepoPath(entry.path)
       if (!key || !input.shouldInclude(key)) return
       if (isGitLfsPointer(entry.content)) {
-        // Internal invariant: github() catches every error of loadGitArchiveFiles() and reads the GitHub archive instead.
-        throw new Error("git archive contained a Git LFS pointer; use the GitHub archive instead.")
+        throw invariantError("github() reads the GitHub archive when git archive has a Git LFS pointer")
       }
       return {
         content: entry.content,

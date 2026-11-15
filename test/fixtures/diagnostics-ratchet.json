@@ -1132,5 +1132,14 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/docs/src/nuxt.ts": 1,
+    "packages/internal/src/console-signature.ts": 1,
+    "packages/internal/src/operation-rpc.ts": 1,
+    "packages/source/src/sources/github/git.ts": 2,
+    "packages/vite-hub/src/console/runtime/server/usage-index.ts": 1,
+    "packages/vite-hub/src/plugins.ts": 1,
+    "packages/workflow/src/runtime/openworkflow.ts": 1,
+    "packages/workflow/src/vite.ts": 1
+  }
 }

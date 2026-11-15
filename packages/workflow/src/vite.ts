@@ -1,4 +1,5 @@
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { invariant } from "@vite-hub/internal/invariant"
 import { workflowDurabilityUrl } from "./durability.ts"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
@@ -246,8 +247,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    // Internal invariant: the Schedule plugin calls this during the build, after configResolved() sets `resolved`.
-    if (!config) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
+    invariant(config, "the Schedule plugin prepares the Workflow runtime after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
     if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return

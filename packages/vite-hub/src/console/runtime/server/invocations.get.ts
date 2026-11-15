@@ -25,28 +25,34 @@ interface ConsoleInvocationCursor {
 const defaultListLimit = 50
 const maximumListLimit = 100
 
-function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
-  if (!value) return {}
+function invalidCursor() {
+  return consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }))
+}
+
+function parseCursorJson(value: string): unknown {
   try {
-    const parsed: unknown = JSON.parse(value)
-    // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
-    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw new Error("The cursor is not an object.")
-    const keys = ["working", "queued", "done", "history"] as const
-    // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
-    if (!keys.some(key => Reflect.has(parsed, key))) throw new Error("The cursor has no position.")
-    const cursor: ConsoleInvocationCursor = {}
-    for (const key of keys) {
-      if (!Reflect.has(parsed, key)) continue
-      const value = Reflect.get(parsed, key)
-      // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
-      if (value !== null && String(value) !== value) throw new Error("The cursor has a position that is not a string.")
-      cursor[key] = value === null ? null : String(value)
-    }
-    return cursor
+    return JSON.parse(value)
   }
   catch {
-    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }))
+    throw invalidCursor()
   }
+}
+
+function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
+  if (!value) return {}
+  const parsed = parseCursorJson(value)
+  // An object with at least one position, and each position a string or null.
+  if (!(parsed instanceof Object) || Array.isArray(parsed)) throw invalidCursor()
+  const keys = ["working", "queued", "done", "history"] as const
+  if (!keys.some(key => Reflect.has(parsed, key))) throw invalidCursor()
+  const cursor: ConsoleInvocationCursor = {}
+  for (const key of keys) {
+    if (!Reflect.has(parsed, key)) continue
+    const position = Reflect.get(parsed, key)
+    if (position !== null && String(position) !== position) throw invalidCursor()
+    cursor[key] = position === null ? null : String(position)
+  }
+  return cursor
 }
 
 function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {

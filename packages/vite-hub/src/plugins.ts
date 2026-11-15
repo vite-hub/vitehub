@@ -1,6 +1,7 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
+import { invariant } from "@vite-hub/internal/invariant"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -791,8 +792,7 @@ function deploymentNitroModule(
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
       if (plan.host === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
       if (plan.output.packaging === "deno-node-modules") {
-        // Internal invariant: denoServerPackagesPlugin() above sets serverPackages when the Deno server bundle is written.
-        if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
+        invariant(serverPackages, "denoServerPackagesPlugin() sets the runtime packages when it writes the Deno server bundle")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       const env = envPlugin()?.api.getServerEnvRegistry()
