@@ -6,6 +6,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
+import { toCloudflareStartParams } from "./delay.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
@@ -23,6 +24,8 @@ interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   name: string
   options: WorkflowStartOptions
   payload: TPayload | undefined
+  /** The time in milliseconds when a delayed run starts. Undefined starts the run now. */
+  startAt?: number
 }
 
 interface GetWorkflowAdapterContext {
@@ -228,7 +231,8 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
       return await inlineAdapter(config).get({ event, id, name })
     },
-    async run({ definition, event, id, name, options, payload }) {
+    async run(context) {
+      const { definition, event, id, name, payload, startAt } = context
       // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
       if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_CLOUDFLARE_RUN_ID_INVALID({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
@@ -237,7 +241,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
+          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: toCloudflareStartParams(payload, startAt) }]))[0] || await binding.get(id), id),
           {
             acknowledgement: (error, status) => status === undefined
               ? isCloudflareRejection(error) ? "rejected" : "unknown"
@@ -261,7 +265,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         }
       }
 
-      return await inlineAdapter(config).run({ definition, event, id, name, options, payload })
+      return await inlineAdapter(config).run(context)
     },
     resume: () => unsupportedOperation("cloudflare", "signals"),
   }
@@ -290,8 +294,8 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
       : await inline.get({ event, id, name }),
     resume: () => unsupportedOperation("openworkflow", "signals"),
     run: async (context) => {
-      const { definition, event, name, options, payload } = context
-      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event))
+      const { definition, event, name, options, payload, startAt } = context
+      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
       if (!warnedInlineOpenWorkflowNames.has(name)) {
         warnedInlineOpenWorkflowNames.add(name)
         console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
@@ -299,6 +303,15 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
       const run = await inline.run(context)
       return { ...run, metadata: { mode: "inline", workflow: name } }
     },
+  }
+}
+
+/** `setTimeout` fires at once for a delay above 2^31 - 1 ms (about 24.8 days), so a long wait uses several timers. */
+const maximumTimerDelay = 2_147_483_647
+
+async function waitUntilTime(startAt: number | undefined): Promise<void> {
+  while (startAt !== undefined && startAt > Date.now()) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(startAt - Date.now(), maximumTimerDelay)))
   }
 }
 
@@ -312,7 +325,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           return {
             id,
             provider: config.provider,
-            status: "running",
+            status: run.startAt === undefined ? "running" : "queued",
           }
         }
         return {
@@ -329,7 +342,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         status: "unknown",
       }
     },
-    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload }: RunWorkflowAdapterContext<TPayload, TResult>) {
+    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload, startAt }: RunWorkflowAdapterContext<TPayload, TResult>) {
       const existing = getWorkflowRunState(name, id)
       if (existing) {
         return {
@@ -351,13 +364,18 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         provider: config.provider,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
-      const run = Promise.resolve()
-        .then(() => recordRun ? recordRun(execute) : execute())
+      // A timer holds a delayed run in this process. It is not durable: a restart loses the run.
+      const run = waitUntilTime(startAt)
+        .then(() => {
+          runState.startAt = undefined
+          return recordRun ? recordRun(execute) : execute()
+        })
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .catch(error => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run, payload, true)
+      runState.startAt = startAt
       const waitUntil = resolveWaitUntil(event)
       if (waitUntil) {
         waitUntil(runState.promise)
@@ -422,11 +440,12 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         throw error
       }
     },
-    async run({ definition, event, id, name, options, payload }) {
+    async run(context) {
+      const { definition, event, name, payload, startAt } = context
       if (!runsNatively(definition)) {
-        return await fallback.run({ definition, event, id, name, options, payload })
+        return await fallback.run(context)
       }
-      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
+      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event), startAt)
     },
   }
 }

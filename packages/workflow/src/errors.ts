@@ -23,6 +23,7 @@ const workflowOperationNames = [
   "cancellation",
   "connect",
   "create",
+  "delay",
   "get",
   "get-run",
   "import",

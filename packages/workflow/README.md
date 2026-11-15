@@ -193,6 +193,24 @@ Inline runs buffer a returned `Response` body before completion. Each inspection
 
 Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
 
+## Start a run later
+
+Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+
+```ts fragment
+await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+```
+
+| Provider | How the delay works | Status during the delay |
+| --- | --- | --- |
+| OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
+| Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
+| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
+
+For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
+
 ## Make a Vercel workflow durable
 
 A plain Vercel definition executes inline and does not survive a function restart. Install `@vercel/functions` as shown in the provider table above for all Vercel definitions. For durable execution, also install the Workflow DevKit packages, keep the same handler, and register a native entry:

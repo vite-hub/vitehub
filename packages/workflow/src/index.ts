@@ -44,5 +44,6 @@ export type {
   WorkflowStep,
   WorkflowStepRegistry,
   WorkflowSteps,
+  WorkflowStartDelay,
   WorkflowStartOptions,
 } from "./types.ts"

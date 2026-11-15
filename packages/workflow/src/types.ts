@@ -220,7 +220,12 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
+/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = number | string | Date
+
 export interface WorkflowStartOptions {
+  /** Starts the run later. A `Date` in the past starts it now. */
+  delay?: WorkflowStartDelay
   id?: string
 }
 
