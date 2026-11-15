@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { agentAuth, authenticated } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
+import { returnHeaders } from "./session-result.ts"
 
 const serverMocks = vi.hoisted(() => ({
   findUserById: vi.fn(),
@@ -64,7 +66,7 @@ describe("authenticated", () => {
     serverMocks.useAuth.mockReset()
     serverMocks.useAuth.mockReturnValue({
       api: {
-        getSession: serverMocks.getSession,
+        getSession: returnHeaders(serverMocks.getSession),
       },
     })
   })
@@ -86,12 +88,32 @@ describe("authenticated", () => {
         disableCookieCache: true,
         disableRefresh: true,
       },
+      returnHeaders: true,
     })
     expect(invoker).toMatchObject({
       id: "user_0",
       kind: "authUser",
       label: "auth@example.com",
     })
+  })
+
+  it("sends the cookie deletions of an ended session with the response of the Agent route", async () => {
+    const request = new Request("https://example.com/api/agent", {
+      headers: { cookie: "better-auth.session_token=ended" },
+    })
+    const headers = new Headers({ "set-cookie": "better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax" })
+    // Like Better Auth: the cookies of the read come back only with `returnHeaders`.
+    serverMocks.useAuth.mockReturnValue({
+      api: {
+        getSession: async ({ returnHeaders }: { returnHeaders?: boolean }) => returnHeaders ? { headers, response: null } : null,
+      },
+    })
+
+    await expect(resolve(authenticated({ required: false }), createContext({ request }))).resolves.toBeUndefined()
+
+    const response = getStandardContext(request).res
+    expect(response.headers?.getSetCookie()).toEqual(["better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"])
+    expect(response.headers?.get("cache-control")).toBe("private")
   })
 
   it("maps an authenticated Better Auth session to an Agent Invoker by default", async () => {
@@ -436,7 +458,7 @@ describe("agentAuth", () => {
   })
 
   it("follows authenticated() from the chat request to the Auth user, and gives anonymous and Channel Actors null", async () => {
-    serverMocks.useAuth.mockReturnValue({ api: { getSession: serverMocks.getSession } })
+    serverMocks.useAuth.mockReturnValue({ api: { getSession: returnHeaders(serverMocks.getSession) } })
     serverMocks.findUserById.mockImplementation(async (id: string) => id === "user_1" ? { email: "editor@example.com", id, role: "editor" } : null)
 
     // A signed-in chat request: the session becomes the Actor, and agentAuth reads its user again from the database.

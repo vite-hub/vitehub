@@ -3,6 +3,7 @@ import {
   throwAuthenticationProviderError,
 } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
+import { sendSessionCookies } from "./session-cookies.ts"
 
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -186,13 +187,16 @@ async function defaultAuthenticatedSource(
 
   const { useAuth } = await loadServer()
   const auth = useAuth(context.request)
-  return await getAuthenticationSession(auth, {
+  const { session, setCookies } = await getAuthenticationSession(auth, {
     headers: context.request.headers,
     query: {
       disableCookieCache: true,
       disableRefresh: true,
     },
   })
+  // Without a refresh, Better Auth only deletes the cookies of an ended session. The Agent route sends them like a guard.
+  sendSessionCookies(context.request, { pending: setCookies, prepared: false })
+  return session
 }
 
 function readProviderField<T>(read: () => T): T {
