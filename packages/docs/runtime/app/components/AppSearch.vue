@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createDocsSearch, docsAppPath, docsManifestPages, docsSectionHome } from "#docs/navigation"
+import { createDocsSearch, docsAppPath, docsSectionHome } from "#docs/navigation"
 
 import type { DocsSearchSection } from "@vite-hub/docs"
 
@@ -14,8 +14,6 @@ const navigation = manifest.sections.map(section => ({
   children: section.pages.filter(page => page.navigation).map(page => ({ title: page.title, path: page.path, icon: icons.page(page) })),
 }))
 const links = navigation.map((item, index) => ({ label: item.title, icon: item.icon, to: docsSectionHome(manifest.sections[index]!) }))
-// Root and standalone pages are searchable too; navigation: false keeps any page out of the results.
-const listed = new Set(docsManifestPages(manifest).filter(page => page.navigation).map(page => page.path))
 
 // The index loads when the dialog first opens, so pages do not pay for it.
 const status = ref<"idle" | "loading" | "ready" | "error">("idle")
@@ -26,7 +24,7 @@ watch(open, async (value) => {
   status.value = "loading"
   try {
     const records = await $fetch<DocsSearchSection[]>(docsAppPath("/api/_docs/search.json", appBase))
-    rank = createDocsSearch(records.filter(record => listed.has(record.id.split("#")[0] ?? record.id)))
+    rank = createDocsSearch(records)
     status.value = "ready"
   }
   catch {
