@@ -98,6 +98,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? "The Cloudflare token has access to no account."
         : `The Cloudflare token has access to ${String(count)} accounts, so the account to link is not clear.`,
     },
+    SETUP_LINK_HOST_REQUIRED: {
+      fix: ({ command }: { command?: unknown, hosts?: unknown }) => `Run \`${String(command)} --host <host>\`, or make one host the default with \`vitehub link --host <host> --default\`.`,
+      why: ({ hosts }: { command?: unknown, hosts?: unknown }) => `The project links several hosts (${String(hosts)}) and none is the default, so the host is not clear.`,
+    },
     SETUP_LINK_NAME_REQUIRED: {
       fix: "Pass --project <name>, or set `name` in vitehub() or in package.json.",
       why: () => "The project name is not known. vitehub() has no literal `name` and package.json has no name.",
@@ -153,8 +157,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,
     },
     SETUP_DEPLOY_HOST_MISMATCH: {
-      fix: "Build again for the linked host, or run `vitehub unlink` and link the host that the build targets.",
-      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but the project deploys to ${String(host)}.`,
+      fix: ({ host }: { built?: unknown, host?: unknown }) => `Build again for ${String(host)}: run \`vitehub deploy --host ${String(host)}\` without --no-build.`,
+      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but this deploy goes to ${String(host)}.`,
     },
     SETUP_DEPLOY_COMMAND_REJECTED: {
       fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
@@ -165,8 +169,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
     },
     SETUP_DEPLOYMENTS_NOT_LINKED: {
-      fix: "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
-      why: () => "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
+      fix: ({ host }: { host?: unknown }) => host ? `Run \`vitehub link --host ${String(host)}\`, or deploy once with \`vitehub deploy --host ${String(host)}\`.` : "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
+      why: ({ host }: { host?: unknown }) => host ? `The project has no ${String(host)} target in .vitehub/link.json, so the host project to read is not known.` : "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
     },
     SETUP_DEPLOYMENTS_CREDENTIALS_MISSING: {
       fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
