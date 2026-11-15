@@ -2,7 +2,7 @@ import { numeric, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { defineSync } from "../src/define.ts"
-import { liveResponse } from "../src/live.ts"
+import { liveResponse, wakeLiveStreams } from "../src/live.ts"
 import { syncLiveRoute } from "../src/protocol.ts"
 import { createSyncHandler, handleSyncRequest } from "../src/runtime.ts"
 import { createHarness, origin, readEvents, teamsOf } from "./handler-harness.ts"
@@ -125,6 +125,61 @@ describe("live", () => {
     expect(statements).toBeGreaterThan(3)
     expect(statements).toBeLessThan(20)
     abort()
+  })
+
+  it("pulls every store of a check in one Database call, also when the stream opens", async () => {
+    // A check every minute: only the wake below runs a check after the first one.
+    const app = await setup({ interval: 60_000, seconds: 30 })
+    const teams = Array.from({ length: 50 }, (_, index) => `t${index}`)
+    const caller = { user: "alice", teams }
+    const held = []
+    for (const teamId of teams) held.push({ ...as(await app.start(caller, { teamId })), where: { teamId } })
+    const before = app.calls()
+    const { response, abort } = await app.live(caller, held)
+    const events = readEvents(response)
+    await opened(events)
+    // One read of the change log and one batch for the 50 stores. On the Free plan, D1 allows 50 calls in a Worker
+    // invocation, and a batch is one call.
+    expect(app.calls() - before).toBe(2)
+
+    // Server code writes a row in each team, outside the counted client.
+    await app.client.execute({ sql: `INSERT INTO notes (id, team_id, body) VALUES ${teams.map(() => "(?, ?, ?)").join(", ")}`, args: teams.flatMap(team => [`n-${team}`, team, "Hello"]) })
+    const changed = app.calls()
+    wakeLiveStreams(app.services.db, "notes")
+    const pulled = []
+    for (const _team of teams) pulled.push(dataOf<PullData>(await events.next(2000)))
+    expect(pulled.map(({ where }) => where?.teamId).sort()).toEqual([...teams].sort())
+    expect(app.calls() - changed).toBe(2)
+    abort()
+  })
+
+  it("ends the stream before a check could pass `calls`, also when each check has changes", async () => {
+    const app = await setup({ interval: 10, seconds: 30, calls: 12 })
+    const teams = ["a", "b", "c", "d", "e", "f"]
+    const caller = { user: "alice", teams }
+    const held = []
+    for (const teamId of teams) held.push({ ...as(await app.start(caller, { teamId })), where: { teamId } })
+    // Server code writes a row every 5 ms, outside the counted client.
+    let written = 0
+    const writer = setInterval(() => void app.client.execute({ sql: "INSERT INTO notes (id, team_id, body) VALUES (?, ?, ?)", args: [`w${written}`, teams[written++ % teams.length]!, "Busy"] }), 5)
+    try {
+      const before = app.calls()
+      const started = performance.now()
+      const { response } = await app.live(caller, held)
+      const events = readEvents(response)
+      let rows = 0
+      let event = await events.next(3000)
+      for (; typeof event === "object"; event = await events.next(3000)) {
+        if (event.event === "pull") rows += dataOf<PullData>(event).pull.rows.length
+      }
+      expect(event).toBe("end")
+      expect(performance.now() - started).toBeLessThan(3000)
+      expect(app.calls() - before).toBeLessThanOrEqual(12)
+      expect(rows).toBeGreaterThan(0)
+    }
+    finally {
+      clearInterval(writer)
+    }
   })
 
   it("checks the change log on an interval for writes of other processes, and skips other scopes", async () => {

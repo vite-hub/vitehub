@@ -14,6 +14,7 @@ icon: i-lucide-circle-alert
 | Changes in one pull | 500. The client pulls again until it has all. |
 | Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
 | Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A push in the same server process wakes the stream at once. The browser opens a new one at once. |
+| Database calls of one live stream | 40, where a batch is one call. A check makes at most 3. The server ends the stream before a check could pass 40, and the browser opens a new one, which is a new Worker invocation. On the Workers Free plan, D1 allows 50 calls in an invocation. |
 | Live streams per browser | One for each tab that shows, for all the synced tables and subsets of the tab. A table or subset that two tabs show streams in one of them. |
 | Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. Every 5 minutes at most while the live stream is open. |
 | Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |

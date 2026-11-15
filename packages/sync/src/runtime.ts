@@ -3,11 +3,11 @@ import { syncErrors } from "./errors.ts"
 import { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
 
 import type { SyncDatabase } from "./database.ts"
-import type { SyncCaller, SyncServices } from "./handler.ts"
+import type { SyncCaller, SyncLiveServices } from "./handler.ts"
 import type { SyncDefinition } from "./types.ts"
 
 export { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
-export type { SyncCaller, SyncServices } from "./handler.ts"
+export type { SyncCaller, SyncLiveServices, SyncServices } from "./handler.ts"
 
 /** What the generated route of a ViteHub app passes. */
 export interface SyncRuntimeOptions {
@@ -64,13 +64,13 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
   const all = Object.fromEntries(definitions)
   // One services object for every definition: its `db` function is the key of the live streams of each table and of
   // the triggers that this process checked, also when two definitions sync one table.
-  const services: SyncServices = { db, definitions: all, ...(options.session ? { identify: options.session } : {}) }
+  const services: SyncLiveServices = { db, definitions: all, ...(options.session ? { identify: options.session } : {}) }
   Reflect.set(globalThis, installedKey, { names: [...definitions.keys()].sort(), definition: name => definitions.get(name), db } satisfies InstalledSync)
   return {
     async fetch(request) {
       const segments = new URL(request.url).pathname.split("/").filter(Boolean)
       // A definition named "sync" has the route `.../_vitehub/sync/sync`.
-      if (segments.at(-2) === "_vitehub" && segments.at(-1) === "sync") return await handleSyncLiveRequest(all, request, services)
+      if (segments.at(-2) === "_vitehub" && segments.at(-1) === "sync") return await handleSyncLiveRequest(request, services)
       const segment = segments.at(-1) ?? ""
       let name = segment
       try {
