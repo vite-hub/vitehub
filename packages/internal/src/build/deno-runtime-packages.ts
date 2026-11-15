@@ -362,7 +362,8 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
+    // Internal invariant: the specifier comes from a module that the bundler emitted, so it ends with a complete escape unless a module path holds a quote character.
+    if (escape === undefined) throw new Error("Deno output contains an incomplete import escape sequence.")
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -380,14 +381,16 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+        // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
+        throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
+      // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
+      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw new Error("Deno output contains an invalid hexadecimal import escape sequence.")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -398,19 +401,22 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
+          // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
+          throw new Error("Deno output contains an invalid Unicode import escape sequence.")
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
+      // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
+      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw new Error("Deno output contains an invalid Unicode import escape sequence.")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+    // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
+    if (/[1-9]/.test(escape)) throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
     cooked += escape
   }
   return cooked
@@ -1158,7 +1164,8 @@ async function finalizeStagedDenoDeploymentOutput(
     await access(scheduleSource)
     if (options.hasScheduleIntegration === false) {
       await rm(scheduleSource, { force: true })
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
+      // Internal invariant: the catch below takes this ENOENT error as "no Schedule output" and never rethrows it.
+      throw Object.assign(new Error("stale Deno Schedule output"), { code: "ENOENT" })
     }
     hasSchedule = true
     await access(applicationEntrySource)

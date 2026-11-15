@@ -248,7 +248,8 @@ function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
 
 function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
   if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
-    throw internalErrorDiagnostics.INTERNAL_B0034({ message: `Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}` })
+    // Internal invariant: ViteHub packages pass fixed ownership file names, not names from app config.
+    throw new Error(`Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}`)
   }
   return resolve(outputRoot, fileName)
 }
@@ -298,7 +299,8 @@ async function resolvePersistedProviderOutputOwnership(
   const arrays = { ...ownership?.arrays }
   await Promise.all(Object.entries(files).map(async ([field, fileName]) => {
     const current = arrays[field]
-    if (!current) throw internalErrorDiagnostics.INTERNAL_B0036({ message: `Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.` })
+    // Internal invariant: ViteHub packages pass an ownership file only for a field that they own as an array.
+    if (!current) throw new Error(`Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.`)
     arrays[field] = {
       ...current,
       values: [
@@ -344,7 +346,8 @@ export function recoverNetlifyDeploymentOutput(rootDir: string): void {
 
 function assertNetlifyFunctionName(functionName: string): void {
   if (!functionName || functionName.includes("\\") || functionName.split("/").some(part => !part || part === "." || part === "..")) {
-    throw internalErrorDiagnostics.INTERNAL_B0037({ message: `Invalid Netlify function name: ${functionName}` })
+    // Internal invariant: ViteHub writes Netlify function names from safe Definition names.
+    throw new Error(`Invalid Netlify function name: ${functionName}`)
   }
 }
 
@@ -370,7 +373,8 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
     : undefined
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
-    throw internalErrorDiagnostics.INTERNAL_B0038({ message: `Cloudflare output file conflicts with bundle outfile: ${workerOutfile}` })
+    // Internal invariant: ViteHub packages choose both the Cloudflare output file names and the bundle file name.
+    throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
   }
   const backupRoot = copiesStaticOutput
     ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))

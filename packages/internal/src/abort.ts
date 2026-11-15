@@ -1,5 +1,3 @@
-import { internalErrorDiagnostics } from "./error-diagnostics.ts"
-
 /**
  * Runs `task` and rejects as soon as `signal` aborts, without waiting for the task.
  *
@@ -35,7 +33,8 @@ export function abortable<T>(
 
 function abortReason(signal: AbortSignal | undefined, message: string): unknown {
   if (signal?.reason !== undefined) return signal.reason
-  const error = internalErrorDiagnostics.INTERNAL_R0003({ message })
+  // Internal invariant: an aborted AbortSignal always has a reason on supported runtimes; this is a fallback for old polyfills.
+  const error = new Error(message)
   error.name = "AbortError"
   return error
 }
