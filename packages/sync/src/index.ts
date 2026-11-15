@@ -1,6 +1,6 @@
 export { defineSync } from "./define.ts"
 export { handleSyncLiveRequest, handleSyncRequest } from "./runtime.ts"
-export type { SyncCaller, SyncServices } from "./runtime.ts"
+export type { SyncCaller, SyncLiveServices, SyncServices } from "./runtime.ts"
 export type { SyncDatabase } from "./database.ts"
 export type { DefineSyncOptions, InferSyncActions, InferSyncRow, InferSyncTableRow, SyncActionContext, SyncActionFunction, SyncActionRows, SyncActions, SyncActionsOf, SyncContext, SyncDefinition, SyncJsonRow, SyncJsonValue, SyncName, SyncRowOf, SyncUser, SyncWhere, SyncWhereValues, SyncWriteContext } from "./types.ts"
 export type * from "./protocol.ts"

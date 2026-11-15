@@ -13,7 +13,7 @@ import { syncPushLimit } from "./protocol.ts"
 import { allows, column, decode, mergeSubset, readSubset, readWhere, rowInScope, scopeSql } from "./scope.ts"
 
 import type { SQL } from "drizzle-orm"
-import type { BatchItem } from "drizzle-orm/batch"
+import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { SyncDatabase } from "./database.ts"
 import type { SyncTable } from "./define.ts"
@@ -49,14 +49,21 @@ export interface SyncServices {
   /**
    * Live streams. `interval` is the time in milliseconds between two checks of the change log (default 1000).
    * `seconds` is the time until the server ends a stream (default 25, which fits the limits of Vercel and Netlify).
+   * `calls` is the most Database calls of one stream, where a batch is one call (default 40). A check makes at most 3,
+   * and the stream ends before a check that could pass `calls`. The browser then opens a new stream, which is a new
+   * Worker invocation. On the Workers Free plan, D1 allows 50 calls in an invocation, so 40 leaves 10 for the session
+   * and the trigger checks of the request. On the Workers Paid plan, D1 allows 1000.
    */
-  live?: { interval?: number, seconds?: number }
+  live?: { interval?: number, seconds?: number, calls?: number }
   /**
-   * The Sync definitions of the app by name, so an action can write another one with `sync(name)`. A ViteHub app
-   * passes every definition of `server/sync/`. They all use the Database of `db`.
+   * The Sync definitions of the app by name, so an action can write another one with `sync(name)`, and the live stream
+   * serves each of them. A ViteHub app passes every definition of `server/sync/`. They all use the Database of `db`.
    */
-  definitions?: Record<string, unknown>
+  definitions?: Readonly<Record<string, Pick<SyncDefinition, "~sync">>>
 }
+
+/** What `handleSyncLiveRequest()` uses: the services of every route, with every definition that the stream serves. */
+export type SyncLiveServices = SyncServices & Required<Pick<SyncServices, "definitions">>
 
 interface Resolved {
   name: string
@@ -248,61 +255,114 @@ function headQuery(db: SyncDatabase, table: string) {
   return db.select({ seq: max(syncChanges.seq) }).from(syncChanges).where(eq(syncChanges.tableName, table))
 }
 
+type Statement = BatchItem<"sqlite">
+
+/** Statements of a batch, and the answer that their results give. */
+interface Part<R> {
+  statements: readonly Statement[]
+  read: (results: readonly unknown[]) => R
+}
+
+function part<const T extends readonly [Statement, ...Statement[]], R>(statements: T, read: (results: BatchResponse<T>) => R): Part<R> {
+  // SAFETY: `runParts()` gives each part the results of its own statements, in order.
+  return { statements, read: results => read(results as BatchResponse<T>) }
+}
+
 /**
- * Reads the changes after the cursor that the client holds, or a full snapshot when the client holds no cursor,
- * another scope, or another version. Each read is one atomic batch, so the cursor and the rows match.
+ * Runs the statements of every part in one atomic `db.batch()`, so each part reads one moment of the Database. A batch
+ * is one Database call: on the Workers Free plan, D1 allows 50 calls in an invocation.
  */
-async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
+async function runParts<R>(db: SyncDatabase, parts: readonly Part<R>[]): Promise<R[]> {
+  const [first, ...rest] = parts.flatMap(item => item.statements)
+  if (!first) return []
+  const results: readonly unknown[] = await db.batch([first, ...rest])
+  let offset = 0
+  return parts.map(item => item.read(results.slice(offset, offset += item.statements.length)))
+}
+
+function floorQuery(db: SyncDatabase, table: string) {
+  return db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.tableName, table))
+}
+
+/** A full snapshot of the scope, with the newest `seq` of the table as its cursor. */
+function snapshotPart(scoped: Scoped): Part<SyncPullResponse> {
   const { db, scope, account, version } = scoped
   const { table, name, key, defaults } = scoped.table
+  return part([floorQuery(db, name), headQuery(db, name), db.select().from(table).where(scopeSql(scoped.table, scope.values))], ([state, last, rows]) => (
+    { key, scope, account, version, defaults, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, rows, deleted: [], more: false }
+  ))
+}
+
+/**
+ * The changes after the cursor that the client holds, or a full snapshot when the client holds no cursor, another
+ * scope, or another version. The answer is `undefined` when the cursor is out of range: then the client needs a snapshot.
+ */
+function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined> {
+  const { db, scope, account, version } = scoped
+  const { table, name, key, defaults } = scoped.table
+  const { cursor } = held
+  if (cursor === undefined || held.scope !== scope.id || held.version !== version) return snapshotPart(scoped)
   const keyColumn = column(scoped.table, key)
   const where = scopeSql(scoped.table, scope.values)
-  const base = { key, scope, account, version, defaults }
-  const floor = db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.tableName, name))
-  const { cursor } = held
-  if (cursor !== undefined && held.scope === scope.id && held.version === version) {
-    const [state, last, page, puts] = await db.batch([
-      floor,
-      headQuery(db, name),
-      // `current` is the key of the row when it is in the scope now, so an exit of a row that came back is not sent.
-      db.select({ seq: syncChanges.seq, key: syncChanges.key, op: syncChanges.op, row: syncChanges.row, current: keyColumn })
-        .from(syncChanges)
-        .leftJoin(table, and(eq(keyColumn, syncChanges.key), where))
-        .where(and(eq(syncChanges.tableName, name), gt(syncChanges.seq, cursor)))
-        .orderBy(asc(syncChanges.seq))
-        .limit(pageSize + 1),
-      // A join, not `key IN (...)`: the statement has a fixed number of parameters, so D1's limit of 100 never applies.
-      // The first `pageSize` puts in scope cover every put in scope of the page above.
-      db.select({ row: getTableColumns(table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
-        .from(table)
-        .innerJoin(syncChanges, and(eq(syncChanges.tableName, name), eq(syncChanges.key, keyColumn)))
-        .where(and(gt(syncChanges.seq, cursor), eq(syncChanges.op, "put"), where))
-        .orderBy(asc(syncChanges.seq))
-        .limit(pageSize),
-    ])
-    const stored = exitValues(scoped.table, scope.values)
+  return part([
+    floorQuery(db, name),
+    headQuery(db, name),
+    // `current` is the key of the row when it is in the scope now, so an exit of a row that came back is not sent.
+    db.select({ seq: syncChanges.seq, key: syncChanges.key, op: syncChanges.op, row: syncChanges.row, current: keyColumn })
+      .from(syncChanges)
+      .leftJoin(table, and(eq(keyColumn, syncChanges.key), where))
+      .where(and(eq(syncChanges.tableName, name), gt(syncChanges.seq, cursor)))
+      .orderBy(asc(syncChanges.seq))
+      .limit(pageSize + 1),
+    // A join, not `key IN (...)`: the statement has a fixed number of parameters, so D1's limit of 100 never applies.
+    // The first `pageSize` puts in scope cover every put in scope of the page above.
+    db.select({ row: getTableColumns(table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
+      .from(table)
+      .innerJoin(syncChanges, and(eq(syncChanges.tableName, name), eq(syncChanges.key, keyColumn)))
+      .where(and(gt(syncChanges.seq, cursor), eq(syncChanges.op, "put"), where))
+      .orderBy(asc(syncChanges.seq))
+      .limit(pageSize),
+  ], ([state, last, page, puts]) => {
     const lowest = state[0]?.floor ?? 0
     const highest = Math.max(last[0]?.seq ?? 0, lowest)
     // A cursor below the floor missed removed exits. A cursor above the newest change comes from another Database.
-    if (cursor >= lowest && cursor <= highest) {
-      const changes = page.slice(0, pageSize)
-      const next = changes.at(-1)?.seq ?? cursor
-      const deleted = new Set<SyncKey>()
-      for (const change of changes) {
-        if (change.op !== "put" && change.current === null && change.row !== null && rowInScope(parseRow(change.row), stored)) deleted.add(change.key)
-      }
-      return {
-        ...base,
-        cursor: next,
-        reset: false,
-        rows: puts.filter(put => put.seq <= next).map(put => put.row),
-        deleted: [...deleted],
-        more: page.length > pageSize,
-      }
+    if (cursor < lowest || cursor > highest) return undefined
+    const stored = exitValues(scoped.table, scope.values)
+    const changes = page.slice(0, pageSize)
+    const next = changes.at(-1)?.seq ?? cursor
+    const deleted = new Set<SyncKey>()
+    for (const change of changes) {
+      if (change.op !== "put" && change.current === null && change.row !== null && rowInScope(parseRow(change.row), stored)) deleted.add(change.key)
     }
-  }
-  const [state, last, rows] = await db.batch([floor, headQuery(db, name), db.select().from(table).where(where)])
-  return { ...base, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, rows, deleted: [], more: false }
+    return {
+      key,
+      scope,
+      account,
+      version,
+      defaults,
+      cursor: next,
+      reset: false,
+      rows: puts.filter(put => put.seq <= next).map(put => put.row),
+      deleted: [...deleted],
+      more: page.length > pageSize,
+    }
+  })
+}
+
+/**
+ * Pulls several stores in one Database call, a batch, so the cursor and the rows of each pull match. A store whose
+ * cursor is out of range gets its snapshot in one more call. `calls` is the number of calls, 0 to 2.
+ */
+async function pullAll(db: SyncDatabase, pulls: readonly { scoped: Scoped, held: Held }[]): Promise<{ answers: SyncPullResponse[], calls: number }> {
+  const answers = await runParts(db, pulls.map(({ scoped, held }) => pullPart(scoped, held)))
+  const snapshots = await runParts(db, pulls.flatMap(({ scoped }, index) => answers[index] ? [] : [snapshotPart(scoped)]))
+  const calls = (pulls.length ? 1 : 0) + (snapshots.length ? 1 : 0)
+  return { answers: answers.map(answer => answer ?? snapshots.shift()!), calls }
+}
+
+async function pull(scoped: Scoped, held: Held): Promise<SyncPullResponse> {
+  const { answers: [answer] } = await pullAll(scoped.db, [{ scoped, held }])
+  return answer!
 }
 
 function rejected(id: string, refusal: Refusal): SyncMutationResult {
@@ -317,8 +377,6 @@ function issuePath(path: readonly (PropertyKey | { key: PropertyKey })[] | undef
   if (!path?.length) return undefined
   return path.map(segment => String(typeof segment === "object" ? segment.key : segment)).join(".")
 }
-
-type Statement = BatchItem<"sqlite">
 
 /**
  * The SQL of a column in a row as JSON: the value that the column stores. A blob (JSON or bigint) is its text, because
@@ -861,9 +919,11 @@ interface LiveEntry {
 /**
  * Answers the live stream of several stores: `POST <base>api/_vitehub/sync` with a `SyncLiveRequest`. Each store is
  * checked as its pull is, with the `where` of its definition. A store that the caller may not see gets an `error`
- * event, and the others stream on. One read of the change log each interval serves every store of the stream.
+ * event, and the others stream on. One read of the change log each interval serves every store of the stream, and one
+ * batch pulls the stores whose table changed. The stream ends before it could pass `services.live.calls`.
  */
-export async function handleSyncLiveRequest(definitions: Readonly<Record<string, Pick<SyncDefinition, "~sync">>>, request: Request, services: SyncServices): Promise<Response> {
+export async function handleSyncLiveRequest(request: Request, services: SyncLiveServices): Promise<Response> {
+  const { definitions } = services
   const shape = "`{ pulls: [{ name, where?, cursor?, scope?, version? }] }`"
   if (request.method !== "POST") return badRequest(`Open a live stream with POST and the JSON body ${shape}.`, 405, { allow: "POST" })
   const [refused, raw] = await readJson(request, "live request", "Open fewer stores in one stream.")
@@ -901,6 +961,9 @@ export async function handleSyncLiveRequest(definitions: Readonly<Record<string,
   }
   // The highest `seq` of the change log that the stream read.
   let seen = 0
+  // The Database calls of the stream, where a batch is one call.
+  let calls = 0
+  const budget = services.live?.calls ?? 40
   return liveResponse({
     // `services.db`, not the Database of this request: a function makes a new Database object for each request.
     key: services.db,
@@ -911,7 +974,11 @@ export async function handleSyncLiveRequest(definitions: Readonly<Record<string,
     seconds: services.live?.seconds ?? 25,
     async check(first) {
       if (!entries.length) return { events: refusals, end: true }
+      // A check makes at most 3 calls: the change log, the pulls, and the snapshots of cursors out of range. The first
+      // check always runs, so the client gets `open`.
+      if (!first && calls + 3 > budget) return { end: true }
       let due = entries
+      calls++
       if (first) {
         // The first check pulls every store, so a client with an old scope, version, or cursor gets its reset at once.
         const [head] = await db.select({ seq: max(syncChanges.seq) }).from(syncChanges)
@@ -926,8 +993,10 @@ export async function handleSyncLiveRequest(definitions: Readonly<Record<string,
       }
       // The refusals, then `open`, so the client knows which stores are live before their first pull.
       const events: SyncLiveEvent[] = first ? [...refusals, { type: "open" }] : []
-      for (const entry of due) {
-        const answer = await pull(entry.scoped, entry.held)
+      const pulled = await pullAll(db, due)
+      calls += pulled.calls
+      for (const [index, entry] of due.entries()) {
+        const answer = pulled.answers[index]!
         entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version }
         entry.more = answer.more
         if (answer.reset || answer.rows.length || answer.deleted.length) events.push({ type: "pull", ...entry.store, pull: answer })
