@@ -17,6 +17,26 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Check that the cache driver supports the requested storage operation. Vercel Runtime Cache cannot list keys.",
     },
+    LOGS_CURSOR_EXPIRED: {
+      why: "The log cursor has expired. Refresh to read the retained events.",
+      fix: "Read the logs again from the first page without a cursor. The log source no longer keeps the events that the cursor pointed to.",
+    },
+    TASK_FAILED: {
+      why: ({ detail, name }: { detail: string, name: string }) => `Task "${name}" failed: ${detail}`,
+      fix: "Read the server log for the stack of the error, and fix the `run()` method of the file in `server/tasks/` that the message names.",
+    },
+    TASK_NOT_FOUND: {
+      why: ({ name }: { name: string }) => `Task "${name}" does not exist.`,
+      fix: "Run `vitehub task list` to see the registered tasks, and pass one of those names.",
+    },
+    TASK_NOT_IMPLEMENTED: {
+      why: ({ detail }: { detail: string }) => detail,
+      fix: "Export a default `defineTask()` with a `run()` method from the task file.",
+    },
+    TASK_RUNTIME_UNAVAILABLE: {
+      why: "Nitro tasks are not enabled in this runtime.",
+      fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
+    },
     VITE_HUB_R0120: dynamicError,
     VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0124: dynamicError,

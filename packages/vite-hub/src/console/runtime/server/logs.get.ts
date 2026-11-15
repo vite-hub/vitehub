@@ -2,7 +2,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot";
 import { getLogSource } from "../../../logs/host.ts";
 import {
-  LogCursorExpiredError,
+  isLogCursorExpiredError,
   logPageSchema,
   logSourceInfoSchema,
   parseLogQuery,
@@ -48,7 +48,7 @@ export async function consoleLogsHandler(
       throw new Error("The source exceeded the response size limit.");
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {
-    if (error instanceof LogCursorExpiredError) throw consoleHttpError(409, error);
+    if (isLogCursorExpiredError(error)) throw consoleHttpError(409, error as Error);
     throw consoleHttpError(502, new Error("Could not read the log source."));
   }
 }
