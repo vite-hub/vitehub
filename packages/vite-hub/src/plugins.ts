@@ -150,6 +150,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/device": false,
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
