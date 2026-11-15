@@ -451,7 +451,7 @@ function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
           if (log.type === "stdout" || log.type === "stderr") forward(log.type, log.data ?? "");
           else if (log.type === "exit") return;
           else if (log.type === "error")
-            throw new Error(`[vitehub] Cloudflare process log stream failed: ${log.data ?? "unknown error"}`);
+            throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED({ detail: log.data ?? "unknown error" });
         }
         if (done) return;
       }

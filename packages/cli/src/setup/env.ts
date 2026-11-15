@@ -426,10 +426,11 @@ function entryNames(entries: readonly DeploymentEnvEntry[]): string[] {
 }
 
 /**
- * The Env gate of `vitehub deploy`. It runs after the build and before any host write. Each required entry must be on
+ * The Env gate of `vitehub deploy`. It runs after provisioning and the build, before migrations, env writes, or publishing code. Each required entry must be on
  * the host or have a local value (the shell, then the stage env files, as `env push` reads them). Deploy sets every
  * entry that the host lacks and that has a local value; `--push-env` also replaces the names that the host has.
- * Cloudflare gets the values with the uploaded version, other hosts through their env CLI before the deploy.
+ * Cloudflare always re-supplies local stage values and requires a local value for every existing secret, so an
+ * omitted secret cannot inherit from another stage. Other hosts use their env CLI before the deploy.
  */
 export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployEnvPlan> {
   const { context, entries, host, link } = options
@@ -437,13 +438,26 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const output: DeployEnvOutput = { checked: entryNames(entries), missing: [], pushed: [], stage }
   if (!entries.length) return { apply: async () => {}, output, upload: {} }
 
-  // A Worker has one set of secrets, and a preview version starts from them.
+  // Wrangler inherits omitted secrets from the latest upload, which may be a preview.
+  // Re-supply every remote secret from this stage rather than trusting that inheritance.
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
   const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
   const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
   const values = await readLocalEnvValues(options.root, stage, context.env)
-  const candidates = options.pushEnv ? entries : entries.filter(entry => !isSet(entry, onHost))
+  const candidates = options.pushEnv || host === "cloudflare" ? entries : entries.filter(entry => !isSet(entry, onHost))
   const planned = planPush(candidates, values, []).planned
+  if (host === "cloudflare") {
+    for (const name of onHost) {
+      const local = values.get(name)
+      if (local && !planned.some(item => item.name === name)) planned.push({ name, secret: true, ...local })
+    }
+    // Even an undeclared or optional remote secret would otherwise inherit the other stage's value.
+    const unavailable = [...onHost].filter(name => !values.has(name))
+    if (unavailable.length) {
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
+    }
+    for (const item of planned) if (onHost.has(item.name)) item.secret = true
+  }
   const label = `${link?.project.name ?? "the new project"} on ${host}`
 
   const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...planned.map(item => item.name)])))

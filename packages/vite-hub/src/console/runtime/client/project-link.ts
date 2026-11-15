@@ -2,11 +2,19 @@ import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@v
 
 import { consoleRpcHeader } from "../rpc"
 import { consoleErrorFields } from "./request"
+import { parseConsoleNavigation } from "./sections"
 
 import type { ConsoleProjectTarget } from "./projects"
+import type { ConsoleNavigation } from "./sections"
 
 /** The `project.get` protocol that this Console reads. */
 export const consoleProjectProtocol = 1
+
+/** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
+export interface ConsoleProjectBuild {
+  time: string
+  commit?: { sha: string, message?: string, author?: string, branch?: string }
+}
 
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
 export interface ConsoleProjectInfo {
@@ -14,8 +22,12 @@ export interface ConsoleProjectInfo {
   name?: string
   /** The `vite-hub` version of the app. */
   vitehub?: string
+  /** The build that serves the project. A development server and an older vite-hub send none. */
+  build?: ConsoleProjectBuild
   sections: string[]
   operations: string[]
+  /** The answer of `sections.list`, which apps send to the Console page with `project.get`. Older apps leave it out. */
+  navigation?: ConsoleNavigation
 }
 
 /**
@@ -25,7 +37,7 @@ export interface ConsoleProjectInfo {
  *   `CONSOLE_KEY_UNKNOWN` before the app has the public key of the link.
  * - `protocol`: the project answered with another protocol, or runs a vite-hub without `project.get`.
  * - `unreachable`: the request failed before a response, from the network or a project that is offline.
- * - `missing`: no ViteHub Console answers at the URL.
+ * - `missing`: no ViteHub Console answers at the URL: a 404, or a page that is not JSON without a server error.
  * - `failed`: the project answered with another error, such as a key that is not configured.
  */
 export type ConsoleProjectProbe =
@@ -36,6 +48,27 @@ export type ConsoleProjectProbe =
   | { kind: "missing" }
   | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
 
+const field = (record: object, key: string): string | undefined => {
+  const value: unknown = Reflect.get(record, key)
+  return String(value) === value && value.trim() ? value.trim() : undefined
+}
+
+/** Read the `build` of a `project.get` answer. A value without a valid time is no build. */
+export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | undefined {
+  if (!(value instanceof Object)) return undefined
+  const time = field(value, "time")
+  if (!time || !Number.isFinite(Date.parse(time))) return undefined
+  const commitValue: unknown = Reflect.get(value, "commit")
+  const sha = commitValue instanceof Object ? field(commitValue, "sha") : undefined
+  if (!(commitValue instanceof Object) || !sha) return { time }
+  const commit: NonNullable<ConsoleProjectBuild["commit"]> = { sha }
+  for (const key of ["message", "author", "branch"] as const) {
+    const entry = field(commitValue, key)
+    if (entry) commit[key] = entry
+  }
+  return { time, commit }
+}
+
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []
 
 function parseProjectInfo(value: unknown): ConsoleProjectProbe {
@@ -43,18 +76,22 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
   const protocol: unknown = record ? Reflect.get(record, "protocol") : undefined
   const name: unknown = record ? Reflect.get(record, "name") : undefined
   const vitehub: unknown = record ? Reflect.get(record, "vitehub") : undefined
+  const navigation: unknown = record ? Reflect.get(record, "navigation") : undefined
   const version = String(vitehub) === vitehub && vitehub ? vitehub : undefined
   if (protocol !== consoleProjectProtocol) {
     return { kind: "protocol", ...(Number.isInteger(protocol) ? { protocol: Number(protocol) } : {}), ...(version ? { vitehub: version } : {}) }
   }
+  const build = consoleProjectBuildOf(record ? Reflect.get(record, "build") : undefined)
   return {
     kind: "ready",
     info: {
       protocol,
       ...(String(name) === name && name.trim() ? { name: name.trim() } : {}),
       ...(version ? { vitehub: version } : {}),
+      ...(build ? { build } : {}),
       operations: strings(record ? Reflect.get(record, "operations") : undefined),
       sections: strings(record ? Reflect.get(record, "sections") : undefined),
+      ...(navigation instanceof Object ? { navigation: parseConsoleNavigation(navigation) } : {}),
     },
   }
 }
@@ -98,7 +135,8 @@ export async function probeConsoleProject(
   }
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
-  if (response.status === 404 || !(outcome.answer.body instanceof Object)) return { kind: "missing" }
+  // A page that is not JSON means the app has no Console route, unless the server failed: a proxy's 502 page is an outage.
+  if (response.status === 404 || (!(outcome.answer.body instanceof Object) && response.status < 500)) return { kind: "missing" }
   return { kind: "failed", status: response.status, ...(fields.code ? { code: fields.code } : {}), ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
 }
 

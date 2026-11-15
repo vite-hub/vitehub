@@ -77,6 +77,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
  * browser `GET`s it with a one-time ticket, for Content preview and impersonation.
  */
 const consoleRoutes = [
+  "route ALL /_vitehub console/server/site-entry.js",
   "route ALL /_vitehub/rpc console/server/rpc.js",
 ]
 
@@ -122,7 +123,7 @@ const publicAssets = [
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
-  it("serves one Console route, /_vitehub/rpc, and the app features that stay", async () => {
+  it("serves the Console routes, /_vitehub/rpc and /_vitehub, and the app features that stay", async () => {
     const inventory = await nitroInventory({ invoke: true, mcpClient: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
     // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.

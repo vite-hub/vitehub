@@ -28,25 +28,29 @@ const removedDatabaseNames = new Map([
 ])
 const runScheduleNames = new Set(["runSchedule", "RunScheduleOptions"])
 
-function moves(envRoot: string): Move[] {
+/**
+ * `root("database")` is the import path of a primitive root that the docs use, `vite-hub/database`, when the app
+ * depends on `vite-hub`. An app with only the `@vite-hub/*` packages keeps `@vite-hub/database`.
+ */
+function moves(root: (name: string) => string): Move[] {
   return [
     { from: "vite-hub/database/drizzle", to: "vite-hub/database", removed: removedDatabaseNames },
-    { from: "@vite-hub/database/drizzle", to: "@vite-hub/database", removed: removedDatabaseNames },
+    { from: "@vite-hub/database/drizzle", to: root("database"), removed: removedDatabaseNames },
     { from: "vite-hub/email/server", to: "vite-hub/email" },
-    { from: "@vite-hub/email/server", to: "@vite-hub/email" },
+    { from: "@vite-hub/email/server", to: root("email") },
     {
       from: "#vitehub/env/server",
-      to: envRoot,
+      to: root("env"),
       removed: new Map([["manageServerEnv", "`manageServerEnv` is not part of the Env root. The Console serves the Env bridge."]]),
     },
     {
       from: "#vitehub/env/public",
-      to: envRoot,
+      to: root("env"),
       removed: new Map([["publicEnv", "`publicEnv` is not part of the Env root. Call `usePublicEnv()` instead."]]),
       serverOnly: true,
     },
     { from: "vite-hub/schedule/runtime", to: "vite-hub/schedule", names: runScheduleNames },
-    { from: "@vite-hub/schedule/runtime", to: "@vite-hub/schedule", names: runScheduleNames },
+    { from: "@vite-hub/schedule/runtime", to: root("schedule"), names: runScheduleNames },
   ]
 }
 
@@ -409,11 +413,13 @@ function splitImport(context: FileContext, statement: ImportDeclaration, move: M
   output.appendLeft(block.offset + end(statement), `\nimport ${typeOnly}{ ${names} } from ${quoteString(move.to, style)}${semicolon}`)
 }
 
-async function envRootFor(cwd: string): Promise<string> {
+async function rootFor(cwd: string): Promise<(name: string) => string> {
   const manifest = await readFile(join(cwd, "package.json"), "utf8").then(text => JSON.parse(text) as Record<string, unknown>, () => undefined)
   const dependencies = [manifest?.dependencies, manifest?.devDependencies, manifest?.peerDependencies]
     .flatMap(value => value && typeof value === "object" ? Object.keys(value) : [])
-  return !dependencies.includes("vite-hub") && dependencies.includes("@vite-hub/env") ? "@vite-hub/env" : "vite-hub/env"
+  const viteHub = dependencies.includes("vite-hub")
+  // `#vitehub/env/*` had no package name, so an app with neither package gets `vite-hub/env`, as before.
+  return name => viteHub || (name === "env" && !dependencies.includes("@vite-hub/env")) ? `vite-hub/${name}` : `@vite-hub/${name}`
 }
 
 async function packageImportsFollowUps(cwd: string): Promise<FollowUp[]> {
@@ -430,8 +436,7 @@ async function packageImportsFollowUps(cwd: string): Promise<FollowUp[]> {
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
-  const envRoot = await envRootFor(cwd)
-  const movesBySource = new Map(moves(envRoot).map(move => [move.from, move]))
+  const movesBySource = new Map(moves(await rootFor(cwd)).map(move => [move.from, move]))
   const needles = [...movesBySource.keys(), scheduleRegistry]
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
   const edits: FileEdit[] = []
@@ -478,7 +483,7 @@ export const rootAccessors: Codemod = {
   description: "Import db, schema, useDatabase, email, runSchedule, and the Env accessors from each primitive root",
   usage: "[dir]",
   async detect({ cwd }) {
-    const paths = moves("vite-hub/env")
+    const paths = moves(name => `vite-hub/${name}`)
     const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
     for (const file of files) {
       const source = await readFile(join(cwd, file), "utf8")

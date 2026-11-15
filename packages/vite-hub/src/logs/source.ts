@@ -71,6 +71,7 @@ export interface LogSource {
   query(query: LogQuery, options?: { signal?: AbortSignal }): Promise<LogPage>;
 }
 
+// Internal invariant: public error class. Log sources throw it, and the Console route maps it to a 409 with instanceof.
 export class LogCursorExpiredError extends Error {
   override name: string = "LogCursorExpiredError";
   constructor() {

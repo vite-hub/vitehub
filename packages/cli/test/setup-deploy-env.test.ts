@@ -74,20 +74,44 @@ describe("vitehub deploy checks Server Env", () => {
     expect((await vercel.calls()).map(call => call.argv.slice(0, 2))).toEqual([["env", "ls"]])
   })
 
-  it("deploys when the host has every required name, and warns once for a missing optional name", async () => {
+  it("refuses unsafe Cloudflare inheritance, then re-supplies the stage value and warns once for an optional name", async () => {
     const root = await project("cloudflare", [apiKey, sentry])
     const hosts = await fakeHosts(hostEnv.cloudflare)
     await seed(hosts.env, { secrets: { API_KEY: "x" } })
-    const result = await deploy([], root, hosts.env)
+    const unsafe = await deploy([], root, hosts.env)
+    expect(unsafe.exitCode).toBe(2)
+    expect(unsafe.json.error?.code).toBe("SETUP_DEPLOY_ENV_STAGE_UNSAFE")
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
 
+    const result = await deploy([], root, { ...hosts.env, API_KEY: canary })
     expect(result.exitCode, result.stderr).toBe(0)
-    expect(result.json.env).toEqual({ checked: ["API_KEY", "SENTRY_DSN"], missing: [{ names: ["SENTRY_DSN"], path: "env.server.sentryDsn", secret: false }], pushed: [], stage: "production" })
+    expect(result.json.env).toEqual({ checked: ["API_KEY", "SENTRY_DSN"], missing: [{ names: ["SENTRY_DSN"], path: "env.server.sentryDsn", secret: false }], pushed: ["API_KEY"], stage: "production" })
     expect(result.stderr.split("\n").filter(line => line.startsWith("Warning:"))).toEqual(["Warning: optional env not set on cloudflare: SENTRY_DSN (env.server.sentryDsn)."])
-    // Nothing to upload, so no secrets file.
-    expect((await hosts.calls()).map(call => call.argv)).toEqual([
-      ["secret", "list", "--format", "json", "--name", "my-app"],
-      ["deploy", "--config", "./server/wrangler.json", "--name", "my-app"],
-    ])
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
+  })
+
+  it("preserves production A across preview B and an ordinary production C", async () => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env.production": `API_KEY=${canary}\n`, ".env.preview": `API_KEY=${previewCanary}\n` } })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    expect((await deploy([], root, hosts.env)).exitCode).toBe(0)
+    expect(await hosts.state()).toMatchObject({ secrets: { API_KEY: canary }, uploadedSecrets: { API_KEY: canary } })
+    expect((await deploy(["--preview", "--push-env"], root, hosts.env)).exitCode).toBe(0)
+    expect(await hosts.state()).toMatchObject({ secrets: { API_KEY: canary }, uploadedSecrets: { API_KEY: previewCanary } })
+    const production = await deploy([], root, hosts.env)
+    expect(production.exitCode, production.stderr).toBe(0)
+    expect(await hosts.state()).toMatchObject({ secrets: { API_KEY: canary }, uploadedSecrets: { API_KEY: canary } })
+    expectNoLeak(await hosts.calls(), production.stdout + production.stderr, [canary, previewCanary])
+  })
+
+  it("refuses inheritance of undeclared and optional secrets", async () => {
+    for (const entries of [[sentry], [apiKey, sentry]]) {
+      const root = await project("cloudflare", entries)
+      const hosts = await fakeHosts(hostEnv.cloudflare)
+      await seed(hosts.env, { secrets: { UNDECLARED_TOKEN: canary } })
+      const result = await deploy(["--preview"], root, hosts.env)
+      expect(result.json.error?.code).toBe("SETUP_DEPLOY_ENV_STAGE_UNSAFE")
+      expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+    }
   })
 
   it("uploads local values to Cloudflare with the version in a JSON secrets file that is mode 600 and removed after", async () => {

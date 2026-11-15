@@ -152,6 +152,8 @@ describe("Sandbox runtime selection", () => {
     expect(cloudflare).not.toContain("@cloudflare/sandbox");
     expect(cloudflare).not.toContain("@vercel/sandbox");
     expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
+    // Sandbox Tasks reach the SDK through the same loader as `resolveSandbox()`.
+    expect(vercelEntry).not.toContain("@vercel/sandbox");
     expect(vercel).not.toContain("@cloudflare/sandbox");
   });
 });

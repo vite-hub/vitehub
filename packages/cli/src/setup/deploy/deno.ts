@@ -54,13 +54,14 @@ function dotenvLine(name: string, value: string): string {
  * The environment variables of the linked app. Deno Deploy CLI 0.0.9909 (`deno deploy env list --help`, `deno deploy env
  * load --help`, in test/fixtures/host-cli-help/). `env add` takes the value as an argument, so the value goes to
  * `env load /dev/stdin` as a dotenv line. `env load` sets a variable for every context, and Deno decides from the name
- * whether it is secret; `--non-secrets` keeps a plain value readable. ViteHub deploys Deno to production only.
+ * whether it is secret; names it cannot store as secrets are refused. `--non-secrets` keeps a plain value readable.
+ * ViteHub deploys Deno to production only.
  */
 export function denoEnv(context: HostEnvContext): HostEnv {
   const deno = hostCli("deno", "deno", context.root, context.env)
   const app = ["--org", denoOrganization(context.link, context.env), "--app", context.link.project.name]
   const run = (args: readonly string[], stdin?: string) =>
-    context.run(deno[0], [...deno.slice(1), "deploy", "env", ...args, "--json", "--non-interactive", ...app], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+    context.run(deno[0], [...deno.slice(1), "deploy", "env", ...args, "--json", "--non-interactive", ...app], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin, stdinAsFile: true }) })
 
   return {
     async listSecretNames() {
@@ -78,6 +79,9 @@ export function denoEnv(context: HostEnvContext): HostEnv {
     },
     async setSecret(name, value, { secret }) {
       if (process.platform === "win32") throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
+      // env load infers secrecy from the key; accept only known secret suffixes without a public prefix.
+      // Omitting --non-secrets cannot force a name such as DATABASE_URL to stay secret.
+      if (secret && (!/_(?:KEY|SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIALS|AUTH)$/u.test(name) || /^(?:PUBLIC|VITE|NEXT_PUBLIC|NUXT_PUBLIC|REACT_APP|EXPO_PUBLIC|GATSBY)_/u.test(name))) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "The Deno CLI cannot enforce secret storage for this name. Set it as a secret in Deno Deploy before continuing." }), setupExitCodes.conflict)
       const result = await run(["load", "/dev/stdin", "--replace", ...(secret ? [] : ["--non-secrets", name])], dotenvLine(name, value))
       if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
     },

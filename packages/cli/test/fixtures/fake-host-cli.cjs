@@ -25,7 +25,7 @@ function readStdin() {
 }
 
 const usesStdin = /secret put|env add|env load/u.test(argv.join(" "))
-const stdin = usesStdin ? readStdin() : ""
+const stdin = name === "deno" && argv[2] === "load" ? readFileSync(argv[3], "utf8") : usesStdin ? readStdin() : ""
 const config = name === "wrangler" ? flag("--config") : name === "vercel" && argv[0] === "deploy" ? ".vercel/output/functions/__server.func/.vc-config.json" : undefined
 const generated = config ? JSON.parse(readFileSync(resolve(config), "utf8")) : undefined
 // `--secrets-file` of `wrangler deploy` and `wrangler versions upload`: its mode and values while the run lasts.
@@ -49,12 +49,13 @@ if ((process.env.FAKE_HOST_FAIL ?? "").split(",").includes(step)) {
 function wrangler() {
   if (argv[0] === "secret" && argv[1] === "put") {
     state.secrets[argv[2]] = stdin
+    state.uploadedSecrets = { ...state.secrets }
     save()
     process.stdout.write(`Success! Uploaded secret ${argv[2]}\n`)
     return
   }
   if (argv[0] === "secret" && argv[1] === "list") {
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ name: key, type: "secret_text" }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ name: key, type: "secret_text" }))))
     return
   }
   if (argv[0] === "d1" && argv[1] === "migrations" && argv[2] === "apply") {
@@ -69,8 +70,9 @@ function wrangler() {
   if (argv.includes("--temporary")) {
     process.stderr.write("Temporary account ready:\n  Account: temp (created)\n  Claim within: 59 minutes\n  Claim URL: https://dash.cloudflare.com/claim/abc123\n")
   }
-  // Wrangler adds the file's secrets to the ones the Worker has, and deletes none.
-  Object.assign(state.secrets, secretsFile?.values ?? {})
+  // Inheritance uses the latest uploaded version, even if that version was never deployed.
+  state.uploadedSecrets = { ...(state.uploadedSecrets ?? state.secrets), ...secretsFile?.values }
+  if (!preview) state.secrets = { ...state.uploadedSecrets }
   state.deploys++
   save()
   const url = `https://${config.name}.example.workers.dev`
@@ -112,7 +114,7 @@ function vercel() {
 function netlify() {
   // `env:list --json` prints `{ KEY: value }` for one context. Tests write `state.netlify[context]` through the API fake.
   if (argv[0] === "env:list") {
-    process.stdout.write(JSON.stringify(state.netlify?.[flag("--context")] ?? {}))
+    process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(state.netlify?.[flag("--context")] ?? {}).filter(([key]) => flag("--scope") !== "functions" || (state.netlifyScopes?.[key] ?? ["functions"]).includes("functions")))))
     return
   }
   state.deploys++
@@ -153,7 +155,7 @@ function deno() {
       process.stderr.write(JSON.stringify({ error: { code: "NOT_FOUND", message: "app not found" } }))
       process.exit(4)
     }
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ key, isSecret: true, value: null }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ key, isSecret: true, value: null }))))
     return
   }
   if (argv[0] === "deploy" && argv[1] === "create") {

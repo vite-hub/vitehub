@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseProgram } from "@vite-hub/internal/ast"
 import { describe, expect, it } from "vitest"
 
 import { formatReport, runCodemod } from "../src/index.ts"
@@ -16,6 +17,7 @@ describe("runtime-contracts", () => {
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
       await expect(edit.after).toMatchFileSnapshot(join(fixture, "output", edit.path))
+      expect(() => parseProgram(edit.after, { typescript: true })).not.toThrow()
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixture, "output", "report.txt"))
   })
