@@ -124,6 +124,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
     const config = runtimeConfig.public?.vitehubAuth
     const redirects = (config || undefined)?.redirects ?? {}
+    const routeModes = new WeakMap<RouteLike, "user" | "guest">()
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
     const guardOf = (to: RouteLike, meta = to.meta.auth) => {
       if (config === false || meta === undefined || meta === false) return
@@ -144,7 +145,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         // Nuxt throws for a URL on another site without `external`.
         if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
         // The guard runs only when the route changes, so do its work for the page on screen.
-        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false)
+        const route = (useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value
+        return guardOf(route, route.meta.auth ?? routeModes.get(route))?.(false)
       }))
     }
     if (config === false) return
@@ -206,7 +208,12 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth), { global: true })
     // `definePageMeta({ auth })` wins over the named guards attached by `vitehub.auth.routes`.
     for (const mode of ["user", "guest"] as const) {
-      addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => to.meta.auth === undefined ? guard(to, mode) : undefined)
+      addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => {
+        if (to.meta.auth !== undefined) return
+        // Keep the policy on this route, so an aborted navigation cannot replace the page's sign-out guard.
+        routeModes.set(to, mode)
+        return guard(to, mode)
+      })
     }
     // `useAuthClient()` finds the shared default client here, also outside a component.
     return { provide: { vitehubAuthClient: authClient } }

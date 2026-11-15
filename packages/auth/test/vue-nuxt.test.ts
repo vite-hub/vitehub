@@ -434,6 +434,19 @@ describe("signOut() in Nuxt", () => {
     expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith("/goodbye", { external: false })
   })
 
+  it("rechecks a route-map guard on sign-out even after an aborted navigation", async () => {
+    const route: Route = { path: "/dashboard", fullPath: "/dashboard?tab=settings", meta: {} }
+    await openInBrowser(route)
+    await mocks.named["vitehub-auth-user"]?.(route)
+    // Another middleware aborts navigation to a guest page, leaving the dashboard on screen.
+    await mocks.named["vitehub-auth-guest"]?.({ path: "/login", fullPath: "/login", meta: {} })
+    mocks.navigateTo.mockClear()
+
+    await useUserSession(createAuthClient()).signOut()
+
+    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/login", query: { redirect: "/dashboard?tab=settings" } })
+  })
+
   it.each([
     ["a page without a guard", { path: "/blog", fullPath: "/blog", meta: {} }],
     ["a page for guests", { path: "/login", fullPath: "/login", meta: { auth: "guest" as const } }],
