@@ -103,6 +103,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   kv: "data",
   cache: "data",
   blob: "data",
+  connections: "platform",
   content: "data",
   comments: "data",
   forms: "data",
@@ -337,6 +338,7 @@ export function resolveConsoleSectionIds(options: {
   blob?: unknown;
   cache?: unknown;
   comments?: unknown;
+  connections?: unknown;
   database?: unknown;
   email?: unknown;
   host?: unknown;
@@ -361,6 +363,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.blob ? ["blob"] : []),
     // Without the option, `server/comments.ts` turns the section on through discovery.
     ...(options.comments ? ["comments"] : []),
+    ...(options.connections ? ["connections"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),
