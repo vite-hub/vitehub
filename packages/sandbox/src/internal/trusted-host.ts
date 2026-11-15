@@ -600,7 +600,7 @@ async function createTrustedHostSession(options: {
       runOptions.abortSignal?.throwIfAborted();
       // No await may separate this fence from launch and process registration.
       // Teardown either owns the registered child or prevents its launch.
-      if (closing) throw new Error("Trusted host Sandbox session is closing.");
+      if (closing) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_CLOSING();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
@@ -651,6 +651,7 @@ async function createTrustedHostSession(options: {
         if (timeout) clearTimeout(timeout);
       }
       if (timedOut)
+        // Internal invariant: the operating system did not end processes after SIGKILL. No app setting changes it.
         throw new Error("Timed out waiting for trusted-host processes to exit after SIGKILL.");
       processes.clear();
       processGroups.clear();
