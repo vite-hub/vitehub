@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DocsAppPage, DocsSidebarGroup } from "@vite-hub/docs"
 
-import { docsCatalog, docsHasRail, docsPanelGroupWindow, docsPanelOf, docsPanelSidebarGroups, docsRelatedSections, docsSectionHome, docsSectionPanels, docsSidebarGroup, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsHasRail, docsPanelGroupWindow, docsPanelWindow, docsPanelOf, docsPanelSidebarGroups, docsRelatedSections, docsSectionHome, docsSectionPanels, docsSidebarGroup, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -56,11 +56,16 @@ function holdsCurrent(pageGroup: DocsSidebarGroup<DocsAppPage>) {
 // A panel group renders its links only when the reader opens it, and the group of the current page renders the pages
 // around it, so a page of a thousand-code panel does not carry every code. The panel Overview lists them all.
 const shownGroups = ref(new Set<string>())
+// Keyed by panel too, so a group the reader showed in one panel does not show the group of the same name in another.
 function groupKey(pageGroup: DocsSidebarGroup<DocsAppPage>) {
-  return pageGroup.label || "pages"
+  return `${panel.value?.id}:${pageGroup.label || ""}`
 }
+// A folded group renders the window of the current page, or nothing while it is shut. A group that does not fold is
+// always open, so without the current page it renders its first pages.
 function panelLinks(pageGroup: DocsSidebarGroup<DocsAppPage>) {
-  return shownGroups.value.has(groupKey(pageGroup)) ? pageGroup.pages : docsPanelGroupWindow(pageGroup.pages, currentPath.value)
+  if (shownGroups.value.has(groupKey(pageGroup))) return pageGroup.pages
+  if (pageGroup.fold || holdsCurrent(pageGroup)) return docsPanelGroupWindow(pageGroup.pages, currentPath.value)
+  return pageGroup.pages.slice(0, docsPanelWindow)
 }
 function showGroup(pageGroup: DocsSidebarGroup<DocsAppPage>) {
   shownGroups.value = new Set([...shownGroups.value, groupKey(pageGroup)])
@@ -125,7 +130,7 @@ function toggleGroup(pageGroup: DocsSidebarGroup<DocsAppPage>, event: Event) {
       <section v-else class="vh-docs-sidebar-page-group">
         <h2 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
-          v-for="page in pageGroup.pages"
+          v-for="page in panelLinks(pageGroup)"
           :key="page.path"
           :to="page.path"
           data-focus-inset
@@ -134,6 +139,15 @@ function toggleGroup(pageGroup: DocsSidebarGroup<DocsAppPage>, event: Event) {
         >
           <span :class="['min-w-0', { 'vh-docs-sidebar-code': isCode(page.title) }]" :title="isCode(page.title) ? page.title : undefined">{{ page.title }}</span>
         </NuxtLink>
+        <button
+          v-if="panelLinks(pageGroup).length < pageGroup.pages.length"
+          type="button"
+          data-focus-inset
+          :class="['vh-docs-sidebar-link vh-docs-sidebar-show-all', { 'is-grouped': pageGroup.label }]"
+          @click="showGroup(pageGroup)"
+        >
+          Show all {{ pageGroup.pages.length }}
+        </button>
       </section>
     </template>
   </nav>
