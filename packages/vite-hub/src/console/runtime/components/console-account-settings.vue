@@ -5,8 +5,9 @@ import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkConsoleGitHub, loadConsoleSignInState, renameConsoleAccount } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import ConsoleAccountApiKeys from "./console-account-api-keys.vue";
 
-/** The account settings of an `account` Console: the name, GitHub sign-in, and passkeys. */
+/** The account settings of an `account` Console: the name, GitHub sign-in, passkeys, and API keys. */
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -106,7 +107,7 @@ function added(value: string | undefined): string {
 
 <template>
   <div class="grid max-w-2xl gap-10">
-    <p class="text-sm text-pretty text-muted">Your name and the ways you sign in. They are the same in every team.</p>
+    <p class="text-sm text-pretty text-muted">Your name, the ways you sign in, and your API keys.</p>
 
     <section class="grid gap-3" aria-labelledby="vitehub-settings-name">
       <h2 id="vitehub-settings-name" class="text-sm font-semibold text-highlighted">Name</h2>
@@ -178,5 +179,7 @@ function added(value: string | undefined): string {
         <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load()" />
       </div>
     </section>
+
+    <ConsoleAccountApiKeys />
   </div>
 </template>

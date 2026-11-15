@@ -29,6 +29,20 @@ Sign-in uses Better Auth with `authDatabase()`, `organization()`, and `passkey()
 
 The server keeps at least one passkey or linked GitHub account when a sign-in method is removed, including concurrent requests from other tabs. Apply the database migrations on each host: they enforce this rule in the same statement as the deletion.
 
+## CLI sign-in and API keys
+
+`vitehub login` signs the CLI in with the device flow of RFC 8628. Better Auth's `deviceAuthorization()` keeps the codes in the `device_code` table, and `consoleCliDeviceFlow()` in `src/device.ts` adds the Console's own steps:
+
+1. The CLI posts `client_id=vitehub-cli` and the machine name to `POST /api/auth/device/code`. Other client ids get `invalid_client`.
+2. The person opens `/device`, signs in, checks the machine name and the code, and picks a team. **Approve** calls `POST /api/auth/cli/approve`; **Deny** calls `POST /api/auth/device/deny`. Only the person who opened the code can approve it.
+3. The CLI polls `POST /api/auth/cli/token`. It answers `authorization_pending`, `slow_down` when the CLI polls faster than every 5 seconds, `access_denied`, or `expired_token` after 15 minutes. After approval it answers an API key for the team, valid for 90 days, once.
+
+Better Auth's own `/device/approve` and `/device/token` are off, so the device flow never gives the CLI a session. Better Auth's limiter counts `/device/code` (10 a minute) and `/cli/token` (30 a minute) for each address in the `rate_limit` table.
+
+An API key starts with `vhk_`. `console_api_keys` keeps its SHA-256 hash and its first 8 characters, never the key. A key acts as the person in one team with their current role there, and stops working when it expires, when it is revoked, or when the person leaves the team. A key can name projects of the team: it then lists and opens only those, and links or unlinks none. People make, list, and revoke keys in **Account settings** > **API keys**; the Console shows a new key once.
+
+Requests send the key as `Authorization: Bearer vhk_...`. The `/api/projects` routes and the forward accept it in place of a session.
+
 ## ViteHub MCP
 
 The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in on an address that answers without a token, so docs and account tools need two.
@@ -77,7 +91,7 @@ A call through the link comes from the Console's server to its own public URL, s
 
 ## Routes
 
-The `/api/projects` routes and the forward need a session. They act on the session's active team, and a person who is not a member gets `403`.
+The `/api/projects` routes and the forward need a session or an API key. They act on the session's active team, and a person who is not a member gets `403`.
 
 | Route | Use |
 | --- | --- |
@@ -90,6 +104,10 @@ The `/api/projects` routes and the forward need a session. They act on the sessi
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |
 | `GET /oauth` | The sign-in and consent page of MCP clients. It needs no session. |
 | `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
+| `GET /api/whoami` | With an API key: the person, the team, the roles, the projects of the key, and its expiry. `vitehub whoami` calls it. |
+| `GET /api/api-keys`, `POST /api/api-keys` | With a session: list the person's API keys, or make one with `{ "name": "CI", "teamId": "<team>", "projectIds": ["<project>"], "days": 90 }`. Only `name` is required. The answer of `POST` holds the key once, in `key`. |
+| `DELETE /api/api-keys/<id>` | With a session, revoke one of the person's keys. With an API key, `DELETE /api/api-keys/current` revokes that key, as `vitehub logout` does. |
+| `GET /device` | The page where a person approves `vitehub login`. It needs no session to open. |
 | `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
 
 Other paths answer with the Console page, built by `pnpm --filter vite-hub build:console-account`. Build it before the app.

@@ -238,6 +238,34 @@ export async function renameConsoleAccount(name: string): Promise<void> {
   if (error) throw failure(error, "The name was not saved.")
 }
 
+/** An API key of the signed-in person, as `GET /api/api-keys` lists it. It never holds the key. */
+export interface ConsoleApiKey {
+  id: string
+  name: string
+  /** The prefix and the first characters of the key, such as `vhk_Ab3x`. */
+  start: string
+  team: { id: string, name: string }
+  /** The projects that the key may open, or `null` for every project of the team. */
+  projectIds: string[] | null
+  createdAt: number
+  expiresAt: number
+  lastUsedAt: number | null
+}
+
+export async function listConsoleApiKeys(): Promise<ConsoleApiKey[]> {
+  return (await json<{ apiKeys: ConsoleApiKey[] }>("/api/api-keys")).apiKeys
+}
+
+/** Make an API key in the active team. The answer holds the key once: show it, then forget it. */
+export async function createConsoleApiKey(input: { name: string, projectIds?: string[], days: number }): Promise<{ apiKey: ConsoleApiKey, key: string }> {
+  return await json<{ apiKey: ConsoleApiKey, key: string }>("/api/api-keys", { body: JSON.stringify(input), method: "POST" })
+}
+
+export async function revokeConsoleApiKey(id: string): Promise<void> {
+  const response = await fetch(`/api/api-keys/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
+}
+
 /**
  * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
  * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
