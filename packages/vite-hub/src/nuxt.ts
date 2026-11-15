@@ -1113,7 +1113,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     access: consoleAccess,
     runtimeCapabilityImports,
     development: nuxt.options.dev === true,
-    pageTool: { base: nuxt.options.app?.baseURL || "/" },
+    ...(consoleOptions?.pill === false ? {} : { pageTool: { base: nuxt.options.app?.baseURL || "/" } }),
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -1538,7 +1538,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
-  if (isPackageInstalled("@vite-hub/forms") && isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction", "useFormSubmit"])
+  if (isPackageInstalled("@vite-hub/forms")) {
+    addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
+    if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
+  }
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
