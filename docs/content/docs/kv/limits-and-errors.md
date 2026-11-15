@@ -42,7 +42,6 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
-| `KV_INVALID_OPTION` | `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
 | `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
@@ -74,10 +73,6 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 ### KV_INVALID_LIMIT
 
 `kv.list()` needs `limit` as a positive integer.
-
-### KV_INVALID_OPTION
-
-`kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()` accept only `ttl` in their write options. Remove other options. Replace `expirationTtl` or `expiration` with `{ ttl: seconds }`, or omit options to keep the value without expiry. Store metadata in the value.
 
 ### KV_INVALID_TTL
 
