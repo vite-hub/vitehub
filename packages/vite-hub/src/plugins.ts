@@ -20,6 +20,7 @@ import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-pla
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -30,11 +31,13 @@ import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPacka
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
+import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
+import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
@@ -789,7 +792,8 @@ function deploymentNitroModule(
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
       if (plan.host === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
       if (plan.output.packaging === "deno-node-modules") {
-        if (!serverPackages) throw viteHubErrorDiagnostics.VITE_HUB_B0017({ message: "[vitehub] The Deno server bundle did not report its runtime packages." })
+        // Internal invariant: denoServerPackagesPlugin() above sets serverPackages when the Deno server bundle is written.
+        if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       const registry = envPlugin()?.api.getServerEnvRegistry()
@@ -1113,6 +1117,12 @@ function deploymentPlugins(
         }),
       },
       config(config) {
+        // Nuxt replays config for separate Nitro builds without running Vite configResolved.
+        if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+          // Widen first: flattening Vite's recursive PluginOption type is too deep for TypeScript.
+          const plugins: readonly unknown[] | undefined = config.plugins
+          resolvedPlugins = plugins?.flat(Infinity)
+        }
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
         if (plan.host !== "cloudflare") return
@@ -1224,6 +1234,28 @@ function normalizePublicUrl(value: string): string {
 }
 
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
+
+/**
+ * Fails when the app defines Agents under `server/agents/` but leaves `agent` unset. Without the option, ViteHub
+ * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent.
+ */
+function agentOptionMissingPlugin(): Plugin {
+  return {
+    name: "vite-hub/agent-option-missing",
+    configResolved(config) {
+      // An app can add hubAgent() itself.
+      if (config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      const root = resolveViteHubProjectRoot(config.root)
+      // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
+      const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]
+      const definition = serverDirs.flatMap(directory => listSourceFiles(resolve(root, directory, "agents")))[0]
+      if (!definition) return
+      throw viteHubErrorDiagnostics.VITE_HUB_AGENT_OPTION_MISSING({
+        message: `[vitehub] ${relative(root, definition)} defines an Agent, but the \`agent\` option is not set, so the app has no Agent routes or Agent State.`,
+      })
+    },
+  }
+}
 
 function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: boolean): Plugin & ViteHubCliContributingPlugin {
   return {
@@ -1396,8 +1428,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
+  if (options.agent === undefined) plugins.push(agentOptionMissingPlugin())
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
+  plugins.push(vitestInlinePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
@@ -1674,6 +1708,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
+      databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
@@ -1766,5 +1801,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  */
 export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertNoRemovedViteHubOptions(options, "`vitehub()`")
-  return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
+  // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
+  return withCmsPresetPlugins(withComments(options), resolved => withPrintedDiagnostics(createViteHubPlugins(resolved)))
 }

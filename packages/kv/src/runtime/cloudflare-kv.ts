@@ -86,7 +86,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
   const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
   driver.setItems = async (items, commonOptions) => {
-    for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...commonOptions, ...item.options })
+    for (const item of items) assertCloudflareKVWrite(item.key, item.value)
     await setItemsOneByOneWithLimits(items, commonOptions)
   }
   // Continuation state is keyed by the cursor that carries it. Consuming the
@@ -108,6 +108,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     }
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
+    // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
     if (disposed) throw new Error("KV storage has been disposed.")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
@@ -124,6 +125,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
+        // Internal invariant: a store is disposed only when Nitro closes. kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(page.cursor!)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })

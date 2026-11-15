@@ -135,6 +135,25 @@ export function getStandardContext(value: Request | ViteHubContext): ViteHubStan
   throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The value is not a Request and has no `~standard`. Pass the Request of a Fetchable handler or the event of a route in a ViteHub app." })
 }
 
+/**
+ * Adds the prepared response of a plain Fetch host to the Response that a ViteHub route returns, as H3 adds it in a
+ * ViteHub app: `set-cookie` values join the ones of the Response, and other headers replace them. The headers move,
+ * so a host that also copies `res.headers` does not send them twice. With another vendor, such as H3, the host adds
+ * the prepared response, and `response` comes back as it is.
+ */
+export function sendPreparedResponse(request: Request, response: Response): Response {
+  const standard = getStandardContext(request)
+  const prepared = standard.res.headers
+  if (standard.vendor !== "fetch" || !prepared || prepared.keys().next().done) return response
+  const headers = new Headers(response.headers)
+  for (const [name, value] of prepared) {
+    if (name === "set-cookie") headers.append(name, value)
+    else headers.set(name, value)
+  }
+  for (const name of Array.from(prepared.keys())) prepared.delete(name)
+  return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
+}
+
 function detectRuntime(cloudflare: boolean): RuntimeName {
   if (cloudflare) return "cloudflare-agents"
   if ("Deno" in globalThis) return "deno"

@@ -37,7 +37,7 @@ import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } 
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
-import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
+import { consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
 // their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
@@ -83,7 +83,15 @@ if (account) {
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
   // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
   if (projects.gate.value.kind === "opening") {
-    await Promise.race([openConsoleProject().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 2_500))]);
+    const opening = openConsoleProject().catch(() => undefined);
+    // While the app answers, the code of its first frame loads: the team menu and the app switcher of the rail, and the
+    // Overview on the home path. The timer lets the request to the app go out first.
+    setTimeout(() => {
+      void import("../components/console-account-menu.vue").catch(() => undefined);
+      void import("../components/console-account-link.vue").catch(() => undefined);
+      if (window.location.pathname === consoleBase) void ConsoleHome().catch(() => undefined);
+    });
+    await Promise.race([opening, new Promise(resolve => setTimeout(resolve, 2_500))]);
   }
   // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
   watch(() => projects.gate.value.kind, (kind) => {
@@ -110,7 +118,7 @@ else {
     storage: memoryProjectStorage(),
   });
 }
-const sectionsBase = "/_vitehub/api/sections";
+const sectionsBase = consoleSectionsPath;
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 
 const router = createRouter({

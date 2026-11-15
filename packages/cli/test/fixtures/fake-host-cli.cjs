@@ -25,7 +25,7 @@ function readStdin() {
 }
 
 const usesStdin = /secret put|env add|env load/u.test(argv.join(" "))
-const stdin = usesStdin ? readStdin() : ""
+const stdin = name === "deno" && argv[2] === "load" ? readFileSync(argv[3], "utf8") : usesStdin ? readStdin() : ""
 const config = name === "wrangler" ? flag("--config") : name === "vercel" && argv[0] === "deploy" ? ".vercel/output/functions/__server.func/.vc-config.json" : undefined
 const generated = config ? JSON.parse(readFileSync(resolve(config), "utf8")) : undefined
 appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin, generated, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
@@ -105,7 +105,7 @@ function vercel() {
 function netlify() {
   // `env:list --json` prints `{ KEY: value }` for one context. Tests write `state.netlify[context]` through the API fake.
   if (argv[0] === "env:list") {
-    process.stdout.write(JSON.stringify(state.netlify?.[flag("--context")] ?? {}))
+    process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(state.netlify?.[flag("--context")] ?? {}).filter(([key]) => flag("--scope") !== "functions" || (state.netlifyScopes?.[key] ?? ["functions"]).includes("functions")))))
     return
   }
   state.deploys++

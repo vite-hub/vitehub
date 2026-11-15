@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
+import { mkdtemp, open, rm, unlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { delimiter } from "node:path"
 import process from "node:process"
 
@@ -32,6 +34,8 @@ export interface DeployRunOptions {
   env: NodeJS.ProcessEnv
   /** Written to the child's stdin, then stdin closes. Secrets go here, never in `args`. */
   stdin?: string
+  /** Use an unlinked regular file for CLIs that reopen /dev/stdin by filename (Unix only). */
+  stdinAsFile?: boolean
   /** Copies the child's output, line by line and redacted, to the CLI's stderr. */
   show?: boolean
   /** Stops the child after this many milliseconds. Its result then has a `null` exit code. */
@@ -153,35 +157,63 @@ export function redact(text: string, secrets: readonly string[]): string {
  * value split across two chunks is still found.
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
-  return (command, args, options) => new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
-    const output = { stderr: "", stdout: "" }
-    const pending = { stderr: "", stdout: "" }
-    const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
-      if (!options.show) return
-      pending[stream] += chunk
-      const end = flush ? pending[stream].length : pending[stream].lastIndexOf("\n") + 1
-      if (end === 0) return
-      stderr.write(redact(pending[stream].slice(0, end), secrets))
-      pending[stream] = pending[stream].slice(end)
+  return async (command, args, options) => {
+    if (options.stdinAsFile) {
+      const directory = await mkdtemp(join(tmpdir(), "vitehub-env-"))
+      try {
+        const path = join(directory, "stdin")
+        const file = await open(path, "wx+", 0o600)
+        try {
+          // Unlink before writing: secret bytes never have a reachable filename.
+          await unlink(path)
+          const input = Buffer.from(options.stdin ?? "", "utf8")
+          let offset = 0
+          while (offset < input.length) {
+            const { bytesWritten } = await file.write(input, offset, input.length - offset, offset)
+            offset += bytesWritten
+          }
+          return await run(file.fd)
+        }
+        finally { await file.close() }
+      }
+      finally { await rm(directory, { recursive: true, force: true }) }
     }
-    for (const stream of ["stdout", "stderr"] as const) {
-      child[stream].setEncoding("utf8")
-      child[stream].on("data", (chunk: string) => {
-        output[stream] += chunk
-        show(stream, chunk)
+    return await run()
+
+    function run(stdinFd?: number): Promise<DeployRunResult> {
+      return new Promise((resolve, reject) => {
+        const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: [stdinFd ?? "pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
+        const output = { stderr: "", stdout: "" }
+        const pending = { stderr: "", stdout: "" }
+        const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
+          if (!options.show) return
+          pending[stream] += chunk
+          const end = flush ? pending[stream].length : pending[stream].lastIndexOf("\n") + 1
+          if (end === 0) return
+          stderr.write(redact(pending[stream].slice(0, end), secrets))
+          pending[stream] = pending[stream].slice(end)
+        }
+        for (const stream of ["stdout", "stderr"] as const) {
+          const outputStream = child[stream]
+          if (!outputStream) continue
+          outputStream.setEncoding("utf8")
+          outputStream.on("data", (chunk: string) => {
+            output[stream] += chunk
+            show(stream, chunk)
+          })
+        }
+        child.on("error", reject)
+        child.on("close", (exitCode) => {
+          show("stdout", "", true)
+          show("stderr", "", true)
+          resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
+        })
+        // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
+        child.stdin?.on("error", () => {})
+        child.stdin?.end(options.stdin ?? "")
       })
     }
-    child.on("error", reject)
-    child.on("close", (exitCode) => {
-      show("stdout", "", true)
-      show("stderr", "", true)
-      resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
-    })
-    // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
-    child.stdin.on("error", () => {})
-    child.stdin.end(options.stdin ?? "")
-  })
+  }
 }
 
 /** Resolve npm/pnpm Windows shims to Node entrypoints without evaluating any batch or shell syntax. */

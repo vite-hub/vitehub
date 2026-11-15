@@ -74,6 +74,11 @@ export interface ConsoleOptions {
    */
   sections?: Readonly<Record<string, false>>
   /**
+   * `false` leaves the **Console** link out of the page tools pill. Then HTML pages get no page tools script, unless
+   * another page tool, such as Comments, is on. Site access needs the pill, so the Console has no Site access section.
+   */
+  pill?: false
+  /**
    * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
    * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`.
    */
@@ -131,11 +136,15 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
   }
+  const pill: unknown = Reflect.get(value, "pill")
+  if (pill !== undefined && pill !== false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.pill must be false, to leave the Console link out of the page tools pill, or left out." })
+  }
   const sections: unknown = Reflect.get(value, "sections")
   if (sections !== undefined && (!(sections instanceof Object) || Array.isArray(sections) || Object.values(sections).some(entry => entry !== false))) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.sections maps a section id to false, such as { content: false }." })
   }
-  // SAFETY: `auth`, `impersonation`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
+  // SAFETY: `auth`, `impersonation`, `pill`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
@@ -315,7 +324,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
-      ...(options.rpcOnly ? {} : { pageTool: { base: applicationBase } }),
+      ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
     }
   }
 
