@@ -494,6 +494,14 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       ].join("\n"))
     },
   },
+  "rotate-key": {
+    description: "Re-encrypt stored tokens with the current key of VITEHUB_CONNECTIONS_KEYS.",
+    usage: "vitehub connections rotate-key [--url <app>] [--json]",
+    async run(parsed, context, options) {
+      const { rotation } = await request(parsed, options, { action: "rotate-key" }, v.object({ rotation: v.object({ rotated: v.number(), skipped: v.number() }) }))
+      write(context, parsed, rotation, () => `Re-encrypted ${rotation.rotated} stored ${rotation.rotated === 1 ? "value" : "values"} with the current key. ${rotation.skipped} already used it. When the deployed app runs without errors, remove the previous key from VITEHUB_CONNECTIONS_KEYS.`)
+    },
+  },
   revoke: {
     description: "Revoke the provider grant and delete the stored token.",
     usage: "vitehub connections revoke <name> --confirm <name> [--url <app>] [--json]",

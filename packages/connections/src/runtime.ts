@@ -22,6 +22,7 @@ import { callerActor, callerInheritedActors, decide, decisionActor, envActor } f
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
+import type { EnvStoreRotation } from "@vite-hub/env/database"
 import type { ConnectionState, ConnectionStore } from "./store.ts"
 import type {
   ConnectionAccount,
@@ -153,6 +154,12 @@ export interface ConnectionsRuntime {
   inspect: (name: string) => Promise<ConnectionInspection>
   list: () => Promise<ConnectionInspection[]>
   revoke: (input: { actor: string, name: string }) => Promise<ConnectionInspection>
+  /**
+   * Re-encrypt every stored token with the current key, the first of `VITEHUB_CONNECTIONS_KEYS`. Run it after you add
+   * a new current key, then remove the previous key. A token that a refresh replaces during the rotation keeps the
+   * refresh.
+   */
+  rotateKey: () => Promise<EnvStoreRotation>
   /** Store the key of an API key Connection. The provider `verify` check runs first. */
   setKey: (input: { actor: string, key: string, name: string }) => Promise<ConnectionInspection>
 }
@@ -1489,6 +1496,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     inspect,
     list,
     revoke,
+    async rotateKey() {
+      const store = await getStore()
+      if (!store.rotate) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "rotation" })
+      return await store.rotate()
+    },
     setKey,
   }
   registerChatGPTCredentialUse(runtime, useChatGPT)
