@@ -147,6 +147,7 @@ describe("Console section groups", () => {
     expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Site", "Data", "Users", "AI", "Runtime", "More"])
     expect(resolveConsoleSectionGroup("usage")).toBe("ai")
     expect(resolveConsoleSectionGroup("schedules")).toBe("runtime")
+    expect(resolveConsoleSectionGroup("connections")).toBe("runtime")
     expect(resolveConsoleSectionGroup("custom-tool")).toBe("more")
     expect(resolveConsoleSectionGroup("constructor")).toBe("more")
   })
