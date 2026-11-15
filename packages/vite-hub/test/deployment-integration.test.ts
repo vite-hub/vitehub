@@ -474,6 +474,56 @@ describe("built-in host integration", () => {
     }
   }, 30_000)
 
+  it("writes Server Env names, never values, to deployment.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-names-build-"))
+    const canary = "canary-value-5d81e2"
+    const previous = process.env.VENDOR_TOKEN
+    process.env.VENDOR_TOKEN = canary
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await mkdir(join(root, "server", "env"), { recursive: true })
+      await writeFile(join(root, "server", "env", "credentials.ts"), "export default { read: () => ({}) }\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "node",
+          blob: false,
+          queue: false,
+          rateLimit: false,
+          env: {
+            server: {
+              token: env({ secret: true, source: env.source(["VENDOR_TOKEN", "LEGACY_TOKEN"]) }),
+              region: env({ default: canary }),
+              direct: env({ optional: true, source: env.source("DIRECT_URL", { canonical: false }) }),
+              vault: env({ secret: true, source: env.provider("credentials", "github/token") }),
+            },
+            providers: { credentials: "./server/env/credentials.ts" },
+          },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
+      expect(JSON.parse(text).env).toEqual([
+        { path: "env.server.token", names: ["VITEHUB_TOKEN", "VENDOR_TOKEN", "LEGACY_TOKEN"], required: true, secret: true, hasDefault: false },
+        { path: "env.server.region", names: ["VITEHUB_REGION", "REGION"], required: true, secret: false, hasDefault: true },
+        { path: "env.server.direct", names: ["DIRECT_URL"], required: false, secret: false, hasDefault: false },
+      ])
+      expect(text).not.toContain(canary)
+      expect(text).not.toContain("github/token")
+    }
+    finally {
+      if (previous === undefined) delete process.env.VENDOR_TOKEN
+      else process.env.VENDOR_TOKEN = previous
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 30_000)
+
   it("keeps one Wrangler entry per binding when the project's wrangler.json repeats generated ones", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-project-wrangler-build-"))
     try {
