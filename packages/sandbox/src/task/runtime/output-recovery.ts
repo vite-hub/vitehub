@@ -2,7 +2,7 @@ import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages }
 import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
-import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
+import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script.injected'
 
 import type { TaskSandbox } from './task-sandbox'
 

@@ -251,6 +251,6 @@ The queue file and route stay the same. To move to Cloudflare Queues:
 1. Change `host: 'vercel'` to `host: 'cloudflare'`.
 2. Remove `idempotencyKey`, `region`, and `retentionSeconds` from `sendQueue()` calls.
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
-4. Create the queues with `vitehub provision run --provider cloudflare`.
+4. Create the queues with `vitehub provision run --host cloudflare`.
 
 See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

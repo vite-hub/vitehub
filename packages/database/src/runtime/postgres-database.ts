@@ -4,6 +4,7 @@ import { withReplicas } from "drizzle-orm/pg-core/async/db"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { postgresConnectionUrl } from "./postgres-connection.ts"
 import { readPostgresEnvKey } from "./postgres-env.ts"
 import { keepOwnClient } from "./request-stats.ts"
 
@@ -99,6 +100,13 @@ export function createDriverPostgresDatabase<TSchema extends Record<string, unkn
     return (definition.connection?.replicas ?? []).map(replica => resolveConfigValue(replica)?.trim()).filter((url): url is string => !!url)
   }
 
+  function missingConnection(requestScoped: boolean) {
+    const needs = requestScoped
+      ? `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\``
+      : `the Cloudflare Hyperdrive binding "${bindingName}", \`connection.url\`, or PG* environment variables such as \`PGHOST\``
+    return databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs })
+  }
+
   function resolveConnection(requestScoped: boolean): PostgresConnection | undefined {
     const hyperdriveUrl = readHyperdriveConnectionString(getActiveCloudflareBinding<unknown>(bindingName))
     if (hyperdriveUrl) {
@@ -133,10 +141,7 @@ export function createDriverPostgresDatabase<TSchema extends Record<string, unkn
     const connection = resolveConnection(Boolean(scope))
     if (!connection) {
       if (local) return local.get()
-      const needs = scope
-        ? `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\``
-        : `the Cloudflare Hyperdrive binding "${bindingName}", \`connection.url\`, or PG* environment variables such as \`PGHOST\``
-      throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs })
+      throw missingConnection(Boolean(scope))
     }
     if (scope) {
       const cached = requestInstances.get(scope)
@@ -157,6 +162,12 @@ export function createDriverPostgresDatabase<TSchema extends Record<string, unkn
   // SAFETY: Every property read forwards to the Drizzle database for the active request or process.
   return new Proxy({} as RuntimePostgresDatabase<TSchema, TRelations>, {
     get(_, property) {
+      // Other packages that open their own Postgres client read the same connection, such as OpenWorkflow.
+      if (property === postgresConnectionUrl) return () => {
+        const connection = resolveConnection(false)
+        if (!connection) throw missingConnection(false)
+        return connection.url
+      }
       // The database is not a promise. `await` reads `then`, which must not open a client.
       if (property === "then") return
       const instance = getDb()

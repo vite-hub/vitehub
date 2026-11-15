@@ -176,7 +176,7 @@ export default defineConfig({
 :::
 ::
 
-To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ event, request, session, user }` and returns `true`, `false`, or a `Response`. `event` is the H3 event of the serve route, so the callback can pass it to your own server functions, such as a lookup that caches on `event.context`.
 
 ```ts [server/blob.ts]
 import type { BlobServeAuthorize } from 'vite-hub/blob'
@@ -372,7 +372,7 @@ export default defineConfig({
 :::
 ::
 
-Use `serve.headers` for cache and security headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata.
+Use `serve.headers` for cache, security, and CORS headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata. A `400`, `404`, or `405` gets only the `Access-Control-` headers.
 
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`:
 

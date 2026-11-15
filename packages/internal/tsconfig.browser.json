@@ -5,6 +5,6 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": []
   },
-  "include": ["src/runtime/page-pill.ts", "src/runtime/page-tools-loader.ts"],
+  "include": ["src/runtime/page-account.ts", "src/runtime/page-pill.ts", "src/runtime/page-tools-loader.ts"],
   "exclude": ["dist", "node_modules"]
 }
