@@ -1,6 +1,6 @@
 ---
 description: "Fix AGENT_UI_PATCH_INVALID in ViteHub. A JSON patch line of the model's answer cannot build the Agent UI spec. Send the diagnostic back to the model."
-seo.title: "AGENT_UI_PATCH_INVALID: a patch cannot build the spec"
+seo.title: "AGENT_UI_PATCH_INVALID: invalid spec patch"
 ---
 
 `specFromText()` returns `AGENT_UI_PATCH_INVALID` when one patch line of the model's answer cannot apply. It does not throw. The message gives the line number and the problem, and `path` is the `path` of the patch.
@@ -11,6 +11,7 @@ seo.title: "AGENT_UI_PATCH_INVALID: a patch cannot build the spec"
 
 - uses the key `__proto__`, `constructor`, or `prototype` in its `path` or `from`. These keys can change `Object.prototype` on the server, so `specFromText()` refuses them;
 - has a `path` or `from` that is not a string;
+- moves a value into one of its own descendants;
 - is a `test` patch whose value does not match;
 - adds a value under a value that is not an object, such as under `null`.
 

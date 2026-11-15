@@ -1,4 +1,4 @@
-import { applySpecStreamPatch, parseSpecStreamLine, type SpecStreamLine } from "@json-render/core"
+import { applySpecStreamPatch, getByPath, parseSpecStreamLine, type SpecStreamLine } from "@json-render/core"
 
 import { diagnostic } from "./diagnostics.ts"
 import { type SpecValidation, validateSpec, type ValidateSpecOptions } from "./validate.ts"
@@ -13,7 +13,16 @@ function pointerProblem(name: string, pointer: unknown): string | undefined {
 }
 
 function patchProblem(patch: SpecStreamLine): string | undefined {
-  return pointerProblem("path", patch.path) ?? (patch.from === undefined ? undefined : pointerProblem("from", patch.from))
+  const problem = pointerProblem("path", patch.path) ?? (patch.from === undefined ? undefined : pointerProblem("from", patch.from))
+  if (problem) return problem
+  if (patch.op === "move" && typeof patch.from === "string") {
+    // json-render treats both "" and "/" as the root pointer.
+    const segments = (pointer: string) => pointer === "" || pointer === "/" ? [] : pointer.split("/").slice(1).map(segment => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+    const from = segments(patch.from)
+    const path = segments(patch.path)
+    if (path.length > from.length && from.every((key, index) => path[index] === key)) return "A move cannot put a value inside itself."
+  }
+  return undefined
 }
 
 /**
@@ -39,7 +48,11 @@ export function specFromText(text: string, options: ValidateSpecOptions): SpecVa
     const problem = patchProblem(patch)
     if (problem) return { valid: false, diagnostics: [diagnostic("AGENT_UI_PATCH_INVALID", { line: index + 1, problem }, at)] }
     try {
-      applySpecStreamPatch(spec, patch)
+      // Copy the JSON value before inserting it, including when the destination is inside the source.
+      const applied = patch.op === "copy" && patch.from
+        ? { op: "add" as const, path: patch.path, value: structuredClone(getByPath(spec, patch.from)) }
+        : patch
+      applySpecStreamPatch(spec, applied)
     }
     catch (error) {
       // json-render throws for a failed `test` and for a path through a value that is not an object.

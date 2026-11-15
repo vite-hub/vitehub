@@ -1,5 +1,5 @@
 ---
-description: "Fix AGENT_UI_SPEC_NOT_FOUND in ViteHub. The model's answer has no JSON patch lines, so specFromText() cannot build an Agent UI spec. Send the diagnostic back to the model."
+description: "Fix AGENT_UI_SPEC_NOT_FOUND in ViteHub when the model answers without JSON patch lines. Send the diagnostic back and ask for an Agent UI spec."
 seo.title: "AGENT_UI_SPEC_NOT_FOUND: the answer has no spec"
 ---
 

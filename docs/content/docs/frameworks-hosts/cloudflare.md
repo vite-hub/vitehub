@@ -117,8 +117,8 @@ With the Console and Agents on, a Cloudflare build stores the Console run journa
 Provision shows a dry-run plan before it applies changes. A successful apply writes non-secret ids to `.vitehub/provision.json`. Secrets stay in environment variables or provider env stores.
 
 ```bash [Terminal]
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --host cloudflare --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --host cloudflare
 ```
 
 ## Generated output

@@ -85,6 +85,8 @@ const record = (value: unknown): Props => typeof value === "object" && value !==
 function part(name: string, render: (props: Props, children: VNodeChild[]) => VNodeChild): FunctionalComponent<Props> {
   const component: FunctionalComponent<Props> = (props, { slots }) => render(props, slots.default?.() ?? [])
   component.displayName = name
+  // Each part forwards its own listeners; fallthrough would merge them onto the root again.
+  component.inheritAttrs = false
   return component
 }
 
@@ -144,6 +146,7 @@ const FormControl = defineComponent({
       return h("div", { "data-slot": "form-field" }, [label, h("input", {
         ...common,
         type,
+        ...(field.type === "number" ? { step: "any" } : field.type === "integer" ? { step: 1 } : {}),
         value: text(value),
         ...(field.minLength !== undefined ? { minlength: field.minLength } : {}),
         ...(field.maxLength !== undefined ? { maxlength: field.maxLength } : {}),
@@ -207,6 +210,11 @@ export const catalogComponents: CatalogComponents<ViteHubComponent> = {
       "data-form": text(props.form),
       "onSubmit": (event: Event) => {
         event.preventDefault()
+        const next = record(props.value)
+        for (const field of formFieldList(props.fields)) {
+          if (field.type === "boolean" && field.required && next[field.name] === undefined) next[field.name] = false
+        }
+        update?.(next)
         listener(props, "onSubmit")?.()
       },
     }, [

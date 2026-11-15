@@ -8,7 +8,7 @@ import type { Source, SourceItem, SourceName, SourceRevision } from "@vite-hub/s
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { withContentSnapshot } from "./snapshots.ts"
 
-import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentDocumentUrl, ContentMarkdownCopy } from "./documents.ts"
 import type { ContentSnapshotLoader } from "./snapshots.ts"
 
 export interface ContentSourceOptions {
@@ -62,7 +62,7 @@ export interface ContentSourceMarkdownPage {
 }
 
 /** A Markdown copy: the text, or the text and a footer that only the copy at `<url>.md` ends with. */
-export type ContentSourceMarkdown = string | { markdown: string, footer?: string }
+export type ContentSourceMarkdown = ContentMarkdownCopy
 
 /** The page options of a Source with a `url`. */
 export interface ContentSourceRoute {
