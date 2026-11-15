@@ -21,5 +21,10 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0011: dynamicError,
     BROWSER_B0001: dynamicError,
     BROWSER_B0002: dynamicError,
+    // Named errors. Keep these codes in alphabetical order.
+    BROWSER_CONTENT_FAILED: {
+      why: ({ status }: { status: number }) => `Browser content request failed with status ${status}`,
+      fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name.",
+    },
   },
 })
