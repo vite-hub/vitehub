@@ -34,6 +34,8 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+// Successful navigation includes browser history and links outside the rail.
+watch(() => route.fullPath, closeConsoleSidebarDrawer);
 const navigation = shallowRef<ConsoleNavigation>();
 const navigationFailed = ref(false);
 // Loading again cannot help when the project refuses the signature, so the sidebar offers no retry then.
