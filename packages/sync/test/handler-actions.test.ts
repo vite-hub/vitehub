@@ -30,12 +30,20 @@ const activity = sqliteTable("activity", {
   text: text("text").notNull(),
 })
 
+/** The same SQL table as `cards`, with fewer columns, for a second definition. */
+const cardTitles = sqliteTable("cards", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull(),
+  title: text("title").notNull(),
+})
+
 const activityDdl = "CREATE TABLE `activity` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `card_id` text NOT NULL, `by` text NOT NULL, `text` text NOT NULL)"
 
 declare global {
   interface ViteHubSyncMap {
     activity: SyncDefinition<typeof activity>
     cards: SyncDefinition<typeof cards>
+    titles: SyncDefinition<typeof cardTitles>
   }
 }
 
@@ -380,5 +388,28 @@ describe("actions across definitions", () => {
     expect((await app.rows()).every(row => row.reviews === 1)).toBe(true)
     expect((await app.activity()).every(row => row.text === "Hi!")).toBe(true)
     expect(Math.max(...app.parameters.slice(start))).toBeLessThanOrEqual(100)
+  })
+
+  it("checks reads of two definitions of one table, each with its own columns", async () => {
+    const titles = defineSync({ table: cardTitles, where: ({ user }) => user ? { teamId: teamsOf(user) } : false })
+    const board = defineSync({
+      table: cards,
+      where: ({ user }) => user ? { teamId: teamsOf(user) } : false,
+      actions: {
+        retitle: async ({ get, update, sync }, { id }: { id: string }) => {
+          const own = await get(id)
+          const short = await sync("titles").get(id)
+          if (!own || !short) return
+          update(id, { title: `${short.title}!`, reviews: own.reviews + 1 })
+        },
+      },
+    })
+    const app = await createHarness({ name: "cards", definition: board, ddl: [ddl], definitions: { cards: board, titles } })
+    await app.db.insert(cards).values({ id: "c1", teamId: "a", title: "Card" })
+    const held = await app.start(dave)
+    const { status, body } = await app.push(dave, { ...as(held), mutations: [action("m1", "retitle", { id: "c1" })] })
+    expect(status).toBe(200)
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    expect(await app.db.select().from(cards)).toMatchObject([{ id: "c1", title: "Card!", reviews: 1 }])
   })
 })

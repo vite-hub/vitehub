@@ -383,13 +383,14 @@ async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?
  * allows at most 100 in a statement.
  */
 function guardSql(reads: Reads): SQL | undefined {
-  // The rows that were there, by table, as `[key, row JSON]`. The keys that were not, by table and scope.
+  // The rows that were there, by definition, as `[key, row JSON]`. The keys that were not, by table and scope.
   const found = new Map<string, { table: SyncTable, rows: [SyncKey, string][] }>()
   const missing = new Map<string, { table: SyncTable, values: SyncValues | undefined, keys: SyncKey[] }>()
-  for (const { scoped: { table, scope }, key, scopedOnly, json } of reads.values()) {
+  for (const { scoped: { name, table, scope }, key, scopedOnly, json } of reads.values()) {
     if (json !== null) {
-      let group = found.get(table.name)
-      if (!group) found.set(table.name, group = { table, rows: [] })
+      // By definition, not by table: two definitions of one table can have other columns, so other row JSON.
+      let group = found.get(name)
+      if (!group) found.set(name, group = { table, rows: [] })
       group.rows.push([key, json])
       continue
     }
