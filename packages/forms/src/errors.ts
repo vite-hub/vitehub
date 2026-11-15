@@ -9,9 +9,9 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/forms/diagnostics",
   codes: {
     /** A `defineForm()` definition is invalid. It throws when you define it. */
-    FORMS_C0001: dynamicError,
+    FORMS_C0001: { ...dynamicError, fix: "Change the `defineForm()` option that the message names, and make each file of `server/forms/` default-export `defineForm({ schema })`." },
     /** A file of `server/forms/` has a name that is not a route segment, or two files define the same form. */
-    FORMS_B0001: dynamicError,
+    FORMS_B0001: { ...dynamicError, fix: "Rename the file of `server/forms/` that the message names to lowercase letters, digits, and dashes, such as `contact.ts`, and keep one file for each form name." },
     /** A production build has forms that store submissions, but the app has no Database. */
     FORMS_B0002: {
       ...dynamicError,

@@ -14,9 +14,9 @@ describe("Server Env declaration inventory", () => {
     expect(() => createRuntimeRegistry({ host: env({ source: env.source("APP_HOST") }) })).toThrow(error)
     const registry = createRuntimeRegistry({ host: env({ source: env.source("APP_HOST", { canonical: false }) }) })
     expect(registry.host).toMatchObject({ source: { name: "APP_HOST", canonical: false } })
-    expect(describeServerEnv(registry).entries[0]).not.toHaveProperty("canonicalName")
+    expect(describeServerEnv(registry).entries[0]).toMatchObject({ names: ["APP_HOST"] })
     const prefixed = createRuntimeRegistry({ host: env() }, { prefix: "APP_" })
-    expect(describeServerEnv(prefixed).entries[0]).toMatchObject({ canonicalName: "APP_HOST" })
+    expect(describeServerEnv(prefixed).entries[0]).toMatchObject({ names: ["APP_HOST", "HOST"] })
   })
 
   it("describes host, provider and literal declarations without exposing their values or storage keys", () => {
@@ -28,13 +28,50 @@ describe("Server Env declaration inventory", () => {
     })
     const description = describeServerEnv(registry)
     expect(description.entries).toEqual([
-      { path: "env.server.host", source: "env", secret: true, required: true, hasDefault: true, type: "string" },
+      { path: "env.server.host", names: ["PRIVATE_HOST_NAME"], source: "env", secret: true, required: true, hasDefault: true, type: "string" },
       { path: "env.server.nested.token", source: "provider", provider: "vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.label", source: "literal", secret: false, required: false, hasDefault: false },
-      { path: "env.server.optional", canonicalName: "VITEHUB_OPTIONAL", source: "env", secret: false, required: false, hasDefault: false, type: "string" },
+      { path: "env.server.optional", names: ["VITEHUB_OPTIONAL", "OPTIONAL"], source: "env", secret: false, required: false, hasDefault: false, type: "string" },
     ])
     const serialized = JSON.stringify(description)
-    for (const value of ["PRIVATE_HOST_NAME", "private-default", "private/storage/path", "private-literal"]) expect(serialized).not.toContain(value)
+    for (const value of ["private-default", "private/storage/path", "private-literal"]) expect(serialized).not.toContain(value)
+  })
+
+  it("lists every host variable name in read order", () => {
+    const registry = createRuntimeRegistry({
+      inferred: env(),
+      aliased: env({ secret: true, source: env.source(["VENDOR_TOKEN", "LEGACY_TOKEN"]) }),
+      vendorOnly: env({ source: env.source(["VENDOR_URL", "VENDOR_ENDPOINT"], { canonical: false }) }),
+      canonicalAlias: env({ source: env.source(["VITEHUB_CANONICAL_ALIAS", "ALIAS"]) }),
+      defaulted: env.number({ default: 3 }),
+      vault: env({ secret: true, source: env.provider("vault", "api/key") }),
+      nested: { region: env({ optional: true }) },
+    })
+    expect(describeServerEnv(registry).entries.map(({ path, names, required, secret, hasDefault }) => ({ path, names, required, secret, hasDefault }))).toEqual([
+      { path: "env.server.inferred", names: ["VITEHUB_INFERRED", "INFERRED"], required: true, secret: false, hasDefault: false },
+      { path: "env.server.aliased", names: ["VITEHUB_ALIASED", "VENDOR_TOKEN", "LEGACY_TOKEN"], required: true, secret: true, hasDefault: false },
+      { path: "env.server.vendorOnly", names: ["VENDOR_URL", "VENDOR_ENDPOINT"], required: true, secret: false, hasDefault: false },
+      // The canonical name is read once, even when env.source() lists it too.
+      { path: "env.server.canonicalAlias", names: ["VITEHUB_CANONICAL_ALIAS", "ALIAS"], required: true, secret: false, hasDefault: false },
+      { path: "env.server.defaulted", names: ["VITEHUB_DEFAULTED", "DEFAULTED"], required: true, secret: false, hasDefault: true },
+      { path: "env.server.vault", names: undefined, required: true, secret: true, hasDefault: false },
+      { path: "env.server.nested.region", names: ["VITEHUB_NESTED_REGION", "NESTED_REGION"], required: false, secret: false, hasDefault: false },
+    ])
+    const unprefixed = createRuntimeRegistry({ apiKey: env({ secret: true }), token: env({ source: env.source("SERVICE_TOKEN") }) }, { prefix: false })
+    expect(describeServerEnv(unprefixed).entries.map(entry => entry.names)).toEqual([["API_KEY"], ["SERVICE_TOKEN"]])
+  })
+
+  it("lists names and never values in inspection", async () => {
+    const { inspectServerEnv } = await import("../src/server.ts")
+    const canary = "canary-value-7f3a9c"
+    const registry = createRuntimeRegistry({
+      apiKey: env({ secret: true, source: env.source("VENDOR_API_KEY") }),
+      region: env({ default: canary }),
+    })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ VENDOR_API_KEY: canary }))
+    expect(inspection.entries.map(entry => entry.names)).toEqual([["VITEHUB_API_KEY", "VENDOR_API_KEY"], ["VITEHUB_REGION", "REGION"]])
+    expect(JSON.stringify(inspection)).not.toContain(canary)
+    expect(JSON.stringify(describeServerEnv(registry))).not.toContain(canary)
   })
 
   it("returns independent metadata and withholds unsafe declaration names ", () => {
@@ -53,8 +90,8 @@ describe("Server Env declaration inventory", () => {
     expect(inspection.entries.map(entry => entry.path)).toEqual(describeServerEnv(registry).entries.map(entry => entry.path))
     // A dotted declaration key must not report its status under the nested path.
     expect(inspection.entries).toEqual([
-      { masked: false, path: "env.server.nested.token", required: true, source: "env", status: "missing" },
-      { masked: false, required: true, source: "env", status: "available" },
+      { masked: false, names: ["VITEHUB_NESTED_TOKEN", "NESTED_TOKEN"], path: "env.server.nested.token", required: true, source: "env", status: "missing" },
+      { masked: false, names: ["DOTTED_TOKEN"], required: true, source: "env", status: "available" },
     ])
   })
 
@@ -67,9 +104,9 @@ describe("Server Env declaration inventory", () => {
     })
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" }))
     expect(inspection.entries).toEqual([
-      { masked: true, path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
-      { masked: false, path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
-      { masked: false, path: "env.server.url", required: true, source: "env", status: "available", via: "conventional" },
+      { masked: true, names: ["VITEHUB_API_KEY", "VENDOR_API_KEY"], path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
+      { masked: false, names: ["VITEHUB_REGION", "REGION"], path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
+      { masked: false, names: ["VITEHUB_URL", "URL"], path: "env.server.url", required: true, source: "env", status: "available", via: "conventional" },
     ])
     expect(JSON.stringify(inspection)).not.toContain("secret")
   })
@@ -81,7 +118,7 @@ describe("Server Env declaration inventory", () => {
     })
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ CHANNEL_TOKEN: "token" }))
     expect(inspection.entries).toEqual([
-      { masked: false, path: "env.server.channel", required: true, source: "env", status: "available" },
+      { masked: false, names: ["CHANNEL_TOKEN"], path: "env.server.channel", required: true, source: "env", status: "available" },
     ])
   })
 })
