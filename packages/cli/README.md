@@ -73,6 +73,19 @@ The Agent integration contributes `info`, `dev`, and `invocations`, plus `channe
 
 See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
 
+## Link and deploy several hosts
+
+`vitehub link` and `vitehub deploy` run before the CLI loads the project config. One app can link one project on each host. `.vitehub/link.json` keeps a target for each host and the default host:
+
+```sh
+pnpm vitehub link --host cloudflare
+pnpm vitehub link --host vercel
+pnpm vitehub deploy                # the default target, cloudflare
+pnpm vitehub deploy --host vercel
+```
+
+The first linked host is the default. `vitehub link --host <host> --default` changes it. `vitehub deploy --host <host>` builds with `VITEHUB_HOST=<host>`, and that host wins over `host` in `vitehub()`. With several targets and no default, deploy needs `--host`. Resources such as D1, KV, R2, and libSQL are separate on each host. See [Link a project to its host](https://vitehub.dev/docs/development/cli#link-a-project-to-its-host).
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.

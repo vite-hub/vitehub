@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
+Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. The id that you pass is the run id: `startWorkflow()` returns it, and `getWorkflowRun()` and `cancelWorkflow()` take it, on Cloudflare, OpenWorkflow, and inline runs. A second start with the same id returns the first run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
 ## Runtime helpers
 
@@ -61,7 +61,7 @@ Use a durable provider when inspection must survive abandonment or a process res
 
 Cancellation works for native Vercel workflows and OpenWorkflow. On OpenWorkflow, `cancelWorkflow()` cancels a pending or running run in storage. A step that already runs finishes, but its worker records no more steps or result. A finished run keeps its status. A run of another workflow reports `unknown`. Cloudflare and inline Vercel runs report `WORKFLOW_OPERATION_UNSUPPORTED`.
 
-Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a registered hook token. You can choose a fixed opaque token. It becomes resumable when a native workflow registers the hook and waits for it. Pass it to `resumeWorkflow()`. It names the hook, not a run. Cloudflare and OpenWorkflow do not support signals.
+Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a registered hook token. You can choose a fixed opaque token. It becomes resumable when a native workflow registers the hook and waits for it. Pass it to `resumeWorkflow()`. It names the hook, not a run. Cloudflare, OpenWorkflow, and inline runs do not support signals: `resumeWorkflow()` throws `WORKFLOW_OPERATION_UNSUPPORTED`. In `vite dev` every run is inline, and so is an app with no native entry.
 
 ## Workflow Run shape
 
