@@ -1,6 +1,6 @@
 ---
-description: "Fix AUTH_GUARDED_PAGE_CACHED in ViteHub when a route rule caches or prerenders a guarded Nuxt page. Remove the cache or turn it off for the page."
-seo.title: "AUTH_GUARDED_PAGE_CACHED: guarded page cache"
+description: "Fix AUTH_GUARDED_PAGE_CACHED in ViteHub. A route rule caches or prerenders a Nuxt page that has a page guard."
+seo.title: "AUTH_GUARDED_PAGE_CACHED: cached guarded page"
 ---
 
 A route rule caches or prerenders a Nuxt page that `definePageMeta({ auth })` guards. The build stops before Nitro bundles the server. With the Vite builder, it also stops before Nitro prerenders pages. The page guard runs when the server renders a page. A cached or prerendered page keeps the render or the redirect of one visitor and serves it to all visitors.
