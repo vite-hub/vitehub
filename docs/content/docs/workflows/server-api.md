@@ -46,6 +46,7 @@ import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string, userId: string }>(event)
+  if (!body) return new Response('Missing body', { status: 400 })
 
   return startWorkflow('send-reminder', body, { delay: '3 days', id: `reminder-${body.userId}` })
 })
