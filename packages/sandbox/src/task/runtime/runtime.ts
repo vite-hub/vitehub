@@ -29,6 +29,7 @@ import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 import type { SandboxTaskDefinitionName, SandboxTaskPayload, SandboxTaskRegistryDefinition, SandboxTaskResult } from './registry-types'
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
+const CLOUDFLARE_EXEC_DEADLINE_RE = /cloudflare sandbox exec timed out after \d+ms/i
 
 async function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
@@ -94,7 +95,12 @@ function isRetriableCloudflareSandboxError(error: unknown) {
     return false
 
   const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error, extraMessage))
+  const messages = collectCloudflareErrorMessages(error, extraMessage)
+  // provider-message-match: an exec deadline has no code. The command reached the Container and may
+  // still have run, such as a package install, so a new attempt could repeat it.
+  if (CLOUDFLARE_EXEC_DEADLINE_RE.test(messages))
+    return false
+  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
 }
 
 export interface SandboxTaskRunner {
