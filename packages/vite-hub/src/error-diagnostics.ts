@@ -271,10 +271,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
     },
-    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
-      ...dynamicError,
-      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
-    },
     VITE_HUB_CONSOLE_ACCESS_HANDLER_INVALID: {
       why: "[vitehub] withConsoleAccess() requires a handler function.",
       fix: "Pass the route handler function as the first argument of `withConsoleAccess(handler, { section })`.",
@@ -360,6 +356,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_SANDBOX_CLI_TIMEOUT_INVALID: {
       why: "[vitehub] --timeout must be a positive number of milliseconds.",
       fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
+    },
+    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+      ...dynamicError,
+      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
   },
 })
