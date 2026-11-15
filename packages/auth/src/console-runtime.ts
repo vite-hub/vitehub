@@ -1226,7 +1226,9 @@ export function createAuthConsole(
     if (existing && existing.emailVerified !== true)
       throw new AuthConsoleError(403, `The app has an account with ${email}, and its email is not verified. Verify the email of that account, or delete the account, then open the site again.`);
     if (existing) {
-      const roles = [...new Set([...roleList(existing.role || string(adminPlugin(ctx.options).settings.defaultRole) || "user"), ...input.roles])];
+      const owned = new Set(input.owned ?? []);
+      const kept = roleList(existing.role || string(adminPlugin(ctx.options).settings.defaultRole) || "user").filter((role) => !owned.has(role));
+      const roles = [...new Set([...kept, ...input.roles])];
       await ctx.internalAdapter.updateUser(string(existing.id), { role: roles.join(",") });
       return { id: string(existing.id), roles };
     }
