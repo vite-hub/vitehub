@@ -64,7 +64,8 @@ async function sha256Hex(value: string): Promise<string> {
 async function createStableWorkflowRunId(name: string, value: WorkflowRunIdValue): Promise<string> {
   const normalized = JSON.stringify(normalizeWorkflowRunIdValue(value))
   const hash = await sha256Hex(`${name}:${normalized}`)
-  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"
+  // 67 characters, a `-`, and 32 hex digits fit the 100-character Cloudflare instance id.
+  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 67) || "workflow"
   return `${prefix}-${hash.slice(0, 32)}`
 }
 

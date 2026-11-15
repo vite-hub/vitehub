@@ -52,6 +52,7 @@ console.log(error.toJSON())
 | `AUTH_C0065` | `access.policy` has no `allow` function, or `recheck` is not a number of milliseconds, 0 or more. |
 | `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
 | `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
+| `AUTH_C0068` | An `access.routes` entry uses route pattern syntax, such as `/api/users/:id`, `/api/admin/*`, or the encoded `/api/users/%3Aid`, or a `.` or `..` segment, such as `/api/x/../billing`. Access routes match literal paths. Use a final `/**`, such as `/api/users/**`, and check the parameter in the handler. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |

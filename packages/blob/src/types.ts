@@ -1,4 +1,5 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { H3Event } from "h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -240,6 +241,14 @@ export interface BlobServeResponseOptions {
    * segment of the pathname as the file name. A string sets the file name.
    */
   download?: boolean | string
+  /**
+   * On Cloudflare, keep the object in the cache of the location that runs the Worker for `maxAge` seconds, and answer
+   * the next `GET` requests there from that cache, without reading storage. A later write to the pathname is not seen
+   * until the entry expires, so give a long `maxAge` only to pathnames that are never written again. Call `serve()` after
+   * your own authorization: a cached object is served to whoever reaches the call. Other hosts, `HEAD` requests,
+   * `variant`, and `transform` read storage each time.
+   */
+  edgeCache?: { maxAge: number }
   /** More headers for a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them. */
   headers?: Record<string, string>
   /**
@@ -374,8 +383,8 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
   /**
    * Answer a `GET` or `HEAD` request for one object. The `Response` has the final status and headers: `200`, `206` or
-   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, and `404` for a missing object or a
-   * reserved ViteHub path. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
+   * `416` for a `Range`, `304` for `If-None-Match`, `400` for an unsafe pathname, `404` for a missing object or a
+   * reserved ViteHub path, and `405` with `Allow: GET, HEAD` for another method. A storage failure throws its `ViteHubError`. Return the `Response` from a route as it is. In
    * an H3 handler, pass `event.req`.
    */
   serve(request: Request, pathname: string, options?: BlobServeResponseOptions): Promise<Response>
@@ -597,10 +606,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
-export type BlobServeAuthorize = AccessAuthorize
+export type BlobServeAuthorize = AccessAuthorize<H3Event>
 
 /** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
-export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>
 
 export interface BlobServeConfig {
   access?: "public"

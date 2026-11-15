@@ -87,6 +87,8 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
+  // Apps serve the standalone browser bundle directly from its owner package.
+  "@vite-hub/realtime/client/browser.js",
   // Message utilities stay available on the standalone Agent package.
   "@vite-hub/agent/messages",
   // Importing native CLI sessions is a standalone journal integration.
@@ -156,6 +158,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
+  "@vite-hub/database/runtime/postgres-connection",
   "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
@@ -781,6 +784,7 @@ describe("framework package contract", () => {
       // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

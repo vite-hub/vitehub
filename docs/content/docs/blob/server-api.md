@@ -113,7 +113,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
-| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
+| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, `404`, or `405` for another method. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -152,7 +152,7 @@ The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`.
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses (`400`, `404`, `405`) get only its CORS headers, the ones that start with `Access-Control-`, so a player on another origin can read a `404`. Other headers, such as an immutable `Cache-Control`, would describe a file that does not exist, so they stay off.
 
 In a Nitro 3 or H3 2 handler:
 
@@ -167,9 +167,9 @@ export default defineEventHandler((event) => {
 })
 ```
 
-`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. It answers `405` with `Allow: GET, HEAD` for every other method, such as a `POST` to the file URL, and does not read the object. A storage failure throws its `ViteHubError`.
 
-HEAD responses keep the same status and headers as GET, with no body.
+HEAD responses keep the same status and headers as GET, with no body. The one difference is `Range`: a HEAD request always gets `200` with the size of the whole file.
 
 Every response that serves an object sends `X-Content-Type-Options: nosniff`. A browser opens some types as a page that can run script: `text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, `text/xsl`, `text/rdf`, every other `+xml` type, and every `multipart/*` type. For these types, and for a content type that names one of them in a list, `serve()` also sends `Content-Security-Policy: sandbox`. The browser then shows the file but runs no script and gives it no access to the app origin. An `<img>` tag still shows an SVG. When the `headers` option has a `Content-Security-Policy`, `serve()` adds `sandbox` to it as a second policy. A `304` for a `transform` always sends the sandbox, because the type of the result is not known before the transform runs.
 
@@ -193,7 +193,8 @@ In an H3 app, headers that middleware set on `event.res.headers` before the rout
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
 
-- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET or HEAD gets `206` with `Content-Range` and only those bytes.
+- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET gets `206` with `Content-Range` and only those bytes.
+- HEAD ignores `Range`, as [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-14.2) requires, and gets `200` with the size of the whole file.
 - A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body.
 - Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file.
 - Transformed responses ignore `Range`.
@@ -233,6 +234,31 @@ export default {
 `createPreview` is application code that validates and transforms the image. Return a `Blob` with its response MIME type. A transform failure throws a `BLOB_OPERATION_FAILED` error without the detail of the failure. If storing the derived result fails, ViteHub logs the failure and serves the freshly transformed result. Concurrent requests in one runtime share the transformation.
 
 Across runtimes, the cache is best effort. Source updates at the same time can remove a newer entry and cause another transform. The fingerprint check never returns an entry for the wrong source version. Drivers need no distributed locks or conditional writes.
+
+## Keep served objects in the edge cache
+
+On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
+
+```ts [server/routes/builds/[...pathname].get.ts]
+import { blob } from '@vite-hub/blob'
+import { defineEventHandler, getRouterParam } from 'h3'
+
+export default defineEventHandler((event) => {
+  const pathname = getRouterParam(event, 'pathname')
+  if (pathname === undefined) return Response.json({ error: 'Blob not found.' }, { status: 404 })
+  // Each build uploads its files under new pathnames and never writes them again.
+  return blob.serve(event.req, `builds/${pathname}`, { edgeCache: { maxAge: 31_536_000 } })
+})
+```
+
+- Cached responses follow the same `Range` and `If-None-Match` rules as storage reads, so a video seek and a `304` skip R2 too. A request with `If-Range` reads R2.
+- Each response gets the headers of its own call: `cacheControl`, `headers`, and `download` can differ between requests for the same object. The cached copy keeps only the type, size, and `ETag` of the object.
+- Only whole `200` responses of up to 25 MB go into the cache. `HEAD` requests, `variant`, and `transform` read storage each time.
+- Each Cloudflare location, and each hostname of the app, keeps its own copy.
+- On other hosts, `edgeCache` does nothing, and `serve()` reads storage as before.
+
+> [!WARNING]
+> Nothing removes a cached copy before `maxAge` ends. A later `put()` or `delete()` on the pathname does not reach it, so give a long `maxAge` only to pathnames that are never written again, such as content-hashed names. The copy is reachable only through `serve()`, so check authorization in the route before you call it, as without `edgeCache`.
 
 ## Write options
 
@@ -521,7 +547,7 @@ if (completeError) throw completeError
 
 | Driver | Upload state | Notes |
 | --- | --- | --- |
-| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag. `abort()` deletes the parts. |
+| `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag while it copies the parts into the final file one after another, so it does not hold the whole file in memory. `abort()` deletes the parts. |
 | `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
 | `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
 

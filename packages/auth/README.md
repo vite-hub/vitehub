@@ -197,7 +197,7 @@ export default defineAuth({
 });
 ```
 
-`access.policy: { allow, recheck }` decides who can sign in and stay signed in. Auth calls `allow({ user, accessToken })` when it creates a session; only `true` lets the person in. It calls `allow` again for a session once `recheck` milliseconds (default 300000) have passed, on the next Better Auth request with the session cookie, which includes every `getSession()` call and guard. A refusal deletes the session and its cookies, and the request continues signed out. A throw fails the request and keeps the session. `accessToken(providerId)` returns the user's provider access token, decrypted, so `allow` can call `isGitHubOrgMember()` or another provider. `verifyMcpRequest()` asks the same policy for the user of an MCP access token. The answers are in memory per process. The policy needs a `database` or `secondaryStorage` adapter (`AUTH_C0066`).
+`access.policy: { allow, recheck }` decides who can sign in and stay signed in. Auth calls `allow({ user, accessToken })` when it creates a session; only `true` lets the person in. It calls `allow` again for a session once `recheck` milliseconds (default 300000) have passed, on the next Better Auth request with the session cookie, which includes every `getSession()` call and guard. A refusal deletes the session and its cookies, and the request continues signed out. A throw fails the request and keeps the session. `accessToken(providerId)` returns the user's provider access token, decrypted, so `allow` can call `checkGitHubOrgMember()` or another provider. Throw its `AUTH_GITHUB_UNAVAILABLE` error, so a GitHub outage keeps the sessions. `verifyMcpRequest()` asks the same policy for the user of an MCP access token. The answers are in memory per process. The policy needs a `database` or `secondaryStorage` adapter (`AUTH_C0066`).
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host. Only `true` grants access. ViteHub sends a `Response` unchanged when it is a Response of this runtime: the native `Response.prototype.status` getter accepts it. Create it with the global `Response`. Every other value gets `403`, including a Response from another Fetch implementation such as the `undici` package, a proxy, and an object shaped like a Response.
 
@@ -217,7 +217,7 @@ export const photo = withAuthorization(
 
 Annotate the input type when the host does not infer it, for example inside `defineEventHandler()`.
 
-`withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. Every JSON refusal of the guards has one body in H3's error format: `{ status, statusText, message, data: { code } }`. The code is `SIGNED_OUT` for `401` and `FORBIDDEN` for `403`. Read the code, not the message. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
+`withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. Every JSON refusal of the guards has one body in H3's error format: `{ status, statusText, message, data: { code } }`. The code is `SIGNED_OUT` for `401` and `FORBIDDEN` for `403`. Read the code, not the message. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. The callback gets `{ event, request, session, user }`: `event` is the input of the guarded handler, such as the H3 event. Blob serve routes and Source Collections use it for their `authorize` option.
 `withAnonymousAuthorization(authorize, handler, definition?)` also runs the callback for a signed-out caller, with `session` and `user` set to `null`. `false` returns `401` for that caller and `403` for a signed-in one. Blob serve routes use it with `serve.anonymous: true`.
 
 To check inside a handler, call `requireAuth(event)` or `requireAuthorization(event, authorize)`. Each returns the frozen `authorization` or throws an H3 `HTTPError`, so the rest of the handler runs only after the check passes. The errors match the guards above: `requireAuth()` throws `401` or the `access.signIn` redirect, and `requireAuthorization()` throws `401`, `403`, or an HTTP error from the callback's `Response`. The error has the same code in `data.code`, also for the text `403` of an HTML request.
@@ -308,7 +308,7 @@ App Auth loads Better Auth on demand. Nitro imports the Auth route on its first 
 Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback. The callback returns all the options in one object, and Auth does not merge it with other options. `defineAuth()` rejects the removed `runtime` option with `AUTH_C0039`. `access.routes` must be static route strings or `{ authorize, method, route }` objects, and `access.public` static route strings, so the Vite Integration can register Nitro middleware.
 
 
-`access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
+Each access route is a literal path, or a literal path that ends with `/**` to match the path and every path below it. Other pattern syntax (`*`, `:name`, `(`, `{`, `?`), also when percent-encoded such as `%3A`, and `.` or `..` segments fail with `AUTH_C0068`. A route with `method: "GET"` also guards `HEAD`, because H3 runs the GET handler for `HEAD`. The access middleware compares paths after the same normalization as the Nitro router: it decodes needless percent escapes and ignores one trailing slash in requests. Configured routes drop all trailing slashes, as router registration does. `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 `database` and `secondaryStorage` take Better Auth adapters only. In a static Definition, `database` takes only `authDatabase()`. `authDatabase("auth")` uses the Named Database `auth`:
 
@@ -502,6 +502,15 @@ import { isGitHubOrgMember } from "@vite-hub/auth";
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
 ```
 
+`checkGitHubOrgMember()` runs the same check and returns `[error, undefined]`, so the app can say why access failed. `error.code` is `AUTH_GITHUB_TOKEN_INVALID` (401 or no token), `AUTH_GITHUB_ORG_ACCESS_DENIED` (403, a missing `read:org` scope, or SAML single sign-on that the token is not authorized for), `AUTH_GITHUB_UNAVAILABLE` (network error, timeout, 429, 5xx, or rate limit), or `AUTH_GITHUB_NOT_ORG_MEMBER` (404 or a pending invitation). An empty `org` throws `AUTH_GITHUB_ORG_REQUIRED`.
+
+```ts fragment
+import { checkGitHubOrgMember } from "@vite-hub/auth";
+
+const [error] = await checkGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+if (error?.code === "AUTH_GITHUB_TOKEN_INVALID") return redirectToSignIn();
+```
+
 ## MCP OAuth
 
 `@vite-hub/auth/forward` signs people in through a trusted reverse proxy, such as oauth2-proxy, Cloudflare Access, or Tailscale Serve. `forwardAuth({ header, verify })` is a Better Auth plugin. On each Better Auth request with the header, which includes every `getSession()` call and guard, it calls `verify({ value, headers, request })`. Auth never trusts the header by itself: `verify` must prove it, for example by calling the provider with the token, checking a JWT signature, or comparing a secret that only the proxy sends, and return `{ providerId, accountId, email, name, emailVerified, image?, accessToken? }` or `null`. An identity signs in as the Better Auth account `providerId:accountId`, with Better Auth's account linking rules, and the request sees the session at once. The session of the cookie, or a session that the process made for the same identity, is reused. `null` ignores the header. `forwardAuth()` without `header` or `verify` fails with `AUTH_C0067`, and a `verify` result that is not an identity fails the request with `AUTH_R0022`.
@@ -523,7 +532,7 @@ export default defineAuth({
 });
 ```
 
-`@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
+`@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root, with CORS for any origin and `204` for an `OPTIONS` preflight, and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
 
 ```ts
 // server/auth.ts
