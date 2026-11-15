@@ -1,4 +1,5 @@
 import { defaultAgentDiscordGatewayRoute, defaultAgentInspectionRoute, defaultAgentWebhookRoute } from "./internal/routes.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 import type { AgentOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
@@ -16,7 +17,7 @@ export function normalizeAgentOptions(options: AgentOptions | false | undefined)
   const inspectionRoute = normalizeAgentRouteOption(options?.routes?.inspection, defaultAgentInspectionRoute)
   const drainMs = options?.shutdown ? options.shutdown.drainMs : undefined
   if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 0))
-    throw new TypeError("[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.")
+    throw agentDiagnostics.AGENT_DRAIN_MS_INVALID()
   return {
     ...(options?.preparation ? { preparation: options.preparation } : {}),
     execution: options?.execution || "inline",
