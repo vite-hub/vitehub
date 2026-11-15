@@ -61,7 +61,13 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set both `signature` and `secret` in `webhook()`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`, and a `header` for `signature: 'token'`. To accept unsigned requests, set `secret: false` and no `signature`.",
     },
-    CHANNELS_R0002: dynamicError,
-    CHANNELS_R0003: dynamicError,
+    CHANNELS_R0002: {
+      ...dynamicError,
+      fix: "Add a Channel Definition in `server/channels/<name>.ts` whose file name is the name that the message names, or pass the name of an existing Channel to `useChannel()`.",
+    },
+    CHANNELS_R0003: {
+      ...dynamicError,
+      fix: "Pass a nonempty Channel name to `useChannel()`, such as `useChannel(\"alerts\")`.",
+    },
   },
 })
