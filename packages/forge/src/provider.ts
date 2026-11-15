@@ -2,6 +2,7 @@ import type { ForgeProvider } from "forges"
 import type { GitHubProvider } from "forges/github"
 
 import { conditionalFetch } from "./conditional.ts"
+import { forgeDiagnostics } from "./error-diagnostics.ts"
 
 import type { ForgeConditionalRequests } from "./conditional.ts"
 
@@ -64,10 +65,11 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
       return forgejo(options)
     }
   }
-  throw new Error("Unsupported Forge.")
+  throw forgeDiagnostics.FORGE_UNSUPPORTED()
 }
 
 /** A Forge response that succeeded but did not include the expected data. */
+// Internal invariant: public error class for a Forge response without the expected data. Callers check it with instanceof.
 export class ForgeResponseError extends Error {
   override name = "ForgeResponseError"
 }

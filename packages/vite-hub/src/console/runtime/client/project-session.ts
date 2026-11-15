@@ -5,6 +5,7 @@ import type { Ref, ShallowRef } from "vue"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
+import { consoleSectionsPath, seedConsoleNavigation } from "./sections"
 
 import type { ConsoleAccount, ConsoleAccountProject } from "./account"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
@@ -40,11 +41,11 @@ export type ConsoleProjectGate =
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
-export const consoleAccountPages = ["home", "team", "settings"] as const
+export const consoleAccountPages = ["home", "team", "team-settings", "settings"] as const
 export type ConsoleAccountPage = typeof consoleAccountPages[number]
 
 function accountPageOf(pathname: string): ConsoleAccountPage | undefined {
-  const page = /^\/([a-z]+)\/?$/.exec(pathname)?.[1]
+  const page = /^\/([a-z-]+)\/?$/.exec(pathname)?.[1]
   return consoleAccountPages.find(item => item === page)
 }
 
@@ -78,6 +79,8 @@ interface ConsoleProjectsState {
 
 let state: ConsoleProjectsState | undefined
 let probeVersion = 0
+/** The `project.get` of the app that the boot expects to open, sent while the account loads. */
+let earlyProbe: { id: string, probe: Promise<ConsoleProjectProbe> } | undefined
 let resolveReady: (() => void) | undefined
 const ready = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -171,7 +174,10 @@ function open(info: ConsoleProjectInfo): void {
   if (current?.id) {
     projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
     rememberProjectName(current.id, info.name)
+    if (projects.mode === "account") rememberLastProject(current.id)
   }
+  // The rail and the Overview read the sections that came with `project.get`, so they need no second call.
+  if (info.navigation) seedConsoleNavigation(consoleSectionsPath, info.navigation)
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
 }
@@ -200,7 +206,10 @@ export async function openConsoleProject(): Promise<void> {
   const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
   const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : targetOf(projects, current)
-  const probe = await probeConsoleProject(target)
+  // The boot sent `project.get` while the account loaded. Its answer counts only for the app that opens.
+  const early = earlyProbe
+  earlyProbe = undefined
+  const probe = await (early?.id === current.id ? early.probe : probeConsoleProject(target))
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
   const gate = gateOf(probe, consoleProjectTarget(current))
@@ -303,11 +312,31 @@ const accountProjectKey = (teamId: string) => `vitehub-console:account-project:$
 
 /** The project that an `account` Console opens next for a team, kept in this browser. */
 export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
+  rememberLastProject(projectId)
   if (!teamId) return
   try {
     globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
   }
   catch {}
+}
+
+// The boot reads it before it knows the team, to send `project.get` while the account loads.
+const lastProjectKey = "vitehub-console:last-project"
+
+function rememberLastProject(projectId: string): void {
+  try {
+    globalThis.localStorage?.setItem(lastProjectKey, projectId)
+  }
+  catch {}
+}
+
+function lastProject(): string | undefined {
+  try {
+    return globalThis.localStorage?.getItem(lastProjectKey) || undefined
+  }
+  catch {
+    return undefined
+  }
 }
 
 function rememberedAccountProject(teamId: string | undefined): string | undefined {
@@ -363,6 +392,27 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }
 
+/** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */
+export function consoleInvitationOf(pathname: string): string | undefined {
+  const match = /^\/invite\/([^/]+)\/?$/.exec(pathname)
+  return match ? decodeURIComponent(match[1]!) : undefined
+}
+
+/** The boot read of an `account` Console (`@vite-hub/console`, server/api/account.get.ts). */
+export const consoleAccountPath = "/api/account"
+
+/**
+ * The signed-in account, its teams, and the projects of its team, with one session check, or `undefined` before
+ * sign-in. With a session cookie, the page HTML already started this request.
+ */
+export async function loadConsoleAccount(): Promise<ConsoleAccount | undefined> {
+  // No headers and no cache option, so the request matches the preload of the HTML and the browser reuses its answer.
+  const response = await fetch(consoleAccountPath, { credentials: "same-origin" })
+  if (!response.ok) return undefined
+  // SAFETY: The Console server owns this route and its answer.
+  return await response.json() as ConsoleAccount
+}
+
 /**
  * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
  * `/open` link, or `undefined` to keep the address.
@@ -378,9 +428,13 @@ export async function startConsoleAccount(options: {
   boot?: string
 }): Promise<string | undefined> {
   showAccountPath = options.showPath
-  // Only an `account` Console loads the Better Auth client.
-  const { consoleInvitationOf, loadConsoleAccount } = await import("./account")
-  const account = await loadConsoleAccount(options.boot === "app" || options.boot === "shell").catch(() => undefined)
+  // With a session cookie, the home path and the app pages open an app. Its `project.get` goes out now, with the app
+  // of a `?app=<id>` link or the app that this browser opened last, so it does not wait for the account.
+  if ((options.boot === "app" || options.boot === "shell") && !accountPageOf(options.pathname)) {
+    const id = new URLSearchParams(options.search ?? "").get("app") || lastProject()
+    if (id) earlyProbe = { id, probe: probeConsoleProject({ origin: "", base: `/p/${encodeURIComponent(id)}` }) }
+  }
+  const account = await loadConsoleAccount().catch(() => undefined)
   const storage = memoryProjectStorage()
   let missingApp = false
   let address: string | undefined
@@ -414,6 +468,8 @@ export async function startConsoleAccount(options: {
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
+  // A guess for another app, or a boot that opens no app, leaves the early answer unread. A later open asks again.
+  if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) earlyProbe = undefined
   return address ?? (missingApp ? options.home : undefined)
 }
 

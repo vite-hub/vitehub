@@ -34,17 +34,20 @@ the same behavior.
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. `useChat(agent, { page })` connects the page's ui-sdk bridge. |
 | `vite-hub/agent/page` | [`connectPage()`](/docs/agents/capabilities/page): lets an Agent with `page()` work this page through ui-sdk's agent bridge, in any framework. |
+| `vite-hub/agent/ui` | The contract for [UI that an Agent sends](/docs/agents/ui): the json-render catalog of layout and display parts, `validateSpec()`, `catalogPrompt()`, and `checkSpecForm()` for a Form of `@vite-hub/forms`. Needs `zod`, `@json-render/core`, and `@json-render/vue`. |
+| `vite-hub/agent/ui/vue` | Default Vue components and `defineCatalogRegistry()` to render an Agent UI spec with `@json-render/vue`. |
 | `vite-hub/agent/server` | Manual server integration. |
 | `vite-hub/agent/state` | SQLite and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/process` | Long-running Node process hosts: preset process hosts, the self-hosted process host, and adaptive process capacity. |
 | `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
 | `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): Vue selection state, optional debounce, and cancellation for a resolver you provide. Re-exports `@vite-hub/decisions/vue`; auto-imported in Nuxt. |
-| `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. Re-exports `@vite-hub/forms`. |
+| `vite-hub/forms` | `defineForm()` for `server/forms/<name>.ts`: a form that visitors send to the site owner. `formFields()`, `toElicitation()`, and `toChatModal()` draw the same schema as an MCP elicitation or a Slack or Teams modal, and `checkForm()` checks the answers. Re-exports `@vite-hub/forms`. |
 | `vite-hub/forms/client` | `submitForm()`: posts the values of a form to its route and returns the issue of each field. `fieldErrors()` gives them by field name. Re-exports `@vite-hub/forms/client`. |
 | `vite-hub/forms/database` | The `vitehub_form_submissions` table and `createDrizzleFormsStore()`. Re-exports `@vite-hub/forms/database`. |
+| `vite-hub/forms/formisch` | `useFormSubmit()` for a Formisch form. Needs `@formisch/vue`. Re-exports `@vite-hub/forms/formisch`; `useFormSubmit()` is auto-imported in Nuxt when `@formisch/vue` is installed. |
 | `vite-hub/forms/operations` | The `forms.list`, `forms.get`, and `forms.mark` operations of the Console, `vitehub forms`, and MCP. Re-exports `@vite-hub/forms/operations`. |
 | `vite-hub/forms/runtime` | `installedForms()`: the inbox of the running app, for server code. Re-exports `@vite-hub/forms/runtime`. |
-| `vite-hub/forms/vue` | `AutoForm`, a whole form from a Valibot object schema, `useFormAction()` for a native `<form>`, and `useFormSubmit()` for a Formisch form. Needs `@formisch/vue`. Re-exports `@vite-hub/forms/vue`; `useFormAction()` and `useFormSubmit()` are auto-imported in Nuxt. |
+| `vite-hub/forms/vue` | `AutoForm`, a whole form from a Valibot object schema, and `useFormAction()` for a native `<form>`. Needs only `vue`. Re-exports `@vite-hub/forms/vue`; `useFormAction()` is auto-imported in Nuxt. |
 | `vite-hub/i18n` | [`t`, `plural`, `select`, `selectOrdinal`, `msg`](/docs/i18n/server-api), `getLocale()`, `getLocales()`, `setLocale()`, and `translate()`. Messages in the source language, compiled to IDs by the build. Re-exports `@vite-hub/i18n`. |
 | `vite-hub/i18n/vue` | [`createI18n()`](/docs/i18n/configure#add-i18n-to-a-vue-app) and `useLocale()` for Vue apps. Re-exports `@vite-hub/i18n/vue`; `vite-hub/nuxt` installs the plugin and auto-imports `useLocale()`. |
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
@@ -101,6 +104,7 @@ the same behavior.
 | `vite-hub/page/pill.js` | The page pill of ViteHub's page tools as a classic browser script that declares `ViteHubPagePill`, for a page script of your own to paste in as text, for example with a Vite `?raw` import. It has no module exports. |
 | `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions and `createConnectionsHandler()` (the management and OAuth routes that `connections.management` mounts), the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
+| `vite-hub/connections/operations` | The `connections.list`, `connections.connect`, and `connections.revoke` operations of the Console and MCP. Re-exports `@vite-hub/connections/operations`. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
 | `vite-hub/database` | Database Definitions and generated `useDatabase()` access. |
@@ -146,7 +150,7 @@ the same behavior.
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
-| `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a long-lived OpenWorkflow worker process. Install `openworkflow`. |
+| `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a separate OpenWorkflow worker process. Node servers start a worker automatically. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
 | `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/checkout` | `vitehub pull` and `vitehub push` as functions, and `localCheckoutStatus()`, which `vitehub status` shows. Node only. |

@@ -14,7 +14,7 @@ function idToken(claims: unknown): string {
   return `${base64Url(JSON.stringify({ alg: "RS256" }))}.${base64Url(JSON.stringify(claims))}.signature`
 }
 
-function oidcProvider(overrides: Partial<ConnectionProvider> = {}): ConnectionProvider {
+function oidcProvider(overrides: Partial<Pick<ConnectionProvider, "account" | "identityScopes">> = {}): ConnectionProvider {
   return {
     authorizationEndpoint: "https://auth.example.com/authorize",
     clientId: "client-id",

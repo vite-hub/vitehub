@@ -1973,6 +1973,13 @@ describe("Babysitter preset runtime", () => {
     ]) expect(babysitterInstructions.split(sentence)).toHaveLength(2);
   });
 
+  it("ignores deployment preview bots by default, and a list replaces them", () => {
+    expect(defineAgent({ extends: babysitter, options: {} }).ignoreFeedbackAuthors).toEqual(["pkg-pr-new[bot]", "vercel[bot]", "cloudflare-workers-and-pages[bot]", "netlify[bot]"]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["preview[bot]"] } }).ignoreFeedbackAuthors).toEqual(["preview[bot]"]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [] } }).ignoreFeedbackAuthors).toEqual([]);
+    expect(defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [...babysitter.options.ignoreFeedbackAuthors, "review[bot]"] } }).ignoreFeedbackAuthors).toHaveLength(5);
+  });
+
   it("validates the throughput options when the Agent is defined", () => {
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: [" "] } })).toThrow(/ignoreFeedbackAuthors must list GitHub logins/);
     for (const authorAssociation of [{ allow: ["member"] }, { deny: "NONE" }, ["MEMBER"]]) {
@@ -4194,6 +4201,23 @@ describe("Babysitter preset runtime", () => {
       expect(release).toHaveBeenCalledOnce();
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
+
+  it("runs a placed Sandbox pass while this host's worker capacity admits nothing", async () => {
+    const release = vi.fn();
+    const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+    // Local memory admits no model pass. The pass runs on another host, so it must not wait for one.
+    const sample = vi.fn(() => ({ concurrency: 0 }));
+    const f = await fixture(false, false, { placement: { place },
+      workerCapacity: { concurrency: 1, queue: { maxPending: 1, timeout: 2_000 }, adaptive: { sample, intervalMs: 100 } } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      f.choose("pushRepair");
+      await f.reconcile();
+      expect(place).toHaveBeenCalledOnce();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  }, 30_000);
 
   it("runs a pass on this host when placement returns no Sandbox", async () => {
     const release = vi.fn();

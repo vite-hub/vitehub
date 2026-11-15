@@ -32,10 +32,8 @@ export interface SetupLinkAccount {
   name?: string
 }
 
-/** The content of `.vitehub/link.json`. */
-export interface SetupLink {
-  schemaVersion: 1
-  host: SetupLinkHost
+/** One host target of `.vitehub/link.json`. */
+export interface SetupLinkTarget {
   /** Absent only for a Deno link without `--account`. */
   account?: SetupLinkAccount
   project: { id?: string, name: string }
@@ -44,8 +42,23 @@ export interface SetupLink {
   linkedAt: string
 }
 
-/** The content of `.vitehub/link.json`: the host link. */
-export type SetupLinkFile = { schemaVersion: 1 } & Partial<Omit<SetupLink, "schemaVersion">>
+/** A host target with its host, as deploy and the other commands use it. */
+export interface SetupLink extends SetupLinkTarget {
+  host: SetupLinkHost
+}
+
+/** The content of `.vitehub/link.json`: one target for each linked host, and the host that deploys without `--host`. */
+export interface SetupLinkFile {
+  schemaVersion: 2
+  default?: SetupLinkHost
+  targets: Partial<Record<SetupLinkHost, SetupLinkTarget>>
+}
+
+/** The parsed link file. `targets` is empty when the project has no link. */
+export interface SetupLinks {
+  default?: SetupLinkHost
+  targets: SetupLink[]
+}
 
 /** The link fields that `vitehub status` reports. */
 export type SetupLinkSummary = Pick<SetupLink, "host" | "account" | "project" | "verified">
@@ -55,11 +68,17 @@ export interface SetupLinkOptions {
   project?: string
   account?: string
   create: boolean
+  /** Make this host the default target. The first linked host is always the default. */
+  default?: boolean
 }
 
 export interface SetupLinkResult {
   file: string
   link: SetupLink
+  /** The host that `vitehub deploy` uses without `--host`. `null` with several hosts and no default. */
+  default: SetupLinkHost | null
+  /** Every linked host, this one included. */
+  hosts: SetupLinkHost[]
   /** True when `--create` created the project on the host. */
   created: boolean
   /** Where the credentials came from. `null` when the host needs none for a link (Deno). */
@@ -86,7 +105,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function invalidResponse(host: string): Error {
-  return cliErrorDiagnostics.CLI_R0001({ message: `[vitehub] The ${host} API returned an unexpected response.` })
+  return cliErrorDiagnostics.CLI_HOST_RESPONSE_INVALID({ host })
 }
 
 /** The same normalization as the deployment identity of `vitehub({ name })`. */
@@ -131,12 +150,8 @@ async function projectName(project: SetupProject, option: string | undefined): P
 }
 
 function linkHost(project: SetupProject, option: string | undefined, env: NodeJS.ProcessEnv): SetupLinkHost {
-  if (option !== undefined) {
-    const host = hostFromNitroPreset(option)
-    if (!host) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(option)}. Use cloudflare, vercel, netlify, or deno.` })
-    if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host: host }), setupExitCodes.conflict)
-    return host
-  }
+  const chosen = readLinkHostOption(option)
+  if (chosen) return chosen
   const host = setupStatus(project, env).host.name
   if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict, { missing: [{ field: "host", choices: linkHosts.map(id => ({ id })) }], rerun: "vitehub link --host <host>" })
   return host
@@ -305,60 +320,92 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   else linked = await linkNetlify(name, options, credentials.token, fetchImpl)
 
   const link: SetupLink = {
-    schemaVersion: 1,
     host,
     ...(linked.account ? { account: linked.account } : {}),
     project: linked.project,
     verified: linked.verified,
     linkedAt: new Date().toISOString(),
   }
-  await writeSetupLinkFile(project.root, link)
+  const { added, links } = await addSetupLink(project.root, link, { default: options.default === true })
+  if (added) writeSeparateResourcesNote(context, host, links)
   return {
     created: linked.created,
     credentials: host !== "deno" && credentials.ok ? { source: credentials.source } : null,
+    default: links.default ?? null,
     file: SETUP_LINK_FILE,
     gitignore: await ensureViteHubGitignore(project.root),
+    hosts: links.targets.map(target => target.host),
     link,
   }
 }
 
-/** The text of `.vitehub/link.json` for `link`. */
-export function formatSetupLinkFile(link: SetupLinkFile): string {
-  return `${JSON.stringify(link, null, 2)}\n`
+/**
+ * Says once, when a project gets a second host, that host resources are not shared. A D1 database, a KV namespace, an
+ * R2 bucket, or a libSQL database of one host is not the store of the other host.
+ */
+export function writeSeparateResourcesNote(context: Pick<ViteHubCliContext, "stderr">, host: SetupLinkHost, links: SetupLinks): void {
+  const others = links.targets.map(target => target.host).filter(item => item !== host)
+  if (!others.length) return
+  context.stderr.write(`[vitehub] ${host} is a new host for this app, next to ${others.join(", ")}. Resources such as D1, KV, R2, and libSQL are separate on each host, so ${host} starts with its own empty data.\n`)
 }
 
-/** Writes `.vitehub/link.json`. */
-export async function writeSetupLinkFile(root: string, link: SetupLinkFile): Promise<void> {
+/** The text of `.vitehub/link.json` for `links`. */
+export function formatSetupLinkFile(links: SetupLinks): string {
+  const file: SetupLinkFile = {
+    schemaVersion: 2,
+    ...(links.default ? { default: links.default } : {}),
+    targets: Object.fromEntries(links.targets.map(({ host, ...target }) => [host, target])),
+  }
+  return `${JSON.stringify(file, null, 2)}\n`
+}
+
+/** Writes `.vitehub/link.json`, or removes it when `links` has no target. */
+export async function writeSetupLinks(root: string, links: SetupLinks): Promise<void> {
   const file = join(root, SETUP_LINK_FILE)
+  if (!links.targets.length) {
+    await rm(file, { force: true })
+    return
+  }
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, formatSetupLinkFile(link))
+  await writeFile(file, formatSetupLinkFile(links))
 }
 
-/** Removes `.vitehub/link.json`. Returns false when the project has no link file. */
-export async function unlinkSetupProject(root: string): Promise<boolean> {
+/**
+ * Adds the target of `link.host`, or replaces it, and keeps the other targets. The first target becomes the default,
+ * and `options.default` makes this one the default. `added` is true when the host had no target before.
+ */
+export async function addSetupLink(root: string, link: SetupLink, options: { default?: boolean } = {}): Promise<{ added: boolean, links: SetupLinks }> {
+  const current = await readSetupLinks(root)
+  const added = !current.targets.some(target => target.host === link.host)
+  const targets = added ? [...current.targets, link] : current.targets.map(target => target.host === link.host ? link : target)
+  const fallback = current.default ?? (targets.length === 1 ? link.host : undefined)
+  const preferred = options.default ? link.host : fallback
+  const links: SetupLinks = { ...(preferred ? { default: preferred } : {}), targets }
+  await writeSetupLinks(root, links)
+  return { added, links }
+}
+
+/**
+ * Removes the target of `host`, or the whole link file without `host`. When the default target goes and one target
+ * stays, that one becomes the default. Returns false when there was nothing to remove.
+ */
+export async function unlinkSetupProject(root: string, host?: SetupLinkHost): Promise<boolean> {
   const file = join(root, SETUP_LINK_FILE)
   if (!existsSync(file)) return false
-  await rm(file, { force: true })
+  if (!host) {
+    await rm(file, { force: true })
+    return true
+  }
+  const current = await readSetupLinks(root)
+  const targets = current.targets.filter(target => target.host !== host)
+  if (targets.length === current.targets.length) return false
+  const kept = current.default && current.default !== host ? current.default : targets.length === 1 ? targets[0]!.host : undefined
+  await writeSetupLinks(root, { ...(kept ? { default: kept } : {}), targets })
   return true
 }
 
-async function readLinkJson(root: string): Promise<Record<string, unknown> | undefined> {
-  const file = join(root, SETUP_LINK_FILE)
-  if (!existsSync(file)) return
-  let value: unknown
-  try {
-    value = JSON.parse(await readFile(file, "utf8"))
-  }
-  catch {
-    return
-  }
-  return isRecord(value) && value.schemaVersion === 1 ? value : undefined
-}
-
-/** Reads the host link from `.vitehub/link.json`. Returns undefined when the file is missing or has no host link. */
-export async function readSetupLink(root: string): Promise<SetupLink | undefined> {
-  const value = await readLinkJson(root)
-  if (!value || typeof value.host !== "string" || !isLinkHost(value.host)) return
+function readTarget(host: SetupLinkHost, value: unknown): SetupLink | undefined {
+  if (!isRecord(value)) return
   const project = value.project
   const name = isRecord(project) ? optionalString(project.name) : undefined
   if (!isRecord(project) || !name) return
@@ -366,8 +413,7 @@ export async function readSetupLink(root: string): Promise<SetupLink | undefined
   const account = isRecord(value.account) ? optionalString(value.account.id) : undefined
   const accountName = isRecord(value.account) ? optionalString(value.account.name) : undefined
   return {
-    schemaVersion: 1,
-    host: value.host,
+    host,
     ...(account ? { account: { id: account, ...(accountName ? { name: accountName } : {}) } } : {}),
     project: { ...(projectId ? { id: projectId } : {}), name },
     verified: value.verified === true,
@@ -375,10 +421,72 @@ export async function readSetupLink(root: string): Promise<SetupLink | undefined
   }
 }
 
+/**
+ * Reads the targets of `.vitehub/link.json`. A missing or unreadable file has no target. A file of schema version 1
+ * holds one host link, so it reads as one target that is also the default. The next write saves it as version 2.
+ */
+export async function readSetupLinks(root: string): Promise<SetupLinks> {
+  const file = join(root, SETUP_LINK_FILE)
+  if (!existsSync(file)) return { targets: [] }
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(file, "utf8"))
+  }
+  catch {
+    return { targets: [] }
+  }
+  if (!isRecord(value)) return { targets: [] }
+  if (value.schemaVersion === 1) {
+    const host = typeof value.host === "string" && isLinkHost(value.host) ? value.host : undefined
+    const target = host ? readTarget(host, value) : undefined
+    return target ? { default: target.host, targets: [target] } : { targets: [] }
+  }
+  if (value.schemaVersion !== 2 || !isRecord(value.targets)) return { targets: [] }
+  const entries = value.targets
+  const targets = linkHosts.flatMap(host => readTarget(host, entries[host]) ?? [])
+  const preferred = targets.find(target => target.host === value.default)?.host
+  return { ...(preferred ? { default: preferred } : {}), targets }
+}
+
+/** The result of picking a target: the target, none, or several without a default. */
+export type SetupLinkSelection =
+  | { link: SetupLink | undefined }
+  | { ambiguous: SetupLinkHost[] }
+
+/** Picks the target of `host`. Without `host`: the default target, else the only target. */
+export function selectSetupLink(links: SetupLinks, host?: SetupLinkHost): SetupLinkSelection {
+  if (host) return { link: links.targets.find(target => target.host === host) }
+  const preferred = links.default ?? (links.targets.length === 1 ? links.targets[0]!.host : undefined)
+  if (preferred) return { link: links.targets.find(target => target.host === preferred) }
+  return links.targets.length ? { ambiguous: links.targets.map(target => target.host) } : { link: undefined }
+}
+
+/** The failure for several targets and no default. `command` is the command to run again with `--host`. */
+export function hostRequired(hosts: readonly SetupLinkHost[], command: string): SetupFailure {
+  return new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_REQUIRED({ command, hosts: hosts.join(", ") }), setupExitCodes.inputNeeded, {
+    missing: [{ choices: hosts.map(id => ({ id })), field: "host" }],
+    rerun: `${command} --host ${hosts[0]}`,
+  })
+}
+
+/** Reads `--host` of a command that uses a link target. */
+export function readLinkHostOption(value: string | undefined): SetupLinkHost | undefined {
+  if (value === undefined) return
+  const host = hostFromNitroPreset(value)
+  if (!host) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(value)}. Use cloudflare, vercel, netlify, or deno.` })
+  if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  return host
+}
+
 /** What `vitehub status` adds to the feature status. */
 export interface SetupLinkStatus {
+  /** The target that `vitehub deploy` uses without `--host`. With several targets and no default, the target of the config host, else `null`. */
   link: SetupLinkSummary | null
-  /** For the linked host, else the config host. Never includes the token. `null` on a host without credentials (Node). */
+  /** Every linked host target. */
+  targets: SetupLinkSummary[]
+  /** The host that `vitehub deploy` uses without `--host`. */
+  default: SetupLinkHost | null
+  /** For the `link` host, else the config host. Never includes the token. `null` on a host without credentials (Node). */
   credentials: HostCredentialsDescription | null
 }
 
@@ -389,9 +497,15 @@ export interface SetupLinkState {
   credentials: HostCredentials | undefined
 }
 
+function summary(link: SetupLink): SetupLinkSummary {
+  return { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified }
+}
+
 /** Reads the link and credentials, skipping CLI discovery offline and sharing the online host deadline. */
 export async function readSetupLinkState(project: SetupProject, host: string, context: ViteHubCliContext, options: { offline?: boolean, signal?: AbortSignal } = {}): Promise<SetupLinkState> {
-  const link = await readSetupLink(project.root)
+  const links = await readSetupLinks(project.root)
+  const selected = selectSetupLink(links)
+  const link = "link" in selected ? selected.link : links.targets.find(target => target.host === host)
   const credentialHost = link?.host ?? (isLinkHost(host) ? host : undefined)
   const credentials = credentialHost ? await readStatusCredentials(credentialHost, project.root, context, options) : undefined
   return {
@@ -399,7 +513,9 @@ export async function readSetupLinkState(project: SetupProject, host: string, co
     link,
     status: {
       credentials: credentials ? describeCredentials(credentials) : null,
-      link: link ? { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified } : null,
+      default: links.default ?? null,
+      link: link ? summary(link) : null,
+      targets: links.targets.map(summary),
     },
   }
 }

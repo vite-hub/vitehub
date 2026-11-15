@@ -42,7 +42,7 @@ describe("Console request bodies", () => {
 
   it("rejects a request with no JSON body", async () => {
     const req = new Request("http://vitehub.local/_vitehub/api/documents", { method: "POST" })
-    await expect(consoleRequestJSON(requestEvent(req))).rejects.toBeInstanceOf(SyntaxError)
+    await expect(consoleRequestJSON(requestEvent(req))).rejects.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", statusCode: 400 })
   })
 
   for (const [name, adapter] of Object.entries(adapters)) {
