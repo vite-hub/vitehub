@@ -19,8 +19,8 @@ function app(files: Record<string, string>): string {
 }
 
 describe("discoverForms", () => {
-  it("finds server/forms/<name> files, sorted, without declarations", () => {
-    const root = app({ "server/forms/contact.ts": "", "server/forms/bug-report.mjs": "", "server/forms/types.d.ts": "", "server/forms/nested/x.ts": "" })
+  it("finds server/forms/<name> files, sorted, without declarations or tests", () => {
+    const root = app({ "server/forms/contact.ts": "", "server/forms/bug-report.mjs": "", "server/forms/types.d.ts": "", "server/forms/contact.test.ts": "", "server/forms/nested/x.ts": "" })
     expect(discoverForms(root).map(form => form.name)).toEqual(["bug-report", "contact"])
     expect(discoverForms(app({}))).toEqual([])
   })
