@@ -292,6 +292,7 @@ export function createCloudflareSandboxDurableObject(
           if (this.#cancelled.delete(options.id)) await this.cancelExec(options.id);
         }
         const output = await process.output();
+        // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
         if (timedOut) throw new Error(`Command timed out after ${options.timeout}ms.`);
         const decoder = new TextDecoder();
         return {
@@ -384,6 +385,7 @@ export function createCloudflareSandboxDurableObject(
 
     async streamProcessLogs(processId: string) {
       const record = this.#processes.get(processId);
+      // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
       if (!record) throw new Error(`Process ${processId} is not running in this Sandbox.`);
       const stream = record.stream();
       // Keep even an already-exited process addressable until this follow-up RPC attaches.
@@ -394,6 +396,7 @@ export function createCloudflareSandboxDurableObject(
 
     #container() {
       const container = this.#ctx.container;
+      // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
       if (!container) throw new Error("The Sandbox Durable Object has no Container. Add a containers entry for its class in wrangler.json.");
       return container;
     }
@@ -445,6 +448,7 @@ export function parseDuration(value: number | string | undefined) {
   if (value === undefined) return undefined;
   if (typeof value === "number") return value * 1000;
   const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/.exec(value.trim());
+  // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
   if (!match) throw new Error(`[vitehub] Invalid Cloudflare sleepAfter ${JSON.stringify(value)}. Use seconds or a value such as "30s", "5m" or "1h".`);
   const units = { h: 3_600_000, m: 60_000, ms: 1, s: 1000 } as const;
   return Number(match[1]) * units[(match[2] ?? "s") as keyof typeof units];
@@ -459,6 +463,7 @@ export function cloudflareSignalNumber(signal: string | undefined): number | und
 
 function signalNumber(signal: string | undefined) {
   const number = cloudflareSignalNumber(signal);
+  // Internal invariant: thrown inside the Sandbox Durable Object. Workers RPC passes only the message to the caller, so a code would not reach it.
   if (number === undefined) throw new Error(`[vitehub] Unsupported signal ${JSON.stringify(signal)}.`);
   return number;
 }
