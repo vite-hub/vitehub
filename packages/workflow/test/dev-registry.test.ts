@@ -85,18 +85,37 @@ describe("Workflow dev registry", () => {
     const projectRoot = await createApp()
     await configHook(workflow)({ root: projectRoot }, { command: "serve", mode: "development" })
 
-    // Execute the generated plugin with only Nitro stubbed. It imports the Workflow runtime state by file path.
+    // Execute the generated plugin with Nitro and the worker stubbed. It imports the real Workflow runtime state by file path.
     const nitroDir = join(projectRoot, "node_modules/nitro")
     await mkdir(nitroDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
     const pluginFile = join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")
     expect(await readFile(pluginFile, "utf8")).toContain(`from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
+    const workerFile = join(projectRoot, "worker.mjs")
+    await writeFile(workerFile, [
+      `import { getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
+      "export const installOpenWorkflow = app => { app.worker = { config: getWorkflowRuntimeConfig(), registry: getWorkflowRuntimeRegistry() } }",
+    ].join("\n"))
+    await writeFile(pluginFile, (await readFile(pluginFile, "utf8")).replace(workflowRuntimeModule("openworkflow-worker"), workerFile))
     const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(pluginFile).href)
-    await startup()
+    const nitroApp = { worker: undefined }
+    await startup(nitroApp)
     const state = await import(/* @vite-ignore */ pathToFileURL(workflowRuntimeModule("state")).href) as typeof import("../src/runtime/state.ts")
     expect(state.getWorkflowRuntimeConfig()).toEqual(workflow)
     expect(state.getWorkflowRuntimeRegistry()).toHaveProperty("welcome")
+    expect(nitroApp.worker).toEqual(workflow.provider === "openworkflow" ? { config: workflow, registry: state.getWorkflowRuntimeRegistry() } : undefined)
+  })
+
+  it("installs OpenWorkflow after the runtime config and registry only for its provider", () => {
+    for (const workflow of [{ provider: "openworkflow" }, { provider: "openworkflow", worker: false }] satisfies ResolvedWorkflowOptions[]) {
+      const code = createWorkflowDevPluginModule(workflow)
+      expect(code).toContain(`import { installOpenWorkflow } from ${JSON.stringify(workflowRuntimeModule("openworkflow-worker"))}`)
+      expect(code.indexOf("installOpenWorkflow(nitroApp)")).toBeGreaterThan(code.indexOf("setWorkflowRuntimeRegistry(registry)"))
+    }
+    for (const workflow of [{ provider: "vercel" }, { provider: "cloudflare" }] satisfies ResolvedWorkflowOptions[]) {
+      expect(createWorkflowDevPluginModule(workflow)).not.toContain("installOpenWorkflow")
+    }
   })
 
   it("adds the registry plugin before Nitro reads its config in development", async () => {
@@ -232,6 +251,91 @@ describe("Workflow dev registry", () => {
     expect(generated).not.toContain("runtime/dev-runs")
     expect(generated).not.toContain("enableWorkflowDevRuns")
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
+  })
+
+  it.each(["build", "serve"] as const)("infers OpenWorkflow and starts its worker for a Node %s without workflow options", async (command) => {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow({}, { hosting: "node-server" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    const config: Record<string, unknown> = { root: projectRoot }
+    await (hook.handler as unknown as ConfigHook)(config, { command, mode: command === "build" ? "production" : "development" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    // A build reads its storage at runtime. `vite dev` keeps runs in the local SQLite file.
+    expect(generated).toContain(command === "build"
+      ? 'setWorkflowRuntimeConfig({"provider":"openworkflow"})'
+      : 'setWorkflowRuntimeConfig({"provider":"openworkflow","sqlite":{"path":".vitehub/data/openworkflow.sqlite.db"}})')
+    expect(generated).toContain("installOpenWorkflow(nitroApp)")
+  })
+
+  async function buildWithDatabase(getConfig: () => { databases: Record<string, { dialect?: string }> } | undefined) {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow({}, { databaseImport: "vite-hub/database", hosting: "node-server" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
+    // The Database plugin resolves its Definitions, contributions, and layers. Workflow reads that result.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [[{ api: { getConfig }, name: "@vite-hub/database/vite" }]], root: projectRoot })
+    const generated = () => readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    return { generated, plugin }
+  }
+
+  it.each([
+    ["postgresql", true],
+    ["sqlite", false],
+  ] as const)("passes the %s Default Database URL to OpenWorkflow: %s", async (dialect, uses) => {
+    const { generated, plugin } = await buildWithDatabase(() => ({ databases: { default: { dialect } } }))
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { defaultDatabase: uses } }])
+
+    if (uses) {
+      expect(await generated()).toContain(`import { getPostgresConnectionUrl } from "vite-hub/database"`)
+      expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+    }
+    else {
+      expect(await generated()).not.toContain("getPostgresConnectionUrl")
+      expect(await generated()).toContain("installOpenWorkflow(nitroApp)")
+    }
+  })
+
+  it("reads the Database config again at buildStart when the Database resolves after Workflow", async () => {
+    let databaseConfig: { databases: Record<string, { dialect?: string }> } | undefined
+    const { generated, plugin } = await buildWithDatabase(() => databaseConfig)
+    expect(await generated()).not.toContain("getPostgresConnectionUrl")
+
+    databaseConfig = { databases: { default: { dialect: "postgresql" } } }
+    await (plugin.buildStart as unknown as () => Promise<void>).call({})
+
+    expect(await generated()).toContain(`installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl("default") })`)
+    expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { defaultDatabase: true } }])
+  })
+
+  it("does not read Database Definition files without the Database plugin", async () => {
+    const projectRoot = await createApp()
+    await mkdir(join(projectRoot, "server/databases"), { recursive: true })
+    await writeFile(join(projectRoot, "server/databases/config.ts"), `export default { dialect: "postgresql" }\n`)
+    const plugin = hubWorkflow({}, { hosting: "node-server" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root: projectRoot })
+
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")).not.toContain("getPostgresConnectionUrl")
+  })
+
+  it.each<[ResolvedWorkflowOptions, ResolvedWorkflowOptions]>([
+    [{ provider: "openworkflow" }, { provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
+    [{ postgres: { schema: "jobs" }, provider: "openworkflow" }, { postgres: { schema: "jobs" }, provider: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
+    // `remote: true` lets `vite dev` use DATABASE_URL or OPENWORKFLOW_POSTGRES_URL.
+    [{ provider: "openworkflow", remote: true }, { provider: "openworkflow", remote: true }],
+    // Configured storage is used as configured.
+    [{ postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }, { postgres: { url: "postgres://localhost/dev" }, provider: "openworkflow" }],
+    [{ provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }, { provider: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }],
+  ])("keeps OpenWorkflow in vite dev on local storage unless remote is set: %j", (workflow, installed) => {
+    const code = createWorkflowDevPluginModule(workflow, true)
+    expect(code).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(installed)})`)
+    // A build uses the configuration as it is.
+    expect(createWorkflowDevPluginModule(workflow)).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`)
   })
 
   it("keeps the run history out of the import graph of every published runtime entry", async () => {
