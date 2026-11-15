@@ -3156,10 +3156,7 @@ describe("workflow runtime", () => {
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
-      cause: {
-        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
-      },
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare", reason: "Cloudflare Workflow provider returned an invalid workflow instance." },
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
   })
@@ -3181,10 +3178,7 @@ describe("workflow runtime", () => {
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
-      cause: {
-        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
-      },
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare", reason: "Cloudflare Workflow provider returned an invalid workflow instance." },
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
     expect(createBatch).toHaveBeenCalledWith([{ id: "welcome-1", params: {} }])
