@@ -2,6 +2,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { localSqlite } from "#vitehub/database/libsql"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
+import { postgresConnectionUrl } from "./postgres-connection.ts"
 import { runtimeConfig } from "./definition-config.ts"
 import { warnIgnoredUrlVariable } from "./url-variables.ts"
 
@@ -52,7 +53,7 @@ function withTestDatabase<TSchema extends Record<string, unknown>, TRelations ex
   }
   // SAFETY: Every read goes to the current database, so the proxy has the full database shape.
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema, TRelations>, {
-    get: (_target, property) => Reflect.get(current(), property),
+    get: (_target, property) => property === postgresConnectionUrl ? undefined : Reflect.get(current(), property),
     getPrototypeOf: () => Object.getPrototypeOf(current()),
     has: (_target, property) => Reflect.has(current(), property),
   })
