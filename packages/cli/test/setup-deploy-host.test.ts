@@ -66,3 +66,17 @@ it("redacts captured and streamed credentials across chunks and streams", async 
   expect(shown).not.toContain(token)
   expect(shown).not.toContain("private-")
 })
+
+it.skipIf(process.platform === "win32")("lets file-reading CLIs reopen stdin without a reachable secret file", async () => {
+  const root = await createProject({
+    "reader.cjs": `const fs = require("node:fs")
+      if (!fs.fstatSync(0).isFile()) throw new Error("stdin must be a regular file")
+      if (process.platform === "linux" && !fs.readlinkSync("/proc/self/fd/0").endsWith(" (deleted)")) throw new Error("stdin file must be unlinked")
+      process.stdout.write(fs.readFileSync("/dev/stdin", "utf8"))`,
+  })
+  const result = await createDeployRun({ write() {} }, [])(process.execPath, [join(root, "reader.cjs")], {
+    cwd: root, env: {}, stdin: "transport-proof", stdinAsFile: true,
+  })
+  expect(result.exitCode, result.stderr).toBe(0)
+  expect(result.stdout).toBe("transport-proof")
+})

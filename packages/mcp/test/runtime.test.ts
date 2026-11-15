@@ -252,6 +252,45 @@ describe("app MCP prompts, resources, and server info", () => {
   })
 })
 
+describe("MCP Apps metadata", () => {
+  const playerUri = "ui://lessons/player.html"
+  const html = "<!doctype html><title>Player</title>"
+  const showLesson = defineMcpTool({
+    description: "Play a lesson.",
+    input: z.object({ id: z.string() }),
+    _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } },
+    handler: ({ id }) => ({ content: [{ text: `Playing ${id}.`, type: "text" }], structuredContent: { id }, _meta: { audio: `/audio/${id}.mp3` } }),
+  })
+  const player = {
+    uri: playerUri,
+    mimeType: "text/html;profile=mcp-app",
+    _meta: { ui: { csp: { connectDomains: ["https://app.example.com"] }, prefersBorder: false } },
+    handler: () => html,
+  } satisfies McpResourceDefinition
+  const options = { resources: { player }, tools: { show_lesson: showLesson } }
+
+  it("lists the _meta of a tool, so the client knows which UI shows its result", async () => {
+    const { body } = await rpc(options, "tools/list")
+    expect(body.result.tools).toEqual([expect.objectContaining({ _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } }, name: "show_lesson" })])
+  })
+
+  it("sends the _meta of a tool result to the client", async () => {
+    const { body } = await rpc(options, "tools/call", { arguments: { id: "l1" }, name: "show_lesson" })
+    expect(body.result).toEqual({ _meta: { audio: "/audio/l1.mp3" }, content: [{ text: "Playing l1.", type: "text" }], isError: false, structuredContent: { id: "l1" } })
+  })
+
+  it("lists and reads the HTML resource with its _meta", async () => {
+    const meta = player._meta
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", name: "player", uri: playerUri }])
+    expect((await rpc(options, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+
+  it("sends the _meta of contents that a handler returns", async () => {
+    const domains = { uri: playerUri, handler: (uri: string) => ({ contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: html, _meta: { ui: { domain: "https://app.example.com" } } }] }) } satisfies McpResourceDefinition
+    expect((await rpc({ resources: { player: domains } }, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: { ui: { domain: "https://app.example.com" } }, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+})
+
 describe("app MCP hooks", () => {
   const signedIn = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
   const verify = async () => [undefined, signedIn] as const
