@@ -154,6 +154,7 @@ async function requiredPeerSpecs() {
     "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
     "@comark/vue": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
+    "@ui-sdk/vue": await installedVersion(join(repoRoot, "packages/agent/node_modules/@ui-sdk/vue/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
@@ -901,6 +902,24 @@ describe("published declaration diagnostics", () => {
 
   it("keeps feature export peers available after the facade stops declaring them", () => {
     expect(optionalContractPeers("vite-hub")).toEqual(expect.arrayContaining(["evalite", "vitest"]))
+  })
+
+  it("provides install specs for every facade feature peer", async () => {
+    const manifest = await readManifest(join(repoRoot, "packages/vite-hub/package.json"))
+    const peerSpecs = {
+      ...await resolvedPeerDependencySpecs(manifest.peerDependencies || {}),
+      ...await requiredPeerSpecs(),
+      ...Object.fromEntries(optionalPeers.map(name => [name, "1.0.0"])),
+    }
+    const specs = Object.fromEntries(packageInfos.map(info => [info.packageName, `file:${info.name}.tgz`]))
+    expect(() => mixedPeerFixtureSpecs(
+      "vite-hub",
+      "vite",
+      [],
+      [...Object.keys(manifest.peerDependencies || {}), ...optionalContractPeers("vite-hub")],
+      specs,
+      peerSpecs,
+    )).not.toThrow()
   })
 
   it("provides install specs for Docs' required external peers", async () => {
