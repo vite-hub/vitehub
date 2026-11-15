@@ -3033,6 +3033,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] Provider Agent Drivers (codexDriver() and claudeCodeDriver()) cannot run in a Cloudflare Worker. A server module in this Worker build calls one.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
+    AGENT_INVOCATIONS_NO_DEV_SERVER: {
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
+    },
     AGENT_R0939: {
       why: "[vitehub] Observability is not configured.",
       fix: "Set vitehub({ observability: { service } }) in the Vite config.",
