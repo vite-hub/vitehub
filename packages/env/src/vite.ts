@@ -842,11 +842,12 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
-    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; names?: readonly string[]; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
+    `${prefix}  names?: readonly string[]`,
     `${prefix}  path?: string`,
     `${prefix}  provider?: string`,
     `${prefix}  required: boolean`,
