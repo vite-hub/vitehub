@@ -12,8 +12,9 @@ import type { BlobImageOperation } from "./variant.ts"
 /** Photon rejects larger sources. */
 export const photonMaxInputBytes = 10 * 1024 * 1024
 /**
- * Photon rejects sources with more pixels. Decoding and resizing need about 19 bytes of WebAssembly memory per source
- * pixel, and a Worker has 128 MB for everything, so the limit keeps one variant under about 80 MB.
+ * Photon rejects sources with more pixels unless `images.maxPixels` says otherwise. Decoding and resizing need about
+ * 17 bytes of WebAssembly memory per source pixel, and a Worker has 128 MB for everything, so the default keeps one
+ * variant under about 70 MB.
  */
 export const photonMaxInputPixels = 4_000_000
 
@@ -130,7 +131,7 @@ async function loadPhoton(): Promise<PhotonLike> {
  * Resizes with `@cf-wasm/photon`. Pass the module, or ViteHub loads the registered or installed module on first use.
  * Photon writes WebP without loss and cannot write AVIF.
  */
-export function createPhotonImageTransformer(photon?: PhotonLike): BlobImageTransformer {
+export function createPhotonImageTransformer({ maxPixels = photonMaxInputPixels, photon }: { maxPixels?: number, photon?: PhotonLike } = {}): BlobImageTransformer {
   return {
     name: "photon",
     async transform(input, operation) {
@@ -140,8 +141,8 @@ export function createPhotonImageTransformer(photon?: PhotonLike): BlobImageTran
       const probe = probeImage(bytes)
       if (!probe) throw rejected("cannot read the image size. It reads JPEG, PNG, WebP, and GIF images.")
       if (!decodableFormats.has(probe.format)) throw rejected(`reads JPEG, PNG, WebP, and GIF images, not ${probe.format.toUpperCase()}.`)
-      if (probe.width * probe.height > photonMaxInputPixels) {
-        throw rejected(`accepts images up to ${photonMaxInputPixels} pixels. This image is ${probe.width} × ${probe.height}.`)
+      if (probe.width * probe.height > maxPixels) {
+        throw rejected(`accepts images up to ${maxPixels} pixels. This image is ${probe.width} × ${probe.height}.`)
       }
       return new Blob([encode(photon ?? await loadPhoton(), bytes, operation)], { type: `image/${operation.format}` })
     },

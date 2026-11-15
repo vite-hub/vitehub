@@ -1,0 +1,28 @@
+
+Usage:   deno deploy env load <file>
+Version: 0.0.9909                   
+
+Description:
+
+  Load environment variables from a .env file into the application
+
+Options:
+
+  --org                  <name>     - The name of the organization                                                               
+  --app                  <name>     - The name of the application                                                                
+  -h, --help                        - Show this help.                                                                            
+  --token                <token>    - Auth token to use                                                                          
+  --config               <config>   - Path for the config file                                                                   
+  --ignore               <path>     - Ignore particular source files                                                             
+  -q, --quiet                       - Suppress non-essential output                                                              
+  -j, --json                        - Emit JSON on stdout instead of human-readable output                                       
+  -y, --non-interactive             - Fail fast instead of prompting; values must be supplied via flags or env vars (alias: -y)  
+  --non-secrets          <keys...>  - Which keys in the .env file to treat as non-secrets                                        
+  --replace                         - Replace existing env vars without prompting                                                
+  --skip-existing                   - Skip existing env vars without prompting                                                   
+
+Examples:
+
+  Load from .env file        load .env                     
+  Replace existing variables load --replace .env.production
+

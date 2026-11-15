@@ -6,9 +6,9 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
 
-import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 /** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/index.ts`). */
 const valueFlags = new Set(["--config", "--secrets-file"])
@@ -161,6 +161,40 @@ interface CloudflareVersion {
 }
 
 /** Version and deployment `source` values: https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/ */
+/**
+ * The secrets of the linked Worker. Wrangler 4.158 (`wrangler secret put --help`, `wrangler secret list --help`, in
+ * test/fixtures/host-cli-help/). `secret put` reads the value from stdin when stdin is not a terminal, and creates a
+ * draft Worker when the Worker does not exist. A Worker has one set of secrets for every version, so there is no
+ * preview target. Every value becomes a secret: a plain var lives in the Wrangler config that the build writes.
+ */
+export function cloudflareEnv(context: HostEnvContext): HostEnv {
+  const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
+  const env: NodeJS.ProcessEnv = { ...context.env, ...(context.link.account ? { CLOUDFLARE_ACCOUNT_ID: context.link.account.id } : {}) }
+  const worker = ["--name", context.link.project.name]
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(wrangler[0], [...wrangler.slice(1), ...args], { cwd: context.root, env, ...(stdin === undefined ? {} : { stdin }) })
+
+  return {
+    async listSecretNames() {
+      const result = await run(["secret", "list", "--format", "json", ...worker])
+      if (result.exitCode !== 0) throw hostListFailed("wrangler secret list", result, context.secrets)
+      const start = result.stdout.indexOf("[")
+      let value: unknown
+      try {
+        value = JSON.parse(result.stdout.slice(start))
+      }
+      catch {
+        throw hostListFailed("wrangler secret list printed no JSON", result, context.secrets)
+      }
+      return Array.isArray(value) ? value.flatMap(item => isRecord(item) && typeof item.name === "string" ? [item.name] : []) : []
+    },
+    async setSecret(name, value) {
+      const result = await run(["secret", "put", name, ...worker], value)
+      if (result.exitCode !== 0) throw hostCliFailed(`wrangler secret put ${name}`, result, context.secrets)
+    },
+  }
+}
+
 function cloudflareSource(value: unknown): HostDeploymentSource {
   if (value === "wrangler" || value === "cf_cli") return "cli"
   if (value === "workersci") return "git"

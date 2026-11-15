@@ -136,6 +136,7 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
 
 
 /** Raised for the failures of a Schedule operation. `status` and `code` reach every surface. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class ScheduleOperationError extends Error {
   readonly code: string
   readonly fix?: string

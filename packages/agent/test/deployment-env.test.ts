@@ -14,6 +14,7 @@ describe("agentDeploymentEnv", () => {
       "VITEHUB_AGENT_STATE_URL",
       "VITEHUB_AGENT_STATE_AUTH_TOKEN",
       "VITEHUB_AGENT_INVOCATIONS_DATABASE_URL",
+      "VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN",
       "AI_GATEWAY_API_KEY",
       "VITEHUB_DISCORD_GATEWAY_DURATION_MS",
     ])
@@ -24,14 +25,18 @@ describe("agentDeploymentEnv", () => {
     const entries = agentDeploymentEnv(normalizeAgentOptions({ routes: { discordGateway: true } }), { host: "cloudflare" })
     expect(names(entries)).toEqual([
       "VITEHUB_AGENT_INVOCATIONS_DATABASE_URL",
+      "VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN",
       "AI_GATEWAY_API_KEY",
       "VITEHUB_DISCORD_GATEWAY_SECRET",
       "VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL",
       "VITEHUB_DISCORD_GATEWAY_DURATION_MS",
     ])
+    expect(entries.find(entry => entry.names[0] === "VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN")).toEqual({
+      names: ["VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN"], required: false, secret: true, hasDefault: false, owners,
+    })
     expect(entries.every(entry => !entry.required)).toBe(true)
     // The Discord Gateway route is off by default.
-    expect(names(agentDeploymentEnv(normalizeAgentOptions({}), { host: "cloudflare" }))).toEqual(["VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "AI_GATEWAY_API_KEY"])
+    expect(names(agentDeploymentEnv(normalizeAgentOptions({}), { host: "cloudflare" }))).toEqual(["VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN", "AI_GATEWAY_API_KEY"])
   })
 
   it("keeps the state URL optional when the config sets one, and names its token variable, never its value", () => {

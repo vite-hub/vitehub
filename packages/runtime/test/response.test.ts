@@ -140,7 +140,7 @@ describe("durable Response representation", () => {
     const record = { ...serialized, body: { ...serialized.body, data } }
 
     expect(isSerializedResponse(record)).toBe(false)
-    expect(() => deserializeResponse(record)).toThrow(TypeError)
+    expect(() => deserializeResponse(record)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([null, new Uint8Array()])("preserves body presence for %s", async (body) => {
@@ -181,7 +181,7 @@ describe("durable Response representation", () => {
 
   it("rejects malformed records", () => {
     expect(isSerializedResponse({})).toBe(false)
-    expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+    expect(() => deserializeResponse({} as never)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it("rejects URLs on ordinary response records", async () => {
@@ -198,7 +198,7 @@ describe("durable Response representation", () => {
     }
 
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized as never)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized as never)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it("rejects response fields that the native Response constructor cannot read", async () => {
@@ -223,7 +223,7 @@ describe("durable Response representation", () => {
       statusText: "",
     }
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([204, 205, 304])("rejects an explicitly present empty body for status %s", (status) => {
@@ -234,7 +234,7 @@ describe("durable Response representation", () => {
       statusText: "",
     }
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([204, 205, 304])("preserves zero-byte legacy Base64 representations for status %s", (status) => {

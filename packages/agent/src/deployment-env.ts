@@ -1,4 +1,4 @@
-import { defaultAgentInvocationsUrlEnv } from "./invocations/default-location.ts"
+import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./invocations/default-location.ts"
 
 import type { DeploymentEnvContext, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ResolvedAgentModuleOptions } from "./types.ts"
@@ -31,7 +31,7 @@ function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvCo
 
 /**
  * The variables that hosted Agents read on the deployed host: the libSQL Agent state URL and token, the invocation
- * journal URL, the AI Gateway key of string models, and the Discord Gateway route. `AI_GATEWAY_API_KEY` stays optional,
+ * journal URL and token, the AI Gateway key of string models, and the Discord Gateway route. `AI_GATEWAY_API_KEY` stays optional,
  * since an Agent may pass its own model or `apiKey`, and Vercel signs in with OIDC. A server that runs the Discord
  * Gateway in its own process needs no route secret. Channel and Capability credentials belong to their owners.
  */
@@ -45,6 +45,7 @@ export function agentDeploymentEnv(
   return [
     ...stateEntries(options, context.host, input.authTokenEnvName),
     entry([defaultAgentInvocationsUrlEnv], false, true, true),
+    entry([defaultAgentInvocationsAuthTokenEnv], false, true),
     entry(["AI_GATEWAY_API_KEY"], false, true),
     ...discordGateway && !input.processDiscordGateway
       ? [entry(["VITEHUB_DISCORD_GATEWAY_SECRET"], false, true), entry(["VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL"], false, false, true)]
