@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `useDatabase` from `vite-hub/database` | Select a generated Drizzle database and its schema, by name or the only one. |
 | `useDatabaseBinding` from `vite-hub/database` | Get the D1 binding or request session of a database. |
 | `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
+| `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
 | `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
