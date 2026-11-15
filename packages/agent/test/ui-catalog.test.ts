@@ -245,7 +245,8 @@ describe("form and action regressions", () => {
     const spec = one({ root: { type: "Form", props: { form: "settings", value: { $bindState: "/values" } }, on: { submit: event("save", { values: { $state: "/values" } }) } } }, { values: { explicit: true, amount: 1.5, count: 2 } })
     const registry = defineCatalogRegistry(forms, catalogComponents)
     let sent: Record<string, unknown> | undefined
-    const app = renderer.createApp({ render: () => h(JSONUIProvider, { registry, initialState: spec.state, handlers: { event: (params: Record<string, unknown>) => { sent = params.context as Record<string, unknown> } } }, { default: () => h(Renderer, { spec, registry }) }) })
+    let submissions = 0
+    const app = renderer.createApp({ render: () => h(JSONUIProvider, { registry, initialState: spec.state, handlers: { event: (params: Record<string, unknown>) => { submissions++; sent = params.context as Record<string, unknown> } } }, { default: () => h(Renderer, { spec, registry }) }) })
     const root = node("root")
     app.mount(root)
     const all = (el: Node): Node[] => [el, ...el.children.flatMap(all)]
@@ -256,6 +257,7 @@ describe("form and action regressions", () => {
       const submit = nodes.find(el => el.type === "form")!.props.onSubmit as (event: Event) => void
       submit(new Event("submit", { cancelable: true }))
       await nextTick()
+      expect(submissions).toBe(1)
       expect(sent?.values).toEqual({ enabled: false, explicit: true, amount: 1.5, count: 2 })
       await expect(checkSpecForm(spec, "root", sent?.values, { catalog: forms })).resolves.toEqual([undefined, { enabled: false, explicit: true, defaulted: true, amount: 1.5, count: 2 }])
     }

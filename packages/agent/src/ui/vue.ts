@@ -85,6 +85,8 @@ const record = (value: unknown): Props => typeof value === "object" && value !==
 function part(name: string, render: (props: Props, children: VNodeChild[]) => VNodeChild): FunctionalComponent<Props> {
   const component: FunctionalComponent<Props> = (props, { slots }) => render(props, slots.default?.() ?? [])
   component.displayName = name
+  // Each part forwards its own listeners; fallthrough would merge them onto the root again.
+  component.inheritAttrs = false
   return component
 }
 
