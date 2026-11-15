@@ -896,7 +896,11 @@ describe("Database Nuxt integration", () => {
       })
       await hubDatabase({ driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
-      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({
+        code: "DATABASE_D1_MIGRATIONS_DIR_OVERLAP",
+        fix: expect.stringContaining("migrations_dir"),
+        message: expect.stringContaining("D1 migration directories overlap"),
+      })
       expect(nitroConfig).not.toHaveProperty("modules")
     }
     finally {
@@ -1154,6 +1158,8 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
       expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
+      // The Nuxt alias of `@vite-hub/database` has the same exports, so Workflow can import from it.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\")")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
