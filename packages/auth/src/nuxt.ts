@@ -105,7 +105,7 @@ const routeSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*)$/
 function guardRoutes(routeRules: NonNullable<NuxtLike["options"]["routeRules"]>, routes: AuthRoutes): void {
   const shapes = new Map<string, string>()
   for (const [path, mode] of Object.entries(routes)) {
-    const invalid = (reason: string) => authErrorDiagnostics.AUTH_B0003({ message: `\`vitehub.auth.routes\` has ${JSON.stringify(path)}: ${JSON.stringify(mode)}. ${reason}` })
+    const invalid = (reason: string) => authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: `\`vitehub.auth.routes\` has ${JSON.stringify(path)}: ${JSON.stringify(mode)}. ${reason}` })
     if (mode !== "user" && mode !== "guest" && mode !== false) throw invalid("A value must be 'user', 'guest', or false.")
     const segments = path.split("/").slice(1)
     if (!path.startsWith("/") || (path !== "/" && !segments.every((segment, index) => routeSegment.test(segment) || (segment === "**" && index === segments.length - 1)))) {

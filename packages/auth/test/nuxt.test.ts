@@ -140,7 +140,7 @@ describe("Auth Nuxt integration", () => {
   ] as const)("stops the build on an invalid auth.routes entry %j", (routes, entry) => {
     const nuxt = { options: { rootDir: "/tmp/vitehub-auth-nuxt" } }
 
-    expect(() => hubAuthNuxt({ env: false, auth: { routes: routes as never } }, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_B0003", message: expect.stringContaining(entry) }))
+    expect(() => hubAuthNuxt({ env: false, auth: { routes: routes as never } }, nuxt)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining(entry) }))
   })
 
   /** Resolves the Auth mode of a page like Nuxt 5: all matching route rules, less specific first, with later rules winning. */
