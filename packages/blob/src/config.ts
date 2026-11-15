@@ -14,16 +14,21 @@ import type {
   MinioBlobStoreConfig,
   NetlifyBlobsStoreConfig,
   ResolvedBlobModuleOptions,
+  ResolvedBlobStoreSecrets,
   ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
   ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
+  S3BlobStoreConfig,
   VercelBlobStoreConfig,
   BlobServeOptions,
 } from "./types.ts"
 import type { BlobImagesOptions } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { DEFAULT_BLOB_SERVE_ROUTE } from "./served.ts"
+
+export { DEFAULT_BLOB_SERVE_ROUTE }
 
 export interface BlobResolutionInput {
   /** True for `vite dev`, where a store's `remote` switch applies. */
@@ -39,7 +44,6 @@ const DEFAULT_MINIO_BUCKET = "vitehub-blob"
 const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
 const DEFAULT_MINIO_REGION = "us-east-1"
 const DEFAULT_NETLIFY_BLOBS_STORE = "vitehub-blob"
-export const DEFAULT_BLOB_SERVE_ROUTE = "/api/_vitehub/blob"
 const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
 const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
@@ -226,14 +230,31 @@ function resolveCloudflareStore(
   )
 }
 
+/**
+ * Vercel Blob sets access on each object, and a public object has a public provider URL. So a store is private unless
+ * its config sets `access: "public"` or an `access: "public"` serve route serves it.
+ */
+function resolveVercelAccess(
+  config: Partial<VercelBlobStoreConfig>,
+  served: ResolvedBlobModuleOptions["serve"],
+  path: string,
+): ResolvedVercelBlobStoreConfig["access"] {
+  if (config.access === "public" && served?.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0022({ message: `\`${path}.access\` is "public", but \`blob.serve\` requires \`authorize: true\` for this store. Anyone could read its objects from their public Vercel Blob URLs.` })
+  }
+  return config.access ?? served?.access ?? "private"
+}
+
 function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
+  served?: ResolvedBlobModuleOptions["serve"],
+  path = "blob",
 ): ResolvedVercelBlobStoreConfig {
   const token = resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE
   return {
     ...config,
-    access: config.access ?? "public",
+    access: resolveVercelAccess(config, served, path),
     driver: "vercel-blob",
     token,
     ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
@@ -276,9 +297,43 @@ function resolveMinioStore(
   }
 }
 
+/** The NuxtHub names for an S3 bucket. ViteHub infers an `s3` store when the build has the key, the secret, and the bucket. */
+const NUXTHUB_S3_SECRET_ENV = { "credentials.accessKeyId": "S3_ACCESS_KEY_ID", "credentials.secretAccessKey": "S3_SECRET_ACCESS_KEY" }
+
+/** An `s3` store from NuxtHub's `S3_*` variables. The credentials stay in env: the build output has only their names. */
+function resolveS3EnvStore(env: Record<string, string | undefined>): (S3BlobStoreConfig & ResolvedBlobStoreSecrets) | undefined {
+  const bucket = readEnv(env, "S3_BUCKET")
+  if (!bucket || !readEnv(env, "S3_ACCESS_KEY_ID") || !readEnv(env, "S3_SECRET_ACCESS_KEY")) return
+  const endpoint = readEnv(env, "S3_ENDPOINT")
+  const region = readEnv(env, "S3_REGION")
+  return {
+    bucket,
+    credentials: { accessKeyId: MASKED_BLOB_RUNTIME_VALUE, secretAccessKey: MASKED_BLOB_RUNTIME_VALUE },
+    driver: "s3",
+    ...(endpoint ? { endpoint } : {}),
+    ...(region ? { region } : {}),
+    secretEnv: { ...NUXTHUB_S3_SECRET_ENV },
+  }
+}
+
+/** The build has NuxtHub's `S3_*` variables, so a store without a `driver` uses that bucket. */
+export function hasS3BlobEnv(env: Record<string, string | undefined>): boolean {
+  return resolveS3EnvStore(env) !== undefined
+}
+
+/** NuxtHub's `s3` driver took the credentials at the top level. ViteHub's takes them in `credentials`. */
+function assertS3CredentialsShape(store: S3BlobStoreConfig, path: string): void {
+  for (const option of ["accessKeyId", "secretAccessKey", "sessionToken"]) {
+    if (!Object.hasOwn(store, option)) continue
+    throw blobErrorDiagnostics.BLOB_C0023({ message: `\`${path}.${option}\` is not an option of the s3 driver. Set \`${path}.credentials.${option}\` instead.` })
+  }
+}
+
 function resolveExplicitStore(
   store: BlobStoreConfig,
   env: Record<string, string | undefined>,
+  served: ResolvedBlobModuleOptions["serve"],
+  path: string,
 ) {
   switch (store.driver) {
     case "cloudflare-r2":
@@ -290,10 +345,12 @@ function resolveExplicitStore(
     case "netlify-blobs":
       return resolveNetlifyStore(store)
     case "vercel-blob":
-      return resolveVercelStore(store, env)
+      return resolveVercelStore(store, env, served, path)
+    case "s3":
+      assertS3CredentialsShape(store, path)
+      return store
     case "azure":
     case "gcs":
-    case "s3":
       return store
     default:
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
@@ -318,21 +375,39 @@ function normalizeServeHeaders(value: unknown): Record<string, string> | undefin
   return Object.fromEntries(entries) as Record<string, string>
 }
 
-function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
+function normalizeServeOptions(value: false | BlobServeOptions | undefined): ResolvedBlobModuleOptions["serve"] {
   if (value === undefined || value === false) return
-  if (value === true) return { route: DEFAULT_BLOB_SERVE_ROUTE, store: "default" }
-  if (!isPlainObject(value)) throw blobErrorDiagnostics.BLOB_C0005({ message: "`blob.serve` must be true or a plain object." })
+  if (!isPlainObject(value)) {
+    throw blobErrorDiagnostics.BLOB_C0005({ message: `\`blob.serve\` must be a plain object that says who may read the files. Received ${JSON.stringify(value)}.` })
+  }
   if (value.authorize !== undefined && value.authorize !== true && value.authorize !== false) {
     throw blobErrorDiagnostics.BLOB_C0012({ message: "`blob.serve.authorize` must be a boolean. Export an `authorize` function from `server/blob.ts` for per-request rules." })
+  }
+  if ("public" in value) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.public` is not an option. Set `access: \"public\"` to serve the files to anyone." })
+  }
+  const authorize: unknown = value.authorize
+  if (authorize === false) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve.authorize: false` does not make the route public. Set `access: \"public\"` to serve the files to anyone, or `authorize: true` to require sign-in." })
+  }
+  if (value.access !== undefined && value.access !== "public") {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: `\`blob.serve.access\` must be "public". Received ${JSON.stringify(value.access)}. Set \`authorize: true\` to require sign-in.` })
+  }
+  if (value.access && value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` sets both `access: \"public\"` and `authorize: true`. Choose one." })
+  }
+  if (!value.access && !value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0021({ message: "`blob.serve` does not say who may read the files. The serve route sends every object of the store, so set `access: \"public\"` or `authorize: true`." })
   }
   if (value.anonymous !== undefined && value.anonymous !== true && value.anonymous !== false) {
     throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` must be a boolean." })
   }
   if (value.anonymous && !value.authorize) {
-    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. Without authorization the serve route is already public." })
+    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. An `access: \"public\"` route already serves signed-out callers." })
   }
   const headers = normalizeServeHeaders(value.headers)
   return {
+    ...(value.access ? { access: "public" } : {}),
     ...(value.anonymous ? { anonymous: true } : {}),
     ...(value.authorize ? { authorize: true } : {}),
     ...(headers ? { headers } : {}),
@@ -370,6 +445,10 @@ function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["imag
     images.sizes = [...new Set(sizes)].sort((left, right) => left - right)
   }
   return images
+}
+
+function servedRoute(serve: ResolvedBlobModuleOptions["serve"], store: string): ResolvedBlobModuleOptions["serve"] {
+  return serve?.store === store ? serve : undefined
 }
 
 function assertServeStore(
@@ -421,7 +500,7 @@ function readRemote(value: unknown, path: string): boolean | undefined {
 }
 
 /**
- * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob store that env or the
+ * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob or S3 store that env or the
  * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
  * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
  * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
@@ -440,7 +519,7 @@ function applyDevelopmentMode(
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
   if (!options.inferred) return local
-  if (local.driver === "vercel-blob") return resolveFsStore({}, options.env)
+  if (local.driver === "vercel-blob" || local.driver === "s3") return resolveFsStore({}, options.env)
   if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
   return local
 }
@@ -461,7 +540,7 @@ export function normalizeBlobOptions(
   const dev = input.dev === true
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
-  const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  const optionRecord = options as { serve?: false | BlobServeOptions } | undefined
   // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
   const storesOption = (options as { stores?: unknown } | undefined)?.stores
   if (options !== undefined && Object.hasOwn(options, "stores") && storesOption !== undefined && !isPlainObject(storesOption)) {
@@ -477,7 +556,7 @@ export function normalizeBlobOptions(
       Object.entries(options.stores).map(([name, store]) => {
         const path = `blob.stores.${name}.remote`
         const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
-        return [name, applyDevelopmentMode(resolveExplicitStore(store, env), { dev, env, inferred: false, path, remote })]
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env, servedRoute(serve, name), `blob.stores.${name}`), { dev, env, inferred: false, path, remote })]
       }),
     )
     const defaultStore = resolvedStores.default
@@ -489,7 +568,13 @@ export function normalizeBlobOptions(
   const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
 
   if (explicit?.driver) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env, servedRoute(serve, "default"), "blob"), mode), undefined, serve, images)
+  }
+
+  // NuxtHub checks its `S3_*` variables before the host, so an app that moves from NuxtHub keeps its bucket.
+  const s3 = resolveS3EnvStore(env)
+  if (s3) {
+    return createResolvedConfig(env, applyDevelopmentMode(s3, mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
@@ -501,11 +586,11 @@ export function normalizeBlobOptions(
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
+    return createResolvedConfig(env, applyDevelopmentMode(resolveVercelStore({}, env, servedRoute(serve, "default")), mode), undefined, serve, images)
   }
 
   return createResolvedConfig(env, applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)

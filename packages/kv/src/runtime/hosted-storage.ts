@@ -16,11 +16,14 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
   getAndDeleteItem?<T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
+  getMany<T = unknown>(keys: readonly string[], options?: unknown): Promise<(T | null)[]>
   incrementItem?(key: string, ttl: number): Promise<number>
   listKeys(options: KVListOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  setMany(entries: readonly { key: string, value: unknown }[], options?: unknown): Promise<void>
   setIfAbsentItem?<T = unknown>(key: string, value: T, ttl?: number): Promise<boolean>
 }
 
@@ -42,6 +45,7 @@ function isPrimitive(value: unknown) {
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
 function serializeValue(value: unknown, operation = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
+  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
   if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.delete() to remove a key.`)
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
@@ -51,6 +55,7 @@ function serializeValue(value: unknown, operation = "setIfAbsent"): string {
     const toJSON: unknown = Reflect.get(value, "toJSON")
     if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
   }
+  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
   throw new TypeError("KV cannot serialize this value.")
 }
 

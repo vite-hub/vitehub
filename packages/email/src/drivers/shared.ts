@@ -237,33 +237,3 @@ export function applyUnsubscribe(message: EmailMessage, driver = "email"): Email
   }
   return { ...message, ...(Object.keys(headers).length > 0 ? { headers } : {}) };
 }
-
-export function applyPersonalization(driver: string, message: EmailMessage): EmailMessage {
-  if (!message.personalizations?.length) return message;
-  if (message.personalizations.length > 1) {
-    throw emailProviderError(
-      driver,
-      "UNSUPPORTED",
-      `${driver} supports one personalization per message.`,
-    );
-  }
-  const personalization = message.personalizations[0]!;
-  if (
-    personalization.variables !== undefined ||
-    personalization.sendAt !== undefined ||
-    personalization.customArgs !== undefined
-  ) {
-    throw emailProviderError(
-      driver,
-      "UNSUPPORTED",
-      `${driver} does not support personalization variables, sendAt, or customArgs.`,
-    );
-  }
-  return {
-    ...message,
-    bcc: personalization.bcc ?? message.bcc,
-    cc: personalization.cc ?? message.cc,
-    subject: personalization.subject ?? message.subject,
-    to: personalization.to,
-  };
-}

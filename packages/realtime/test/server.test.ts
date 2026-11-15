@@ -52,7 +52,7 @@ beforeEach(() => {
 
 function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean, persistence?: false } = {}) {
   const definition = {
-    auth: options.auth,
+    ...options.auth ? { auth: true } : { access: "public" },
     document: { workspace: "test" },
     history: options.checkpoint ? { checkpoint: true } : undefined,
     persistence: options.persistence,
@@ -303,7 +303,7 @@ describe("realtime server handler", () => {
     }))
     const identify = vi.fn(() => ({ id: "ana" }))
     const handler = createRealtimeHandler({
-      docs: async () => ({ default: { document: { workspace: "test" }, identify } }),
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify } }),
     } as never)
     const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/api/_vitehub/realtime/docs/page.md", {
       headers: { origin, upgrade: "websocket", "x-forwarded-host": "site.example, proxy", "x-forwarded-proto": "https, http" },
@@ -317,7 +317,7 @@ describe("realtime server handler", () => {
     expect(identify).toHaveBeenCalledOnce()
   })
 
-  it("lets in the other origins a definition's origins() accepts, and only for identify()", async () => {
+  it("lets in the other origins a definition's origins() accepts", async () => {
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -326,7 +326,7 @@ describe("realtime server handler", () => {
     const identify = vi.fn(() => ({ id: "ana" }))
     const origins = vi.fn(({ origin }: { origin: string }) => origin === "https://preview.example")
     const handler = createRealtimeHandler({
-      docs: async () => ({ default: { document: { workspace: "test" }, identify, origins } }),
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify, origins } }),
     } as never)
     const connect = (origin: string) => handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md?ticket=t", {
       headers: { origin, upgrade: "websocket" },
@@ -340,6 +340,60 @@ describe("realtime server handler", () => {
     origins.mockClear()
     expect((await connect("https://app.example")).crossws).toBeDefined()
     expect(origins).not.toHaveBeenCalled()
+  })
+
+  it("refuses every request to a definition without an access rule", async () => {
+    const save = vi.fn()
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(true),
+      readFile: vi.fn().mockResolvedValue("Private"),
+      stat: vi.fn().mockResolvedValue({ digest: "v1" }),
+      writeFile: save,
+    }))
+    // A JavaScript definition reaches the server without the types, so the server checks it again.
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { document: { workspace: "test" }, origins: () => false } }),
+    } as never)
+
+    const socket = await handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws?: { upgrade?: () => Response } }
+    const post = await handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md?document=save", {
+      body: new Uint8Array([0]),
+      method: "POST",
+    }))
+
+    expect(socket.status).toBe(500)
+    expect(socket.crossws?.upgrade?.().status).toBe(500)
+    expect(post.status).toBe(500)
+    expect(serverMocks.useWorkspaceFiles).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it("keeps public and authorize() definitions on the app origin unless origins() accepts", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(() => true)
+    const origins = vi.fn(({ origin }: { origin: string }) => origin === "https://preview.example")
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { access: "public", document: { workspace: "test" }, origins } }),
+      notes: async () => ({ default: { authorize, document: { workspace: "test" } } }),
+    } as never)
+    const connect = (name: string, origin?: string) => handler.fetch(new Request(`https://app.example/api/_vitehub/realtime/${name}/page.md`, {
+      headers: origin ? { origin, upgrade: "websocket" } : { upgrade: "websocket" },
+    })) as Promise<Response & { crossws?: unknown }>
+
+    expect((await connect("docs", "https://evil.example")).status).toBe(403)
+    expect((await connect("docs", "https://preview.example")).crossws).toBeDefined()
+    expect((await connect("docs", "https://app.example")).crossws).toBeDefined()
+    expect((await connect("docs")).crossws).toBeDefined()
+    expect((await connect("notes", "https://evil.example")).status).toBe(403)
+    expect(authorize).not.toHaveBeenCalled()
+    expect((await connect("notes", "https://app.example")).crossws).toBeDefined()
+    expect(authorize).toHaveBeenCalled()
   })
 
   it("rejects saves when the Workspace Store cannot write conditionally", async () => {

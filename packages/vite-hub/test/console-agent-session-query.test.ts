@@ -96,7 +96,7 @@ it("restores desktop surfaces, visibility, and maximization through the URL and 
     await router.push("/session?details=open&tab=workspace")
     await flushPromises()
     expect(selected()).toContain("Workspace")
-    await wrapper.findAll('[role="tab"]').find(tab => tab.text().includes("Trace"))!.trigger("mousedown", { button: 0 })
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text().includes("Trace"))!.trigger("click")
     await flushPromises()
     expect(router.currentRoute.value.query.tab).toBe("trace")
     router.back()

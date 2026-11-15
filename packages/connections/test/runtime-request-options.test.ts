@@ -17,7 +17,7 @@ it.each(["manual", "error"] as const)("preserves fetch redirect %s through appro
   const error: unknown = await runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body: "{}", method: "POST", redirect }).catch(error => error)
   expect(isConnectionError(error)).toBe(true)
   expect(isConnectionError(error)).toBe(true)
-  await runtime.approve({ id: approvalIdOf(error) })
+  await runtime.approve({ actor: "user:owner", id: approvalIdOf(error) })
   expect(fetch.mock.calls.at(-1)?.[1]?.redirect).toBe(redirect)
 })
 
@@ -66,7 +66,7 @@ it("keeps OAuth state, PKCE, client, redirect, and scopes authoritative over pro
       },
     },
   })
-  const { state, url } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+  const { state, url } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
   const params = new URL(url).searchParams
   expect(params.get("state")).toBe(state)
   expect(params.get("client_id")).toBe("client-id")

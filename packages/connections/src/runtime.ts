@@ -18,7 +18,7 @@ import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
 import { codeChallenge, randomToken } from "./internal/oauth-crypto.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
-import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
+import { callerActor, callerInheritedActors, decide, decisionActor, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
@@ -116,6 +116,11 @@ export interface ConnectionRuntimeClient {
 }
 
 export interface ConnectionCallback {
+  /**
+   * The manager that started the flow with `authorize()`, such as `user:<id>`. Leave it out only for a flow that the
+   * Console started with `via: "console"`: the signed Console call checked the manager, so the callback completes it as
+   * that manager.
+   */
   actor?: string
   code?: string
   error?: string
@@ -123,27 +128,33 @@ export interface ConnectionCallback {
   state: string
 }
 
+/**
+ * The Connections runtime. Every method that decides something (`approve`, `deny`, `authorize`,
+ * `complete`, `revoke`, `setKey`) requires `actor`, such as `user:<id>`, and records it. There is no default actor.
+ */
 export interface ConnectionsRuntime {
   activity: (input: { before?: string, name: string }) => Promise<readonly EnvActivity[]>
   approvals: (input?: { before?: string, name?: string, status?: ConnectionApprovalStatus }) => Promise<ConnectionApprovalPage>
   /** Approve a pending write and run it under the actor that requested it. */
-  approve: (input: { actor?: string, id: string }) => Promise<{ approval: ConnectionApproval, result?: unknown }>
-  /** Start an authorization code flow with PKCE. Returns the provider URL. */
-  /** Start an OAuth flow. The `state` and its PKCE verifier work one time, until `expiresAt`. */
-  authorize: (input: { actor?: string, name: string, redirectUri: string }) => Promise<{ expiresAt: string, state: string, url: string }>
+  approve: (input: { actor: string, id: string }) => Promise<{ approval: ConnectionApproval, result?: unknown }>
+  /**
+   * Start an OAuth flow with PKCE and return the provider URL. The `state` and its PKCE verifier work one time, until
+   * `expiresAt`. `via: "console"` marks a flow that a signed Console call started: its callback needs no app session.
+   */
+  authorize: (input: { actor: string, name: string, redirectUri: string, via?: "console" }) => Promise<{ expiresAt: string, state: string, url: string }>
   client: (name: string, options: UseConnectionOptions) => ConnectionRuntimeClient
   /**
    * Exchange the authorization code and store the token. `state` is single-use. `actor` must be the
-   * actor that started the flow with `authorize()`. Both default to `user:local`.
+   * actor that started the flow with `authorize()`.
    */
   complete: (input: ConnectionCallback) => Promise<ConnectionInspection>
   definition: (name: string) => Promise<ConnectionDefinition>
-  deny: (input: { actor?: string, id: string }) => Promise<ConnectionApproval>
+  deny: (input: { actor: string, id: string }) => Promise<ConnectionApproval>
   inspect: (name: string) => Promise<ConnectionInspection>
   list: () => Promise<ConnectionInspection[]>
-  revoke: (input: { actor?: string, name: string }) => Promise<ConnectionInspection>
+  revoke: (input: { actor: string, name: string }) => Promise<ConnectionInspection>
   /** Store the key of an API key Connection. The provider `verify` check runs first. */
-  setKey: (input: { actor?: string, key: string, name: string }) => Promise<ConnectionInspection>
+  setKey: (input: { actor: string, key: string, name: string }) => Promise<ConnectionInspection>
 }
 
 const storedTokenSchema = v.object({
@@ -176,6 +187,14 @@ const approvalInputSchema = v.variant("kind", [
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
+
+/** The `state` of a flow that the Console started starts with this, so its callback knows it needs no app session. */
+const CONSOLE_STATE_PREFIX = "console_"
+
+/** Whether a `state` belongs to a flow that a signed Console call started with `authorize({ via: "console" })`. */
+export function isConsoleState(state: string): boolean {
+  return state.startsWith(CONSOLE_STATE_PREFIX)
+}
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
   return v.is(v.string(), value) || value === undefined ? value : await value()
@@ -901,9 +920,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  async function authorize(input: { actor?: string, name: string, redirectUri: string }): Promise<{ expiresAt: string, state: string, url: string }> {
+  async function authorize(input: { actor: string, name: string, redirectUri: string, via?: "console" }): Promise<{ expiresAt: string, state: string, url: string }> {
+    const actor = decisionActor(input.actor)
     const loaded = await definition(input.name)
     const chatgpt = isChatGPTProvider(loaded.provider)
+    if (chatgpt && input.via === "console") throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_LOOPBACK()
     const connections = await getStore()
     const registration = chatgpt ? await connections.state.get(input.name) : undefined
     const provider = oauthProvider(loaded, input.name, registration?.chatgpt?.clientId)
@@ -914,13 +935,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     else if (redirect.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "redirect-uri" })
     }
-    const state = randomToken()
+    const state = input.via === "console" ? `${CONSOLE_STATE_PREFIX}${randomToken()}` : randomToken()
     const verifier = randomToken()
     const nonce = chatgpt ? randomToken() : undefined
     const host = chatgpt ? await hostId() : undefined
     const expiresAt = now() + AUTHORIZATION_TTL_MS
     await connections.authorizations.put({
-      actor: input.actor ?? "user:local",
+      actor,
       expiresAt,
       name: input.name,
       redirectUri: redirect.toString(), state, verifier,
@@ -947,11 +968,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function complete(input: ConnectionCallback): Promise<ConnectionInspection> {
+    const actor = input.actor === undefined && isConsoleState(input.state) ? undefined : decisionActor(input.actor)
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
     if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_EXPIRED()
-    if (authorization.actor !== (input.actor ?? "user:local")) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
+    if (actor !== undefined && authorization.actor !== actor) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
     if (input.error === "access_denied") throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_CANCELLED()
     if (input.error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "token-request" })
     if (!input.code) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "body" })
@@ -1070,11 +1092,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  async function revoke(input: { actor?: string, name: string }): Promise<ConnectionInspection> {
+  async function revoke(input: { actor: string, name: string }): Promise<ConnectionInspection> {
+    const actor = decisionActor(input.actor)
     const loaded = await definition(input.name)
     const connections = await getStore()
     const key = tokenKey(input.name)
-    const actor = input.actor ?? "user:local"
     // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
     const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
     const owner = await claimMutationLease(input.name)
@@ -1175,7 +1197,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return account
   }
 
-  async function setKey(input: { actor?: string, key: string, name: string }): Promise<ConnectionInspection> {
+  async function setKey(input: { actor: string, key: string, name: string }): Promise<ConnectionInspection> {
+    const actor = decisionActor(input.actor)
     const name = input.name
     const loaded = await definition(name)
     if (!isApiKeyProvider(loaded.provider)) {
@@ -1184,8 +1207,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     if (!API_KEY_PATTERN.test(input.key)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "api-key-format" })
     }
-    const actor = input.actor ?? "user:local"
-    envActor(actor)
     const account = await verifyKey(name, loaded.provider, input.key)
     const connections = await getStore()
     const key = tokenKey(name)
@@ -1242,14 +1263,15 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return await connections.approvals.list(input)
   }
 
-  async function approve(input: { actor?: string, id: string }): Promise<{ approval: ConnectionApproval, result?: unknown }> {
+  async function approve(input: { actor: string, id: string }): Promise<{ approval: ConnectionApproval, result?: unknown }> {
+    const decidedBy = decisionActor(input.actor)
     const connections = await getStore()
     await connections.approvals.recover(new Date(now()).toISOString())
     const decidedAt = new Date(now()).toISOString()
     const executionExpiresAt = new Date(now() + APPROVAL_EXECUTION_TTL_MS).toISOString()
     const approval = await connections.approvals.transition(input.id, "pending", "approved", {
       decidedAt,
-      decidedBy: input.actor ?? "user:local",
+      decidedBy,
       executionExpiresAt,
     })
     if (!approval) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ approval: input.id, problem: "not-pending" })
@@ -1319,10 +1341,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  async function deny(input: { actor?: string, id: string }): Promise<ConnectionApproval> {
+  async function deny(input: { actor: string, id: string }): Promise<ConnectionApproval> {
+    const decidedBy = decisionActor(input.actor)
     const approval = await (await getStore()).approvals.transition(input.id, "pending", "denied", {
       decidedAt: new Date(now()).toISOString(),
-      decidedBy: input.actor ?? "user:local",
+      decidedBy,
     })
     if (!approval) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ approval: input.id, problem: "not-pending" })
     return approval

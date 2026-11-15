@@ -72,6 +72,18 @@ describe("Blob response transforms", () => {
     expect(missing.headers.has("x-frame-options")).toBe(false)
   })
 
+  it("keeps the CORS headers of the headers option on error responses", async () => {
+    const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Range", "Cache-Control": "public, max-age=31536000, immutable" }
+    for (const [method, pathname, status] of [["GET", "audio/missing.mp3", 404], ["HEAD", "audio/missing.mp3", 404], ["GET", "audio/../x.mp3", 400], ["POST", "private/original", 405]] as const) {
+      const response = await storage.serve(request({}, method), pathname, { headers })
+      expect(response.status).toBe(status)
+      expect(response.headers.get("access-control-allow-origin")).toBe("*")
+      expect(response.headers.get("access-control-expose-headers")).toBe("Content-Range")
+      // An immutable policy on a 404 would keep the miss after the file is uploaded.
+      expect(response.headers.has("cache-control")).toBe(false)
+    }
+  })
+
   it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
     const app = new H3().all("/photo", event => storage.serve(event.req, "private/original"))
     const fetch = (request: Request) => app.fetch(request)
@@ -286,7 +298,7 @@ describe("Blob response transforms", () => {
   it("preserves the configured store access for cached derivatives", async () => {
     const put = driver.put.bind(driver)
     vi.spyOn(driver, "put").mockImplementation(async (path, body, settings) => {
-      if (settings?.access) throw new Error("object access differs from store access")
+      if (Object.hasOwn(settings ?? {}, "access")) throw new Error("object access differs from store access")
       return put(path, body, settings)
     })
     for (let count = 0; count < 2; count++) {
@@ -363,11 +375,45 @@ describe("Blob response transforms", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it("reads storage for each edgeCache request on a host without Cloudflare's cache", async () => {
+    // Deno has a standard `caches` without Cloudflare's `default` cache.
+    const open = vi.fn()
+    vi.stubGlobal("caches", { open })
+    try {
+      const get = vi.spyOn(driver, "get")
+      for (let index = 0; index < 2; index++) {
+        const response = await storage.serve(request(), "private/original", { edgeCache: { maxAge: 60 } })
+        expect(await response.text()).toBe("public:private-camera-data")
+      }
+      expect(get).toHaveBeenCalledTimes(2)
+      expect(open).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("rejects an edgeCache maxAge that is not a positive integer", async () => {
+    for (const maxAge of [0, -1, 1.5, Number.NaN]) {
+      await expect(storage.serve(request(), "private/original", { edgeCache: { maxAge } })).rejects.toMatchObject({ code: "BLOB_R0047" })
+    }
+  })
+
   it("answers 404 with a JSON body for a missing object", async () => {
     const app = new H3().get("/files/**", event => storage.serve(event.req, "missing.txt"))
     const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: "Blob not found." })
+  })
+
+  it.each(["POST", "PUT", "DELETE", "OPTIONS"])("answers %s with 405 and does not read the object", async (method) => {
+    const head = vi.spyOn(driver, "head")
+    const response = await storage.serve(request({ range: "bytes=0-3" }, method), "private/original", { headers: { "X-Frame-Options": "DENY" } })
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, HEAD")
+    expect(response.headers.has("x-frame-options")).toBe(false)
+    expect(await response.json()).toEqual({ error: `Blob serve() answers GET and HEAD, not ${method}.` })
+    expect(head).not.toHaveBeenCalled()
   })
 
   it("does not serve a cached derivative after the source is deleted", async () => {

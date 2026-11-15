@@ -44,6 +44,7 @@ export interface LabellerCleanupRule {
 }
 
 export interface LabellerOptions {
+  /** Labels the Agent may set. Jev chooses only among labels with a `description`; a label without one is set only by rules. */
   labels: Readonly<Record<string, LabellerLabel>>
   rules: Readonly<Record<string, LabellerRule>>
   actions: Readonly<Record<string, LabellerAction>>
@@ -52,7 +53,14 @@ export interface LabellerOptions {
   dryRun: boolean
   /** Hide Gmail labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies. */
   hideUnmanagedLabels: boolean
+  /** Syncs that try one failing message before the Gmail Channel skips it. Defaults to the Channel's 5. */
+  maxAttempts?: number
   minConfidence: number
+  /**
+   * Remove the other declared labels when a message gets its label, and every declared label when no label fits.
+   * Use it to correct earlier labels with a replay. Defaults to `false`, which only adds a label.
+   */
+  relabel: boolean
   trashEnabled: boolean
   client?: GmailClient
 }
@@ -191,7 +199,7 @@ function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<
 }
 
 function validateOptions(options: LabellerOptions): void {
-  for (const key of ["dryRun", "hideUnmanagedLabels", "trashEnabled"] as const) {
+  for (const key of ["dryRun", "hideUnmanagedLabels", "relabel", "trashEnabled"] as const) {
     if (!hasRuntimeType(options[key], "boolean")) throw new TypeError(`[vitehub] Labeller ${key} must be a boolean.`)
   }
   validateLabels(options.labels)
@@ -252,7 +260,9 @@ export const labeller: LabellerAgent = defineAgent({
     // Safe for notifications and first replays. Set false only when writes are intended.
     dryRun: true,
     hideUnmanagedLabels: false,
+    maxAttempts: undefined,
     minConfidence: 0.6,
+    relabel: false,
     trashEnabled: false,
     client: undefined,
   },
@@ -265,9 +275,9 @@ export const labeller: LabellerAgent = defineAgent({
       })
     }
     validateOptions(options)
-    const { labels, rules, actions, bodyLimit, hideUnmanagedLabels, minConfidence, trashEnabled, client } = options
+    const { labels, rules, actions, bodyLimit, hideUnmanagedLabels, maxAttempts, minConfidence, relabel, trashEnabled, client } = options
     // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
-    const channelOptions: GmailChannelOptions = { labels, bodyLimit, client, hideUnmanagedLabels }
+    const channelOptions: GmailChannelOptions = { labels, bodyLimit, client, hideUnmanagedLabels, ...(maxAttempts === undefined ? {} : { maxAttempts }) }
     if (options.dryRun) channelOptions.dryRun = true
     const channel = gmail(channelOptions)
     return defineAgent({
@@ -283,7 +293,7 @@ export const labeller: LabellerAgent = defineAgent({
         ask: {
           label: ask.choice(
             "Choose the Gmail label that best fits this email. Choose none when no declared label clearly fits.",
-            { ...Object.fromEntries(Object.entries(labels).map(([name, value]) => [name, value.description || name])), none: "No declared label clearly fits this email." },
+            { ...Object.fromEntries(Object.entries(labels).flatMap(([name, value]) => value.description ? [[name, value.description]] : [])), none: "No declared label clearly fits this email." },
           ),
         },
       },
@@ -292,14 +302,19 @@ export const labeller: LabellerAgent = defineAgent({
           if (message?.channel !== "gmail" || !result) return
           // SAFETY: The owned Jev choice or ordered-rule intercept produces the Labeller result contract.
           const output = result as LabellerResult
-          const label = selectedLabel(output)
-          if (!label || label === "none" || !Object.hasOwn(labels, label)) return
-          const confidence = selectedConfidence(output)
-          if (confidence === undefined || confidence < minConfidence) return
+          const candidate = selectedLabel(output)
+          const declared = candidate && candidate !== "none" && Object.hasOwn(labels, candidate) ? candidate : undefined
+          const confidence = declared ? selectedConfidence(output) : undefined
+          const label = confidence !== undefined && confidence >= minConfidence ? declared : undefined
+          if (relabel) {
+            const removeLabels = Object.keys(labels).filter(name => name !== label)
+            await message.modify({ addLabels: label ? [label] : [], removeLabels })
+          }
+          if (!label) return
           const rule = output.rule ? rules[output.rule] : undefined
           const selectedAction = { ...actions[label] }
           if (rule?.label === label) Object.assign(selectedAction, explicitAction(rule))
-          await message.label(label)
+          if (!relabel) await message.label(label)
           if (selectedAction.archive) await message.archive()
           if (selectedAction.read) await message.markRead()
           if (selectedAction.star) await message.star()
@@ -311,7 +326,7 @@ export const labeller: LabellerAgent = defineAgent({
 })
 
 export interface CleanupLabellerOptions {
-  /** Move the matches to Trash. Without it, or while the Agent has `dryRun: true`, the function only lists them. */
+  /** Move the matches to Trash. Without it, or while the Agent has `dryRun: true` or `trashEnabled: false`, the function only lists them. */
   apply?: boolean
   /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
   runtime?: AgentRuntimeContext
@@ -342,7 +357,7 @@ const messageList = v.object({ messages: v.optional(v.array(v.object({ id: v.str
 export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupLabellerResult> {
   const channel = agent.channels?.gmail
   if (!channel) throw new TypeError("[vitehub] cleanupLabeller() expects an Agent that extends labeller.")
-  const apply = options.apply === true && agent.options.dryRun === false
+  const apply = options.apply === true && agent.options.dryRun === false && agent.options.trashEnabled === true
   const rules = Object.entries(agent.options.cleanup)
   if (!rules.length) return { applied: apply, rules: [] }
   const client = await gmailClient(channel, options.runtime ? { runtime: options.runtime } : {})

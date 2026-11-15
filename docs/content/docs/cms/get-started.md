@@ -87,7 +87,7 @@ export default defineContent({
 
 - `extends: cms` makes this content a CMS. `vitehub()` then turns on `workspace`, `database`, and `blob` for you. Do not set `workspace` yourself.
 - `posts` keeps each post as a Markdown file under `posts/`. Each post has a `title` and a `date`.
-- `authorize` decides who may read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
+- `authorize` decides who may read `/api/content/**`, read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
 
 ::
 

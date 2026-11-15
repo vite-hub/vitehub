@@ -29,6 +29,8 @@ export interface CodemodResult {
 export interface CodemodContext {
   /** Absolute path of the project directory. */
   cwd: string
+  /** Original project directory for read-only installed dependency inspection when cwd is a scratch copy. */
+  dependencyRoot?: string
 }
 
 /** Why a codemod applies to a project, such as "nuxt.config.ts lists nuxt-safe-runtime-config". */

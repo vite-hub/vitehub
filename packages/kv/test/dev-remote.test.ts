@@ -114,12 +114,12 @@ describe("KV in vite dev", () => {
     const upstash = stubUpstash()
 
     const { kv: config } = await resolvePlugin("serve", { remote: true })
-    expect(config).toEqual({ store: { driver: "upstash", remote: true, token: "********", url: "********" } })
+    expect(config).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", remote: true, token: "********", url: "********" } })
 
     fixture.kv = inDirectory(config)
     expect(await kv.set("theme", "dark")).toEqual([undefined, undefined])
     expect(await kv.get("theme")).toEqual([undefined, "dark"])
-    expect(upstash.data.get("theme")).toBe("dark")
+    expect(upstash.data.get("vitehub:kv:default:theme")).toBe("dark")
     expect(String(upstash.fetch.mock.calls[0]?.[0])).toContain("https://upstash.test")
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith("[vitehub] KV store \"default\" is remote: `vite dev` uses the real Upstash database. Writes change real data.")
@@ -242,7 +242,7 @@ describe("KV in a Vite dev server", () => {
       const worker = await server.ssrLoadModule("/worker.ts") as { disposeKVStores: () => Promise<void>, handle: () => Promise<unknown> }
       try {
         await expect(worker.handle()).resolves.toEqual([undefined, "dark"])
-        expect(upstash.data.get("theme")).toBe("dark")
+        expect(upstash.data.get(`vitehub:kv:${kind === "named" ? "remote" : "default"}:theme`)).toBe("dark")
         expect(String(upstash.fetch.mock.calls[0]![0])).toContain(upstashEnv.KV_REST_API_URL)
         expect(new Headers(upstash.fetch.mock.calls[0]![1].headers).get("authorization")).toBe(`Bearer ${upstashEnv.KV_REST_API_TOKEN}`)
         expect(warn).toHaveBeenCalledTimes(1)
@@ -320,8 +320,8 @@ describe("KV in a build", () => {
 
   it("ignores `remote` and keeps env inference", async () => {
     for (const [name, value] of Object.entries(upstashEnv)) vi.stubEnv(name, value)
-    expect((await resolvePlugin("build")).kv).toEqual({ store: { driver: "upstash", token: "********", url: "********" } })
-    expect((await resolvePlugin("build", { remote: false })).kv).toEqual({ store: { driver: "upstash", token: "********", url: "********" } })
+    expect((await resolvePlugin("build")).kv).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", token: "********", url: "********" } })
+    expect((await resolvePlugin("build", { remote: false })).kv).toEqual({ store: { base: "vitehub:kv:default", driver: "upstash", token: "********", url: "********" } })
   })
 
   it("keeps the generated Cloudflare runtime and binding", async () => {

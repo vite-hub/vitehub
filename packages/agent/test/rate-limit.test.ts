@@ -191,21 +191,36 @@ describe("rateLimit capability", () => {
       ],
       driver: { run: context => context.context.get("rate-limit") },
     })
-    const untrustedAgent = defineAgent({
-      capabilities: [
-        rateLimit({
-          identity: "ip",
-          limiter: limiter(),
-        }),
-      ],
-      driver: { run: () => "ok" },
-    })
 
     await expect(runAgentWithContext(trustedAgent, runtime({ request }), {})).resolves.toMatchObject({
       identity: "203.0.113.10",
       identitySource: "ip",
     })
-    await expect(runAgentWithContext(untrustedAgent, runtime({ request }), {})).rejects.toThrow("requires trustedIpHeaders")
+    await expect(runAgentWithContext(trustedAgent, runtime({ request: new Request("https://example.com/api/agent") }), {})).rejects.toThrow("found none of the trustedIpHeaders")
+  })
+
+  it("rejects trustedIpHeaders that the identity never reads", () => {
+    expect(() => rateLimit({ identity: "ip", limiter: limiter() })).toThrow("requires trustedIpHeaders")
+    expect(() => rateLimit({ identity: "ip", limiter: limiter(), trustedIpHeaders: [" "] })).toThrow("requires trustedIpHeaders")
+    expect(() => rateLimit({ identity: "invoker", limiter: limiter(), trustedIpHeaders: ["cf-connecting-ip"] })).toThrow("is read only with identity \"auto\" or \"ip\"")
+    expect(() => rateLimit({ identity: "run", limiter: limiter(), trustedIpHeaders: ["cf-connecting-ip"] })).toThrow("is read only with identity \"auto\" or \"ip\"")
+    expect(() => rateLimit({ identity: () => "site", limiter: limiter(), trustedIpHeaders: ["cf-connecting-ip"] })).toThrow("is read only with identity \"auto\" or \"ip\"")
+  })
+
+  it("gives each anonymous caller its own budget under auto identity", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const agent = defineAgent({
+      capabilities: [rateLimit({ limiter: limiter(1), trustedIpHeaders: ["cf-connecting-ip"] })],
+      driver: { run: context => context.context.get("rate-limit") },
+    })
+    const from = (ip: string) => runtime({ request: new Request("https://example.com/api/agent", { headers: { "cf-connecting-ip": ip } }) })
+
+    await expect(runAgentWithContext(agent, from("203.0.113.10"), {})).resolves.toMatchObject({ identity: "203.0.113.10", identitySource: "ip" })
+    await expect(runAgentWithContext(agent, from("203.0.113.20"), {})).resolves.toMatchObject({ identity: "203.0.113.20", identitySource: "ip" })
+    await expect(runAgentWithContext(agent, from("203.0.113.10"), {})).rejects.toBeInstanceOf(ViteHubError)
+    await expect(runAgentWithContext(agent, runtime({ run: { origin: "slack", runId: "run_1", threadId: "thread_1" } }), {})).resolves.toMatchObject({ identity: "slack:thread:thread_1", identitySource: "run" })
+    await expect(runAgentWithContext(agent, runtime(), { context: { invoker: { id: "user_1", kind: "chat" } } })).resolves.toMatchObject({ identity: "chat:user_1", identitySource: "invoker" })
   })
 
   it("requires stable Agent Run metadata for run identity", async () => {

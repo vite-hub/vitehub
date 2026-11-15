@@ -8,7 +8,7 @@ import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { gmail, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { gmail, gmailChannelStatus, gmailClient, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, agentWorkflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
@@ -1507,6 +1507,34 @@ describe("gmail() Channel", () => {
     expect(seen[0]).toMatchObject({ runtime: "cloudflare-agents", cloudflare: { env } })
   })
 
+  it("reads the Channel status of the Agent that uses the Channel, with ambient Cloudflare bindings", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const env = { GMAIL_CLIENT_ID: "client-id", GMAIL_CLIENT_SECRET: "client-secret", GMAIL_REFRESH_TOKEN: "refresh-token" }
+    const agents = {
+      other: defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: () => "ok" } }),
+      poller: defineAgent({ channels: { mail: inbox }, driver: { run: () => "ok" } }),
+    }
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-status-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents,
+      handlers: { other: createChannelWebhookRouteHandler(agents.other), poller: createChannelWebhookRouteHandler(agents.poller) },
+      options: (name, env) => {
+        if (!env) throw new Error("Cloudflare env missing")
+        return { agentName: name, cloudflare: { env }, webhookState: () => state }
+      },
+    })
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toEqual({ failures: 0, retrying: [], skipped: [], status: "ok" })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    await expect(runWithActiveCloudflareEnv(env, () => gmailChannelStatus(inbox))).resolves.toMatchObject({ failures: 0, status: "ok", syncedAt: expect.any(String) })
+    await expect(gmailChannelStatus(inbox, { agent: "other" })).resolves.toBeUndefined()
+    await expect(gmailChannelStatus(gmail({ fetch: google.fetch }))).resolves.toBeUndefined()
+  })
+
   it("polls every Agent sharing a Channel before reporting dispatch failures", async () => {
     stubGmailEnv()
     const google = await createGoogle()
@@ -1976,7 +2004,7 @@ describe("gmail() Channel", () => {
     })
 
     const result = await replayChannel(agent, "gmail", { dryRun: true, limit: 1 })
-    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", status: "completed" }])
+    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", output: "Work", status: "completed" }])
     expect(subject).toBe("Invoice")
     expect(google.writes()).toEqual([])
     const record = await invocations.getByRunId(channelMessageRunId("gmail", "m1", { dryRun: true }), "labeller")
@@ -2296,6 +2324,32 @@ describe("gmail() Channel", () => {
     await expect(resolved({ method: "GET", path: "messages" })).resolves.toEqual({ messages: [] })
     expect(client).toHaveBeenCalledWith({ method: "GET", path: "messages" })
     await expect(gmailClient({ ...channel, kind: "http" })).rejects.toThrow(/expects a Channel from gmail/)
+  })
+
+  it("splits a label change into modify requests of at most 100 label IDs each", async () => {
+    const labels = Array.from({ length: 151 }, (_, index) => ({ id: `Label_${index}`, name: `L${index}` }))
+    const modifies: { addLabelIds: string[], removeLabelIds: string[] }[] = []
+    const agent = defineAgent({
+      channels: {
+        gmail: gmail({
+          async client(request) {
+            if (request.path === "labels") return { labels }
+            if (request.path === "messages/m9/modify") modifies.push(request.body as typeof modifies[number])
+            return {}
+          },
+        }),
+      },
+      driver: { run: () => "done" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.modify({ addLabels: ["L0"], removeLabels: labels.slice(1).map(label => label.name) })
+        },
+      },
+    })
+    const message = { attachments: [], body: "", cc: [], date: "", from: "ada@example.com", headers: {}, id: "m9", labelIds: ["INBOX"], snippet: "", subject: "Hello", threadId: "t9", to: [] }
+    await runAgentTrigger(agent, runtimeContext(), "gmail.received", message)
+    expect(modifies.map(body => [body.addLabelIds, body.removeLabelIds.length])).toEqual([[["Label_0"], 100], [[], 50]])
+    expect(modifies.flatMap(body => body.removeLabelIds)).toEqual(labels.slice(1).map(label => label.id))
   })
 
   it("runs a received message through a custom Gmail client", async () => {

@@ -49,7 +49,7 @@ afterEach(async () => {
 
 /** One Content runtime and its webhook route, as one server instance would create them. */
 async function server() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+  const content = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
   cleanup.push(() => content.dispose())
   const route = defineContentGitHubWebhookHandler(content)
   // The first read stores the head, as the first page request would.

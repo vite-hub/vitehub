@@ -52,7 +52,9 @@ Email does not retry. A timeout or lost response can happen after the provider a
 
 ### EMAIL_INVALID_MESSAGE
 
-The driver rejected the message, for example for an empty address, a missing `from`, or a non-HTTPS unsubscribe URL. `cause` names the field.
+ViteHub or the driver rejected the message, for example for an empty address, a missing `from`, a non-HTTPS unsubscribe URL, or a message without `text` and `html`. `cause` names the field.
+
+ViteHub also rejects fields that no driver sends, such as `template`, `react`, `mjml`, `preheader`, or `personalizations`. Render the body yourself and pass it as `html` or `text`.
 
 ### EMAIL_AUTHENTICATION
 

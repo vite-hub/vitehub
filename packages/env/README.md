@@ -183,7 +183,7 @@ Only `VITEHUB_PUBLIC_` names enter Public Env. Mark them `@public` or `@sensitiv
 
 `envSchema(file, { prefix: "APP_", paths: { APP_DATABASE_URL: "database.url" } })` changes the prefix and maps exact schema keys to explicit output paths. The default mapping strips `VITEHUB_` and uses camel case, without guessing groups. With an empty prefix, `PUBLIC_` marks public fields. Public output paths stay flat. Every declaration reads its original schema key exactly; canonical aliases do not override it.
 
-Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Optional non-string empty inputs become missing before defaulting; optional strings preserve empty inputs and still obey length constraints. Required present empty or invalid inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
+Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Empty host inputs count as missing for every field type: they use the default when present, otherwise required fields fail and optional fields return `undefined`. Explicit empty schema defaults remain valid where the schema permits them. Invalid nonempty inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
 
 The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bundle and Node server from one contract. Its production test restarts the same artifact with different server values, checks startup failures and consumer types, and scans browser output for synthetic credentials. Public Env remains fixed at build time.
 
@@ -254,7 +254,7 @@ const githubToken = snapshot.githubToken.unseal()
 
 Each `loadServerEnv()` call batches requested keys once per provider and returns a fresh frozen snapshot. ViteHub does not cache across loads, so rotation appears on the next load. `useServerEnv()` stays synchronous for host-backed and literal values; provider-backed values require `loadServerEnv()` or `runWithServerEnv()`.
 
-`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"], { skipEmpty: true })` skips empty host values. Without `skipEmpty`, a defined empty string remains a value. Generated built-in Channel sources use `skipEmpty` to preserve their host fallback behavior.
+`env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"])` reads the first variable that is set and not empty. An empty variable, such as `PRIMARY_TOKEN=`, counts as missing for every source. It does not shadow a later name, and it does not satisfy a required value or a secret.
 
 The Server Env helpers of `@vite-hub/env` are not blocked from client builds. Keep their imports in server-only entry points, and supply credentials through `env.source(...)` without literals or defaults; static values and defaults can be serialized into the generated module.
 
@@ -331,7 +331,7 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 
 ### Declaration inventory
 
-`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the `names` an env declaration reads in read order (the canonical name first unless `canonical: false` or `prefix: false` turns it off, then the `env.source()` names or the unprefixed path name), source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, `names`, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
 
 `hubEnv()` contributes two CLI commands:
 
@@ -340,7 +340,7 @@ vitehub env inspect [--stage <name>] [--json]
 vitehub env check [--stage <name>] [--json]
 ```
 
-Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. `--json` also lists the host variable `names` of each env declaration. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
 
 ### Managed credentials
 

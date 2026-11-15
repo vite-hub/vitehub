@@ -1753,6 +1753,25 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution rule "artifacts/review/**" conflicts with existing Workspace Rule "artifacts/**"')
   })
 
+  it("rejects a capability workspace read rule in a read-only Workspace", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "secrets",
+          workspace: {
+            rules: {
+              "secrets/**": { read: false } as never,
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: { name: "review" },
+    })).rejects.toMatchObject({ code: "WORKSPACE_R0075" })
+  })
+
   it("rejects capability workspace rules that overlap plugin rules", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 

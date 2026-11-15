@@ -1,4 +1,4 @@
-import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -9,17 +9,20 @@ import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { defaultServerConditions } from "vite"
 
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
+import { describeServerEnv } from "@vite-hub/env/server"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { hostFromNitroPreset, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -33,7 +36,10 @@ import { generatedModules } from "./internal/generated-modules.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
+import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
+import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -42,11 +48,13 @@ import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
-import { cloudflareExportConditions, detectHost, type ViteHubHost } from "./deployment.ts"
+import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { viteHubCachePlugin } from "./cache/vite.ts"
+import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
@@ -85,6 +93,8 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { HealthOptions } from "./health-vite.ts"
+export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -445,7 +455,7 @@ export interface ViteHubOptions {
   /**
    * The host to build for. When omitted, `detectHost()` reads it from `VITEHUB_HOST`, `NITRO_PRESET`,
    * `SERVER_PRESET`, or the provider variables of Cloudflare Workers Builds, Netlify, Vercel, and Deno Deploy.
-   * Without any of them, ViteHub builds for `"node"`.
+   * Without any of them, ViteHub builds for `"node"`. `vitehub deploy --host` overrides it for its build.
    */
   host?: ViteHubHost
   name?: string
@@ -458,6 +468,21 @@ export interface ViteHubOptions {
    * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
+  /**
+   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
+   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
+   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
+   * you run sets the header. Default: `false`.
+   */
+  trustProxy?: boolean
+  /**
+   * Refuse browser writes from other origins that carry cookies, with 403, before any middleware or route runs. A
+   * request is refused when its method is not GET, HEAD, or OPTIONS, it has a `Cookie` header, and its
+   * `Sec-Fetch-Site` is `same-site` or `cross-site`, or its `Origin` is not the app's origin. Requests without cookies,
+   * such as bearer-token clients and webhooks, pass. `exclude` lists path prefixes that take writes from other sites.
+   * Default: `false`.
+   */
+  sameOriginWrites?: boolean | SameOriginWritesOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -499,10 +524,16 @@ export interface ViteHubOptions {
    * them. On by default. `false` turns Env off.
    */
   env?: false | EnvOptions
+  /**
+   * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
+   * It answers `{ ok, commit }`, and with a Database, pings each one and answers 503 when one fails.
+   */
+  health?: boolean | HealthOptions
   kv?: boolean | KVOptions
   /**
-   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
-   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
+   * from `vite-hub/auth/mcp`, so it needs `auth`, unless `mcp: { auth: false }` lets anyone call every tool. Needs
+   * `@vite-hub/mcp`.
    */
   mcp?: boolean | McpOptions
   /**
@@ -644,6 +675,13 @@ function requiredCloudflareSecretNames(registry: EnvRuntimeRegistry): string[] {
   return [...names]
 }
 
+/** The host variable names of each env-backed Server Env declaration, for `deployment.json`. Never values. */
+function deploymentEnvEntries(registry: EnvRuntimeRegistry): DeploymentEnvEntry[] {
+  return describeServerEnv(registry).entries.flatMap(entry => entry.source === "env" && entry.names
+    ? [{ ...(entry.path ? { path: entry.path } : {}), names: entry.names, required: entry.required, secret: entry.secret, hasDefault: entry.hasDefault }]
+    : [])
+}
+
 function findEnvPlugin(options: unknown): EnvVitePlugin | undefined {
   if (Array.isArray(options)) {
     for (const option of options) {
@@ -717,6 +755,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
+  envPlugin: () => EnvVitePlugin | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -751,10 +790,12 @@ function deploymentNitroModule(
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
       if (plan.host === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
       if (plan.output.packaging === "deno-node-modules") {
-        if (!serverPackages) throw viteHubErrorDiagnostics.VITE_HUB_B0017({ message: "[vitehub] The Deno server bundle did not report its runtime packages." })
+        // Internal invariant: denoServerPackagesPlugin() above sets serverPackages when the Deno server bundle is written.
+        if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
-      await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
+      const env = envPlugin()?.api.getServerEnvRegistry()
+      await finalizeDeploymentPlanOutput({ ...(env ? { env: deploymentEnvEntries(env) } : {}), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -1013,7 +1054,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1046,7 +1087,7 @@ function deploymentPlugins(
             }
           }
           if (options.cache) {
-            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvNitroCacheDriver : undefined)
+            const cacheStorage = resolveCacheStorage(options.cache, plan.host, options.kv ? requireOptionalOwner(ownerModules.kvVite, "kv").kvStorageDriver : undefined)
             nitro = applyCacheStorage(nitro, cacheStorage)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
@@ -1146,6 +1187,8 @@ function hostBlobOptions(
 ): BlobOptions {
   if (hasExplicitBlobStore(options)) return options as BlobOptions
   const configured = options && typeof options === "object" ? options : {}
+  // NuxtHub's `S3_*` variables select a bucket before the host, so Blob infers the store from env.
+  if (requireOptionalOwner(ownerModules.blobVite, "blob").hasS3BlobEnv(process.env)) return configured
   const fromHost = (blob: Exclude<BlobOptions, false>) => {
     hostBlobConfigs.add(blob)
     return blob
@@ -1175,6 +1218,28 @@ function normalizePublicUrl(value: string): string {
 }
 
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
+
+/**
+ * Fails when the app defines Agents under `server/agents/` but leaves `agent` unset. Without the option, ViteHub
+ * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent.
+ */
+function agentOptionMissingPlugin(): Plugin {
+  return {
+    name: "vite-hub/agent-option-missing",
+    configResolved(config) {
+      // An app can add hubAgent() itself.
+      if (config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      const root = resolveViteHubProjectRoot(config.root)
+      // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
+      const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]
+      const definition = serverDirs.flatMap(directory => listSourceFiles(resolve(root, directory, "agents")))[0]
+      if (!definition) return
+      throw viteHubErrorDiagnostics.VITE_HUB_AGENT_OPTION_MISSING({
+        message: `[vitehub] ${relative(root, definition)} defines an Agent, but the \`agent\` option is not set, so the app has no Agent routes or Agent State.`,
+      })
+    },
+  }
+}
 
 function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"], signedConsole: boolean): Plugin & ViteHubCliContributingPlugin {
   return {
@@ -1234,7 +1299,7 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
-  const host = options.host ?? detectHost() ?? "node"
+  const host = resolveBuildHost(options.host)
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
   options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
@@ -1347,8 +1412,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl, Boolean(configuredConsole) && configuredConsole?.auth !== false))
+  if (options.agent === undefined) plugins.push(agentOptionMissingPlugin())
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
+  plugins.push(vitestInlinePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
@@ -1385,6 +1452,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
+  if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
@@ -1393,6 +1462,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
+    // The `page()` Capability reaches the page through Realtime.
+    realtime: options.realtime ? "vite-hub/realtime/agent" : false,
     // Email and KV capabilities exist only when the app installed their packages.
     ...emailVite ? { email: "vite-hub/email" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
@@ -1482,6 +1553,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         default: defaultInvocations,
         host: plan.host,
         resolveD1Binding: (root, serverDirs) => defaultDatabaseD1Binding(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
+        stateUrl: agentJournalStateUrl(options),
       }))
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({
@@ -1540,9 +1612,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.bundle) plugins.push(hubBundle())
   if (options.mcp) {
     const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
-    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    const { auth: mcpAuth = true, ...mcpOptions } = mcpConfig
     if (mcpAuth && !options.auth) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] The MCP server needs Auth, so that only signed-in MCP clients call its tools. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } to let anyone call every tool." })
     }
     plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
       ...mcpOptions,
@@ -1587,9 +1659,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       databaseImport: "vite-hub/database/drizzle",
       importBase: "vite-hub/realtime",
       // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
-      // Other hosts keep one Content editor at a time and show comments without presence.
+      // Other hosts keep one Content editor at a time and show comments without presence. Agents get a room for each
+      // page, which the `page()` Capability asks.
       contribute: async (context) => {
-        const [content, comments] = await Promise.all([
+        const [content, comments, agentPages] = await Promise.all([
           ownerModules.contentVite?.contributeContentRealtime({
             ...context,
             contentImport: "vite-hub/content/realtime",
@@ -1597,9 +1670,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...(configuredConsole ? { console: { module: generatedModules.consoleSections, section: "content" } } : {}),
           }),
           commentsPlugin?.api.contributeRealtime(context),
+          options.agent ? ownerModules.agentVite?.contributeAgentPageRealtime(context) : undefined,
         ])
         return {
-          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? [], ...agentPages?.definitions ?? []],
           plugins: content?.plugins ?? [],
         }
       },
@@ -1618,6 +1692,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(workflowVite, "workflow").hubWorkflow(
       options.workflow && options.workflow !== true ? options.workflow : {},
       {
+      databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
@@ -1684,6 +1759,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
+  // `vitehub cache` and the Console Cache section read Nitro's `cache` mount.
+  if (options.cache) plugins.push(viteHubCachePlugin())
+  // The skills of `server/skills.ts`, listed and turned on and off with `vitehub served-skills` and the Console.
+  plugins.push(viteHubServedSkillsPlugin())
   // A Node server prints where each primitive keeps its state, and fails at boot when several instances would split it.
   if (plan.host === "node") plugins.push(viteHubDurabilityPlugin(options.node))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

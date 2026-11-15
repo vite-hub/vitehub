@@ -66,12 +66,12 @@ The [Console editor](/docs/content/console) and the [Content Agent Capability](/
 export default defineContent({
   extends: cms,
   collections: { posts },
-  // Editors do everything. Other signed-in users read drafts.
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  // Everyone reads /api/content/**. Editors do everything. Other signed-in users read drafts.
+  authorize: ({ user, action }) => action === 'read' || user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
-`action` is `read` for drafts, `write` for save, remove, and restore, or `publish`. Published documents stay public through `/api/content/**`.
+`action` is `read` for a request to `/api/content/**`, `read-draft` for drafts, `write` for save, remove, and restore, or `publish`. With a policy, `/api/content/**` serves only the requests that it allows for `read`. The CMS roles allow `read` only to users with a role, so a site whose visitors read `/api/content/**` sets `access: 'public'`. The roles still decide `read-draft`, `write`, and `publish`.
 
 - [Access](/docs/content/configure#access) lists every field that `authorize` gets, and shows how to give Agents less access than their user.
 - [Give editors only the Content section](/docs/content/console#give-editors-only-the-content-section) keeps editors out of other Console sections.
@@ -100,7 +100,7 @@ export default defineContent({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and `VITEHUB_GITHUB_INSTALLATION_ID` ([GitHub Store](/docs/workspace/configure#github-store)).
+Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. ViteHub reads it at the first request, not at build time. To keep the store off your personal rate limit, use a GitHub App instead: set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` ([GitHub Store](/docs/workspace/configure#github-store)).
 
 - `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with the GitHub store. `blob` does not.
 - Set `store: 'github'` without `repo` only when the repository comes from `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`.

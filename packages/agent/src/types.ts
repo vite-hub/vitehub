@@ -143,6 +143,8 @@ declare global {
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
+    /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
+    page: { id: string }
     "vitehub.channel.final-output": boolean
     "vitehub.title.response-fallback": boolean
     "workspace.sourceResolution.definition": WorkspaceDefinition

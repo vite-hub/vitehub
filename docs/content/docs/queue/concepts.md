@@ -14,7 +14,7 @@ handler runs later, often in another process or region.
 ## Acceptance is not completion
 
 `sendQueue()` tells you only that the provider accepted the job, not what the
-handler returned. To show progress, give the job an id or your own key, and
+handler returned. To show progress, put your own key in the payload, and
 store the final state in [KV](/docs/kv) or a [Database](/docs/database).
 
 ## Delivery can happen again

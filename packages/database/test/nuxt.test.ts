@@ -764,6 +764,36 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("applies the D1 migrations before the Cloudflare deploy with migrateOnDeploy", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-migrate-deploy-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases/default/migrations"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/default.ts"), "export default defineDatabase({ schema: {} })")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDatabase({ driver: "d1", databaseId: "existing-id", databaseName: "existing", migrateOnDeploy: true })(undefined, nuxt)
+      const config: Record<string, unknown> = { preset: "cloudflare_module" }
+      await callHook(hooks, "nitro:config", config)
+      const buildBefore = async (preset: string) => {
+        const callbacks: Array<() => void> = []
+        const commands: Record<string, unknown> = { deploy: "npx wrangler deploy --config ./server/wrangler.json" }
+        const nitro = {
+          hooks: { hook: (name: string, callback: () => void) => { if (name === "build:before") callbacks.push(callback) } },
+          options: { commands, output: { dir: join(rootDir, ".output"), serverDir: join(rootDir, ".output/server") }, preset },
+        }
+        for (const module of config.modules as Array<(nitro: unknown) => void>) module(nitro)
+        for (const callback of callbacks) callback()
+        return commands.deploy
+      }
+      await expect(buildBefore("cloudflare_module")).resolves.toBe("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && npx wrangler deploy --config ./server/wrangler.json")
+      // Nuxt's prerender build has its own Nitro, with the same modules.
+      await expect(buildBefore("nitro-prerender")).resolves.toBe("npx wrangler deploy --config ./server/wrangler.json")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
   it.each(["absolute", "../../server/databases/default/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unsafe-d1-"))
     try {
@@ -866,7 +896,11 @@ describe("Database Nuxt integration", () => {
       })
       await hubDatabase({ driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
-      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({
+        code: "DATABASE_D1_MIGRATIONS_DIR_OVERLAP",
+        fix: expect.stringContaining("migrations_dir"),
+        message: expect.stringContaining("D1 migration directories overlap"),
+      })
       expect(nitroConfig).not.toHaveProperty("modules")
     }
     finally {
@@ -1124,6 +1158,8 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain("db: await createDevPostgresDatabase({ ...definition_0, relations: relations_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).toContain(`{"dataDir":${JSON.stringify(join(rootDir, ".vitehub/data/database/pglite"))},"migrationsDir":${JSON.stringify(join(rootDir, "server/databases/default/migrations"))}}`)
       expect(code).toContain("const relations_0 = mergeDatabaseRelations(\"default\", definition_0.schema, [definition_0.relations])")
+      // The Nuxt alias of `@vite-hub/database` has the same exports, so Workflow can import from it.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\")")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

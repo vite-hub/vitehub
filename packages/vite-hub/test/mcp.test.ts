@@ -34,18 +34,20 @@ function generatedEntry(plugin: Plugin): string {
 describe("vitehub({ mcp })", () => {
   it("adds the MCP server only when mcp is on", () => {
     expect(mcpPlugin({ host: "node" })).toBeUndefined()
-    expect(mcpPlugin({ host: "node", mcp: true })).toBeDefined()
+    expect(mcpPlugin({ auth: true, host: "node", mcp: true })).toBeDefined()
   })
 
-  it("checks MCP OAuth tokens when the app has Auth, unless mcp.auth is false", () => {
+  it("checks MCP OAuth tokens unless mcp.auth is false", () => {
     const protectedEntry = generatedEntry(mcpPlugin({ auth: true, mcp: true, host: "node" })!)
     expect(protectedEntry).toContain("import { verifyMcpRequest } from \"vite-hub/auth/mcp\"")
     expect(protectedEntry).toContain("import { createMcpHandler } from \"@vite-hub/mcp/runtime\"")
     expect(generatedEntry(mcpPlugin({ auth: true, mcp: { auth: false }, host: "node" })!)).not.toContain("verifyMcpRequest")
-    expect(generatedEntry(mcpPlugin({ mcp: true, host: "node" })!)).not.toContain("verifyMcpRequest")
+    expect(generatedEntry(mcpPlugin({ mcp: { auth: false }, host: "node" })!)).not.toContain("verifyMcpRequest")
   })
 
-  it("fails when mcp.auth is on without Auth", () => {
+  it("fails when the MCP server would be public without an explicit mcp.auth: false", () => {
+    expect(() => vitehub({ mcp: true, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
+    expect(() => vitehub({ mcp: {}, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
     expect(() => vitehub({ mcp: { auth: true }, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
   })
 })

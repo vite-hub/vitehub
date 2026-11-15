@@ -18,7 +18,7 @@ describe("defineChannel", () => {
 
   it("accepts handlers next to triggers on an HTTP sender", () => {
     const trigger = { invoke: () => new Response(null) }
-    expect(() => defineChannel({ adapter: webhook(), on: { webhook: () => undefined, record: trigger } })).not.toThrow()
+    expect(() => defineChannel({ adapter: webhook({ secret: false }), on: { webhook: () => undefined, record: trigger } })).not.toThrow()
   })
 
   it.each([
@@ -26,12 +26,31 @@ describe("defineChannel", () => {
     [{}, "CHANNELS_C0007"],
     [{ adapter: { kind: "" } }, "CHANNELS_C0007"],
     [{ adapter: { kind: "alerts", send: "nope" } }, "CHANNELS_C0008"],
-    [{ adapter: webhook(), on: [] }, "CHANNELS_C0009"],
-    [{ adapter: webhook(), on: { "": () => undefined } }, "CHANNELS_C0009"],
-    [{ adapter: webhook(), on: { webhook: {} } }, "CHANNELS_C0009"],
+    [{ adapter: webhook({ secret: false }), on: [] }, "CHANNELS_C0009"],
+    [{ adapter: webhook({ secret: false }), on: { "": () => undefined } }, "CHANNELS_C0009"],
+    [{ adapter: webhook({ secret: false }), on: { webhook: {} } }, "CHANNELS_C0009"],
     [{ adapter: { kind: "slack", send: () => ({}) }, on: { message: () => undefined } }, "CHANNELS_C0010"],
   ])("rejects an invalid definition with %#", (definition, code) => {
     expect(() => defineChannel(definition as never)).toThrowError(expect.objectContaining({ code }))
+  })
+
+  it.each([
+    [{}, "has no `signature` and no `secret`"],
+    [{ secret: "token" }, "has a `secret` but no `signature`"],
+    [{ secret: () => "token" }, "has a `secret` but no `signature`"],
+    [{ signature: "bearer" }, "has a `signature` but no `secret`"],
+    [{ signature: "bearer", secret: false }, "sets `secret: false` and a `signature`"],
+    [{ signature: "token", secret: "token" }, "needs a `header`"],
+  ])("rejects a webhook adapter that does not verify with %j", (options, message) => {
+    const adapter = { kind: "webhook", webhook: options }
+    expect(() => defineChannel({ adapter, on: { webhook: () => undefined } }))
+      .toThrowError(expect.objectContaining({ code: "CHANNELS_C0011", message: expect.stringContaining(message) }))
+  })
+
+  it("accepts a signed webhook adapter, and an unsigned one only with `secret: false`", () => {
+    expect(() => defineChannel({ adapter: webhook({ signature: "bearer", secret: "token" }) })).not.toThrow()
+    expect(() => defineChannel({ adapter: webhook({ signature: "token", header: "x-gitlab-token", secret: () => "token" }) })).not.toThrow()
+    expect(() => defineChannel({ adapter: webhook({ secret: false }) })).not.toThrow()
   })
 })
 
@@ -42,7 +61,7 @@ describe("webhook adapters", () => {
       kind: "airtable",
       webhook: { path: "/api/airtable/webhook", signature: "bearer", secret: "token", event },
     })
-    expect(webhook()).toEqual({ kind: "webhook", webhook: {} })
+    expect(webhook({ secret: false })).toEqual({ kind: "webhook", webhook: { secret: false } })
   })
 
   it("reads the Stripe event type and ID", () => {

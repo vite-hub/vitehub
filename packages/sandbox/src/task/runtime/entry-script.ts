@@ -6,6 +6,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
         `    const exported = await mod.default`,
         `    if (typeof exported !== 'function')`,
+        // Internal invariant: generated entry script source. It runs in the Sandbox without ViteHub packages.
         `      throw new TypeError('Sandbox package entrypoint must default-export a function.')`,
         `    const result = await exported(input.payload, input.context)`,
       ]
@@ -13,6 +14,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
         `    const definition = mod?.default`,
         `    if (!definition || typeof definition.handler !== 'function')`,
+        // Internal invariant: generated entry script source. It runs in the Sandbox without ViteHub packages.
         `      throw new Error('Sandbox Task Definition must default-export defineSandboxTask({ handler }).')`,
         `    const result = await definition.handler(input.payload, input.context)`,
       ]

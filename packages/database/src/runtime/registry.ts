@@ -1,7 +1,8 @@
 import virtualSchema from "#vitehub/database/schema"
 import { ensureDatabaseMigrations } from "./migrate-on-start.ts"
+import { readPostgresConnectionUrl } from "./postgres-connection.ts"
 
-import { createAgentDatabase, createDatabaseBindingLookup } from "./agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup, pingDatabaseEntries } from "./agent.ts"
 import { getRuntimeDatabases } from "./drizzle-runtime.ts"
 import { createUseDatabase } from "./use-database.ts"
 
@@ -103,6 +104,14 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
   ? "default"
   : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
 
+/**
+ * The default export of a seed file, which `vitehub database seed` runs. Name the database for its tables:
+ * `export default (async ({ db, schema }) => { ... }) satisfies DatabaseSeed<"analytics">`.
+ */
+export type DatabaseSeed<Name extends keyof RuntimeDatabaseLookup = "default"> = (
+  context: Pick<RuntimeDatabaseLookup[Name], "db" | "schema">,
+) => Promise<void> | void
+
 /** Returns the default or only Database without a name; unknown or ambiguous names throw with the available choices. */
 export function useDatabase<Name extends DefaultDatabaseName = DefaultDatabaseName>(
   ...name: [DefaultDatabaseName] extends [never] ? [name: never] : []
@@ -124,8 +133,27 @@ export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegist
   return lookupDatabaseBinding(name)
 }
 
+/**
+ * Runs `SELECT 1` on every Database of the app and returns whether each one answered, by name. It does not throw: a
+ * Database that fails is `false`, and its error goes to the server log.
+ */
+export function pingDatabases(): Promise<Record<string, boolean>> {
+  const runtime = getRuntimeDatabases()
+  return pingDatabaseEntries(runtime.databases, [...runtime.configured])
+}
+
 /** The Database Agent Capability handle. Generated Agent routes pass it to the Capability. */
 export const agentDb = createAgentDatabase(databases)
+
+/**
+ * The connection URL of the Postgres Database `name`, as its client resolves it outside a request: the Hyperdrive
+ * binding, then `connection.url`. It is `undefined` for a Database that is not Postgres, and for a Postgres Database
+ * that connects through PG* environment variables. It throws `DATABASE_MISSING_CONNECTION` when a Postgres Database
+ * has none of these. Use it in a package that opens its own Postgres client, so that it uses the same database.
+ */
+export function getPostgresConnectionUrl(name = "default"): string | undefined {
+  return readPostgresConnectionUrl(databases, name)
+}
 
 /**
  * Applies the pending migrations of the Database `name`, or of every Database, once in this process. It runs the same
@@ -141,4 +169,3 @@ export function ensureMigrations(name?: keyof RuntimeDatabaseRegistry & string):
   const load = () => import("#vitehub/database/migrations").then(module => module.default)
   return ensureDatabaseMigrations({ databases, load }, name === undefined ? undefined : [name])
 }
-

@@ -15,7 +15,7 @@ it("keeps a Connections error from API-key verify", async () => {
   const runtime = runtimeWithVerify(async () => {
     throw connectionsErrorDiagnostics.CONNECTIONS_UNAVAILABLE({ connection: "executor" })
   })
-  const error: unknown = await runtime.setKey({ name: "executor", key: "key" }).catch(cause => cause)
+  const error: unknown = await runtime.setKey({ actor: "user:owner", name: "executor", key: "key" }).catch(cause => cause)
   expect(error).toMatchObject({ code: "CONNECTIONS_UNAVAILABLE" })
 })
 
@@ -27,7 +27,7 @@ it.each([
   const runtime = runtimeWithVerify(async () => {
     throw create()
   })
-  const error: unknown = await runtime.setKey({ name: "executor", key: "secret-key" }).catch(cause => cause)
+  const error: unknown = await runtime.setKey({ actor: "user:owner", name: "executor", key: "secret-key" }).catch(cause => cause)
   expect(error).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: "Provider \"api-key\" could not verify the key." })
   expect(JSON.stringify(error)).not.toContain("secret-key")
   expect(String(error)).not.toContain("secret-key")

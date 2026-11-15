@@ -59,6 +59,8 @@ const [error, sent] = await email.send({
 if (error) throw error
 ```
 
+A message needs `text`, `html`, or both. ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
+
 `send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
 ## Grant an Agent permission to send

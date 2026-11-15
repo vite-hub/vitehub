@@ -63,6 +63,7 @@ Renders a `div` with `data-slot="device-frame"`, and `data-on` while device mode
 | `presets` | `DeviceFramePreset[]` | | The devices the bar offers. Defaults to `DEVICE_FRAME_PRESETS`. |
 | `breakpoints` | `DeviceFrameBreakpoint[]` | | The one-click widths. Defaults to `DEVICE_FRAME_BREAKPOINTS`. |
 | `disabled` | `boolean` | `false` | Shows the content full size without the bar. |
+| `toolbar` | `boolean` | `true` | Shows the bar while device mode is on. Pass `false` when the page has its own device controls, as `WorkspacePreview` does. |
 | `insetBottom` | `number` | `16` | Space in pixels under the page. |
 
 #### Events

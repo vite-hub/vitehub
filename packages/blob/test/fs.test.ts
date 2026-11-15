@@ -126,10 +126,11 @@ describe("fs blob driver", () => {
   it.each([
     ["empty cursor", ""],
     ["invalid alphabet", "!!!"],
-    ["non-numeric payload", Buffer.from("foo").toString("base64url")],
-    ["padded numeric payload", `${Buffer.from("0").toString("base64url")}=`],
+    ["unknown payload", Buffer.from("foo").toString("base64url")],
+    ["old index payload", Buffer.from("0").toString("base64url")],
+    ["padded payload", `${Buffer.from("after:a").toString("base64url")}=`],
     ["noncanonical pad bits", "MB"],
-    ["leading-zero numeric payload", Buffer.from("01").toString("base64url")],
+    ["invalid UTF-8 key", Buffer.concat([Buffer.from("after:"), Buffer.from([0xFF])]).toString("base64url")],
   ])("rejects malformed list cursors (%s)", async (_, cursor) => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     tempDirs.push(base)

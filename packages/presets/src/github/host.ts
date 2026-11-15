@@ -8,8 +8,9 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -70,9 +71,10 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
   /**
    * Restore source instruction files only before the provider injects its instructions. For the
    * `persistent.work` directory, `reuse` keeps its ignored files when the tracked tree matches the
-   * head, and the result says whether it did.
+   * head, and the result says whether it did. `complete` checks the whole head out into another
+   * directory the caller owns, the way the `persistent.work` directory is prepared.
    */
-  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
+  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
   push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
@@ -143,9 +145,9 @@ function positiveInteger(value: string, name: string): number {
 export interface GitHubAppEnvironment {
   appId: number
   privateKey: string
-  /** Fixed installation. Without it, each repository resolves its own installation. */
+  /** Fixed installation of `owner`, which it needs. Repositories of other owners use `installations` or discovery. */
   installationId?: number
-  /** Owner authorized by the fixed installation; other owners are discovered. */
+  /** Repository owner of `installationId`. */
   owner?: string
   /** Explicit installation IDs by repository owner. */
   installations?: Record<string, number>
@@ -159,7 +161,12 @@ export interface GitHubAppEnvironment {
  * repository from the App, and the App's bot identity for commits. Results are cached.
  */
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
-  const configuredInstallations = new Map(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id]));
+  if (app.installationId !== undefined && !app.owner) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_OWNER_MISSING()
+  const routing = {
+    ...(app.installationId === undefined ? {} : { installationId: app.installationId }),
+    ...(app.owner ? { owner: app.owner.toLowerCase() } : {}),
+    installations: Object.fromEntries(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id])),
+  }
   const installations = new Map<string, number>()
   let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
@@ -177,9 +184,7 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
   return {
     async credentials(context: GitHubHostCredentialContext): Promise<GitHubHostCredentials> {
       if (!context.repository) return { token: app.token }
-      const repositoryOwner = owner(context.repository)
-      const configured = configuredInstallations.get(repositoryOwner) ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined)
-      const installationId = configured ?? await installation(context.repository, context.signal)
+      const installationId = githubInstallationFor(routing, context.repository) ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
     /** Every repository that the App's installations can access. */
@@ -526,7 +531,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
       operation.signal.throwIfAborted()
-      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string } = {}) => persistent && resolve(target) === resolve(persistent.work)
+      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean } = {}) => options.complete || persistent && resolve(target) === resolve(persistent.work)
         ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
         : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha

@@ -18,6 +18,9 @@ import type {
 import type { ContentCheckResult } from "./check.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
+
+/** The Content actions that target one collection. */
+type CollectionAction = Exclude<ContentAction, "read">
 import type { ContentScheduleStatus } from "./schedules.ts"
 import type { ContentSourceHead, ContentSourceHeads } from "./source-heads.ts"
 import type { ContentSourcePreviewRoutes as ContentPreviewRoutes } from "./ref-routes.ts"
@@ -132,14 +135,14 @@ function trusted(context: OperationContext): boolean {
 
 interface Guard {
   /** Throws `CONTENT_FORBIDDEN` when the policy denies the action. */
-  allow(action: ContentAction, collection: string, id?: string): Promise<void>
-  can(action: ContentAction, collection: string, id?: string): Promise<boolean>
+  allow(action: CollectionAction, collection: string, id?: string): Promise<void>
+  can(action: CollectionAction, collection: string, id?: string): Promise<boolean>
   /** The ids the user may read. */
   readable(collection: string, ids: Iterable<string>): Promise<Set<string>>
 }
 
 function guard(content: ContentOperationsRuntime, context: OperationContext): Guard {
-  const can = async (action: ContentAction, collection: string, id?: string): Promise<boolean> => {
+  const can = async (action: CollectionAction, collection: string, id?: string): Promise<boolean> => {
     if (trusted(context)) return true
     return await content.can({
       action,
@@ -153,13 +156,13 @@ function guard(content: ContentOperationsRuntime, context: OperationContext): Gu
     can,
     async allow(action, collection, id) {
       if (await can(action, collection, id)) return
-      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`, {
+      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read-draft" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`, {
         fix: content.hasPolicy ? "Ask for access, or allow the action in defineContent({ authorize })." : "Add authorize to defineContent(). Without a policy nobody can use Content outside `vite dev`.",
       })
     },
     async readable(collection, ids) {
       const list = [...new Set(ids)]
-      const allowed = await Promise.all(list.map(id => can("read", collection, id)))
+      const allowed = await Promise.all(list.map(id => can("read-draft", collection, id)))
       return new Set(list.filter((_id, index) => allowed[index]))
     },
   }
@@ -245,8 +248,8 @@ function documentId(collection: AnyContentCollection, id: string | undefined, op
 async function readableCollections(content: ContentOperationsRuntime, access: Guard): Promise<AnyContentCollection[]> {
   const collections = content.collections()
   const allowed = await Promise.all(collections.map(async (collection) => {
-    if (!await access.can("read", collection.name)) return false
-    return collection.kind === "singleton" ? await access.can("read", collection.name, collection.id) : true
+    if (!await access.can("read-draft", collection.name)) return false
+    return collection.kind === "singleton" ? await access.can("read-draft", collection.name, collection.id) : true
   }))
   return collections.filter((_collection, index) => allowed[index])
 }
@@ -315,7 +318,7 @@ const list = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const collection = content.collection(input.collection)
-    await access.allow("read", collection.name)
+    await access.allow("read-draft", collection.name)
     const selectedRef = input.ref ?? "draft"
     const options: ContentListOptions = { limit: input.limit ?? 50, ref: selectedRef }
     if (input.search !== undefined) options.search = input.search
@@ -455,7 +458,7 @@ const show = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "show")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     const selectedRef = input.ref ?? "draft"
     const [raw, status] = await Promise.all([collection.raw(id, { ref: selectedRef }), collection.status(id)])
     if (!raw) {
@@ -482,14 +485,14 @@ const status = defineOperation({
     if (input.id !== undefined) {
       if (input.collection === undefined) throw invalid("Status of one document needs its collection.", "Pass the collection before the id.")
       const collection = content.collection(input.collection)
-      await access.allow("read", collection.name, input.id)
+      await access.allow("read-draft", collection.name, input.id)
       const one = await collection.status(input.id)
       if (!one) throw notFound(collection.name, input.id)
       return { documents: [one] }
     }
     const documents: ContentDocumentStatus[] = []
     for (const collection of selected(content, input.collection)) {
-      if (!await access.can("read", collection.name)) continue
+      if (!await access.can("read-draft", collection.name)) continue
       const statuses = await statusesOf(collection)
       const readable = await access.readable(collection.name, statuses.map(entry => entry.id))
       documents.push(...statuses.filter(entry => readable.has(entry.id)))
@@ -514,7 +517,7 @@ const diff = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "diff")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     // raw() returns the stored file even when it no longer validates, so a diff can show what to repair.
     const [state, published, draft] = await Promise.all([
       collection.status(id),
@@ -539,7 +542,7 @@ const revisions = defineOperation({
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "revisions")
-    await access.allow("read", collection.name, id)
+    await access.allow("read-draft", collection.name, id)
     const selectedRef = input.ref ?? "draft"
     const options: ContentRevisionsOptions = { ref: selectedRef }
     if (input.limit !== undefined) options.limit = input.limit
@@ -674,7 +677,7 @@ const publish = defineOperation({
       if (input.ids !== undefined && input.collection === undefined) throw invalid("Publishing documents by id requires a collection.")
       const documents: ContentDevPublishResult["documents"] = []
       for (const collection of selected(content, input.collection)) {
-        if (!await access.can("read", collection.name)) continue
+        if (!await access.can("read-draft", collection.name)) continue
         const statuses = input.ids === undefined
           ? await statusesOf(collection)
           : await Promise.all(input.ids.map(async (id) => {
@@ -763,7 +766,7 @@ const schedules = defineOperation({
     // Show a schedule only when the user may enumerate each collection and read every document it publishes.
     const readable = new Map<string, Set<string>>()
     for (const name of new Set(found.flatMap(entry => entry.expect.map(document => document.collection)))) {
-      if (!await access.can("read", name)) continue
+      if (!await access.can("read-draft", name)) continue
       readable.set(name, await access.readable(name, found.flatMap(entry => entry.expect.filter(document => document.collection === name).map(document => document.id))))
     }
     return { schedules: found.filter(entry => entry.expect.every(document => readable.get(document.collection)?.has(document.id))) }
@@ -783,7 +786,7 @@ const sitemap = defineOperation({
     const entries = await content.sitemap(input.site === undefined ? {} : { site: input.site })
     // Entries of read-only Sources are public and have no collection policy.
     const collections = new Set(content.collections().map(collection => collection.name))
-    const allowed = await Promise.all(entries.map(async entry => !collections.has(entry.collection) || (await access.can("read", entry.collection) && await access.can("read", entry.collection, entry.id))))
+    const allowed = await Promise.all(entries.map(async entry => !collections.has(entry.collection) || (await access.can("read-draft", entry.collection) && await access.can("read-draft", entry.collection, entry.id))))
     return { entries: entries.filter((_entry, index) => allowed[index]) }
   }),
   section: "content",

@@ -17,7 +17,7 @@ import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1Query } from "./d1-migrations.ts"
 
 /** Where `vitehub database export` reads a database. Only `local` is on this machine. */
-type ExportTarget =
+export type ExportTarget =
   | { kind: "local", path: string }
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "d1", accountId?: string, databaseId?: string, databaseName?: string, token?: string }
@@ -35,8 +35,8 @@ interface ExportOptions {
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
 }
 
-/** Resolves the export target with the same connection rules as `vitehub database migrate`. */
-function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
+/** Resolves the target of `vitehub database export` and `seed` with the same connection rules as `vitehub database migrate`. */
+export function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot, remote }: Pick<ExportOptions, "env" | "projectRoot" | "remote">): ExportTarget {
   if (database.dialect === "postgresql") {
     const url = resolveConfigValue(database.connection?.url, env)?.trim() || undefined
     if (runsOnPglite(database.driver, url, env)) return { kind: "pglite", path: resolve(projectRoot, localPgliteDir(database.name)) }
@@ -90,14 +90,18 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
   const target = resolveExportTarget(database, options)
   const description = describeExportTarget(target, options.projectRoot)
   if (target.kind === "pglite") {
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     throw new Error(`It uses ${description}, which \`vitehub database export\` cannot read yet. To export a Postgres server, set \`connection.url\` or the PG* variables, and add \`--remote\`.`)
   }
   if (target.kind === "local" && options.remote) {
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     throw new Error(`It uses ${description}, which is not remote. Remove \`--remote\`, or set the remote \`connection.url\` in the environment or with \`--stage\`.`)
   }
   if (target.kind !== "local" && !options.remote) {
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     throw new Error(`It uses ${description}. Add \`--remote\` to export a database that is not a local file.`)
   }
+  // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
   if (existsSync(options.output)) throw new Error(`The output file exists: ${options.output}`)
   await mkdir(dirname(options.output), { recursive: true })
   const partialDirectory = await mkdtemp(join(dirname(options.output), `.${basename(options.output)}.partial-`))
@@ -105,7 +109,9 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
   try {
     switch (target.kind) {
       case "local":
+        // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
         if (target.path === ":memory:") throw new Error("It uses an in-memory SQLite URL, which a separate process cannot read. Use a file-backed SQLite URL.")
+        // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
         if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub database migrate\` to create it.`)
         await dumpLibsql({ url: `file:${target.path}` }, partial)
         break
@@ -127,6 +133,7 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
       await link(partial, options.output)
     }
     catch (error) {
+      // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
       if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`The output file exists: ${options.output}`)
       throw error
     }
@@ -172,6 +179,7 @@ async function writeSqliteDump(query: D1Query, file: string, inTransaction = fal
     for (const object of objects) {
       if (object.type !== "table" || skipped(object.name)) continue
       if (kinds.get(object.name)?.type === "virtual" && isContentlessFts5(object.sql)) {
+        // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
         throw new Error(`Cannot export contentless FTS5 table ${quoteIdentifier(object.name)} without losing its search index. Use a SQLite backup that preserves FTS shadow tables.`)
       }
       await write(`${object.sql};\n`)
@@ -271,6 +279,7 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
     !target.token && "`CLOUDFLARE_API_TOKEN`",
     !target.databaseId && !target.databaseName && "`cloudflare.databaseId` or `cloudflare.databaseName`",
   ].filter(Boolean)
+  // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
   if (missing.length) throw new Error(`ViteHub exports D1 with the Cloudflare API, which needs ${missing.join(" and ")}.`)
   const request = options.fetch ?? fetch
   const api = async (path: string, init: { body?: unknown, method?: string } = {}) => {
@@ -282,6 +291,7 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
     const payload = await response.json().catch(() => undefined) as CloudflareEnvelope | undefined
     if (!response.ok || payload?.success !== true) {
       const messages = (payload?.errors ?? []).map(error => error.message).filter(Boolean)
+      // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
       throw new Error(`The Cloudflare API returned HTTP ${response.status}${messages.length ? `: ${messages.join("; ")}` : ""}.`)
     }
     return payload.result
@@ -290,6 +300,7 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
   if (!databaseId) {
     const listed = await api(`/d1/database?name=${encodeURIComponent(target.databaseName!)}`)
     const match = (Array.isArray(listed) ? listed as Array<{ name?: string, uuid?: string }> : []).find(database => database.name === target.databaseName)
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --provider cloudflare\` or set \`cloudflare.databaseId\`.`)
     databaseId = match.uuid
   }
@@ -301,19 +312,24 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
       body: { current_bookmark: bookmark, dump_options: { no_data: false, no_schema: false }, output_format: "polling" },
       method: "POST",
     }) as D1ExportPoll | undefined
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     if (poll?.status === "error") throw new Error(`Cloudflare D1 export failed: ${poll.error ?? "unknown error"}.`)
     if (poll?.status === "complete") {
       signedUrl = poll.result?.signed_url
+      // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
       if (!signedUrl) throw new Error("Cloudflare D1 export completed without a download URL.")
       break
     }
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     if (typeof poll?.at_bookmark !== "string" || !poll.at_bookmark.trim()) throw new Error("Cloudflare D1 export returned a continuation without a bookmark.")
     bookmark = poll.at_bookmark
     if (attempt < maxPolls - 1) await sleep(1000)
   }
+  // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
   if (!signedUrl) throw new Error(`Cloudflare D1 export did not complete after ${maxPolls} polls.`)
   // The signed URL authorizes the download by itself. Do not send the API token to it.
   const download = await request(signedUrl)
+  // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
   if (!download.ok || !download.body) throw new Error(`The D1 export download returned HTTP ${download.status}.`)
   await pipeline(Readable.fromWeb(download.body), createWriteStream(file, { flags: "wx" }))
 }
@@ -333,8 +349,10 @@ async function exportPostgres(target: Extract<ExportTarget, { kind: "postgres" }
     ({ exitCode } = await options.spawn("pg_dump", args, { cwd: options.projectRoot, env, stderr: "inherit", stdout: "inherit" }))
   }
   catch (error) {
+    // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("ViteHub exports Postgres with `pg_dump`, which is not on PATH. Install the PostgreSQL client tools.")
     throw error
   }
+  // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
   if (exitCode !== 0) throw new Error(`\`pg_dump\` failed with exit code ${exitCode ?? "unknown"}. See its output above.`)
 }

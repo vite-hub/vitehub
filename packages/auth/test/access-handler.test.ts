@@ -40,8 +40,9 @@ describe("Auth access handlers", () => {
     const resolve = vi.fn(async () => ({ id: "token-user" }))
     setAuthAccessIdentityResolver("/portal/_vitehub/mcp", resolve)
     const request = new Request("https://app.example/portal/_vitehub/mcp", { method: "POST" })
-    expect((await handler(requestEvent(request)))?.status).toBe(403)
-    expect(first).toHaveBeenCalledWith({ request, session: {}, user: { id: "token-user" } })
+    const event = requestEvent(request)
+    expect((await handler(event))?.status).toBe(403)
+    expect(first).toHaveBeenCalledWith({ event, request, session: {}, user: { id: "token-user" } })
     expect(second).toHaveBeenCalledOnce()
     second.mockReturnValue(true)
     await expect(handler(request)).resolves.toBeUndefined()
@@ -126,10 +127,11 @@ describe("Auth access handlers", () => {
       authorize.mockClear()
       provider.getSession.mockClear()
       const request = new Request(`https://app.example${path}`, { method })
-      await expect(handler(adapter === "host" ? requestEvent(request) : request)).resolves.toBeUndefined()
+      const input = adapter === "host" ? requestEvent(request) : request
+      await expect(handler(input)).resolves.toBeUndefined()
       expect(authorize).toHaveBeenCalledTimes(matches ? 1 : 0)
       expect(provider.getSession).toHaveBeenCalledTimes(matches ? 1 : 0)
-      if (matches) expect(authorize).toHaveBeenCalledWith({ request, ...session })
+      if (matches) expect(authorize).toHaveBeenCalledWith({ event: input, request, ...session })
     }
   })
 
@@ -342,6 +344,29 @@ describe("Auth access handlers", () => {
       expect(status).not.toHaveBeenCalled()
       expect(headers).not.toHaveBeenCalled()
     })
+  })
+
+  it("guards every path but the public routes with `/**`", async () => {
+    provider.getSession.mockResolvedValue(null)
+    provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
+    const publicRoutes = ["/", "/login", "/api/auth/**"]
+    const handler = createAuthAccessHandler([{ route: "/**" }], defineAuth({
+      access: { routes: ["/**"], public: publicRoutes, signIn: { provider: "github" } },
+    }), publicRoutes)
+
+    for (const path of ["/", "/login?next=/drops", "/api/auth", "/api/auth/sign-in/social"]) {
+      await expect(handler(new Request(`https://app.example${path}`)), path).resolves.toBeUndefined()
+    }
+    expect(provider.getSession).not.toHaveBeenCalled()
+    for (const path of ["/drops", "/login/extra", "/api/authx", "/api/drops/1"]) {
+      expect((await handler(new Request(`https://app.example${path}`)))?.status, path).toBe(401)
+    }
+    const page = await handler(new Request("https://app.example/drops", { headers: { accept: "text/html" } }))
+    expect(page?.status).toBe(302)
+    expect(page?.headers.get("location")).toBe("https://provider.example/sign-in")
+
+    provider.getSession.mockResolvedValue(session)
+    await expect(handler(new Request("https://app.example/drops"))).resolves.toBeUndefined()
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

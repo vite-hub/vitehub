@@ -1,6 +1,6 @@
 ---
 title: Agent Skills
-description: Serve your app's Agent Skills to coding agents through Agent Skills Discovery and MCP.
+description: Serve your app's Agent Skills to coding agents through Agent Skills Discovery and MCP, and turn each one on or off.
 navigation.order: 32.3
 navigation.group: Local tools
 icon: i-vitehub-skills
@@ -86,25 +86,76 @@ A path under the two folders that names no skill or file gets `404`. Methods oth
 
 ## Change the list at runtime
 
-Pass a function instead of a list. Each request calls it, so the function can read a setting, such as the skills an admin turned off. These excerpts replace the earlier list and middleware, using your app's `disabledSkillNames()` helper and the middleware imports above:
+Pass a function instead of a list. Each request calls it, so the function can read a setting, such as the skills of the signed-in team. These excerpts replace the earlier list and middleware, using your app's `teamSkillNames()` helper and the middleware imports above:
 
 ```ts [server/skills.ts] fragment
 import { defineSkills } from 'vite-hub/skills'
-import { disabledSkillNames } from './utils/settings'
+import { teamSkillNames } from './utils/teams'
 
 const all = defineSkills(import.meta.glob('../skills/**', { query: '?raw', import: 'default', eager: true }))
 
-export async function enabledSkills() {
-  const disabled = await disabledSkillNames()
-  return all.filter(skill => !disabled.has(skill.name))
+export async function teamSkills() {
+  const names = await teamSkillNames()
+  return all.filter(skill => names.has(skill.name))
 }
 ```
 
 ```ts [server/middleware/skills.ts] fragment
-export default defineHandler(event => serveSkills(event.req, enabledSkills))
+export default defineHandler(event => serveSkills(event.req, teamSkills))
 ```
 
 A skill the function leaves out is missing from every index and from MCP. Files of only left-out skills answer `404`. Nested files stay part of any enclosing skill that is still on. Digests and archives are computed once per skill object, so filter the same objects instead of creating new ones. Clients can cache an answer for the `cacheControl` time, one minute by default.
+
+## Turn skills on and off
+
+`skillSettings(skills, { store })` adds a switch to each skill, so someone can turn a skill off while the app runs, without a deploy. Every skill is on until someone turns it off, so a new skill ships on. The store keeps only the names of the skills that are off. The `kv` store of [KV](/docs/kv) fits as it is:
+
+```ts [server/skills.ts]
+import { defineSkills, skillSettings } from 'vite-hub/skills'
+import { kv } from 'vite-hub/kv'
+
+export default skillSettings(
+  defineSkills(import.meta.glob('../skills/**', { query: '?raw', import: 'default', eager: true })),
+  { store: kv },
+)
+```
+
+Serve `settings.enabled`, the list function of the skills that are on:
+
+```ts [server/middleware/skills.ts]
+import { defineHandler } from 'h3'
+import { serveSkills } from 'vite-hub/skills'
+import settings from '../skills'
+
+export default defineHandler(event => serveSkills(event.req, settings.enabled))
+```
+
+Pass the same function to `skillsMcp()`. A skill that is off is then missing from Agent Skills Discovery and from MCP.
+
+With the file at `server/skills.ts`, the Console shows **Served skills**: each skill with a switch. The CLI changes the same switches:
+
+```bash [Terminal]
+pnpm vitehub served-skills list
+pnpm vitehub served-skills set release false
+```
+
+[`console.authorize`](/docs/development/console#limit-a-user-to-some-sections) decides who may use them. Grant `served-skills` to change the switches, or `served-skills:read` to only list them. A `server/skills.ts` that exports a plain list, as the `skills` export or the default export, shows in the section with every skill on and no switches.
+
+Your app's own pages use the same object:
+
+| Method | Returns |
+| --- | --- |
+| `settings.enabled()` | The skills that are on. It rejects with [`SKILL_SETTINGS_UNAVAILABLE`](#skill_settings_unavailable) when the store fails, so a request fails instead of serving a skill that is off. |
+| `settings.list()` | `[error, data]` with each skill and its `enabled` state, for a catalog page that applies your own rules, such as showing members only the skills that are on. |
+| `settings.set(name, enabled)` | `[error, data]` after it turns one skill on or off. It returns [`SKILL_NOT_FOUND`](#skill_not_found) for a name that is not in the list. Check who may call it in your route. |
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `store` | required | An object with `get(key)` and `set(key, names)` that return `[error, data]`, such as `kv` of `vite-hub/kv`. Write a small adapter to keep the switches in a Database table instead. |
+| `key` | `vitehub:skills:disabled` | The key of the list of names that are off. The KV section of the Console does not edit `vitehub:` keys. |
+| `ttlMs` | `60000` | How long a server instance reuses what it read. A change applies at once on the instance that made it. Other instances see it within `ttlMs`, plus the delay of the store, such as up to a minute for Cloudflare KV. |
+
+`settings.set()` serializes updates on the same settings instance and reads the store again before it writes, so it keeps changes from other instances. Two changes at the same moment on different instances can still overwrite each other: the last write wins.
 
 ## Serve skills over MCP
 
@@ -173,4 +224,20 @@ A file path is not a relative path inside the skill. Use paths such as `SKILL.md
 
 ### SKILL_NOT_FOUND
 
-`skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs.
+`skillsMcp().get()` or `read()` got a URI for a skill or file not in the list, for example one the list function left out. Read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it with the URI `skill://<name>` for a name that is not in the list; `vitehub served-skills set` then answers with HTTP 404. Run `vitehub served-skills list` for the names.
+
+### SKILL_SETTINGS_UNAVAILABLE
+
+The store of `skillSettings()` failed to read or write the names of the skills that are off. The error `cause` has the store error, such as a KV error. Check the store binding, then try again. `settings.enabled()` rejects with it, so a request fails instead of serving a skill that is off.
+
+### SERVED_SKILLS_UNAVAILABLE
+
+`vitehub served-skills` or the Console section ran in a server that has no `server/skills.ts`. Add the file and build again. The call answers with HTTP 503.
+
+### SERVED_SKILLS_INVALID_EXPORT
+
+`server/skills.ts` has no default export and no `skills` export that is a skill list or `skillSettings()`. Default-export `skillSettings(skills, { store })`, or a list to only show the skills. The call answers with HTTP 500.
+
+### SERVED_SKILLS_NO_SETTINGS
+
+`served-skills.set` ran, but `server/skills.ts` exports a plain list, which has no switches. Wrap the list in `skillSettings(skills, { store })`. The call answers with HTTP 409.

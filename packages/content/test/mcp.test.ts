@@ -177,7 +177,7 @@ describe("seo.mcp for Sources", () => {
       "content/elsewhere.md": "---\ntitle: Elsewhere\nseo:\n  canonical: https://elsewhere.test/original\n---\nElsewhere body.\n",
     })
     const content = defineContent({
-      route: false,
+      access: "public",
       logger: false,
       sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
       seo: { site: "https://example.com", mcp: true },
@@ -199,6 +199,7 @@ describe("seo.mcp for Sources", () => {
       ? files({ "a.md": () => text })
       : { async items() { return added ? [{ key: "b.md", content: "---\ntitle: B\n---\nBody B.\n" }] : [{ key: "a.md", content: text }] } }
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: { notes: contentSource(input, { url: "/notes/:id" }) },
@@ -225,7 +226,7 @@ describe("seo.mcp for Sources", () => {
       "content/data.json": "{\"title\":\"Data\"}\n",
     })
     const content = defineContent({
-      route: false,
+      access: "public",
       logger: false,
       sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main", root: "content" }), { url: "/docs/:id" }) },
       seo: { site: "https://example.com", mcp: true },
@@ -247,6 +248,7 @@ describe("seo.mcp for Sources", () => {
 
   it("reads a Source without a head commit as it is", async () => {
     const content = defineContent({
+      access: "public",
       route: false,
       logger: false,
       sources: { notes: contentSource({ async items() { return [{ key: "a.md", content: "---\ntitle: A\n---\nBody of A.\n" }] } }, { url: "/notes/:id" }) },

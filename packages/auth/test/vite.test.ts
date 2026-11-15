@@ -539,6 +539,16 @@ describe("hubAuth", () => {
     expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"))')
   })
 
+  it("passes public routes to the generated access middleware", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { routes: ['/**'], public: ['/', '/api/auth/**'] },"])
+    const plugin = hubAuth()
+
+    await resolvePluginConfig(plugin, root)
+    const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/**"}], () => import("#vitehub/auth/server"), ["/","/api/auth/**"])')
+  })
+
   it("uses custom Auth base paths for generated Nitro routes", async () => {
     const root = await createTempProject()
     await writeAuth(root, "server/auth.ts", [

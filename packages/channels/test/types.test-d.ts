@@ -97,7 +97,7 @@ describe("Channel types", () => {
     })
 
     defineChannel({
-      adapter: webhook(),
+      adapter: webhook({ secret: false }),
       on: {
         // @ts-expect-error A target is a handler or a trigger.
         webhook: { run: () => undefined },
@@ -106,5 +106,25 @@ describe("Channel types", () => {
 
     // @ts-expect-error A Channel needs an adapter.
     defineChannel({ on: {} })
+  })
+
+  it("requires webhook verification or an explicit opt-out", () => {
+    webhook({ signature: "bearer", secret: () => process.env.TOKEN })
+    webhook({ signature: "token", header: "x-gitlab-token", secret: "token" })
+    webhook({ secret: false })
+    // @ts-expect-error `webhook()` needs `signature` and `secret`, or `secret: false`.
+    webhook()
+    // @ts-expect-error A webhook without verification needs `secret: false`.
+    webhook({})
+    // @ts-expect-error A `secret` needs a `signature`.
+    webhook({ secret: "token" })
+    // @ts-expect-error A `signature` needs a `secret`.
+    webhook({ signature: "bearer" })
+    // @ts-expect-error `secret: false` turns verification off, so it takes no `signature`.
+    webhook({ signature: "bearer", secret: false })
+    // @ts-expect-error `signature: 'token'` needs a `header`.
+    webhook({ signature: "token", secret: "token" })
+    // @ts-expect-error `stripe()` always verifies.
+    stripe({ secret: false })
   })
 })

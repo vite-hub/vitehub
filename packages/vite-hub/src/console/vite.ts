@@ -11,7 +11,7 @@ import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import type { OperationContributingPlugin } from "@vite-hub/internal/operations"
+import type { OperationContributingPlugin, OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Environment, Plugin, ViteDevServer } from "vite"
 import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.ts"
 
@@ -26,9 +26,15 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
+const generatedDevelopmentConsolePlugin = ".vitehub/nitro/console/plugin-dev.mjs"
 
-export function resolveGeneratedConsolePlugin(root: string): string {
-  return resolve(root, generatedConsolePlugin)
+/**
+ * The generated Console plugin of a project. A development server writes its own file: it installs the local access
+ * mode and development routes, and it rewrites the file when the project changes. A build that runs while the dev
+ * server is up would otherwise bundle that file and ship development access to production.
+ */
+export function resolveGeneratedConsolePlugin(root: string, development = false): string {
+  return resolve(root, development ? generatedDevelopmentConsolePlugin : generatedConsolePlugin)
 }
 
 type ConsoleNitroConfig = {
@@ -66,6 +72,11 @@ export interface ConsoleOptions {
    * no Console routes. It does not change the primitive itself: the app still reads and writes its content.
    */
   sections?: Readonly<Record<string, false>>
+  /**
+   * `false` leaves the **Console** link out of the page tools pill. Then HTML pages get no page tools script, unless
+   * another page tool, such as Comments, is on. Site access needs the pill, so the Console has no Site access section.
+   */
+  pill?: false
   /**
    * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
    * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`.
@@ -124,11 +135,15 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
   }
+  const pill: unknown = Reflect.get(value, "pill")
+  if (pill !== undefined && pill !== false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.pill must be false, to leave the Console link out of the page tools pill, or left out." })
+  }
   const sections: unknown = Reflect.get(value, "sections")
   if (sections !== undefined && (!(sections instanceof Object) || Array.isArray(sections) || Object.values(sections).some(entry => entry !== false))) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.sections maps a section id to false, such as { content: false }." })
   }
-  // SAFETY: `auth`, `impersonation`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
+  // SAFETY: `auth`, `impersonation`, `pill`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
@@ -296,7 +311,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
-      ...(options.rpcOnly ? {} : { pageTool: { base: applicationBase } }),
+      ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
     }
   }
 
@@ -401,7 +416,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       projectRoot = resolveViteHubProjectRoot(root)
       const build = environment.command === "build"
       invoke = configured.invoke ?? !build
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, development)
       if (!cliDiscovery) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
@@ -428,7 +443,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       baseURL = viteHubPageToolsBase(config).base || "/"
       applicationBase = baseURL
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      generatedPlugin ||= resolve(projectRoot, generatedConsolePlugin)
+      generatedPlugin ||= resolveGeneratedConsolePlugin(projectRoot, development)
       // SAFETY: Nitro extends the resolved Vite config with this documented key.
       const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
       const database = getResolvedFeatureOptions<unknown>(config, "database")
@@ -459,7 +474,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
       const { kit, publicAssets } = configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, sections, options.rpcOnly)
       viteConfig.nitro = { ...kit.config, publicAssets }
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, development)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       if (!cliDiscovery) await refreshConsoleCatalog()
@@ -490,26 +505,33 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       server.watcher.on("unlink", refresh)
     },
     vitehub: {
-      // The Console runtime already holds these operations. The CLI and `vitehub inspect` read them from here.
-      operations: [{
-        export: "consoleOperations",
-        // An app without a Database gets no `vitehub database` commands.
-        load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections.includes("databases") || !operation.name.startsWith("databases.")),
-        module: "vite-hub/console/server",
-        runtime: false,
-      },
-      // The generated Console plugin installs these at runtime. The CLI and `vitehub inspect` read them from here.
-      ...(sections.includes("mcp-client")
-        ? [{
-            export: "consoleMcpClientOperations",
-            load: async () => (await import("./runtime/server/mcp-client-operations.ts")).consoleMcpClientOperations,
-            module: "vite-hub/console/mcp-client",
-            runtime: false as const,
-          }]
-        : [])],
+      operations: consoleOperationContributions(() => sections),
     },
   }
   return plugin
+}
+
+/**
+ * The Console operations, for the CLI and `vitehub inspect`. The Console runtime already holds them, so they are not
+ * installed again. `sections` is read when the operations load, after the config hooks set it.
+ */
+export function consoleOperationContributions(sections: () => readonly string[]): OperationContributionEntry[] {
+  return [{
+    export: "consoleOperations",
+    // An app without a Database gets no `vitehub database` commands.
+    load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
+    module: "vite-hub/console/server",
+    runtime: false,
+  },
+  // The generated Console plugin installs these at runtime.
+  ...(sections().includes("mcp-client")
+    ? [{
+        export: "consoleMcpClientOperations",
+        load: async () => (await import("./runtime/server/mcp-client-operations.ts")).consoleMcpClientOperations,
+        module: "vite-hub/console/mcp-client",
+        runtime: false as const,
+      }]
+    : [])]
 }
 
 /**

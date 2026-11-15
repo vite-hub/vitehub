@@ -213,6 +213,11 @@ await cachedDocs.get("intro.md")
 
 Use a different cache name for each origin and access scope.
 
+The `cache` option of a loader, such as `github({ cache: { maxAge } })`, is a
+hint for the consumer of the Source. The Workspace reads it to decide when its
+copy of the Source content is stale. A reader from `createSource()` alone does
+not read `cache` and does not cache.
+
 ## Collections
 
 Define a Collection when a database or other origin should become a typed,

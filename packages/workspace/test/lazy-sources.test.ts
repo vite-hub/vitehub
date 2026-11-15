@@ -1068,7 +1068,7 @@ describe("lazy sources", () => {
     })
     const [resolved] = normalizeWorkspaceSources({ docs: options as never })
 
-    expect(resolved).toMatchObject({ mountPath: "", source: { mount: "" }, probeKeys: ["safe.md"] })
+    expect(resolved).toMatchObject({ mountPath: "", source: { key: "safe.md", mount: undefined }, probeKeys: ["safe.md"] })
     expect(workspaceSourceGrantPaths("docs", options as never)).toEqual(["safe.md", ".vitehub/sources/docs.json"])
   })
 

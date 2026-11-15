@@ -2,7 +2,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth, withAuthorization } from "../src/internal/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
 
 const provider = vi.hoisted(() => ({
@@ -49,6 +49,19 @@ describe("Auth request instances", () => {
     expect(await guard(requestEvent(request("https://app.example/two")))).toBe("ok")
     expect((await handleAuthRequest(definition, request("https://app.example/api/auth/ok"))).status).toBe(200)
     expect(provider.betterAuth).toHaveBeenCalledOnce()
+  })
+
+  it("gives authorize the request event, or the Request of a direct call", async () => {
+    const definition = defineAuth({ appName: "ViteHub" })
+    const events: unknown[] = []
+    const authorize = ({ event }: { event: unknown }) => events.push(event) > 0
+    const event = requestEvent(request("https://app.example/photo"))
+    const direct = request("https://app.example/photo")
+    expect(await withAuthorization(authorize, () => "ok", definition)(event)).toBe("ok")
+    expect(await withAuthorization(authorize, () => "ok", definition)(direct)).toBe("ok")
+    provider.getSession.mockResolvedValueOnce(null)
+    expect(await withAnonymousAuthorization(authorize, () => "ok", definition)(event)).toBe("ok")
+    expect(events).toEqual([event, direct, event])
   })
 
   it("reuses the instance of a callback that returns plain values", async () => {
@@ -109,12 +122,12 @@ describe("Auth request instances", () => {
     expect(provider.betterAuth).toHaveBeenCalledTimes(2)
   })
 
-  it.each([false, true])("does not read the environment values that the options replace in a callback=%s Definition", async (callback) => {
+  it("does not read the environment values that the options replace", async () => {
     vi.stubEnv("VITEHUB_ADMIN_CLAIM", "not-a-hash")
     vi.stubEnv("VITEHUB_SECRET", "short")
     const secret = "explicit-secret-at-least-32-characters"
     for (const runtime of [{ secret }, { secrets: [{ version: 1, value: secret }] }]) {
-      const definition = callback ? defineAuth(() => ({ adminClaim: false, ...runtime })) : defineAuth({ adminClaim: false, runtime })
+      const definition = defineAuth(() => ({ adminClaim: false as const, ...runtime }))
       expect((await handleAuthRequest(definition, request("https://app.example/api/auth/ok"))).status).toBe(200)
       expect(await withAuth(() => "ok", definition)(request("https://app.example/private"))).toBe("ok")
     }

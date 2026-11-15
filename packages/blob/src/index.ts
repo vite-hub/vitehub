@@ -16,6 +16,7 @@ export type {
   BlobReferenceSchema,
 } from "./reference.ts"
 export type {
+  BlobCopyOptions,
   BlobDriver,
   BlobErrorCode,
   BlobEnsureOptions,
@@ -48,6 +49,9 @@ export type {
   BlobStoreOptions,
   BlobStoreRegistry,
   BlobType,
+  BlobBeforeUploadFile,
+  BlobBeforeUploadResult,
+  BlobDirectUploadStep,
   BlobUploadEvent,
   BlobUploadOptions,
   AzureBlobStoreConfig,
