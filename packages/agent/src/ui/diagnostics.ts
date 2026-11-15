@@ -25,7 +25,7 @@ const uiDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ entry }: { entry: string }) => `The props schema of ${entry} returned a Promise. Spec validation is synchronous.`,
       fix: "Use a props schema without async refinements or transforms.",
     },
-    // Runtime errors. `validateSpec()` returns them. Each one goes back to the Agent that wrote the spec.
+    // Runtime errors. `validateSpec()` and `specFromText()` return them. Each one goes back to the Agent that wrote the spec.
     /** An event binds an action that the catalog does not have. */
     AGENT_UI_ACTION_UNKNOWN: {
       why: ({ action, known }: { action: string, known: string }) => `The spec binds the action "${action}". Use one of: ${known}.`,
@@ -76,6 +76,11 @@ const uiDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ form, known }: { form: string, known: string }) => `The catalog has no form "${form}". Use one of: ${known}.`,
       fix: "Name a form that the app passes to `defineCatalog(entries, { forms })`.",
     },
+    /** A patch line of the model's answer cannot build the spec. `specFromText()` returns it. */
+    AGENT_UI_PATCH_INVALID: {
+      why: ({ line, problem }: { line: number, problem: string }) => `The patch on line ${line} of the answer cannot build the spec: ${problem}`,
+      fix: "Write one JSON patch on each line, such as {\"op\":\"add\",\"path\":\"/elements/title\",\"value\":{\"type\":\"Heading\",\"props\":{\"text\":\"Deploys\"}}}. A path names keys of the spec: root, elements, state, and the keys under them.",
+    },
     /** A prop has a value that its component does not accept. */
     AGENT_UI_PROP_INVALID: {
       why: ({ type, prop, problem }: { type: string, prop: string, problem: string }) => `${type} prop "${prop}" is invalid: ${problem}`,
@@ -90,6 +95,11 @@ const uiDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AGENT_UI_SPEC_INVALID: {
       why: ({ problem }: { problem: string }) => `The spec has the wrong shape: ${problem}`,
       fix: "Write `{ \"root\": \"<id>\", \"elements\": { \"<id>\": { \"type\": \"<Component>\", \"props\": {} } } }`. An element can also have `children` (a list of element ids) and `on` (`{ \"<event>\": { \"action\": \"event\", \"params\": { \"name\": \"<name>\" } } }`). The spec can also have `version` and `state`.",
+    },
+    /** The model's answer has no patch lines. `specFromText()` returns it. */
+    AGENT_UI_SPEC_NOT_FOUND: {
+      why: "The answer has no spec patches. A spec is built from JSON patches, one on each line.",
+      fix: "Answer with one JSON patch on each line, such as {\"op\":\"add\",\"path\":\"/root\",\"value\":\"card\"} and then {\"op\":\"add\",\"path\":\"/elements/card\",\"value\":{\"type\":\"Card\",\"props\":{}}}. Do not send the spec as one JSON object.",
     },
     /** The element tree is deeper than the limit. */
     AGENT_UI_TOO_DEEP: {
@@ -109,13 +119,13 @@ const uiDiagnostics = /*#__PURE__*/ defineDiagnostics({
   },
 })
 
-/** A stable code of the Agent UI diagnostics that `validateSpec()` returns. */
+/** A stable code of the Agent UI diagnostics that `validateSpec()` and `specFromText()` return. */
 export type CatalogDiagnosticCode
   = | "AGENT_UI_ACTION_UNKNOWN" | "AGENT_UI_CHILDREN_NOT_ALLOWED" | "AGENT_UI_COMPONENT_NOT_ON_SURFACE"
     | "AGENT_UI_COMPONENT_UNKNOWN" | "AGENT_UI_ELEMENT_CYCLE" | "AGENT_UI_ELEMENT_NOT_FOUND"
     | "AGENT_UI_ELEMENT_REPEATED" | "AGENT_UI_EVENT_UNKNOWN" | "AGENT_UI_FORM_NOT_ON_SURFACE"
-    | "AGENT_UI_FORM_UNKNOWN" | "AGENT_UI_PROP_INVALID" | "AGENT_UI_PROP_UNKNOWN"
-    | "AGENT_UI_SPEC_INVALID" | "AGENT_UI_TOO_DEEP" | "AGENT_UI_TOO_MANY_ELEMENTS"
+    | "AGENT_UI_FORM_UNKNOWN" | "AGENT_UI_PATCH_INVALID" | "AGENT_UI_PROP_INVALID" | "AGENT_UI_PROP_UNKNOWN"
+    | "AGENT_UI_SPEC_INVALID" | "AGENT_UI_SPEC_NOT_FOUND" | "AGENT_UI_TOO_DEEP" | "AGENT_UI_TOO_MANY_ELEMENTS"
     | "AGENT_UI_VERSION_UNSUPPORTED"
 
 /** One problem in a spec. It is plain JSON, so an app can send it back to the Agent that wrote the spec as it is. */
@@ -140,9 +150,11 @@ interface DiagnosticParams {
   AGENT_UI_EVENT_UNKNOWN: { type: string, event: string, known: string }
   AGENT_UI_FORM_NOT_ON_SURFACE: { form: string, surface: string, problem: string }
   AGENT_UI_FORM_UNKNOWN: { form: string, known: string }
+  AGENT_UI_PATCH_INVALID: { line: number, problem: string }
   AGENT_UI_PROP_INVALID: { type: string, prop: string, problem: string }
   AGENT_UI_PROP_UNKNOWN: { type: string, prop: string, known: string }
   AGENT_UI_SPEC_INVALID: { problem: string }
+  AGENT_UI_SPEC_NOT_FOUND: Record<string, never>
   AGENT_UI_TOO_DEEP: { limit: number }
   AGENT_UI_TOO_MANY_ELEMENTS: { count: number, limit: number }
   AGENT_UI_VERSION_UNSUPPORTED: { version: string }

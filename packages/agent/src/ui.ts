@@ -4,4 +4,5 @@ export { type ViteHubComponent, viteHubCatalog, viteHubCatalogEntries } from "./
 export { checkSpecForm, specForm, specFormFields, type SpecFormOptions } from "./ui/form.ts"
 export { type JsonRenderCatalogOptions, toJsonRenderCatalog } from "./ui/json-render.ts"
 export { catalogPrompt, type CatalogPromptOptions } from "./ui/prompt.ts"
+export { specFromText } from "./ui/text.ts"
 export { agentEventAction, type CatalogSpec, maxSpecDepth, maxSpecElements, type SpecActionBinding, specActions, type SpecElement, type SpecValidation, specVersion, validateSpec, type ValidateSpecOptions } from "./ui/validate.ts"
