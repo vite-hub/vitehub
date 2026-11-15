@@ -1,7 +1,9 @@
+import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 import { planProvisionSteps, resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type {
   PlannedProvisionAction,
   ProvisionPlan,
@@ -11,7 +13,7 @@ import type {
   ProvisionStep,
 } from "@vite-hub/internal/provision"
 
-type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "stderr" | "stdout">
+type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "runHostCli" | "stderr" | "stdout">
 type ProvisionCommand = "run" | "status"
 
 interface ProvisionFeatureOptions {
@@ -22,22 +24,60 @@ interface ParsedProvisionArgs {
   dryRun: boolean
   error?: string
   help: boolean
+  host?: string
   json: boolean
-  provider?: string
 }
 
-const PROVISION_PROVIDERS = ["cloudflare", "vercel"] as const satisfies readonly ProvisionProvider[]
-const PROVIDER_CREDENTIALS = {
-  cloudflare: "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN",
+const PROVISION_HOSTS = ["cloudflare", "vercel"] as const satisfies readonly ProvisionProvider[]
+const HOST_CREDENTIALS = {
+  cloudflare: "CLOUDFLARE_ACCOUNT_ID and a Cloudflare login (`wrangler login` or CLOUDFLARE_API_TOKEN)",
   vercel: "VERCEL_TOKEN",
 } as const satisfies Record<ProvisionProvider, string>
 const USAGE = {
-  run: "vitehub provision run --provider <cloudflare|vercel> [--dry-run] [--json]",
-  status: "vitehub provision status --provider <cloudflare|vercel> [--json]",
+  run: "vitehub provision run --host <cloudflare|vercel> [--dry-run] [--json]",
+  status: "vitehub provision status --host <cloudflare|vercel> [--json]",
 } as const satisfies Record<ProvisionCommand, string>
 
-function isProvisionProvider(value: string | undefined): value is ProvisionProvider {
-  return PROVISION_PROVIDERS.some(provider => provider === value)
+/** Whether ViteHub can provision resources on `host`. Only Cloudflare and Vercel have Provision Steps. */
+export function isProvisionHost(value: string | undefined): value is ProvisionProvider {
+  return PROVISION_HOSTS.some(host => host === value)
+}
+
+/** The ids of the selected deploy target, which take precedence over environment scope. */
+export interface ProvisionLinkIds {
+  accountId?: string
+  projectId?: string
+}
+
+function setVariable(env: NodeJS.ProcessEnv, name: string, value: string | undefined): NodeJS.ProcessEnv {
+  return env[name]?.trim() || !value ? env : { ...env, [name]: value }
+}
+
+/**
+ * The environment of a Provision Step: `env` with the host credentials that `resolveHostCredentials` found, such as a
+ * `wrangler login` token, and the account and project ids of the host link. The selected deploy link wins over
+ * environment scope; standalone provision has no link.
+ */
+export function provisionEnv(env: NodeJS.ProcessEnv, credentials: HostCredentials, link: ProvisionLinkIds = {}): NodeJS.ProcessEnv {
+  if (!credentials.ok) return env
+  if (credentials.host === "cloudflare") {
+    return {
+      ...setVariable(setVariable(env, "CLOUDFLARE_API_TOKEN", credentials.token), "CLOUDFLARE_ACCOUNT_ID", credentials.accountId),
+      ...(link.accountId ? { CLOUDFLARE_ACCOUNT_ID: link.accountId } : {}),
+    }
+  }
+  if (credentials.host === "vercel") {
+    // A Vercel link stores the project owner, which is a user id on a personal account. Only a team id is a team.
+    const teamId = credentials.teamId
+    const resolved = setVariable(setVariable(env, "VERCEL_TOKEN", credentials.token), "VERCEL_TEAM_ID", teamId)
+    if (!link.accountId && !link.projectId) return resolved
+    return {
+      ...resolved,
+      ...(link.accountId ? { VERCEL_TEAM_ID: link.accountId.startsWith("team_") ? link.accountId : undefined, VERCEL_ORG_ID: undefined } : {}),
+      ...(link.projectId ? { VERCEL_PROJECT_ID: link.projectId } : {}),
+    }
+  }
+  return env
 }
 
 function parseArgs(command: ProvisionCommand, args: string[]): ParsedProvisionArgs {
@@ -47,18 +87,23 @@ function parseArgs(command: ProvisionCommand, args: string[]): ParsedProvisionAr
     if (arg === "-h" || arg === "--help") parsed.help = true
     else if (arg === "--json") parsed.json = true
     else if (arg === "--dry-run" && command === "run") parsed.dryRun = true
-    else if (arg === "--provider") {
-      const provider = args[index + 1]
-      if (!provider || provider.startsWith("-")) parsed.error = "Option --provider requires a value."
+    else if (arg === "--host") {
+      const host = args[index + 1]
+      if (!host || host.startsWith("-")) parsed.error = "Option --host requires a value."
       else {
-        parsed.provider = provider
+        parsed.host = host
         index++
       }
     }
-    else if (arg?.startsWith("--provider=")) {
-      const provider = arg.slice("--provider=".length)
-      if (!provider) parsed.error = "Option --provider requires a value."
-      else parsed.provider = provider
+    else if (arg?.startsWith("--host=")) {
+      const host = arg.slice("--host=".length)
+      if (!host) parsed.error = "Option --host requires a value."
+      else parsed.host = host
+    }
+    else if (arg === "--provider" || arg?.startsWith("--provider=")) {
+      const value = arg === "--provider" ? args[index + 1] : arg.slice("--provider=".length)
+      const host = value && !value.startsWith("-") ? value : "<cloudflare|vercel>"
+      return { ...parsed, error: `Option --provider is now --host.\nfix: run \`vitehub provision ${command} --host ${host}\`.` }
     }
     else if (arg) parsed.error = `Unknown provision argument: ${arg}`
   }
@@ -70,11 +115,12 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
     ? [
         `Usage: ${USAGE.run}`,
         "",
-        "Idempotently creates missing provider resources for the app's Definitions.",
+        "Idempotently creates missing host resources for the app's Definitions. `vitehub deploy` runs it before each deploy.",
+        "Uses the credentials of `vitehub deploy`: environment variables first, then the `wrangler login` session.",
         "Never deletes resources. Changes an existing resource only for a planned update, such as D1 read replication.",
         "",
         "Options:",
-        "  --provider <name>  Target provider: cloudflare or vercel (required).",
+        "  --host <name>      Target host: cloudflare or vercel (required).",
         "  --dry-run          Print the plan without applying it.",
         "  --json             Print one JSON result to stdout.",
         "  -h, --help         Show this help.",
@@ -87,7 +133,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         "Never creates or deletes provider resources, and never writes Provision State.",
         "",
         "Options:",
-        "  --provider <name>  Target provider: cloudflare or vercel (required).",
+        "  --host <name>      Target host: cloudflare or vercel (required).",
         "  --json             Print one JSON result to stdout.",
         "  -h, --help         Show this help.",
       ]
@@ -95,7 +141,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
 }
 
 // Resolves the arguments shared by every provision command. Returns an exit code on failure or help.
-function resolveProvider(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): { exitCode: number } | { provider: ProvisionProvider } {
+function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): { exitCode: number } | { host: ProvisionProvider } {
   if (parsed.help) {
     writeUsage(command, context.stdout)
     return { exitCode: 0 }
@@ -105,16 +151,22 @@ function resolveProvider(command: ProvisionCommand, parsed: ParsedProvisionArgs,
     writeUsage(command, context.stderr)
     return { exitCode: 1 }
   }
-  if (!isProvisionProvider(parsed.provider)) {
-    context.stderr.write("Provision requires --provider cloudflare|vercel.\n")
+  if (!isProvisionHost(parsed.host)) {
+    context.stderr.write("Provision requires --host cloudflare|vercel.\n")
     writeUsage(command, context.stderr)
     return { exitCode: 1 }
   }
-  return { provider: parsed.provider }
+  return { host: parsed.host }
 }
 
-function hasProviderCredentials(provider: ProvisionProvider, env: ProvisionFeatureContext["env"]): boolean {
-  return Boolean(provider === "cloudflare" ? resolveCloudflareProvisionConfig(env) : resolveVercelProvisionConfig(env))
+function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContext["env"]): boolean {
+  return Boolean(host === "cloudflare" ? resolveCloudflareProvisionConfig(env) : resolveVercelProvisionConfig(env))
+}
+
+/** The context with the credentials of `resolveHostCredentials` in its env, so a `wrangler login` works as in deploy. */
+async function withHostCredentials(host: ProvisionProvider, context: ProvisionFeatureContext): Promise<ProvisionFeatureContext> {
+  const credentials = await resolveHostCredentials(host, { cwd: context.rootDir, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
+  return { ...context, env: provisionEnv(context.env, credentials) }
 }
 
 // Runs only the plan phase. Step messages go to stderr so stdout stays one JSON document in --json mode.
@@ -217,23 +269,30 @@ function serializeAction({ action, step }: PlannedProvisionAction) {
   }
 }
 
-function writeActions(actions: PlannedProvisionAction[], stdout: ProvisionFeatureContext["stdout"]): void {
-  for (const { action } of actions) {
-    const status = !action.exists ? "create" : action.update ? "update" : action.pending ? "pending" : "exists"
-    stdout.write(`${status}\t${action.kind}\t${action.name}${action.update ? `\t${action.update}` : ""}\n`)
+export type ProvisionActionStatus = "create" | "update" | "pending" | "exists"
+
+export function provisionActionStatus({ action }: PlannedProvisionAction): ProvisionActionStatus {
+  return !action.exists ? "create" : action.update ? "update" : action.pending ? "pending" : "exists"
+}
+
+export function writeProvisionActions(actions: readonly PlannedProvisionAction[], stdout: ProvisionFeatureContext["stdout"]): void {
+  for (const planned of actions) {
+    const { action } = planned
+    stdout.write(`${provisionActionStatus(planned)}\t${action.kind}\t${action.name}${action.update ? `\t${action.update}` : ""}\n`)
   }
 }
 
-async function runProvision(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvision(args: string[], cliContext: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
   const parsed = parseArgs("run", args)
-  const resolved = resolveProvider("run", parsed, context)
+  const resolved = resolveHost("run", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
-  const { provider } = resolved
+  const { host: provider } = resolved
+  const context = await withHostCredentials(provider, cliContext)
 
   // Fail closed outside --dry-run: a credential-less run silently creating
   // nothing would mask missing CI secrets behind a green step.
-  if (!parsed.dryRun && !hasProviderCredentials(provider, context.env)) {
-    context.stderr.write(`Provision requires ${PROVIDER_CREDENTIALS[provider]} to be set. Dry-run preview does not require credentials (--dry-run).\n`)
+  if (!parsed.dryRun && !hasHostCredentials(provider, context.env)) {
+    context.stderr.write(`Provision requires ${HOST_CREDENTIALS[provider]}. Dry-run preview does not require credentials (--dry-run).\n`)
     return 1
   }
 
@@ -253,7 +312,7 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
       if (checked) context.stdout.write(`provision: no ${provider} resources to create.\n`)
       return 0
     }
-    writeActions(actions, context.stdout)
+    writeProvisionActions(actions, context.stdout)
   }
 
   // apply() is idempotent: it skips creation when the resource exists but still returns its ids.
@@ -286,18 +345,19 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   return blocked ? 1 : 0
 }
 
-async function runProvisionStatus(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
   const parsed = parseArgs("status", args)
-  const resolved = resolveProvider("status", parsed, context)
+  const resolved = resolveHost("status", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
-  const { provider } = resolved
+  const { host: provider } = resolved
+  const context = await withHostCredentials(provider, cliContext)
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
   const undeclared = findUndeclaredEntries(provider, recorded, await options.collectSteps(), context.env)
-  const hasCredentials = hasProviderCredentials(provider, context.env)
+  const hasCredentials = hasHostCredentials(provider, context.env)
   const { actions, checked, warnings } = hasCredentials
     ? await planProvision(provider, context, options, parsed.json)
-    : { actions: [], checked: false, warnings: [`provision: plan not checked, missing ${PROVIDER_CREDENTIALS[provider]}.`] }
+    : { actions: [], checked: false, warnings: [`provision: plan not checked, missing ${HOST_CREDENTIALS[provider]}.`] }
   const pending = actions.filter(({ action }) => action.pending ?? !action.exists).length
 
   if (parsed.json) {
@@ -334,9 +394,9 @@ async function runProvisionStatus(args: string[], context: ProvisionFeatureConte
     context.stdout.write("plan: not checked\n")
     return 0
   }
-  writeActions(actions, context.stdout)
+  writeProvisionActions(actions, context.stdout)
   context.stdout.write(pending
-    ? `plan: ${pending} pending ${pending === 1 ? "action" : "actions"}. Run \`vitehub provision run --provider ${provider}\` to apply.\n`
+    ? `plan: ${pending} pending ${pending === 1 ? "action" : "actions"}. Run \`vitehub provision run --host ${provider}\` to apply.\n`
     : "plan: no pending actions\n")
   return 0
 }

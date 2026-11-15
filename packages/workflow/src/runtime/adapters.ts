@@ -13,7 +13,7 @@ import { runWorkflowProviderOperation } from "./provider-operation.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
-import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
+import type { CloudflareWorkflowBinding, CloudflareWorkflowInstance, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import type { WorkflowOperationName } from "../errors.ts"
 
 interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
@@ -199,33 +199,63 @@ function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
     && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
 }
 
+/** Reads a Cloudflare Workflow instance and its run. A missing instance has no `instance` and reports `unknown`. */
+async function readCloudflareRun(binding: CloudflareWorkflowBinding, id: string): Promise<{ instance?: CloudflareWorkflowInstance, run: WorkflowRun<unknown, unknown> }> {
+  const instance = await runWorkflowProviderOperation("cloudflare", "get", async () => {
+    try {
+      return await binding.get(id)
+    }
+    catch (error) {
+      if (isCloudflareInstanceNotFound(error)) return undefined
+      throw error
+    }
+  })
+  if (!instance) return { run: { id, provider: "cloudflare", status: "unknown" } }
+  const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
+  const status = normalizeCloudflareStatus(metadata)
+  return {
+    instance,
+    run: {
+      id,
+      metadata,
+      provider: "cloudflare",
+      result: status === "completed" ? cloudflareRunResult(metadata) : undefined,
+      status,
+    },
+  }
+}
+
+const finishedRunStatuses: ReadonlySet<WorkflowRunStatus> = new Set(["cancelled", "completed", "failed"])
+
+/**
+ * Terminates a Cloudflare Workflow instance that has not finished and returns its run afterwards. A finished run keeps
+ * and reports its status, and a missing run reports `unknown`, as on OpenWorkflow.
+ */
+async function cancelCloudflareRun(binding: CloudflareWorkflowBinding, id: string): Promise<WorkflowRun<unknown, unknown>> {
+  const { instance, run } = await readCloudflareRun(binding, id)
+  if (!instance || run.status === "unknown" || finishedRunStatuses.has(run.status)) return run
+  try {
+    await runWorkflowProviderOperation("cloudflare", "cancel", () => instance.terminate())
+  }
+  catch (error) {
+    // `terminate()` throws when the instance finishes between the read and the call.
+    const latest = await readCloudflareRun(binding, id).catch(() => undefined)
+    if (latest && finishedRunStatuses.has(latest.run.status)) return latest.run
+    throw error
+  }
+  return (await readCloudflareRun(binding, id)).run
+}
+
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
-    cancel: () => unsupportedOperation("cloudflare", "cancellation"),
+    async cancel({ event, id, name }) {
+      const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
+      // Without a binding, `vite dev` runs the Workflow inline, and an inline run cannot be cancelled.
+      return binding ? await cancelCloudflareRun(binding, id) : await inlineAdapter(config).cancel({ event, id, name })
+    },
     async get({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
-      if (binding) {
-        const instance = await runWorkflowProviderOperation("cloudflare", "get", async () => {
-          try {
-            return await binding.get(id)
-          }
-          catch (error) {
-            if (isCloudflareInstanceNotFound(error)) return undefined
-            throw error
-          }
-        })
-        if (!instance) return { id, provider: "cloudflare", status: "unknown" }
-        const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
-        const status = normalizeCloudflareStatus(metadata)
-        return {
-          id,
-          metadata,
-          provider: "cloudflare",
-          result: status === "completed" ? cloudflareRunResult(metadata) : undefined,
-          status,
-        }
-      }
-
+      if (binding) return (await readCloudflareRun(binding, id)).run
       return await inlineAdapter(config).get({ event, id, name })
     },
     async run({ definition, event, id, name, options, payload }) {

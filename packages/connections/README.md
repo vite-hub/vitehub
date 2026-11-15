@@ -153,9 +153,22 @@ import { createDatabaseConnectionStore, setConnectionsRuntime } from "@vite-hub/
 
 setConnectionsRuntime({
   definitions: { google: () => import("./server/connections/google.ts") },
-  store: createDatabaseConnectionStore({ db, encryptionKey }),
+  store: createDatabaseConnectionStore({ db, encryptionKeys: [currentKey, previousKey] }),
 });
 ```
+
+`encryptionKeys` is a keyring: the first key seals new tokens, and the other keys only decrypt older tokens.
+
+## Rotate the encryption key
+
+Each stored token records the id of the key that sealed it. `VITEHUB_CONNECTIONS_KEYS` takes a comma list of keys, the current key first. `VITEHUB_CONNECTIONS_KEY` still works, and when you set both, it joins the list after the keys of `VITEHUB_CONNECTIONS_KEYS`.
+
+1. Create a new key with `openssl rand -base64 32`.
+2. Set `VITEHUB_CONNECTIONS_KEYS=<new key>,<old key>` and deploy. New tokens use the new key. Old tokens still read with the old key.
+3. Run `vitehub connections rotate-key --url <app>`. It re-encrypts every stored token with the new key and prints how many it changed. The token revisions stay the same. A token that a refresh replaces during the rotation keeps the refresh. In code, call `getConnectionsRuntime().rotateKey()`.
+4. Set `VITEHUB_CONNECTIONS_KEYS=<new key>`, remove `VITEHUB_CONNECTIONS_KEY`, and deploy.
+
+If you remove the old key before step 3 is done, the tokens that it sealed fail with `SEAL_INVALID`. Add the key back to the list to read them again.
 
 Rejected or superseded OAuth callbacks do not revoke their issued token at the provider. A provider can revoke the whole application grant, which would also invalidate the winning token. The rejected token is not stored. A successful exchange that cannot be accepted locally quarantines the current Connection and retains its mutation lease, including a different or unidentified replacement account. Confirm the provider outcome and repair that lease before revoking or connecting again.
 

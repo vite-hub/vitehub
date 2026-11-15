@@ -94,8 +94,9 @@ describe("Cloudflare KV limits", () => {
 
     const [getError] = await kv.getMany(["a", "k".repeat(513)])
     expect(getError?.code).toBe("KV_KEY_TOO_LONG")
-    const [setError] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "1" }], { expirationTtl: 30 })
-    expect(setError?.code).toBe("KV_TTL_TOO_SHORT")
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    const [setError] = await kv.setMany([{ key: "a", value: "1" }, { key: "b", value: "1" }], { expirationTtl: 30 } as { ttl?: number })
+    expect(setError?.code).toBe("KV_INVALID_OPTION")
     const [keyError] = await kv.setMany([{ key: "a", value: "1" }, { key: "k".repeat(513), value: "1" }])
     expect(keyError?.code).toBe("KV_KEY_TOO_LONG")
     expect(puts).toEqual([])
@@ -124,70 +125,28 @@ describe("Cloudflare KV limits", () => {
     expect(fits).toBeUndefined()
   })
 
-  it("returns KV_METADATA_TOO_LARGE for metadata above 1024 bytes as JSON", async () => {
+  it("raises a ttl below 60 seconds to 60 before the provider call", async () => {
     const kv = await cloudflareKV()
 
-    const [error] = await kv.set("meta", "value", { metadata: "x".repeat(1023) })
-    expect(error).toMatchObject({ code: "KV_METADATA_TOO_LARGE", why: "The metadata is 1025 bytes as JSON. Cloudflare KV accepts metadata of at most 1024 bytes." })
+    expect((await kv.set("short", "value", { ttl: 30 }))[0]).toBeUndefined()
+    expect((await kv.set("long", "value", { ttl: 300 }))[0]).toBeUndefined()
+    expect(puts).toEqual([{ key: "short", options: { ttl: 60 } }, { key: "long", options: { ttl: 300 } }])
+  })
+
+  it.each([{ expirationTtl: 60 }, { expiration: 1_800_000_000 }, { metadata: "x" }])("returns KV_INVALID_OPTION for the Cloudflare option %o", async (options) => {
+    const kv = await cloudflareKV()
+
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    const [error] = await kv.set("key", "value", options as { ttl?: number })
+    expect(error).toMatchObject({ code: "KV_INVALID_OPTION", docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_option" })
     expect(puts).toEqual([])
-
-    const [fits] = await kv.set("meta", "value", { metadata: "x".repeat(1022) })
-    expect(fits).toBeUndefined()
-  })
-
-  it("returns KV_TTL_TOO_SHORT for an expirationTtl below 60 seconds", async () => {
-    const kv = await cloudflareKV()
-
-    const [error] = await kv.set("ttl", "value", { expirationTtl: 59 })
-    expect(error).toMatchObject({ code: "KV_TTL_TOO_SHORT", why: "`expirationTtl` is 59 seconds. Cloudflare KV needs at least 60 seconds." })
-    expect(puts).toEqual([])
-
-    // The `ttl` option is raised to 60 seconds before the provider call, as before.
-    expect((await kv.set("ttl", "value", { ttl: 30 }))[0]).toBeUndefined()
-    expect((await kv.set("ttl", "value", { expirationTtl: 60 }))[0]).toBeUndefined()
-  })
-
-  it.each([-1, 0, 59])("returns KV_TTL_TOO_SHORT for an expiration %i seconds from now before the provider call", async (seconds) => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
-    const kv = await cloudflareKV()
-
-    const [error] = await kv.set("expiration", "value", { expiration: now + seconds })
-    expect(error).toMatchObject({
-      code: "KV_TTL_TOO_SHORT",
-      why: `\`expiration\` is ${seconds} seconds from now. Cloudflare KV needs at least 60 seconds.`,
-    })
-    expect(puts).toEqual([])
-  })
-
-  it.each([60, 61])("passes an expiration %i seconds from now unchanged to the provider", async (seconds) => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
-    const kv = await cloudflareKV()
-    const options = { expiration: now + seconds }
-
-    expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
-    expect(puts).toEqual([{ key: "expiration", options }])
-  })
-
-  it("keeps relative expiration precedence over a short absolute expiration", async () => {
-    const now = 1_800_000_000
-    vi.spyOn(Date, "now").mockReturnValue(now * 1000)
-    const kv = await cloudflareKV()
-
-    for (const relative of [{ expirationTtl: 60 }, { ttl: 30 }]) {
-      const options = { expiration: now + 1, ...relative }
-      expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
-      expect(puts.at(-1)).toEqual({ key: "expiration", options })
-    }
-    expect(puts).toHaveLength(2)
   })
 
   it("keeps local stores without a host unchanged", async () => {
     process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
-    const [error] = await kv.set("k".repeat(513), "value", { expirationTtl: 1 })
+    const [error] = await kv.set("k".repeat(513), "value", { ttl: 1 })
     expect(error).toBeUndefined()
   })
 })
