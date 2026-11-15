@@ -2337,9 +2337,18 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0784: dynamicError,
-    AGENT_R0785: dynamicError,
-    AGENT_R0786: dynamicError,
+    AGENT_R0784: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0785: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0786: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
     AGENT_R0787: {
       ...dynamicError,
       fix: "Call connect() on the Agent State before you use it. A Channel does this when it starts, so check that your code does not use the State before that.",
@@ -2348,7 +2357,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0789: dynamicError,
+    AGENT_R0789: {
+      ...dynamicError,
+      fix: "Read the message for why the steered message failed, then send it again. `vitehub agent invocations` lists the failed Invocation.",
+    },
     AGENT_R0790: {
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
@@ -2389,7 +2401,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0800: dynamicError,
+    AGENT_R0800: {
+      ...dynamicError,
+      fix: "Read the message for why the steered message failed, then send it again. `vitehub agent invocations` lists the failed Invocation.",
+    },
     AGENT_R0801: {
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
@@ -2603,8 +2618,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Pass createLibsqlAgentState({ client }) a libSQL client that has transaction(), such as the client of @libsql/client, or pass url.",
     },
-    AGENT_R0856: dynamicError,
-    AGENT_R0857: dynamicError,
+    AGENT_R0856: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0857: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
     AGENT_R0858: {
       ...dynamicError,
       fix: "Make the Agent result have toUIMessageStream(), return an async iterable or text, or use another stream output than \"ui-message-stream\".",
