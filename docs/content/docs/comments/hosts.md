@@ -13,7 +13,7 @@ The [`comments()` plugin](/docs/comments/get-started) keeps threads in the datab
 | Host | Works | Where threads go |
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, no option needed |
-| `vite dev` with a Cloudflare preset | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, no option needed |
+| `vite dev` with a Cloudflare host | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, no option needed |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })` on a disk or volume that survives deploys |
 | Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
@@ -48,7 +48,7 @@ Use a SQLite file or libSQL Database, and the memory room authority:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
     realtime: { authority: 'memory' },
   },
@@ -65,7 +65,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -83,7 +83,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -97,7 +97,7 @@ The memory authority keeps presence rooms in one process. With several processes
 
 ### Cloudflare
 
-Use a D1 Database. On the Cloudflare preset, `realtime: true` selects Durable Objects, with one room per page.
+Use a D1 Database. On the Cloudflare host, `realtime: true` selects Durable Objects, with one room per page.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -105,7 +105,7 @@ Use a D1 Database. On the Cloudflare preset, `realtime: true` selects Durable Ob
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: { driver: 'd1', databaseName: 'site' },
     realtime: true,
   },
@@ -122,7 +122,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: { driver: 'd1', databaseName: 'site' },
       realtime: true,
     }),
@@ -140,7 +140,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: { driver: 'd1', databaseName: 'site' },
       realtime: true,
     }),

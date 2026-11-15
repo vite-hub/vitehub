@@ -6,7 +6,7 @@ navigation.group: Frameworks
 icon: i-lucide-server
 ---
 
-Nitro builds the server output for every preset, in Vite and Nuxt apps.
+Nitro builds the server output for every host, in Vite and Nuxt apps.
 ViteHub is not a Nitro module system. Vite integrations are the public layer,
 and packages add Nitro handlers or plugins only where a host needs them.
 
@@ -14,12 +14,12 @@ and packages add Nitro handlers or plugins only where a host needs them.
 
 | Framework | Nitro integration | ViteHub sets |
 | --- | --- | --- |
-| Vite | Included in `vitehub()`. If the app also adds `nitro()`, ViteHub uses that one. | The Nitro preset that matches the ViteHub preset |
+| Vite | Included in `vitehub()`. If the app also adds `nitro()`, ViteHub uses that one. | The Nitro preset that matches the ViteHub host |
 | Nuxt | Nuxt's own Nitro build | The Nitro preset, through the `vite-hub/nuxt` module |
 
 Do not select a different Nitro preset. A conflicting `nitro.preset`,
 `NITRO_PRESET`, or `SERVER_PRESET` fails the build. See the
-[preset mapping](/docs/frameworks-hosts#choose-a-preset).
+[host mapping](/docs/frameworks-hosts#choose-a-host).
 
 ## Boundary
 

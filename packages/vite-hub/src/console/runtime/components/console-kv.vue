@@ -197,7 +197,7 @@ async function confirmRemove(): Promise<void> {
   if (key === undefined || removing.value) return;
   removing.value = true;
   try {
-    await requestConsole(props.kvBase, { body: { action: "del", key, store: selectedStore.value }, method: "POST" });
+    await requestConsole(props.kvBase, { body: { action: "delete", key, store: selectedStore.value }, method: "POST" });
     removeOpen.value = false;
     toast.show({ title: "Key deleted" });
     selectedKey.value = undefined;

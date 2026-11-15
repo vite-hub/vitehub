@@ -120,7 +120,8 @@ const codes = {
 
   // Config errors. ViteHub throws them, because the code or the deployment must change.
   CONNECTIONS_INVALID_ACTOR: {
-    why: ({ problem }: { problem: "access" | "agent" | "id" }): string => {
+    why: ({ problem }: { problem: "access" | "agent" | "id" | "missing" }): string => {
+      if (problem === "missing") return "This Connections runtime method records who made the decision, so it requires `actor`. It has no default."
       if (problem === "access") return "Connection `access` must be the Env access context of an Agent, without `actor`."
       if (problem === "agent") return "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent."
       return "Connection actor IDs must contain 1 to 512 characters and no control characters."

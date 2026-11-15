@@ -36,7 +36,7 @@ const props = defineProps<{
 
 const priced = computed(() => props.costSupported && props.model.pricedInvocations > 0);
 // A model without recorded cost has an unknown cost, not a zero cost, so its trend shows tokens.
-const chartMetric = computed<ConsoleUsageMetric>(() => (priced.value ? props.metric : "tokens"));
+const chartMetric = computed<ConsoleUsageMetric>(() => (props.metric === "cost" && !priced.value ? "tokens" : props.metric));
 // Without a recorded cost, the share also follows tokens.
 const share = computed(() => consoleUsageModelShare(props.model, props.totals, chartMetric.value));
 const segments = computed(() => consoleUsageTokenSegments(props.model));
@@ -92,10 +92,11 @@ const points = computed(() =>
   consoleUsageModelChartPoints(props.buckets, props.model.model, chartMetric.value, props.resolution),
 );
 const chartTitle = computed(() =>
-  `${props.resolution === "hour" ? "Hourly" : "Daily"} ${chartMetric.value === "cost" ? "cost" : "tokens"}`,
+  `${props.resolution === "hour" ? "Hourly" : "Daily"} ${chartMetric.value}`,
 );
 
 function formatChartNumber(value: number): string {
+  if (chartMetric.value === "sessions") return value.toLocaleString("en");
   return chartMetric.value === "cost"
     ? formatConsoleUsageCost(String(value))
     : formatConsoleUsageTokens(value);
@@ -115,9 +116,9 @@ function formatChartNumber(value: number): string {
         :points="points"
         :format="formatChartNumber"
         :title="`${model.model} ${chartTitle.toLowerCase()}`"
-        :value-label="chartMetric === 'cost' ? 'Cost' : 'Tokens'"
+        :value-label="chartMetric === 'cost' ? 'Cost' : chartMetric === 'sessions' ? 'Sessions' : 'Tokens'"
         :empty="`No recorded ${chartMetric} for this model`"
-        :unavailable="chartMetric === 'cost' ? 'Cost is unavailable for this model' : 'Token usage is unavailable for this model'"
+        :unavailable="chartMetric === 'cost' ? 'Cost is unavailable for this model' : chartMetric === 'sessions' ? 'Sessions are unavailable for this model' : 'Token usage is unavailable for this model'"
         :from="formatConsoleUsagePeriod(from, resolution)"
         :to="formatConsoleUsagePeriod(to, resolution)"
       />

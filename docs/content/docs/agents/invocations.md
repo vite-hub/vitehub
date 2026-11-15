@@ -27,7 +27,7 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Term | Describes |
 | --- | --- |
 | Channel | Message origin and delivery facts around an Invocation. |
-| Workflow Run | Durable work that can continue across waits or server restarts. |
+| Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
 A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
@@ -91,7 +91,7 @@ export default defineAgent({
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
@@ -130,7 +130,7 @@ Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer ne
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -170,7 +170,7 @@ import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import { createError, defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -344,6 +344,23 @@ Use `createD1AgentInvocationStore()` with a host D1 binding. See [D1 schema, ret
 ## Append delivery evidence
 
 `invocations.appendObservation()` records proof of an external delivery, such as a delivered report. Its idempotent observation ID stops retries from adding a second record. It does not change the run status. See the [append contract](/docs/agents/invocation-storage#append-delivery-evidence) for capacity limits and retries.
+
+## Import a session that ran elsewhere
+
+Codex and Claude Code often run outside the app: on a laptop, in CI, or on an eval runner. Each CLI writes a session file. `@vite-hub/agent/sessions` reads that file and writes it to a journal store as a finished Invocation with the session's own timestamps. The Console then shows its messages, thinking, commands, file changes, and usage like a run of the app.
+
+```ts
+import { readFile } from 'node:fs/promises'
+import { importAgentSession, readCodexSession } from '@vite-hub/agent/sessions'
+import { createLibsqlAgentInvocationStore } from '@vite-hub/agent/invocations'
+
+const rolloutPath = './rollout.jsonl'
+const store = createLibsqlAgentInvocationStore({ url: 'file:./agent-journal.sqlite' })
+const session = readCodexSession(await readFile(rolloutPath, 'utf8'))
+const { id } = await importAgentSession(store, session, { agentName: 'coder', runId: 'eval-42', title: 'Add a health route' })
+```
+
+`readClaudeCodeSession()` reads `$CLAUDE_CONFIG_DIR/projects/<project>/<session>.jsonl`, and `readCodexSession()` reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`. The record id is `agentInvocationId(runId, agentName)`. Importing the same `agentName` and `runId` again replaces the record, so the store must implement `delete()`. Pass `configuration` to record the skills, MCP servers, and Workspace the session had, and `cost` to record a price, because the CLIs report only tokens.
 
 ## Cancel an invocation
 

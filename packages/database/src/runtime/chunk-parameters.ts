@@ -12,6 +12,7 @@ export interface ChunkParametersOptions {
 }
 
 function assertCount(name: string, value: number, min: number) {
+  // Internal invariant: documented argument error of chunkParameters(). The README names it.
   if (!Number.isInteger(value) || value < min) throw new TypeError(`chunkParameters() needs \`${name}\` to be an integer of ${min} or more, not ${value}.`)
 }
 
@@ -29,6 +30,7 @@ export function chunkParameters<T>(values: readonly T[], options: ChunkParameter
   assertCount("limit", limit, 1)
   const size = Math.floor((limit - reserved) / per)
   if (size < 1) {
+    // Internal invariant: documented argument error of chunkParameters(). The README names it.
     throw new RangeError(`chunkParameters() cannot fit one value: it takes ${per} bound parameters and the statement has ${reserved} more, over the limit of ${limit}.`)
   }
   const chunks: T[][] = []

@@ -4,8 +4,8 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
-import { hubKv } from "../src/vite.ts"
+import { kv, type KVDriversWith, type KVErrorCode, type KVLockAcquisition, type KVLockErrorCode, type KVLockRunResult, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { hubKV } from "../src/vite.ts"
 
 describe("types", () => {
   it("narrows kv store configs by driver", () => {
@@ -56,7 +56,7 @@ describe("types", () => {
 
   it("exposes the intended kv runtime surface", () => {
     expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
-    expectTypeOf(kv.del).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.delete).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
@@ -93,11 +93,27 @@ describe("types", () => {
       void (incrementError.code === "KV_INVALID_CURSOR")
     }
 
-    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
+    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
+  })
+
+  it("types kv.lock() results and lists the drivers that support it", async () => {
+    const lock = kv.lock("cron:daily", { ttl: 30, wait: 5 })
+    expectTypeOf(lock.run(async () => 1)).toEqualTypeOf<Promise<Result<KVLockRunResult<number>, KVLockErrorCode>>>()
+    expectTypeOf(lock.run(() => "done")).toEqualTypeOf<Promise<Result<KVLockRunResult<string>, KVLockErrorCode>>>()
+    expectTypeOf(lock.acquire()).toEqualTypeOf<Promise<Result<KVLockAcquisition, KVLockErrorCode>>>()
+    const [error, result] = await lock.run(async () => 1)
+    if (!error && result.acquired) expectTypeOf(result.value).toEqualTypeOf<number>()
+    if (!error && !result.acquired) {
+      // @ts-expect-error The callback did not run, so there is no value.
+      void result.value
+    }
+    // @ts-expect-error A lock needs a ttl.
+    void kv.lock("cron:daily", {})
+    expectTypeOf<KVDriversWith<"deleteIfEquals">>().toEqualTypeOf<"database" | "redis" | "upstash">()
   })
 
   it("returns a vite plugin with runtime config access", () => {
-    const plugin = hubKv()
+    const plugin = hubKV()
 
     expectTypeOf(plugin.api.getConfig().kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
   })
@@ -119,8 +135,8 @@ describe("types", () => {
 
     // @ts-expect-error A read-only handle has no set().
     void reader.set("settings", 1)
-    // @ts-expect-error A read-only handle has no del().
-    void reader.del("settings")
+    // @ts-expect-error A read-only handle has no delete().
+    void reader.delete("settings")
     // @ts-expect-error A read-only handle has no clear().
     void reader.clear
     // @ts-expect-error getAndDelete() deletes the key.
@@ -129,6 +145,8 @@ describe("types", () => {
     void reader.increment
     // @ts-expect-error A read-only handle has no setIfAbsent().
     void reader.setIfAbsent
+    // @ts-expect-error A read-only handle has no lock().
+    void reader.lock
     // @ts-expect-error A read-only handle cannot select a writable store.
     void reader.store
     // @ts-expect-error mode is "read" or "write".

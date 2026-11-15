@@ -68,7 +68,7 @@ Select Cloudflare Artifacts when a deployed Worker must keep Workspace state:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'cloudflare',
+    host: 'cloudflare',
     workspace: {
       store: {
         provider: 'cloudflare-artifacts',
@@ -90,7 +90,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',
@@ -113,7 +113,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       workspace: {
         store: {
           provider: 'cloudflare-artifacts',

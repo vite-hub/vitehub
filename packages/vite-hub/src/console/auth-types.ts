@@ -24,6 +24,8 @@ export interface ConsoleSignedConsoleAuthorizeContext {
   team?: { id: string, role?: string }
   /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */
   key: string
+  /** `"mcp"` when the ViteHub MCP of the Console calls for `user`, such as from Claude Code. Not set for the Console page. */
+  surface?: "mcp"
   via: "console"
 }
 
@@ -47,19 +49,35 @@ export interface ConsoleAgentAuthorizeContext {
 }
 
 /**
- * The request that `console.authorize` checks. `via` is `"console"` or `"cli"`: who signed the request. `via` is
- * `"agent"` when an Agent calls Console operations as tools, and not set for an open Console in development.
+ * The check of the **Console** link in the page tools pill. It is not a Console call: the request is the page tools
+ * session request of a page of the app, and `user` is the ViteHub Auth user signed in to the app, when there is one.
+ * `true` or `{ sections }` with at least one section shows the link. The link gives no access: the Console checks the
+ * person and the team when it opens.
  */
-export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext
+export interface ConsolePageAuthorizeContext {
+  request: Request
+  /** The ViteHub Auth user of the page. Not set when the app has no Auth or nobody signed in. */
+  user?: ConsoleUser
+  via: "page"
+}
+
+/**
+ * The request that `console.authorize` checks. `via` is `"console"` or `"cli"`: who signed the request. `via` is
+ * `"agent"` when an Agent calls Console operations as tools, `"page"` when the page tools pill asks whether to show the
+ * Console link, and not set for an open Console in development.
+ */
+export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext | ConsolePageAuthorizeContext
 
 /**
  * What `console.authorize` returns for one request.
  * - `true` allows every Console section.
  * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
  *   that section that read. `"blob:media"` allows the Blob operations on the `media` store only. An empty list is `403`.
+ *   `grants` lists the page tool roles, such as `comments-read`, that Site access gives the person when they open the
+ *   site from the Console. Without `grants`, they get the roles of every page tool.
  * - `false` is `403`. A `Response` is returned as-is.
  */
-export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
+export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[], grants?: readonly string[] }
 
 /** Decides whether one Console request may continue, and which Console sections it may use. */
 export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuthorizeResult | Promise<ConsoleAuthorizeResult>

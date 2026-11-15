@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlaygroundContainer, type PlaygroundContainerTemplate } from "@vite-hub/ui/playground-container";
+import { PlaygroundContainer, type PlaygroundContainerTemplate } from "@vite-hub/ui/workspace";
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
 import { playgroundTemplates } from "#build/playground-templates.mjs";

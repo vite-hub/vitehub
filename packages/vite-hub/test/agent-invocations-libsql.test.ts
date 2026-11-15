@@ -58,14 +58,14 @@ function journalGraph(code: string): { files: Set<string>, packages: Set<string>
   return { files, packages }
 }
 
-/** The journal plugin that the Agent Invocations Vite plugin generates for a preset and command. */
-async function generatedPlugin(options: { command: "build" | "serve", d1?: string, databaseUrl?: string, preset: string }): Promise<string> {
+/** The journal plugin that the Agent Invocations Vite plugin generates for a host and command. */
+async function generatedPlugin(options: { command: "build" | "serve", d1?: string, databaseUrl?: string, host: string }): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-journal-libsql-"))
   try {
     const plugin = agentInvocationsVitePlugin({
       database: false,
       ...(options.databaseUrl ? { default: { databaseUrl: options.databaseUrl } } : {}),
-      preset: options.preset,
+      host: options.host,
       resolveD1Binding: () => options.d1,
     })
     const configHook = plugin.config
@@ -81,7 +81,7 @@ async function generatedPlugin(options: { command: "build" | "serve", d1?: strin
 
 describe("default Agent Invocation journal libSQL driver", () => {
   it.each(["DB", undefined])("keeps libSQL out of a Cloudflare production build with D1 binding %s", async (d1) => {
-    const generated = await generatedPlugin({ command: "build", d1, preset: "cloudflare" })
+    const generated = await generatedPlugin({ command: "build", d1, host: "cloudflare" })
     if (d1) expect(generated).toContain(`d1: { binding: "DB"`)
     const { files, packages } = journalGraph(generated)
     expect(files).toContain(join(agentRoot, "src/invocations/default-core.ts"))
@@ -89,10 +89,10 @@ describe("default Agent Invocation journal libSQL driver", () => {
   })
 
   it.each([
-    { command: "serve", preset: "cloudflare" },
-    { command: "build", databaseUrl: "libsql://journal.example.com", preset: "cloudflare" },
-    { command: "build", preset: "node" },
-    { command: "build", preset: "vercel" },
+    { command: "serve", host: "cloudflare" },
+    { command: "build", databaseUrl: "libsql://journal.example.com", host: "cloudflare" },
+    { command: "build", host: "node" },
+    { command: "build", host: "vercel" },
   ] as const)("loads libSQL when the journal can select SQLite or libSQL: %j", async (options) => {
     const generated = await generatedPlugin(options)
     expect(generated).toContain(`libsql: () => import(${JSON.stringify(libsqlModule)})`)

@@ -1,6 +1,5 @@
 import type { SecretEnv } from "@vite-hub/env";
-import { usePublicEnv } from "#vitehub/env/public";
-import { useServerEnv } from "#vitehub/env/server";
+import { usePublicEnv, useServerEnv } from "@vite-hub/env";
 
 const publicEnv = usePublicEnv();
 const serverEnv = useServerEnv();

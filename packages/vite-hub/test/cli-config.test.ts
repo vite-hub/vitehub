@@ -271,6 +271,26 @@ describe("shipped ViteHub CLI production discovery", () => {
   const execFileAsync = promisify(execFile);
   const bin = resolve(import.meta.dirname, "../dist/bin.js");
 
+  it.each([false, true])("checks a content-only folder through the public entrypoint (throwing config: %s)", async throwingConfig => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-content-only-"));
+    roots.push(root);
+    await mkdir(join(root, "content"));
+    await writeFile(join(root, "content/guide.md"), "---\ntitle: Getting started\ndescription: This description contains enough detail to meet the minimum length for search results.\n---\nSee [setup](/setup).\n");
+    await writeFile(join(root, "content/setup.md"), "---\ntitle: Project setup\ndescription: This setup description contains enough detail to meet the minimum length for search results.\n---\nBody\n");
+    if (throwingConfig) await writeFile(join(root, "vite.config.ts"), "throw new Error('project config must not load')\n");
+    const { stdout } = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root });
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true, errors: 0, warnings: 0, sources: [{ source: "default", pages: 2 }] });
+
+    if (!throwingConfig) {
+      const result = await execFileAsync(process.execPath, [bin, "content", "check", "--json"], { cwd: root }).catch((error: { code: number, stderr: string }) => error);
+      expect(result).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown ViteHub CLI namespace: content") });
+      await writeFile(join(root, "content/guide.md"), "[Broken link](/guide/missing)\n");
+      const failed = await execFileAsync(process.execPath, [bin, "content", "check", "--dir", "content", "--json"], { cwd: root }).catch((error: { code: number, stdout: string }) => error);
+      expect(failed).toMatchObject({ code: 1 });
+      expect(JSON.parse(failed.stdout)).toMatchObject({ ok: false, errors: 1, findings: expect.arrayContaining([expect.objectContaining({ code: "CONTENT_R0062" })]) });
+    }
+  });
+
   it("inspects build-only Vite output through the framework entrypoint", async () => {
     const root = await createProject("vite");
     await writeFile(

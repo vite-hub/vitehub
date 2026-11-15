@@ -5,12 +5,15 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { ESTree, parseSync } from "vite"
 import type { DiscoveredRealtimeDefinition } from "./types.ts"
 
-export type RealtimeInspectionAuthority = "auto" | "cloudflare" | "memory" | "unsupported"
+export type RealtimeInspectionAuthority = "auto" | "cloudflare" | "memory" | "node" | "postgres" | "redis" | "unsupported"
 
 const authorityLabels: Record<RealtimeInspectionAuthority, string> = {
-  auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, build error elsewhere",
+  auto: "auto: Cloudflare Durable Objects on Cloudflare, memory in development, shared rooms on a Node server, build error elsewhere",
   cloudflare: "cloudflare: one Durable Object per document, Yjs state in SQLite",
   memory: "memory: one Node process, rooms lost on restart",
+  node: "auto on Node: picked when the server starts. Redis with REDIS_URL, else Postgres on the Default Database or REALTIME_POSTGRES_URL, else memory in one process",
+  postgres: "postgres: a room in each Node instance, shared through Postgres LISTEN/NOTIFY on the Default Database or REALTIME_POSTGRES_URL",
+  redis: "redis: a room in each Node instance, shared through Redis pub/sub (REDIS_URL)",
   unsupported: "none: this host has no Realtime room authority",
 }
 
@@ -98,17 +101,29 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
   const values = properties(object)
   const editor = values.get("editor")
   const auth = literal(values.get("auth")) === true
+  const publicAccess = literal(values.get("access")) === "public"
+  const authorization = (rule: string) => values.has("authorize")
+    ? rule
+    : publicAccess ? "public: anyone may read and write" : auth ? "every identified user" : "missing: the server rejects this definition"
   const perDocument = editor?.type === "ArrowFunctionExpression" || editor?.type === "FunctionExpression"
+  const identity = {
+    label: "Identity",
+    value: values.has("identify")
+      ? `identify()${auth ? ", required" : ""}`
+      : auth ? "ViteHub Auth session, required" : "anonymous; presence names are client-asserted",
+  }
+  if (literal(values.get("document")) === false) {
+    return [
+      { label: "Document", value: "none: presence only, nothing stored" },
+      identity,
+      { label: "Authorization", value: authorization("authorize() per room, read only") },
+    ]
+  }
   return [
     { label: "Document", value: describeDocument(values.get("document")) },
     { label: "Editor", value: editor ? perDocument ? "custom codec per document" : `custom codec${editor.type === "Identifier" ? ` (${editor.name})` : ""}` : "built-in Markdown kit" },
-    {
-      label: "Identity",
-      value: values.has("identify")
-        ? `identify()${auth ? ", required" : ""}`
-        : auth ? "ViteHub Auth session, required" : "anonymous; presence names are client-asserted",
-    },
-    { label: "Authorization", value: values.has("authorize") ? "authorize() per document and mode" : "every connection may read and write" },
+    identity,
+    { label: "Authorization", value: authorization("authorize() per document and mode") },
     { label: "Persistence", value: describePersistence(values.get("persistence")) },
     { label: "History", value: values.has("history") ? "history.checkpoint() enabled" : "none" },
   ]

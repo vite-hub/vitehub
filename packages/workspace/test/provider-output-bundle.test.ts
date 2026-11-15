@@ -16,7 +16,7 @@ describe("Workspace Provider Output bundle", () => {
   it("keeps esbuild external in the Vite entry", async () => {
     const output = await readLocalImportClosure(new URL(`../${"dist"}/vite.js`, import.meta.url))
 
-    expect(output).toContain(`from "esbuild"`)
+    expect(output).toContain(`import("esbuild")`)
     expect(output).not.toContain("esbuildCommandAndArgs")
   })
 })

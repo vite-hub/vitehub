@@ -41,6 +41,11 @@
       "import": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./runtime/redis-driver": {
       "types": "./dist/runtime/redis-driver.d.ts",
       "import": "./dist/runtime/redis-driver.js",

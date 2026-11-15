@@ -63,11 +63,11 @@ describe("Console server startup graph", () => {
         catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         blobStores: [],
         access: { mode: "open" },
-        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "@vite-hub/database/runtime/registry", kv: "vite-hub/kv" },
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated).sort()).toEqual([generatedModules.consoleSetup])
-      for (const module of ["vite-hub/console/server", generatedModules.consoleOperations, "/kv/dist/console.js", "vite-hub/console/mcp-client", "vite-hub/database/drizzle", "vite-hub/kv"]) {
+      for (const module of ["vite-hub/console/server", generatedModules.consoleOperations, "/kv/dist/console.js", "vite-hub/console/mcp-client", "@vite-hub/database/runtime/registry", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 
@@ -102,7 +102,7 @@ describe("Console server startup graph", () => {
         catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         blobStores: [],
         access: { mode: "local" },
-        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "vite-hub/database/drizzle", kv: "vite-hub/kv" },
+        runtimeCapabilityImports: { blob: "vite-hub/blob", console: "vite-hub/console/server", db: "@vite-hub/database/runtime/registry", kv: "vite-hub/kv" },
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])

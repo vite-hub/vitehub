@@ -1,0 +1,27 @@
+# Shared backends for the multi-instance harness. run.mjs sets the host ports and
+# a unique project name, and removes the containers and volumes when it stops.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vitehub
+      POSTGRES_PASSWORD: vitehub
+      POSTGRES_USER: vitehub
+    ports:
+      - "127.0.0.1:${MULTI_INSTANCE_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vitehub -d vitehub"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${MULTI_INSTANCE_REDIS_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

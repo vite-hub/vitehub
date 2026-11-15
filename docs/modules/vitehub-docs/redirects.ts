@@ -244,6 +244,8 @@ export const docsLegacyFragmentRedirects = {
   },
   // The CLI page moved to its own section and split into one page per command group. The old page redirect keeps the hash.
   "/docs/cli": {
+    "seed-a-database": "/docs/cli/primitives",
+    "read-and-invalidate-the-cache": "/docs/cli/primitives",
     troubleshooting: "/docs/cli/troubleshooting",
     "add-a-feature": "/docs/cli/project",
     "browse-database-tables": "/docs/cli/primitives",

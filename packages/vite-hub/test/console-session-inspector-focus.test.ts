@@ -59,16 +59,13 @@ const settle = async () => {
 }
 
 describe("Console inspector focus", () => {
-  it("moves focus to the tab that a launcher card opens", async () => {
+  it("opens the Details tab when the panel has no open tab", async () => {
     const { app, root } = await mount()
     try {
-      const card = [...root.querySelectorAll("button")]
-        .find(button => button.closest(".session-inspector__surface-launcher") && button.textContent.includes("Trace"))
-      card!.focus()
-      card!.click()
       await settle()
-      expect(document.activeElement?.getAttribute("role")).toBe("tab")
-      expect(document.activeElement?.textContent).toContain("Trace")
+      const tabs = [...root.querySelectorAll("[role='tab']")].map(tab => tab.textContent)
+      expect(tabs).toEqual([expect.stringContaining("Details")])
+      expect(root.textContent).not.toContain("Open a tab")
     }
     finally {
       app.unmount()
@@ -85,7 +82,7 @@ describe("Console inspector focus", () => {
       await settle()
       expect(root.querySelector("[aria-label='Close Trace']")).toBeNull()
       expect(document.activeElement?.getAttribute("role")).toBe("tab")
-      expect(document.activeElement?.textContent).toContain("Invocation")
+      expect(document.activeElement?.textContent).toContain("Details")
     }
     finally {
       app.unmount()

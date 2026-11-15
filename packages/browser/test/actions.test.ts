@@ -35,9 +35,9 @@ describe("Browser Run actions", () => {
   it("names the preset and the fix when the build does not enable Browser", async () => {
     availability.current = {
       available: false,
-      preset: "vercel",
+      host: "vercel",
       reason: "Vercel has no built-in Browser Provider.",
-      fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+      fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
     }
     expect(isBrowserAvailable()).toBe(false)
 
@@ -46,10 +46,10 @@ describe("Browser Run actions", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "BROWSER_UNAVAILABLE",
-        message: "[vitehub:browser] Browser is not available on the vercel preset. Vercel has no built-in Browser Provider. Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+        message: "[vitehub:browser] Browser is not available on the vercel host. Vercel has no built-in Browser Provider. Deploy with the Cloudflare host and set `browser: true` in vitehub().",
         details: {
-          fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
-          preset: "vercel",
+          fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+          host: "vercel",
           reason: "Vercel has no built-in Browser Provider.",
         },
       },
@@ -112,7 +112,11 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: vi.fn(async () => response) } }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    await expect(runBrowserContent("https://example.com")).rejects.toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      fix: expect.stringContaining("runBrowserAction(\"content\", input)"),
+      message: "Browser content request failed with status 500",
+    })
     expect(cancel).toHaveBeenCalledOnce()
   })
 

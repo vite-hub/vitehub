@@ -96,7 +96,7 @@ const nuxtModules = {
 const appDeclarations = [
   {
     // The ViteHub plugin includes this H3 augmentation in `.vitehub/types.d.ts`.
-    code: `import type {} from "vite-hub/runtime/h3"\nexport {}\n`,
+    code: `import type {} from "vite-hub/_internal/runtime/internal/h3"\nexport {}\n`,
     file: join(docsRoot, ".snippets/standard-context.d.ts"),
   },
   {
@@ -138,8 +138,10 @@ const appDeclarations = [
   },
 ]
 
-/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`. */
+/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`, and `defineAppConfig()` in `app.config.ts`. */
 function withAppGlobals(snippet) {
+  const appConfig = /(^|\/)app\.config\.ts$/.test(snippet.label ?? "") && !/^import\b[^\n]*\bdefineAppConfig\b/m.test(snippet.code)
+  if (appConfig) return `${snippet.code}\ndeclare var defineAppConfig: typeof import("nuxt/app").defineAppConfig\n`
   const nuxtConfig = /(^|\/)nuxt\.config\.ts$/.test(snippet.label ?? "") || /^export default defineNuxtConfig\(/m.test(snippet.code)
   if (!nuxtConfig || /^import\b[^\n]*\bdefineNuxtConfig\b/m.test(snippet.code)) return snippet.code
   return `${snippet.code}\ndeclare var defineNuxtConfig: typeof import("nuxt/config").defineNuxtConfig\n`
@@ -271,8 +273,8 @@ const registries = [
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
-    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` is the Auth Definition of the app.
-    definitions: label => /^server\/auth(?:\/index)?\.[cm]?ts$/.test(label) ? ["definition"] : [],
+    // @vite-hub/auth: `renderAuthAmbientTypes()` in src/vite.ts. `server/auth.ts` or `server.auth.ts` is the Auth Definition of the app.
+    definitions: label => /^(?:server\/auth(?:\/index)?|server\.auth)\.[cm]?ts$/.test(label) ? ["definition"] : [],
     render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
     type: "auth",
   },
@@ -290,7 +292,7 @@ const registries = [
       const name = /^server\/databases\/([^/]+)(?:\/index)?\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
-    render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
+    render: entries => ["@vite-hub/database", "vite-hub/database"].flatMap(module => [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
@@ -407,7 +409,7 @@ export function defaultEnvDeclarations() {
 async function envTypes(pageRoot, env, plugins) {
   if (!plugins.length) {
     const { vitehub } = await import(pathToFileURL(join(packagesRoot, "vite-hub/dist/index.js")).href)
-    plugins.push((await vitePlugins(vitehub({ preset: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
+    plugins.push((await vitePlugins(vitehub({ host: "node" }))).find(entry => entry?.name === "@vite-hub/env/vite"))
   }
   const root = mkdtempSync(join(tmpdir(), "vitehub-snippet-env-"))
   let code
@@ -439,6 +441,20 @@ async function envTypes(pageRoot, env, plugins) {
   ].join("\n")
   return [
     { code, file: join(pageRoot, envTypesFile) },
+    {
+      code: [
+        `import type { PublicEnv as GeneratedPublicEnv } from "#vitehub/env/public"`,
+        `import type { ServerEnv as GeneratedServerEnv } from "#vitehub/env/server"`,
+        ...["@vite-hub/env", "vite-hub/env"].flatMap(module => [
+          `declare module ${JSON.stringify(module)} {`,
+          "  interface PublicEnv extends GeneratedPublicEnv {}",
+          "  interface ServerEnv extends GeneratedServerEnv {}",
+          "}",
+        ]),
+        "",
+      ].join("\n"),
+      file: join(pageRoot, ".vitehub/types/env-accessors.d.ts"),
+    },
     { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
   ]
 }

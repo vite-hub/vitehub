@@ -225,7 +225,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
   }
 }
 
-const sealing = createSealing((purpose, event, root) => deriveSecret(purpose, event, root))
+const sealing = createSealing((purpose, event, root) => deriveSecret(purpose, { event, root }))
 
 /**
  * Encrypts and signs a JSON value for one purpose, with a key that ViteHub derives from `VITEHUB_SECRET`.

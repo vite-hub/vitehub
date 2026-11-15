@@ -26,7 +26,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	preset: 'node',
+  	host: 'node',
   	database: {
   		connection: {
   			url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -47,7 +47,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'node',
+		host: 'node',
 		database: {
 			connection: {
 				url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -67,7 +67,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'node',
+		host: 'node',
 		database: {
 			connection: {
 				url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -90,7 +90,7 @@ export TURSO_DATABASE_URL='libsql://your-database.turso.io'
 export TURSO_AUTH_TOKEN='your-auth-token'
 ```
 
-For Vercel, use `preset: 'vercel'` with the same connection and routes. The
+For Vercel, use `host: 'vercel'` with the same connection and routes. The
 provider stays Turso.
 
 ## Apply the schema and check a row

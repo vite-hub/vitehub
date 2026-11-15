@@ -50,7 +50,7 @@ When an Agent run loads its tools, the Capability reads the `kv` runtime handle,
 
 - `kv_read` takes exactly one of `key` or `prefix`. It fails with both or neither.
 - With `key`, it returns `get(key)`. With `prefix`, it returns key names from `keys(prefix)`, without values or a count limit.
-- `kv_edit` calls `set(key, value)` for `operation: 'put'` and `del(key)` for `operation: 'delete'`.
+- `kv_edit` calls `set(key, value)` for `operation: 'put'` and `delete(key)` for `operation: 'delete'`.
 
 When the handle returns `[error, value]`, the tool throws the error or returns the value.
 

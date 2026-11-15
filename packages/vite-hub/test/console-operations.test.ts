@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"

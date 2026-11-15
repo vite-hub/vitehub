@@ -21,7 +21,7 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { RmOptions, WorkspaceAssets, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+import type { RmOptions, WorkspaceAssets, WorkspaceDefinition, WorkspaceSource, WorkspaceStore } from "../src/core/types.ts"
 
 const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
   throw new Error("missing gh")
@@ -89,6 +89,11 @@ function createTarGz(files: Record<string, string>) {
   }
   blocks.push(Buffer.alloc(1024))
   return gzipSync(Buffer.concat(blocks))
+}
+
+function subsetOf(source: WorkspaceSource, include: string[]) {
+  if (!source.subset) throw new Error("Expected the Source to support subset().")
+  return source.subset(include)
 }
 
 function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
@@ -266,6 +271,25 @@ describe("sources and loaders", () => {
       "models/marts/orders.sql",
       "macros/date_spine.sql",
     ])
+  })
+
+  it("narrows a GitHub Source to a subset of the items it holds", async () => {
+    stubGitHubSource({
+      ".agents/skills/deploy/SKILL.md": "# Deploy\n",
+      ".agents/skills/deploy/references/steps.md": "Steps\n",
+      "README.md": "# App\n",
+      "services/api.ts": "export {}\n",
+    })
+
+    const skills = subsetOf(github({ repo: "acme/app" }), [".agents/skills/**"])
+    expect(skills.fingerprint).toMatchObject({ include: [".agents/skills/**"], repo: "acme/app" })
+    await expect(skills.getKeys({ rootDir: "", workspace: "github-subset" })).resolves.toEqual([
+      ".agents/skills/deploy/SKILL.md",
+      ".agents/skills/deploy/references/steps.md",
+    ])
+
+    const services = subsetOf(github({ include: "services/**", repo: "acme/app" }), [".agents/skills/**"])
+    await expect(services.getKeys({ rootDir: "", workspace: "github-subset-include" })).resolves.toEqual([])
   })
 
   it("applies safe GitHub ignores by default and supports opting out", async () => {

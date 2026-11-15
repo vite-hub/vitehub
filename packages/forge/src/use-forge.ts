@@ -8,10 +8,12 @@ import type { GitHubProvider } from "forges/github"
 import { forgeEnv, readForgeEnv } from "./env.ts"
 import { forgeErrors } from "./errors.ts"
 import { githubAppCredentials, readGitHubAppPrivateKey } from "./github-app.ts"
+import { githubInstallationFor, githubInstallationRouting } from "./github-installations.ts"
 import { abortError, forgeErrorStatus, forgeProvider } from "./provider.ts"
 
 import type { ForgeEnvField } from "./env.ts"
 import type { GitHubAppCredentials } from "./github-app.ts"
+import type { GitHubInstallationRouting } from "./github-installations.ts"
 import type { ForgeKind } from "./provider.ts"
 
 /** Where `useForge()` reads its env: a record such as `process.env`, or a lookup by variable name. */
@@ -30,12 +32,18 @@ export interface UseForgeOptions<TKind extends ForgeKind = "github"> {
   fetch?: typeof fetch
   /** Default `"vitehub"`. */
   userAgent?: string
+  /**
+   * `false` stops providers from revalidating repeated GETs with `If-None-Match`. Default: on for GitHub.
+   * With a GitHub App, a cached response survives token rotation within the same installation.
+   */
+  conditionalRequests?: boolean
 }
 
 export interface ForgeCallOptions {
   /**
-   * `owner/name`. With a GitHub App and no `VITEHUB_GITHUB_INSTALLATION_ID`, the token is for the
-   * installation that can reach this repository.
+   * `owner/name`. With a GitHub App, the token is for the installation of the repository owner in
+   * `VITEHUB_GITHUB_APP_INSTALLATIONS`, or `VITEHUB_GITHUB_INSTALLATION_ID` when the owner is `VITEHUB_GITHUB_APP_OWNER`.
+   * Otherwise GitHub finds the installation that can reach the repository.
    */
   repository?: string
   /** Mint a new GitHub App installation token instead of the cached one. */
@@ -87,7 +95,7 @@ export interface Forge<TKind extends ForgeKind = ForgeKind> {
 
 interface GitHubAppConfig {
   appId: string
-  installationId: number | undefined
+  installations: GitHubInstallationRouting
   privateKey: string | undefined
   privateKeyPath: string | undefined
 }
@@ -100,16 +108,6 @@ function primaryName(field: ForgeEnvField): string {
   return field.names[0]
 }
 
-function readInstallationId(env: ForgeEnvSource): number | undefined {
-  const value = readForgeEnv(forgeEnv.github.installationId, env)
-  if (value === undefined) return undefined
-  const id = Number(value)
-  if (!Number.isSafeInteger(id) || id <= 0) {
-    throw forgeErrors.FORGE_INVALID_ENV({ name: primaryName(forgeEnv.github.installationId), problem: "must be a positive integer" })
-  }
-  return id
-}
-
 function readGitHubApp(env: ForgeEnvSource): GitHubAppConfig | undefined {
   const { github } = forgeEnv
   const appId = readForgeEnv(github.appId, env)
@@ -120,7 +118,12 @@ function readGitHubApp(env: ForgeEnvSource): GitHubAppConfig | undefined {
   if (!privateKey && !privateKeyPath) {
     throw forgeErrors.FORGE_MISSING_ENV({ forge: "github", names: `${primaryName(github.privateKey)} or ${primaryName(github.privateKeyPath)}` })
   }
-  return { appId, installationId: readInstallationId(env), privateKey, privateKeyPath }
+  const installations = githubInstallationRouting({
+    installationId: readForgeEnv(github.installationId, env),
+    appOwner: readForgeEnv(github.appOwner, env),
+    appInstallations: readForgeEnv(github.appInstallations, env),
+  })
+  return { appId, installations, privateKey, privateKeyPath }
 }
 
 function requestFailed(operation: string, cause: unknown, signal: AbortSignal | undefined) {
@@ -174,10 +177,10 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     return credentials
   }
 
-  async function installationToken(config: GitHubAppConfig, call: ForgeCallOptions): Promise<Result<ForgeToken, ForgeTokenErrorCode>> {
+  async function installationToken(config: GitHubAppConfig, call: ForgeCallOptions): Promise<Result<ForgeToken & { identity: string }, ForgeTokenErrorCode>> {
     const { repository, signal } = call
     const client = await appCredentials(config)
-    let installation = config.installationId
+    let installation = githubInstallationFor(config.installations, repository)
     if (installation === undefined) {
       if (!repository) throw forgeErrors.FORGE_MISSING_INSTALLATION()
       try {
@@ -194,7 +197,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     }
     try {
       const minted = await client.installationToken(installation, { signal, ...(call.refresh ? { refresh: true } : {}) })
-      return [undefined, { token: minted.token, expiresAt: minted.expiresAt }]
+      return [undefined, { token: minted.token, expiresAt: minted.expiresAt, identity: `app:${config.appId}:${installation}` }]
     }
     catch (cause) {
       return [requestFailed(`POST /app/installations/${installation}/access_tokens`, cause, signal), undefined]
@@ -207,17 +210,24 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
     baseUrl,
     async token(call = {}) {
       if (call.signal?.aborted) throw abortError(call.signal)
-      if ("app" in credential) return await installationToken(credential.app, call)
-      return [undefined, { token: credential.token, expiresAt: undefined }]
+      if (!("app" in credential)) return [undefined, { token: credential.token, expiresAt: undefined }]
+      const [error, minted] = await installationToken(credential.app, call)
+      return error ? [error, undefined] : [undefined, { token: minted.token, expiresAt: minted.expiresAt }]
     },
     async provider(call = {}) {
-      const [error, minted] = await forge.token(call)
+      if (call.signal?.aborted) throw abortError(call.signal)
+      const [error, minted] = "app" in credential
+        ? await installationToken(credential.app, call)
+        : [undefined, { token: credential.token, identity: undefined }]
       if (call.signal?.aborted) throw abortError(call.signal)
       if (error) return [error, undefined]
       const provider = await forgeProvider({
         forge: kind,
         token: minted.token,
         userAgent,
+        ...(options.conditionalRequests === false
+          ? { conditionalRequests: false }
+          : minted.identity ? { conditionalRequests: { identity: minted.identity } } : {}),
         ...(baseUrl ? { baseUrl } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })

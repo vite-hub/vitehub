@@ -60,11 +60,19 @@ export interface DatabaseRuntimeD1Options {
   readReplication?: boolean
 }
 
+export interface MigrationBackupOptions {
+  /** The folder of the copies. A relative path starts at the server's working directory. Defaults to `backups` beside the database file. */
+  dir?: string
+  /** The number of copies to keep for each database file, including the new one. Defaults to 3. */
+  keep?: number
+}
+
 export interface DatabaseIntegrationOptions {
   cli?: false | {
     export?: false
     generate?: false
     migrate?: false
+    seed?: false
     up?: false
   }
   /**
@@ -78,7 +86,21 @@ export interface DatabaseIntegrationOptions {
   migrateOnStart?: boolean | {
     /** Apply migrations that drop tables or columns or delete rows. */
     allowDataLoss?: boolean
+    /**
+     * Copies each local SQLite file with `VACUUM INTO` before the server applies its pending migrations. A start with no
+     * pending migration, or an empty database, makes no copy. A failed copy stops the start before any migration.
+     * Postgres and remote libSQL fail with `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`. `true` keeps the 3 newest copies in
+     * a `backups` folder beside the database file.
+     */
+    backup?: boolean | MigrationBackupOptions
   }
+  /**
+   * Applies the pending migrations of each Cloudflare D1 binding as part of the deploy, before the Worker deploys. The
+   * generated deploy command in `nitro.json` runs `wrangler d1 migrations apply <binding> --remote` first, so
+   * `nitro deploy --prebuilt`, Workers Builds and `vitehub deploy` stop when a migration fails. The build fails with
+   * `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED` for another host, or for a database without a D1 binding.
+   */
+  migrateOnDeploy?: boolean
   projectRoot?: string
 }
 
@@ -117,7 +139,21 @@ export interface CloudflareHyperdriveConfig {
 
 export interface PostgresConnectionConfig {
   url?: DatabaseConfigValue
+  /**
+   * Read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. `db.$replica` sends a query to one of them, picked at
+   * random. Other queries use `url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore them.
+   */
+  replicas?: Array<DatabaseConfigValue | undefined>
 }
+
+/**
+ * The client of a Postgres Database. Without `driver`, ViteHub uses postgres.js.
+ *
+ * - `node-postgres` uses the `pg` package and its `Pool`. Install `pg` in the app. `db.$client` is the Pool.
+ * - `pglite` runs the Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ *   `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ */
+export type PostgresDatabaseDriver = "node-postgres" | "pglite"
 
 export interface PostgresDatabaseDefinitionOptions<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -126,6 +162,8 @@ export interface PostgresDatabaseDefinitionOptions<
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
+  driver?: PostgresDatabaseDriver
   name?: string
   /** Relations between tables, from Drizzle's `defineRelations()`. See `DatabaseDefinitionOptions.relations`. */
   relations?: TRelations
@@ -141,6 +179,7 @@ export interface PostgresDatabaseDefinition<
   cloudflare?: CloudflareHyperdriveConfig
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
+  driver?: PostgresDatabaseDriver
   name: string
   relations: TRelations
   schema: TSchema
@@ -174,7 +213,13 @@ export type MergeDatabaseRelations<TSchema extends Record<string, unknown>, TPar
 export type RuntimePostgresDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = PgAsyncDatabase<PgQueryResultHKT, TRelations>
+> = PgAsyncDatabase<PgQueryResultHKT, TRelations> & {
+  /**
+   * The database on one read replica of `connection.replicas`, picked at random for each read. It is the primary
+   * database when there are no replicas, or when Hyperdrive or PGlite serves the database. Writes belong on `db`.
+   */
+  readonly $replica: PgAsyncDatabase<PgQueryResultHKT, TRelations>
+}
 
 export interface DatabaseDefinition<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -196,10 +241,6 @@ export type RuntimeDrizzleDatabase<
   /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
 }
-export type Database<
-  TSchema extends Record<string, unknown> = Record<string, unknown>,
-  TRelations extends AnyRelations = SchemaRelations<TSchema>,
-> = DatabaseDefinition<TSchema, TRelations> & RuntimeDrizzleDatabase<TSchema, TRelations>
 
 /** A module whose `schema` tables join a database. */
 export interface DatabaseSchemaSource {
@@ -264,6 +305,8 @@ export interface ResolvedCloudflareHyperdriveConfig {
 export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
   cloudflare?: ResolvedCloudflareD1BindingConfig
   dialect: DatabaseDialect
+  /** Postgres Definitions only. */
+  driver?: PostgresDatabaseDriver
   generatedSchemaFile: string
   /** Postgres Definitions only. */
   hyperdrive?: ResolvedCloudflareHyperdriveConfig

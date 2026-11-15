@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSSRApp, h } from "vue";
 import * as playground from "../src/playground/share.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundLinkLimit, readPlaygroundHash } from "../src/playground.ts";
-import { PlaygroundRender, type PlaygroundFiles, type PlaygroundPaneSlotProps, type PlaygroundResult } from "../src/playground-render.ts";
+import { PlaygroundRender, type PlaygroundFiles, type PlaygroundPaneSlotProps, type PlaygroundResult } from "../src/index.ts";
 
 const presets = [
   { files: { "config.json": "{}\n", "content.md": "# Hello\n" }, group: "Basics", id: "hello", label: "Hello" },

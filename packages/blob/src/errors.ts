@@ -4,8 +4,13 @@ import type { BlobErrorCode, BlobOperation } from "./types.ts"
 import { blobErrorDiagnostics, blobErrors } from "./error-diagnostics.ts"
 import { BlobPathnameTooLongError } from "./internal/host-limits.ts"
 
-export function unknownBlobStoreError(name: string): Error {
-  return blobErrorDiagnostics.BLOB_R0028({ message: `Unknown Blob store "${name}".` })
+/** Names the unknown store and the keys of `stores`, so the reader sees the correct name. */
+export function unknownBlobStoreMessage(name: string, stores: object): string {
+  return `Unknown Blob store "${name}". Configured stores: ${Object.keys(stores).map(key => JSON.stringify(key)).join(", ")}.`
+}
+
+export function unknownBlobStoreError(name: string, stores: object): Error {
+  return blobErrorDiagnostics.BLOB_R0028({ message: unknownBlobStoreMessage(name, stores) })
 }
 
 export function blobError(

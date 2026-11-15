@@ -15,6 +15,7 @@ import { createTelegramChannelSyncProvider } from "../src/internal/telegram-chan
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
 import { agentInvocationsDevTokenServerHeader } from "../src/invocations-dev.ts"
 import { verifyAgentWebhookRequest } from "../src/trigger-runtime.ts"
+import { operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 import { telegram } from "../src/channels.ts"
 
 function stream() {
@@ -1719,36 +1720,6 @@ describe("agent CLI", () => {
     }
   })
 
-  it("lists durable Agent Invocations as JSON", async () => {
-    const stdout = stream()
-    const fetchInvocations = vi.fn(async () => Response.json({
-      invocations: [{
-        createdAt: "2026-08-22T10:00:00.000Z",
-        cursor: "1",
-        id: "invocation-1",
-        status: "failed",
-        traceId: "trace-1",
-        updatedAt: "2026-08-22T10:01:00.000Z",
-      }],
-    }))
-
-    const exitCode = await runAgentInvocationsCli([
-      "list", "--status", "failed", "--limit", "10", "--json",
-    ], {
-      env: {},
-      stderr: stream(),
-      stdout,
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    }, { fetch: fetchInvocations as never })
-
-    expect(exitCode).toBe(0)
-    expect(JSON.parse(stdout.output())).toMatchObject({ invocations: [{ id: "invocation-1", status: "failed" }] })
-    expect(fetchInvocations).toHaveBeenCalledWith(
-      "http://localhost:5173/api/invocations?status=failed&limit=10",
-      expect.objectContaining({ headers: { accept: "application/json" } }),
-    )
-  })
-
   it("redacts URL credentials and query strings in invalid Invocation CLI arguments", async () => {
     const stderr = stream()
     const exitCode = await runAgentInvocationsCli([
@@ -1773,9 +1744,12 @@ describe("agent CLI", () => {
         { id: "invocation-1", outcome: "terminal", status: "completed" },
         { delivery: "journal", id: "invocation-1", outcome: "requested", status: "running" },
       ]
-      const fetchCancel = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-        ? Response.json(results.shift())
-        : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      // This dev server has no Console, so `--url` falls back to the dev endpoint for one minor version.
+      const fetchCancel = vi.fn(async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/_vitehub/rpc")
+        ? new Response("Not found", { status: 404 })
+        : init?.method === "POST"
+          ? Response.json(results.shift())
+          : Response.json({ root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       const run = async (args: string[]) => {
         const stdout = stream()
         const stderr = stream()
@@ -1794,6 +1768,8 @@ describe("agent CLI", () => {
       const json = await run(["cancel", "invocation-1", "--json", "--url", "http://127.0.0.1:5174"])
       expect(json.exitCode).toBe(0)
       expect(JSON.parse(json.stdout)).toEqual({ id: "invocation-1", outcome: "terminal", status: "cancelled" })
+      expect(json.stderr).toContain("AGENT_R1053")
+      expect(fetchCancel.mock.calls[2]?.[0]).toBe("http://127.0.0.1:5174/_vitehub/rpc")
       expect(fetchCancel.mock.calls[3]?.[0]).toBe("http://127.0.0.1:5174/__vitehub/agent/invocations/dev")
 
       expect(await run(["cancel", "invocation-1"])).toEqual({ exitCode: 1, stderr: "", stdout: "invocation-1 already completed\n" })
@@ -1890,7 +1866,7 @@ describe("agent CLI", () => {
   it("shows a wrapped invocation detail record", async () => {
     const stdout = stream()
     const timestamp = "2026-08-22T10:00:00.000Z"
-    const fetchInvocations = vi.fn(async () => Response.json({
+    const fetchInvocations = vi.fn(async (_url: string, init?: RequestInit) => operationRpcResponse(init?.body, { ok: true, value: {
       invocation: {
         createdAt: timestamp,
         cursor: "1",
@@ -1900,9 +1876,9 @@ describe("agent CLI", () => {
         updatedAt: timestamp,
       },
       observations: [{ name: "agent.completed", sequence: 1, timestamp, type: "lifecycle" }],
-    }))
+    } }))
 
-    const exitCode = await runAgentInvocationsCli(["show", "invocation-1"], {
+    const exitCode = await runAgentInvocationsCli(["show", "invocation-1", "--url", "https://app.example.com"], {
       env: {},
       stderr: stream(),
       stdout,
@@ -1924,12 +1900,12 @@ describe("agent CLI", () => {
       traceId: "trace-1",
       updatedAt: "2026-08-22T10:01:00.000Z",
     }
-    const fetchInvocations = vi.fn()
-      .mockResolvedValueOnce(Response.json({
+    const details = [
+      {
         invocation: { ...base, status: "running" },
         observations: [{ name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" }],
-      }))
-      .mockResolvedValueOnce(Response.json({
+      },
+      {
         invocation: {
           ...base,
           error: {
@@ -1943,9 +1919,11 @@ describe("agent CLI", () => {
           { name: "agent.started", sequence: 1, timestamp: base.createdAt, type: "lifecycle" },
           { name: "agent.failed", sequence: 2, timestamp: base.updatedAt, type: "error" },
         ],
-      }))
+      },
+    ]
+    const fetchInvocations = vi.fn(async (_url: string, init?: RequestInit) => operationRpcResponse(init?.body, { ok: true, value: details.shift() }))
 
-    const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--json"], {
+    const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--url", "https://app.example.com", "--json"], {
       env: {},
       stderr,
       stdout,

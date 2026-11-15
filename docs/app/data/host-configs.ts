@@ -53,7 +53,7 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     node: { options: { database: { comment: "On Node, tables are saved in local SQLite", value: "true" } } },
     vercel: { imports: [envImport], options: { database: { comment: "On Vercel, tables are saved in hosted libSQL", value: libsqlConnection } } },
   },
-  // email/configure.md, "Configure Vite": `email: true` selects Cloudflare Email. Other presets set `driver: 'resend'`.
+  // email/configure.md, "Configure Vite": `email: true` selects Cloudflare Email. Other hosts set `driver: 'resend'`.
   email: {
     cloudflare: { options: { email: { comment: "Cloudflare Email sends the email", value: "true" } } },
     deno: resend,
@@ -76,12 +76,12 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
   },
   rateLimit: {
     cloudflare: { options: { rateLimit: { comment: "On Cloudflare, a binding keeps counts", value: "true" } } },
-    node: { options: { rateLimit: { comment: "On Node, counts stay in memory", value: "true" } } },
+    node: { options: { rateLimit: { comment: "On Node, counts stay in memory. Turn on shared KV to share them.", value: "true" } } },
   },
-  // realtime/configure.md, "Choose a room authority": `memory` for one Node process, `auto` selects Durable Objects.
+  // realtime/configure.md, "Choose a room authority": `auto` selects Durable Objects, or Redis or Postgres on Node.
   realtime: {
     cloudflare: { options: { realtime: { comment: "Keep rooms in Durable Objects", value: "true" } } },
-    node: { options: { realtime: { comment: "Keep rooms in this server process", value: "{ authority: 'memory' }" } } },
+    node: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL) or a Postgres Default Database", value: "true" } } },
   },
   sandboxTask: {
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { CopyButton } from "@vite-hub/ui";
 import { computed } from "vue";
+import ConsoleAppCrumb from "./console-app-crumb.vue";
+import ConsoleSessionCopyLink from "./console-session-copy-link.vue";
+import ConsoleSidebarTrigger from "./console-sidebar-trigger.vue";
 
 const props = defineProps<{
   cost?: string;
@@ -27,8 +29,6 @@ const externalTarget = computed(() => {
   return { icon: "i-lucide-external-link", label: "Open related page" };
 });
 
-const sessionLink = () => window.location.href;
-
 defineEmits<{
   openSessions: [];
   refresh: [];
@@ -45,6 +45,7 @@ defineEmits<{
   >
     <template #title>
       <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
+        <ConsoleAppCrumb />
         <!-- A phone shows only the session title. The sessions menu names the Agent, as page headers hide their trail. -->
         <span v-if="project" class="hidden max-w-40 shrink-0 truncate font-normal text-muted sm:inline">{{
           project
@@ -55,6 +56,7 @@ defineEmits<{
       <span v-else class="text-sm font-medium">{{ title }}</span>
     </template>
     <template #leading>
+      <ConsoleSidebarTrigger />
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"
@@ -68,9 +70,7 @@ defineEmits<{
       </UTooltip>
     </template>
     <template #right>
-      <UTooltip v-if="hasSelection" text="Copy session link">
-        <CopyButton :value="sessionLink" size="xs" aria-label="Copy session link" />
-      </UTooltip>
+      <ConsoleSessionCopyLink v-if="hasSelection" />
       <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"
@@ -92,7 +92,8 @@ defineEmits<{
           @click="$emit('refresh')"
         />
       </UTooltip>
-      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
+      <!-- The last header button, as in an editor. The header spans the details panel, so the toggle keeps its place. -->
+      <UTooltip :text="hasSelection ? (detailsOpen ? 'Hide session details' : 'Show session details') : 'Select a session to inspect'">
         <UButton
           data-slot="session-details-toggle"
           icon="i-lucide-panel-right"

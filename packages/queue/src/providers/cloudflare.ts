@@ -147,7 +147,8 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
       if (optionsError) return [optionsError, undefined]
       const [error] = await queueProviderResult("cloudflare", "send", () => binding.send(normalized.payload, sendOptions))
       if (error) return [error, undefined]
-      return [undefined, { status: "queued", messageId: normalized.id }]
+      // Cloudflare does not return the ID of the message, and the handler gets the ID that Cloudflare assigns.
+      return [undefined, { status: "queued" }]
     },
     async sendBatch(items, options) {
       const messages: (typeof items[number] & CloudflareSendOptions)[] = []

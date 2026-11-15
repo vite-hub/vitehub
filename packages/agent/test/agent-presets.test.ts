@@ -161,6 +161,19 @@ it("keeps configured presets extendable after colocated Skills and Workspace dis
   expect(getAgentLayerOptions(preset)?.workspace).not.toHaveProperty("sourceRootDir")
 })
 
+it("keeps preset discovery when configure returns a shared discovered Agent", () => {
+  const base = defineAgent({ runtime: false, driver: { run: () => "ok" } })
+  const baseSkills = { base: { content: "Base", workspacePath: ".agents/skills/base/SKILL.md" } }
+  withColocatedAgentSkills(base, baseSkills)
+  const preset = defineAgent({ options: { enabled: true }, configure: () => base })
+  const local = { preset: { content: "Preset", workspacePath: ".agents/skills/preset/SKILL.md" } }
+  withColocatedAgentSkills(preset, local)
+  const child = defineAgent({ extends: preset, options: { enabled: false } })
+  expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual({ ...baseSkills, ...local })
+  withColocatedAgentSkills(preset, undefined)
+  expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual(baseSkills)
+})
+
 it("keeps Skills returned by a configured preset callback", () => {
   const preset = defineAgent({ options: { skill: "first" }, configure: options => agentWithSkills(
     defineAgent({ driver: codexDriver() }),

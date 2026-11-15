@@ -188,7 +188,7 @@ it("lists page threads with comments.threads, with search, a page filter, and a 
   const format = registry.get("comments.threads")?.mcp
   if (!format || !format.format) throw new TypeError("Expected the MCP format of comments.threads.")
   const text = (format.format as (output: unknown) => string)(all.ok ? all.value : undefined)
-  expect(text).toBe(`- ${home.id} /: Fix the logo. (Ana, 0 replies)\n- ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
+  expect(text).toBe(`- #${home.n} ${home.id} /: Fix the logo. (Ana, 0 replies)\n- #${pricing.n} ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
 })
 
 it("passes custom user fields to policies without storing them in comments", async () => {
@@ -289,6 +289,14 @@ it("checks read access before searching mention suggestions", async () => {
   setup(defineComments({ authorize: ({ action }) => action !== "read" }), { byIds: async () => [], search })
   expect(await call("comments.users", { query: "an" })).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
   expect(search).not.toHaveBeenCalled()
+})
+
+it("keeps the people that the app's search finds without accents or case", async () => {
+  const zoe = { id: "zoe", name: "Zoë Ávila" }
+  setup(defineComments({ authorize: () => true }), { byIds: async () => [], search: async () => [member, zoe, admin] })
+  expect(await call("comments.users", { query: "zoe" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "AVILA" })).toEqual({ ok: true, value: [zoe] })
+  expect(await call("comments.users", { query: "zoé" })).toEqual({ ok: true, value: [zoe] })
 })
 
 it("returns no threads for an anonymous mine query", async () => {

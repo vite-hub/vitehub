@@ -62,7 +62,7 @@ The module scans the server directory of the app and of each Nuxt layer.
   does not enable Workflow by default.
 - [File conventions](/docs/reference/file-conventions) shows the file names in
   each folder and the suffix form, such as `<path>.queue.ts`.
-- `useServerEnv` comes from the generated `#vitehub/env/server` module. Its
+- `useServerEnv` comes from `vite-hub/env`. Its
   type follows your Env declarations.
 
 ## Definition files that keep their imports
@@ -93,7 +93,7 @@ import { defineSchedule } from 'vite-hub/schedule'
 export default defineSchedule({
   cron: '0 0 * * *',
   async handler() {
-    const [error] = await kv.del('expired')
+    const [error] = await kv.delete('expired')
     if (error) throw error
   },
 })

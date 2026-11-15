@@ -64,6 +64,8 @@ exists  cloudflare-r2-bucket     uploads
 
 Apply uses the same credentials as the plan. Without them, `provision run` exits with code 1 before it plans. Cloudflare and Vercel need different credentials.
 
+Apply also needs a checked plan. When a step cannot look up its resources, such as Vercel Blob without `VERCEL_PROJECT_ID`, `provision run` applies nothing and exits with code 1. Fix the warning, then run it again. With `--json`, the result has `checked: false`.
+
 ```bash [Terminal]
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
@@ -134,7 +136,7 @@ fix: d1 "primary": d1 "main" uses the same id, so keep the resource and only rem
 fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run `wrangler kv namespace delete --namespace-id ns-cache`, then remove the entry from .vitehub/provision.json.
 ```
 
-ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
+ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKV()`, is also marked `not declared`.
 
 Status defers deletion guidance when it cannot verify a current Definition's recorded resource against current config. A renamed Definition may reuse the resource recorded under its old key, even when its new key already has an id from an older Definition. D1 and KV ids cannot be matched to configured resource names locally: compare the provider's resource names and bindings with current Definitions before deleting anything. For R2 and Queues, `vitehub provision run --provider cloudflare` refreshes recorded identities that status can compare with config.
 

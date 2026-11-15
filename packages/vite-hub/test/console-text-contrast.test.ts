@@ -10,10 +10,12 @@ function block(selector: string): string {
   return styles.slice(start, styles.indexOf("}", start))
 }
 
+// A token that reads a shadcn/ui name, such as `--ui-bg: var(--background)`, takes its value from the same block.
 function token(css: string, name: string): string {
-  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(css)?.[1]
+  const value = new RegExp(`--${name}:\\s*([^;]+);`).exec(css)?.[1]?.trim()
   expect(value, name).toBeDefined()
-  return value!.trim()
+  const read = /^var\(--([\w-]+)\)$/.exec(value!)?.[1]
+  return read ? token(css, read) : value!
 }
 
 // Linear sRGB channels from the oklch() and hex forms that the Console theme uses.

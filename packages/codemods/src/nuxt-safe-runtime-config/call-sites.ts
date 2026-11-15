@@ -14,7 +14,7 @@ import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { EnvField } from "./fields.ts"
 
-const serverImport = "#vitehub/env/server"
+const serverImport = "vite-hub/env"
 const publicImport = "#vitehub/env/public"
 
 export interface CallSiteInput {
@@ -346,7 +346,7 @@ class BlockRewriter {
     const context = this.state.context
     const callLine = this.lineOf(call)
     if (context === "shared") {
-      this.follow(callLine, "useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from #vitehub/env/server in server code and usePublicEnv() from #vitehub/env/public elsewhere.")
+      this.follow(callLine, "useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from vite-hub/env in server code and usePublicEnv() from #vitehub/env/public elsewhere.")
       return undefined
     }
     const parent = ancestors.at(-1)
@@ -585,7 +585,7 @@ class BlockRewriter {
     }
     const label = target.kind === "field" ? pathLabel(target.field) : segments.join(".")
     const replacement = target.kind === "field" && target.field.section === "server" || target.kind === "server-group"
-      ? "useServerEnv() from #vitehub/env/server"
+      ? "useServerEnv() from vite-hub/env"
       : "usePublicEnv() from #vitehub/env/public"
     this.follow(lineNumber, `useRuntimeConfig() reads ${label}, which moved to Env and is no longer in runtimeConfig. Read it with ${replacement}.`)
   }

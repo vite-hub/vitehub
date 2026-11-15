@@ -1,11 +1,14 @@
 import { operationAccessAllows, operationListed } from "@vite-hub/internal/operations"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
-import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
+import { consoleAuthorizedGrants, consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { checkConsoleSignature } from "./console-signature.ts"
+import { consoleSignatureHeader } from "@vite-hub/internal/console-signature"
+
+import { checkConsoleSignature, consoleKeysMissing } from "./console-signature.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -40,12 +43,21 @@ export interface ConsoleAccess {
    * section id, or `"<section>:read"` for a section that the request may only read.
    */
   readonly sections: "all" | readonly string[]
+  /** The page tool roles that Site access gives the person, from `grants` of `console.authorize`. Not set: every role. */
+  readonly grants?: readonly string[]
   /** The person who called: the signed Console user, or the local developer on a development server. */
   readonly user?: ConsoleUser
   /** Who signed the request: the ViteHub Console or the CLI. Not set for an open Console. */
   readonly via?: "console" | "cli"
   /** The Console team of a signed request from the Console, and the role of the user in it. */
   readonly team?: { readonly id: string, readonly role?: string }
+  /**
+   * `"mcp"` when the ViteHub MCP of the Console signed the request for the user. The RPC then refuses operations with
+   * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
+   */
+  readonly surface?: "mcp"
+  /** The person agreed to this destructive MCP call. The signature covers it. */
+  readonly confirmed?: boolean
   /**
    * The signed request: the name of its key, and the SHA-256 of the body that the signature covers. The reader of the
    * body compares the digest before it acts on the body.
@@ -106,21 +118,35 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
+/**
+ * The access mode of one request. A development server with `console: true` and no `VITEHUB_CONSOLE_KEY_<NAME>` cannot
+ * verify a signature, so it treats an unsigned request like `console: { auth: false }`: it answers this machine, such as
+ * the `vitehub` CLI, and refuses others. A signed request, and every request once a key is set, needs the signature.
+ */
+function requestAccessMode(policy: ConsoleAccessPolicy, event: ConsoleRequestEvent): ConsoleAccessMode {
+  if (policy.mode !== "token" || !isConsoleDevelopmentBuild()) return policy.mode
+  if (consoleRequest(event).headers.has(consoleSignatureHeader)) return "token"
+  return consoleKeysMissing(event) ? "open" : "token"
+}
+
 async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
   const policy = installedConsoleAccessPolicy()
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  const mode = requestAccessMode(policy, event)
   // Every Console route and Realtime room reads its access here, so none can skip this rule.
-  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: policy.mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
+  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
     return rejection(403, "CONSOLE_LOOPBACK_ONLY")
   }
   let user: ConsoleUser | undefined
   let via: ConsoleAccess["via"]
   let team: ConsoleAccess["team"]
+  let surface: ConsoleAccess["surface"]
+  let confirmed: ConsoleAccess["confirmed"]
   let signature: ConsoleAccess["signature"]
-  if (policy.mode === "local") {
+  if (mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
-  else if (policy.mode === "token") {
+  else if (mode === "token") {
     // A signature is the only way in. A cookie, a session, or a bearer token never counts.
     const signed = await checkConsoleSignature(consoleRequest(event), event)
     if (!signed.ok) return signed.response
@@ -129,16 +155,19 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     if (signed.caller.via === "console") {
       user = { ...signed.caller.user }
       team = signed.caller.team
+      surface = signed.caller.surface
+      confirmed = signed.caller.confirmed
     }
   }
   let sections: ConsoleAccess["sections"] = "all"
+  let grants: readonly string[] | undefined
   if (policy.mode !== "local" && policy.authorize) {
     const request = consoleRequest(event)
     const result: unknown = await policy.authorize(
       signature && via === "cli"
         ? { key: signature.key, request, via }
         : signature && via === "console" && user
-          ? { key: signature.key, request, user, via, ...(team ? { team } : {}) }
+          ? { key: signature.key, request, user, via, ...(team ? { team } : {}), ...(surface ? { surface } : {}) }
           : { request },
     )
     if (isRuntimeResponse(result)) return result
@@ -147,10 +176,18 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       const allowed = consoleAuthorizedSections(result)
       if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
       if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      const roles = consoleAuthorizedGrants(result)
+      if (roles === false) return rejection(500, "CONSOLE_REQUEST_FAILED", "The grants of console.authorize must be a list of page tool roles, such as [\"comments-read\"].")
       sections = allowed
+      grants = roles
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(mode, { mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+}
+
+/** The page tool roles of a checked access, from `grants` of `console.authorize`, or `undefined` for every role. */
+export function readConsoleAccessGrants(access: ConsoleAccess): readonly string[] | undefined {
+  return consoleAccessGrant.isValid(access) ? access.grants : undefined
 }
 
 /** The person of a checked access, or `undefined` for an access that the check did not create. */

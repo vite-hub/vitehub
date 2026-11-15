@@ -44,7 +44,7 @@ describe("One-time links in an app whose Auth protects every route", () => {
     const files = {
       "package.json": JSON.stringify({ private: true, type: "module" }),
       "index.html": "<main>ok</main>\n",
-      "server/auth.ts": "import { defineAuth } from \"vite-hub/auth\"\nexport default defineAuth({ access: { routes: [\"/**\"] } })\n",
+      "server/auth.ts": "import { defineAuth } from \"vite-hub/auth\"\nexport default defineAuth({ access: { routes: [\"/**\"] }, database: \"memory\" })\n",
       "server/routes/private.get.ts": "export default () => ({ secret: true })\n",
     }
     for (const [path, content] of Object.entries(files)) {
@@ -56,7 +56,7 @@ describe("One-time links in an app whose Auth protects every route", () => {
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
     const builder = await createBuilder({
       logLevel: "silent",
-      plugins: [vitehub({ preset: "node", publicUrl: origin, auth: true, console: true }), nitro() as never],
+      plugins: [vitehub({ host: "node", publicUrl: origin, auth: true, console: true }), nitro() as never],
       root,
     })
     await builder.buildApp()

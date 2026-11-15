@@ -759,10 +759,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("With --url it calls a deployed app")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap, previews, head, advance, pin, unpin, check\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap", "previews", "head", "advance", "pin", "unpin", "check"])
   })
 })
 
@@ -852,7 +852,7 @@ describe("Content operations", () => {
   it("finds the document at a public path for the comments overlay, and nothing else", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
-      authorize: ({ action, id, user }) => action === "read" ? id !== "secret" : user?.id === "editor",
+      authorize: ({ action, id, user }) => action === "read-draft" ? id !== "secret" : user?.id === "editor",
       collections: {
         pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
         posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
@@ -940,7 +940,7 @@ describe("Content operations", () => {
 
   it("resolves a readable document even when collection enumeration is denied", async () => {
     const content = defineContent({
-      authorize: ({ action, id }) => action === "read" && id === "hello",
+      authorize: ({ action, id }) => action === "read-draft" && id === "hello",
       collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
       logger: false,
       workspace: await historyWorkspace(),
@@ -1061,7 +1061,7 @@ describe("Content operations", () => {
   it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
-      authorize: ({ action, user }) => action === "read" || user?.id === "editor",
+      authorize: ({ action, user }) => action === "read-draft" || user?.id === "editor",
       collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
       logger: false,
       workspace,

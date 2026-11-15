@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -27,6 +27,7 @@ import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevComma
 import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
 import type { CollectedWorkspaceContribution } from "../../build/contributions.ts"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
@@ -53,6 +54,7 @@ const WORKSPACE_ID_PATTERN = /^#vitehub(?:-workspace-(?:assets-)?registry$|\/wor
 const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/workspaces(?:$|\/))|^file:|[/\\]node_modules[/\\]@vite-hub[/\\](?:agent|connections|runtime|workspace)[/\\]dist[/\\].+\.js$)/
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
+const generatedNitroWorkspaceDurabilityRegistry = ".vitehub/nitro/workspace/durability-registry.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const noExternalAddition = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
@@ -276,7 +278,7 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
     const config = normalizeWorkspaceOptions({ store: workspace.store }, {
       dev: false,
       env: options.env || process.env,
-      hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
+      hosting: options.hosting ?? process.env.VITEHUB_HOST,
       rootDir: workspace.rootDir || rootDir,
     })
     if (config && isHostedWorkspaceStore(config.store)) options.storeUsage?.add(config.store.provider)
@@ -651,8 +653,9 @@ function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
 }
 
 function configureNitroWorkspaceAssets(nitro: NitroConfig, root: string): void {
-  // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
-  // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
+  // Nitro can bundle the server outside Vite (Nuxt with `experimental.nitroViteEnvironment: false`), so `resolveId`
+  // below never sees the assets registry. The alias gives that bundle the files that `buildStart` writes, for hosts
+  // without a file system.
   // The Nitro types of the host decide the alias type, so read it as a plain record.
   const alias: unknown = nitro.alias
   nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(root, workspaceAssetsRegistryPath) }
@@ -797,6 +800,9 @@ async function writeNitroWorkspacePlugin(
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
   await writeFileIfChanged(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides))
+  // Durability reads Definitions synchronously at boot. Awaited imports here can cycle back through `nitro/app`.
+  const durabilityRegistryFile = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+  await writeFileIfChanged(durabilityRegistryFile, createWorkspaceRegistryContents(durabilityRegistryFile, definitions, definitionOverrides, true))
   await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
@@ -849,7 +855,7 @@ export interface WorkspaceVitePluginAPI {
 }
 
 interface WorkspaceCliContributingPlugin {
-  vitehub?: ViteHubInspectionPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
+  vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { cli?: () => unknown | Promise<unknown>, operations?: readonly OperationContributionEntry[] }
 }
 
 const setWorkspacePluginHosting: unique symbol = Symbol("vitehub.workspace.setHosting")
@@ -1098,6 +1104,28 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       })
     },
     vitehub: {
+      durability: () => {
+        if (!resolvedOptions) return []
+        const root = projectRoot ?? process.cwd()
+        const module = resolve(root, ".vitehub/nitro/workspace/durability.mjs")
+        const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+        const definitions = discoverDefinitions({ projectRoot: root, viteRoot: viteRoot ?? root }, serverDirs, contributions)
+        const config = shouldConfigureRuntime(publicOptions, resolvedOptions) ? resolvedOptions : false
+        writeFileIfChangedSync(module, [
+          `import { workspaceDefinitionsDurability } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
+          ...(definitions.length ? [
+            `import registry from ${JSON.stringify(registry)}`,
+          ] : []),
+          "export function workspaceDurability(_input, context) {",
+          definitions.length
+            ? "  const definitions = Object.fromEntries(Object.entries(registry).map(([name, load]) => [name, load().default]))"
+            : "  const definitions = {}",
+          `  return workspaceDefinitionsDurability(definitions, ${renderRuntimeValue(config)}, context)`,
+          "}",
+          "",
+        ].join("\n"))
+        return [{ export: "workspaceDurability", input: {}, module, primitive: "workspace" }]
+      },
       // The Console, `vitehub workspace history|refs|show`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "workspaceOperations", load: async () => workspaceOperations, module: ownModule(import.meta.url, "operations") }],
       cli: async () => {

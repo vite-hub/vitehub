@@ -50,9 +50,17 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_R0043: dynamicError,
     RATE_LIMIT_R0044: dynamicError,
     RATE_LIMIT_R0045: dynamicError,
-    RATE_LIMIT_B0001: dynamicError,
-    RATE_LIMIT_B0002: dynamicError,
-    RATE_LIMIT_B0003: dynamicError,
-    RATE_LIMIT_B0004: dynamicError,
+    RATE_LIMIT_R0046: {
+      ...dynamicError,
+      fix: "Pass `kv` or `kv.store(name)` from `@vite-hub/kv` as the `storage` option to `kvRateLimitDriver()`.",
+    },
+    RATE_LIMIT_R0047: {
+      ...dynamicError,
+      fix: "Enable KV in the app and build again. For a custom runtime, pass the KV driver, storage, and store name to `setRateLimitRuntimeConfig()`.",
+    },
+    RATE_LIMIT_B0001: { ...dynamicError, fix: "Set `rateLimit: { namespace }` in `vitehub()`, or `namespace` in `hubRateLimit()`, to a name that is different for each Worker and environment, such as `\"acme-api-production\"`." },
+    RATE_LIMIT_B0002: { ...dynamicError, fix: "Set `provider: \"kv\"` in `hubRateLimit()` with a Redis or Upstash KV store, or call `createRateLimiter()` with your own driver." },
+    RATE_LIMIT_B0003: { ...dynamicError, fix: "Set `provider` in `hubRateLimit()` to `\"cloudflare\"` or `\"kv\"`, or to `\"memory\"` only for a deploy with one server process." },
+    RATE_LIMIT_B0004: { ...dynamicError, fix: "Write every file that declares a Rate Limit before `vite build` starts. Do not create or change these files from a plugin during the build." },
   },
 })

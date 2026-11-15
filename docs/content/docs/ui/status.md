@@ -13,10 +13,10 @@ icon: i-lucide-circle
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `Status`. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/status`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `Status`. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
-import { Status } from "@vite-hub/ui/status";
+import { Status } from "@vite-hub/ui";
 ```
 
 ## Usage

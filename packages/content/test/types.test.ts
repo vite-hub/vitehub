@@ -32,6 +32,7 @@ function deferred() {
 
 it("types every Source by name and by document path", async () => {
   const content = defineContent({
+    access: "public",
     sources: {
       docs: docs([{ key: "about.md", content: "---\ntitle: About\norder: 2\n---\n# About\n" }]),
       blog: docs([{ key: "hello.md", content: "---\ntitle: Hello\ndraft: true\n---\n# Hello\n" }]),
@@ -55,7 +56,7 @@ it("writes JSON Schema integers as numbers", async () => {
     properties: { size: { type: "integer" }, sizes: { type: "array", items: { type: ["integer", "null"] } } },
     required: ["size"],
   }
-  const content = defineContent({ sources: { media: contentSource(docs([{ key: "a.md", content: "---\nsize: 1\n---\n" }]), { schema }) } })
+  const content = defineContent({ access: "public", sources: { media: contentSource(docs([{ key: "a.md", content: "---\nsize: 1\n---\n" }]), { schema }) } })
 
   const declarations = await generateContentTypes(content)
 
@@ -69,7 +70,7 @@ it("writes the types in the background and again after Content changes", async (
   directories.push(directory)
   const file = join(directory, "types/content.d.ts")
   const items = [{ key: "about.md", content: "---\ntitle: About\n---\n# About\n" }]
-  const content = defineContent({ sources: { docs: docs(items) } })
+  const content = defineContent({ access: "public", sources: { docs: docs(items) } })
 
   defineContentTypesPlugin(async () => content, writeTypes(file))()
   await expect.poll(async () => await readFile(file, "utf8").catch(() => ""), { timeout: 5_000 }).toContain("'/about': DocsData")
@@ -103,7 +104,7 @@ it("keeps changes received after a generation has read the Source", async () => 
   const items = [{ key: "about.md", content: "---\ntitle: About\n---\n" }]
   const started = deferred()
   const resume = deferred()
-  const content = defineContent({ sources: {
+  const content = defineContent({ access: "public", sources: {
     docs: docs(items),
     blog: { async items() {
       started.resolve()

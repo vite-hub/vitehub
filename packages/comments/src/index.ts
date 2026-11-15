@@ -23,7 +23,7 @@ import type {
 
 export { describeCommentContext } from "./context.ts"
 export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
-export { builtinCommentSubjects, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export { builtinCommentSubjects, commentsRoleAllows, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
 export type { CommentsPolicyGate } from "./operations-core/define.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"

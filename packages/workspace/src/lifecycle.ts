@@ -534,7 +534,7 @@ async function hasCompleteBundledBuildSource(
   bundledSourceByPath?: Map<string, string>,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
-  const probeKeys = source.source.probeKeys
+  const probeKeys = source.probeKeys
   if (!probeKeys?.length) {
     const paths = bundledFiles
       ?.filter(file => file.metadata?.source === source.key)

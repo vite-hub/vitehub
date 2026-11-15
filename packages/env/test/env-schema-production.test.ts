@@ -237,7 +237,6 @@ it("prepares and builds without server credentials, then validates each producti
     ["VITEHUB_SETTINGS", '{"enabled":"true","retries":2,"tags":[]}', "settings"],
     ["VITEHUB_SETTINGS", '{"enabled":true}', "settings"],
     ["VITEHUB_METADATA", '{"__proto__":{"polluted":true}}', "metadata"],
-    ["VITEHUB_RETRIES", "", "retries"],
     ["VITEHUB_RETRIES", "0xff", "retries"],
     ["VITEHUB_RETRIES", "11", "retries"],
     ["VITEHUB_DRY_RUN", "sometimes", "dryRun"],

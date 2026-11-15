@@ -38,6 +38,11 @@
       "import": "./dist/contributions.js",
       "default": "./dist/contributions.js"
     },
+    "./durability": {
+      "types": "./dist/durability.d.ts",
+      "import": "./dist/durability.js",
+      "default": "./dist/durability.js"
+    },
     "./env": {
       "types": "./dist/env.d.ts",
       "import": "./dist/env.js",
@@ -108,6 +113,11 @@
       "import": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./operation-definition": {
+      "types": "./dist/operation-definition.d.ts",
+      "import": "./dist/operation-definition.js",
+      "default": "./dist/operation-definition.js"
+    },
     "./operation-registry": {
       "types": "./dist/operation-registry.d.ts",
       "import": "./dist/operation-registry.js",
@@ -168,11 +178,6 @@
       "import": "./dist/runtime/cloudflare-hosted.js",
       "default": "./dist/runtime/cloudflare-hosted.js"
     },
-    "./runtime/h3-v1-request": {
-      "types": "./dist/runtime/h3-v1-request.d.ts",
-      "import": "./dist/runtime/h3-v1-request.js",
-      "default": "./dist/runtime/h3-v1-request.js"
-    },
     "./runtime/vercel-hosted": {
       "types": "./dist/runtime/vercel-hosted.d.ts",
       "import": "./dist/runtime/vercel-hosted.js",
@@ -202,6 +207,11 @@
       "types": "./dist/inspect.d.ts",
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
+    },
+    "./invariant": {
+      "types": "./dist/invariant.d.ts",
+      "import": "./dist/invariant.js",
+      "default": "./dist/invariant.js"
     },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
@@ -348,6 +358,11 @@
       "import": "./dist/build/user-entry.js",
       "default": "./dist/build/user-entry.js"
     },
+    "./build/revision": {
+      "types": "./dist/build/revision.d.ts",
+      "import": "./dist/build/revision.js",
+      "default": "./dist/build/revision.js"
+    },
     "./build/vite": {
       "types": "./dist/build/vite.d.ts",
       "import": "./dist/build/vite.js",
@@ -418,6 +433,7 @@
     "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "sharp": "0.35.5",
+    "srvx": "catalog:unjs",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",

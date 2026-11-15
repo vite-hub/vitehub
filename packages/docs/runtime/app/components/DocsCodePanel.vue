@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyButton } from "@vite-hub/ui/copy-button"
+import { CopyButton } from "@vite-hub/ui"
 import { buildFileTree } from "../utils/file-tree"
 
 // The sticky code panel beside a tutorial. It reads the code blocks of the article body in order.

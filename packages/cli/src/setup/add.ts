@@ -4,7 +4,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
@@ -15,7 +15,7 @@ import { installArgs, installCommand, setsOption, setupStatus } from "./status.t
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
@@ -74,14 +74,17 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
 const providerKeys = ["authority", "driver", "provider", "store"]
 
-function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: DeploymentPreset): boolean {
+function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
   if (!isRecord(value)) return false
-  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  if (id === "workflow" && host !== "netlify") {
+    const configured = (storage: JsonValue | undefined, key: string) => isRecord(storage) && (typeof storage[key] === "string" ? !!storage[key].trim() : isRecord(storage[key]))
+    if (configured(value.postgres, "url") || configured(value.sqlite, "path")) return true
+  }
   return providerKeys.some(key => value[key] !== undefined)
 }
 
 /** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
-function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessEnv): HostSupport {
+function hostSupport(id: FeatureId, host: ViteHubHost, env: NodeJS.ProcessEnv): HostSupport {
   const support = featureSupport(id, host)
   if (support.level !== "native") return support
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
@@ -327,18 +330,18 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
     if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno host cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the host's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
     if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
-      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
+      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : host === "node" ? ["auto", "postgres", "redis", "memory"] : ["memory"]
       if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     if (id === "cache" && isRecord(value) && value.driver !== undefined) {
       const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
       if (value.driver !== "kv" && value.driver !== nativeDriver) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
@@ -348,7 +351,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
     }
-    if (support.level === "explicit") {
+    // A feature that only an implication turns on can run inline, such as the Workflow of an Agent on Node.
+    const inlineOnly = !args.features.includes(id) && !requires.includes(id) && impliedInline(id, inputFeatures, host)
+    // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.provider`.
+    const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
+    if (support.level === "explicit" && !inlineOnly && !storageSelected) {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
         const choices = optionChoices[support.option]
@@ -389,7 +396,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} preset.` }), setupExitCodes.inputNeeded, {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
       missing,
       ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
     })
@@ -469,15 +476,18 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
+    else if (support.level === "explicit" && impliedInline(id, [...enabled], host)) {
+      if (!selectsProvider(id, valueFor(id), host) && !setsOption(project, support.option)) nextSteps.push(`${features[id].title} that ${args.features.join(", ")} turns on runs inline in the request process on ${host}, and a restart loses its runs. Set \`${support.option}\` for durable runs. ${support.detail}`)
+    }
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
   // Host defaults that build and run, but keep state in one process.
   for (const id of [...addedFeatures, ...implied]) {
-    if (selectsProvider(id, valueFor(id), host)) continue
+    if (selectsProvider(id, valueFor(id))) continue
     const support = hostSupport(id, host, env)
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
-  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"), host)) {
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"))) {
     nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)

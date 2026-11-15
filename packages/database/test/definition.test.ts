@@ -25,15 +25,14 @@ describe("defineDatabase drizzle option", () => {
   })
 })
 
-describe("defineDatabase module loading", () => {
-  it("does not open the database when a module loader probes the default export", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-definition-probe-"))
+describe("defineDatabase result", () => {
+  it("returns only the Definition, not a Drizzle database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-definition-plain-"))
     try {
       const definition = defineDatabase({ connection: { url: `file:${join(root, "data/app.sqlite")}` }, schema: {} })
-      // Drizzle Kit 1.0 loads schema modules with jiti, which reads these keys and awaits the default export.
-      expect(Reflect.get(definition, "then")).toBeUndefined()
-      expect(Reflect.get(definition, "default")).toBeUndefined()
-      expect(Reflect.get(definition, "__esModule")).toBeUndefined()
+      expect(Object.keys(definition).toSorted()).toEqual(["connection", "name", "relations", "schema"])
+      // Queries go through `useDatabase(name).db`, which has the merged relations and the build's migrations.
+      for (const key of ["select", "run", "query", "batch", "$client", "then"]) expect(Reflect.get(definition, key)).toBeUndefined()
       await expect(Promise.resolve(definition)).resolves.toBe(definition)
       expect(existsSync(join(root, "data"))).toBe(false)
     }

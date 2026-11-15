@@ -1,3 +1,4 @@
+import { releaseReconcileRun } from "../internal/github-reconcile-branch.ts"
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
@@ -36,7 +37,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
+import { agentInvocationClaimState, agentInvocationId, bindAgentInvocations, isAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -689,7 +690,9 @@ async function matchedWebhookRegistrationRequiresVerification(
   if (registration.secretToken !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
-  return requireConfiguredSecret && registration.secretHeader !== undefined
+  // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
+  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  return requireConfiguredSecret
 }
 
 function parseWebhookPayload(body: string): unknown {
@@ -1793,6 +1796,7 @@ async function executeQueuedWebhookDelivery(
   })
   let webhookFence: Lock | undefined
   let stopWebhookFenceHeartbeat: (() => void) | undefined
+  let reconcileSignal: AbortSignal | undefined
   let retainWebhookFence = false
   const stopForLifecycle = () => {
     ownershipAbort.abort(lifecycleSignal.reason)
@@ -1917,7 +1921,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
+          { verifyWebhook: false, queuedInvocation: invocation && { ...invocation, acceptedAt: delivery.enqueuedAt }, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1943,6 +1947,7 @@ async function executeQueuedWebhookDelivery(
         if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
           throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
         }
+        reconcileSignal = resolved.input.abortSignal
         invocation = { ...invocation, input: resolved.input, run: resolved.run }
         accepted = resolved
       }
@@ -2242,6 +2247,7 @@ async function executeQueuedWebhookDelivery(
     // The worker that reclaimed it owns the eventual terminal evidence.
     if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
   } finally {
+    releaseReconcileRun(reconcileSignal)
     if (executionTimeoutTimer) clearTimeout(executionTimeoutTimer)
     lifecycleSignal.removeEventListener("abort", stopForLifecycle)
     stopHeartbeat()
@@ -6224,7 +6230,7 @@ async function resumeInterruptedChatInvocations(
     if (isRecord(current)) {
       for (const record of Object.values(current)) {
         if (!isRecord(record) || record.agentName !== agentName || record.channelId !== registration.channelId) continue
-        if (typeof record.startedAt !== "string" || !(Date.parse(record.startedAt) < recoveryBefore)) continue
+        if (!await isInterruptedChatRecord(agent.invocations, agentName, record, recoveryBefore)) continue
         records.push(record)
       }
     }
@@ -6266,6 +6272,29 @@ async function resumeInterruptedChatInvocations(
         else current[record.runId] = record
       })
     }))
+  }
+}
+
+/**
+ * A chat record is interrupted when it started before this process and no live run holds the journal claim of its
+ * Invocation. Processes can share one journal and one State, so a record from before this process can belong to a
+ * live run in another process. Without a journal record, only the start time is known.
+ */
+async function isInterruptedChatRecord(
+  invocations: unknown,
+  agentName: string,
+  record: InterruptedChatRecord,
+  recoveryBefore: number,
+): Promise<boolean> {
+  if (typeof record.startedAt !== "string" || !(Date.parse(record.startedAt) < recoveryBefore)) return false
+  if (!isAgentInvocations(invocations) || typeof record.runId !== "string") return true
+  try {
+    return await agentInvocationClaimState(invocations, await agentInvocationId(record.runId, agentName)) !== "held"
+  }
+  catch (error) {
+    // Keep the start time test, so a journal failure does not stop the recovery of the other records.
+    console.error("[vitehub] Interrupted chat invocation claim check failed. The start time decides.", error)
+    return true
   }
 }
 
@@ -9691,7 +9720,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      if (!deliveryState) throw agentDiagnostics.AGENT_R0842({ message: "[vitehub] Agent Channel delivery state did not resolve." })
+      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
+      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
@@ -10152,17 +10182,18 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             receivedAt: new Date(webhookReceivedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
             webhookId,
-          })
+          }, webhookStartedAt + ackTimeoutMs)
         }
         catch (error) {
-          if (typeof error === "object" && error !== null && (error as { webhookStored?: boolean }).webhookStored === true) {
-            return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
-          }
           // Without a stored request, the route waits for admission as before.
           console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
           return await admitWebhook()
         }
         if (inbox.duplicate) {
+          // The first request has not stored its copy, and may never. The provider has to send it again.
+          if (!inbox.stored) {
+            return Response.json({ accepted: false, duplicate: true, ok: false }, { headers: { "cache-control": "no-store", "retry-after": "1", "x-vitehub-webhook-duplicate": "1" }, status: 503 })
+          }
           return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store", "x-vitehub-webhook-duplicate": "1" }, status: 202 })
         }
         return await acknowledgeWebhookAdmission(admitWebhook(), inbox, webhookStartedAt + ackTimeoutMs, inboxFields, waitUntil)

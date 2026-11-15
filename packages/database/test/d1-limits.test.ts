@@ -1,4 +1,4 @@
-import { VITEHUB_DEPLOYMENT_PRESET } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST } from "@vite-hub/internal/build/vite"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { localLibsql } from "../src/runtime/local-client.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -135,20 +135,20 @@ describe("the Vite databases module", () => {
       "export default defineDatabase({ schema: { notes: sqliteTable('notes', { title: text('title') }) } })",
       "",
     ].join("\n"))
-    const plugin = hubDb({ driver: "d1" })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const plugin = hubDatabase({ driver: "d1" })
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, ...config })
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
-    // SAFETY: These are Vite hook handlers returned by hubDb.
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
     const load = (plugin.load as { handler: (id: string) => string | undefined }).handler
     return load(resolveId("#vitehub/database/databases")!)
   }
 
   it("asks local SQLite for the D1 limits only in a dev server for Cloudflare", async () => {
-    expect(await databasesModule({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "cloudflare" })).toContain('localLimits: "d1"')
+    expect(await databasesModule({ command: "serve", [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" })).toContain('localLimits: "d1"')
     expect(await databasesModule({ command: "serve", nitro: { preset: "cloudflare-module" } })).toContain('localLimits: "d1"')
-    expect(await databasesModule({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "node" })).not.toContain("localLimits")
-    expect(await databasesModule({ command: "build", [VITEHUB_DEPLOYMENT_PRESET]: "cloudflare" })).not.toContain("localLimits")
+    expect(await databasesModule({ command: "serve", [VITEHUB_DEPLOYMENT_HOST]: "node" })).not.toContain("localLimits")
+    expect(await databasesModule({ command: "build", [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" })).not.toContain("localLimits")
   })
 })

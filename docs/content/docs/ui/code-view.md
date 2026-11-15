@@ -13,7 +13,7 @@ icon: i-lucide-code
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`, `@vite-hub/ui/code-view`, or `@vite-hub/ui/file-view`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
 import { CodeView, FileView } from "@vite-hub/ui";

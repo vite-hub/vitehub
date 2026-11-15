@@ -224,7 +224,7 @@ function isRateLimitDiagnostic(value: unknown): boolean {
 }
 
 const rateLimitDiagnosticCodes = new Set([
-  ...Array.from({ length: 45 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
+  ...Array.from({ length: 47 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
   "RATE_LIMIT_B0001",
   "RATE_LIMIT_B0002",
   "RATE_LIMIT_B0003",

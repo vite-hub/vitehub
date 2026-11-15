@@ -13,10 +13,10 @@ icon: i-lucide-copy
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `CopyButton`. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/copy-button`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `CopyButton`. In Vue with Vite, import it from `@vite-hub/ui`:
 
 ```ts
-import { CopyButton, useCopy } from "@vite-hub/ui/copy-button";
+import { CopyButton, useCopy } from "@vite-hub/ui";
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ A menu item that copies is not a button. Use `useCopy()`, the same clipboard log
 
 ```ts
 import { useToast } from "@nuxt/ui/composables";
-import { useCopy } from "@vite-hub/ui/copy-button";
+import { useCopy } from "@vite-hub/ui";
 
 const toast = useToast();
 const { copy } = useCopy();

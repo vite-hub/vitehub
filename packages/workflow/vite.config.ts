@@ -3,14 +3,18 @@ import { defineConfig } from "vite-plus";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 import packageManifest from "./package.json" with { type: "json" };
 
-// Generated code imports these modules by path. They are not public API.
+// These entries are not public API. Generated code imports most of them by path.
+// `definition` is an entry so that `defineWorkflow` never shares a chunk with Node built-ins:
+// the Vercel Workflow sandbox cannot load a flow bundle that keeps `require("node:async_hooks")`.
 const privateEntries = new Set([
+  "./definition",
   "./operations",
   "./runtime/cloudflare-runner",
   "./runtime/cloudflare-shared",
   "./runtime/cloudflare-vite",
   "./runtime/dev-runs",
   "./runtime/execute",
+  "./runtime/openworkflow-worker",
   "./runtime/vercel-vite",
 ])
 
@@ -23,6 +27,8 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/definition.ts",
+      "src/durability.ts",
       "src/index.ts",
       "src/vite.ts",
       "src/operations.ts",
@@ -32,6 +38,7 @@ export default defineConfig({
       "src/runtime/dev-runs.ts",
       "src/runtime/execute.ts",
       "src/runtime/openworkflow.ts",
+      "src/runtime/openworkflow-worker.ts",
       "src/openworkflow.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PrimitiveIcon, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveIcon, resolvePrimitiveIconName } from "@vite-hub/docs/primitive-rail";
 import { computed } from "vue";
 
 const props = defineProps<{

@@ -59,7 +59,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
       const publicUrl = "http://app.example.com"
-      const hub = vitehub({ preset: "node", publicUrl, console: true })
+      const hub = vitehub({ host: "node", publicUrl, console: true })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
@@ -69,10 +69,16 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
       await withBuiltServer(root, async (fetchServer) => {
-        // Apps no longer serve the Console page; this SPA serves its own fallback instead.
-        const page = await fetchServer("/_vitehub")
-        expect(page.status).toBe(200)
-        expect(await page.text()).not.toContain("ViteHub Console")
+        // The entry route redirects to the hosted Console in either plugin order.
+        const page = await fetchServer("/_vitehub", { redirect: "manual" })
+        expect(page.status).toBe(303)
+        const target = new URL(page.headers.get("location")!)
+        expect(target.origin).toBe("https://console.vitehub.dev")
+        expect(target.pathname).toBe("/open")
+        expect(target.searchParams.get("project")).toBe(publicUrl)
+        expect(target.searchParams.get("site")).toBe("/")
+        expect(target.searchParams.get("state")).toMatch(/^[\w-]{43}$/)
+        expect(page.headers.get("set-cookie")).toContain(`__Host-vitehub-site-state=${target.searchParams.get("state")};`)
         const signed = await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` })
         const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)
@@ -92,7 +98,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
     try {
       // A Nitro version with such a hook leaves ViteHub no way to run it later exactly once.
       const nitroInit = { name: "nitro:init", config } as never
-      await expect(resolveConfig({ configFile: false, plugins: [nitroInit, vitehub({ preset: "node" })], root }, "build"))
+      await expect(resolveConfig({ configFile: false, plugins: [nitroInit, vitehub({ host: "node" })], root }, "build"))
         .rejects.toMatchObject({ code: "VITE_HUB_R0135", message: expect.stringContaining("Put vitehub() before nitro()") })
     }
     finally {
@@ -104,7 +110,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-plugin-order-"))
     try {
       const nitroEnv = { name: "nitro:env" } as never
-      const config = await resolveConfig({ configFile: false, plugins: [nitroEnv, vitehub({ preset: "node" })], root }, "build")
+      const config = await resolveConfig({ configFile: false, plugins: [nitroEnv, vitehub({ host: "node" })], root }, "build")
       expect(config.plugins.some(plugin => plugin.name === "vite-hub/nitro-order")).toBe(true)
     }
     finally {

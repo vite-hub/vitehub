@@ -316,6 +316,11 @@ describe("built-in Agent Driver selection", () => {
     expect(createAgentInspectionMetadata(defineAgent({ driver: codexDriver({ cwd: "/srv/checkout" }) })).config?.driver.provider).toMatchObject({ cwd: "static" });
   });
 
+  it("keeps Codex workspace-write access", () => {
+    expect(normalizeAgentDriver({ driver: codexDriver({ workspaceWrite: { network: true, packageCaches: true } }) }))
+      .toMatchObject({ kind: "provider", workspaceWrite: { network: true, packageCaches: true } });
+  });
+
   it("accepts sealed Codex credentials implemented by a class instance", () => {
     class SecretEnv {
       unseal() {
@@ -343,6 +348,9 @@ describe("built-in Agent Driver selection", () => {
     [codexDriver({ cwd: "" }), "driver.cwd }) must be a non-empty directory path or resolver"],
     [claudeCodeDriver({ cwd: "  " }), "driver.cwd }) must be a non-empty directory path or resolver"],
     [codexDriver({ cwd: 1 } as never), "driver.cwd }) must be a non-empty directory path or resolver"],
+    [claudeCodeDriver({ workspaceWrite: { network: true } } as never), "does not support Codex option: workspaceWrite"],
+    [codexDriver({ workspaceWrite: { network: "yes" } } as never), "driver.workspaceWrite }) must be an object with boolean network or packageCaches"],
+    [codexDriver({ workspaceWrite: { writableRoots: ["/tmp"] } } as never), "driver.workspaceWrite }) must be an object with boolean network or packageCaches"],
   ])("rejects invalid provider options %#", (driver, message) => {
     // SAFETY: These deliberately invalid fixtures exercise the runtime normalization boundary.
     expect(() => normalizeAgentDriver({ driver } as never)).toThrow(message);

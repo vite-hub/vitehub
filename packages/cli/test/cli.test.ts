@@ -789,6 +789,7 @@ export default ({ mode }) => ({
     })).resolves.toBe(0)
     expect(JSON.parse(json.output())).toEqual({
       actions: [],
+      checked: false,
       ids: {},
       mode: "dry-run",
       provider,
@@ -1065,6 +1066,7 @@ export default function (_options, nuxt) {
     expect(stdout.output()).not.toContain("secret-token")
     expect(JSON.parse(stdout.output())).toEqual({
       actions: [{ exists: false, kind: "test-resource", name: "demo", step: "test:cloudflare" }],
+      checked: true,
       ids: { test: { demo: "id-1" } },
       mode: "apply",
       provider: "cloudflare",
@@ -1102,6 +1104,7 @@ export default function (_options, nuxt) {
     expect(stderr.output()).toBe("test: listing resources\n")
     expect(JSON.parse(stdout.output())).toEqual({
       actions: [{ exists: true, kind: "test-resource", name: "demo", step: "test:cloudflare" }],
+      checked: true,
       ids: {},
       mode: "dry-run",
       provider: "cloudflare",
@@ -1394,6 +1397,61 @@ export default function (_options, nuxt) {
       { exists: true, kind: "test-resource", name: "demo", pending: true, step: "test:cloudflare", update: "read replication: disabled -> auto" },
     ])
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("fails a provision run without applying anything when the plan is not checked", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({ ids: { vercel: { test: { demo: "id-1" } } } }))
+    const warning = "blob: skipping Vercel Blob, missing VERCEL_TOKEN/VERCEL_PROJECT_ID."
+    const loadConfig = async () => ({
+      plugins: [{
+        vitehub: {
+          cli: {
+            namespaces: [],
+            provision: [{
+              id: "test:vercel",
+              provider: "vercel",
+              plan: async () => [{ kind: "test-resource", name: "demo", exists: false, apply }],
+            }, {
+              id: "blob:vercel-blob",
+              provider: "vercel",
+              plan: async (context: ProvisionContext) => {
+                context.logger.warn(warning)
+                context.markPlanUnchecked?.()
+                return []
+              },
+            }],
+          },
+        },
+      }],
+      root: rootDir,
+    })
+    const env = { VERCEL_TOKEN: "test-token" }
+
+    const stdout = stream()
+    const stderr = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "vercel"], cwd: rootDir, env, loadConfig, stderr, stdout }))
+      .resolves.toBe(1)
+    expect(stdout.output()).toBe("provision: plan not checked.\n")
+    expect(stderr.output()).toBe(`${warning}\nprovision: nothing applied. Fix the warnings above, or preview with --dry-run.\n`)
+
+    const json = stream()
+    const jsonErrors = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "vercel", "--json"], cwd: rootDir, env, loadConfig, stderr: jsonErrors, stdout: json }))
+      .resolves.toBe(1)
+    expect(JSON.parse(json.output())).toEqual({
+      actions: [{ exists: false, kind: "test-resource", name: "demo", step: "test:vercel" }],
+      checked: false,
+      ids: {},
+      mode: "apply",
+      provider: "vercel",
+      schemaVersion: 1,
+      stateFile: null,
+      warnings: [warning],
+    })
+    expect(jsonErrors.output()).toBe("provision: plan not checked, nothing applied. Read warnings in the JSON result.\n")
+    expect(apply).not.toHaveBeenCalled()
+    await expect(readFile(join(rootDir, ".vitehub/provision.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it.each([false, true])("uses structured skipped-plan state rather than warnings with unchecked=%s", async (unchecked) => {

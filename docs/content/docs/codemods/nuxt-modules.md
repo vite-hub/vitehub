@@ -21,14 +21,14 @@ The codemod moves the `nuxt-safe-runtime-config` module to ViteHub [Env](/docs/e
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env, and other `NUXT_*` keys become Server Env, with the same names and variables. See [Import an environment schema](/docs/env/configure#import-an-environment-schema).
 - `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. Literal `runtimeConfig` values become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
-In both cases, the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.preset`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `#vitehub/env/server` in server files, and to `usePublicEnv()` from `#vitehub/env/public` in app files.
+In both cases, the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.host`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `#vitehub/env/server` in server files, and to `usePublicEnv()` from `#vitehub/env/public` in app files.
 
 When `safeRuntimeConfig` declares no schema and the app has no layers, the module validates nothing. The codemod then removes the module, unless code still calls `useSafeRuntimeConfig()`.
 
 The codemod stops without writing files when:
 
 - `modules` is an expression, such as `buildModules()`, or a root spread can supply it. Make the list explicit.
-- `nitro.preset` is dynamic and no ViteHub preset is explicit. Use a string literal, or set `vitehub.preset`.
+- `nitro.preset` is dynamic and no ViteHub host is explicit. Use a string literal, or set `vitehub.host`.
 - the config has no schema and extends layers, uses a root spread, or has automatic `layers/` directories.
 
 The report lists what Env cannot express and what the codemod could not rewrite: constraints and transforms, unions, JSON arrays and objects, non-empty secret defaults, secret reads that need `.unseal()`, `useRuntimeConfig()` reads of migrated keys, template reads, and the ESLint rules of the module. Public Env values are fixed when you build, while Nuxt applied `NUXT_PUBLIC_*` overrides when the server started.
@@ -72,5 +72,5 @@ The codemod stops without edits when:
 
 - the config or module options are not object literals with explicit, unique property names,
 - the app already has Schedule options,
-- the preset or the jobs directory is computed, or the preset is `deno`,
-- the preset is Node and KV is turned off. Configure a default KV store before you retry.
+- the host or the jobs directory is computed, or the host is `deno`,
+- the host is Node and KV is turned off. Configure a default KV store before you retry.

@@ -30,7 +30,6 @@ export default defineConfig({
       "src/runtime/console.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/outbox.ts",
-      "src/server.ts",
       "src/test.ts",
       "src/vite.ts",
     ],

@@ -32,7 +32,7 @@ Do not use a database that has its own migration history.
 
 ## Select Cloudflare and identify the database
 
-Set `preset: 'cloudflare'` and `database: true` in your ViteHub config. Add
+Set `host: 'cloudflare'` and `database: true` in your ViteHub config. Add
 this `cloudflare` block to the Database Definition:
 
 ```ts [server/databases/default.ts]

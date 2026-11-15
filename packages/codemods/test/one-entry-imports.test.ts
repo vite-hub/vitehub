@@ -74,19 +74,18 @@ describe("one-entry-imports", () => {
     "export type * from '@vite-hub/env/server'",
     "export * as serverEnv from 'vite-hub/env/server'",
     "import * as serverEnv from '@vite-hub/env/server'",
-  ])("reports the omitted Env server contract in %s", async (code) => {
+    "import { resolveServerEnv, loadServerEnv } from '@vite-hub/env/server'",
+  ])("preserves the explicit Env registry contract in %s", async (code) => {
     const { run } = await migrate({ "server/barrel.ts": `${code}\n` })
-    const messages = run.result.followUps.map(followUp => followUp.message).join("\n")
-    for (const name of ["runWithCloudflareEnv", "createServerEnvManagement", "deriveSecret", "ViteHubContext", "EnvAccessContext"]) {
-      expect(messages).toContain(name)
-    }
+    expect(run.result.edits).toEqual([])
+    expect(run.result.followUps).toEqual([])
   })
 
   it("moves imports in import types and declare module", async () => {
     const { after } = await migrate({
       "types.d.ts": "declare module \"vite-hub/env/server\" {}\nexport type T = import(\"vite-hub/env/presets\").TypesafeEnvOptions\n",
     })
-    expect(after("types.d.ts")).toBe("declare module \"vite-hub/env\" {}\nexport type T = import(\"vite-hub/env\").TypesafeEnvOptions\n")
+    expect(after("types.d.ts")).toBe("declare module \"vite-hub/env/server\" {}\nexport type T = import(\"vite-hub/env\").TypesafeEnvOptions\n")
   })
 
   it("asks for nitro when the app installs neither nitro nor nuxt", async () => {

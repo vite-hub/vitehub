@@ -55,7 +55,7 @@ export type { FileSourceInlineOptions, FileSourceOptions, FileSourcePathOptions 
 export { files } from "./sources/files.ts"
 export type { FilesSourceEntry, FilesSourceOptions } from "./sources/files.ts"
 export { github } from "./sources/github/lazy.ts"
-export type { GitHubPullRequest, GitHubRef, GitHubRefTarget, GitHubSourceOptions } from "./sources/github/types.ts"
+export type { GitHubFileCommit, GitHubHistoryOptions, GitHubPullRequest, GitHubRef, GitHubRefTarget, GitHubSource, GitHubSourceOptions } from "./sources/github/types.ts"
 export { glob } from "./sources/glob.ts"
 export type { GlobInput, GlobSourceOptions } from "./sources/glob.ts"
 export { markdown } from "./sources/markdown.ts"

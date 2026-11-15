@@ -17,10 +17,10 @@ export const viteHubServerImports = {
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
   channels: { "vite-hub/channels": ["defineChannel", "useChannel"] },
   connections: { "vite-hub/connections": ["defineConnection"], "vite-hub/connections/server": ["useConnection"] },
-  database: { "vite-hub/database/drizzle": ["db", "schema", "useDatabase"] },
-  email: { "vite-hub/email/server": ["email"] },
-  // Each app generates its own `#vitehub/env/server` from its Env declarations. Nitro and its types alias it.
-  env: { "#vitehub/env/server": ["useServerEnv"] },
+  database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
+  email: { "vite-hub/email": ["email"] },
+  // Generated Env declarations type the primitive root for each app.
+  env: { "vite-hub/env": ["useServerEnv"] },
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
@@ -34,7 +34,6 @@ export const viteHubServerImports = {
 
 /** The public entries that the table imports from, mapped to their facade source. */
 interface ServerImportEntries {
-  "#vitehub/env/server": { useServerEnv: unknown }
   "vite-hub/agent": typeof import("./agent.ts")
   "vite-hub/auth/server": typeof import("./auth/server.ts")
   "vite-hub/blob": typeof import("./blob.ts")
@@ -42,8 +41,8 @@ interface ServerImportEntries {
   "vite-hub/channels": typeof import("./channels.ts")
   "vite-hub/connections": typeof import("./connections.ts")
   "vite-hub/connections/server": typeof import("./connections/server.ts")
-  "vite-hub/database/drizzle": typeof import("./database/drizzle.ts")
-  "vite-hub/email/server": typeof import("./email/server.ts")
+  "vite-hub/database": typeof import("./database.ts")
+  "vite-hub/email": typeof import("./email.ts")
   "vite-hub/env": typeof import("./env.ts")
   "vite-hub/i18n/server": typeof import("./i18n/server.ts")
   "vite-hub/kv": typeof import("./kv.ts")

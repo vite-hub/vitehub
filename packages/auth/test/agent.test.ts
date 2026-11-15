@@ -11,7 +11,7 @@ const serverMocks = vi.hoisted(() => ({
   getSession: vi.fn(),
 }))
 
-vi.mock("../src/server.ts", () => ({
+vi.mock("../src/internal/server.ts", () => ({
   getAuth: () => ({
     $context: Promise.resolve({ internalAdapter: { findUserById: serverMocks.findUserById } }),
     api: {

@@ -45,7 +45,8 @@ export function docsUi(siteName: string): DocsThemeUi {
       },
       slots: {
         root: "vh-grain-surface border-b border-default h-(--ui-header-height) sticky top-0 z-50",
-        container: "flex items-center justify-between gap-4 h-full max-w-none !ps-[1.125rem] !pe-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)_minmax(0,1fr)]",
+        // The side columns never get narrower than their links, so the search field gives up width instead of covering them.
+        container: "flex items-center justify-between gap-4 h-full max-w-none !ps-[1.125rem] !pe-4 lg:grid lg:grid-cols-[minmax(max-content,1fr)_minmax(12rem,24rem)_minmax(max-content,1fr)]",
         left: "flex min-w-0 items-center gap-8",
         center: "hidden lg:flex lg:w-full lg:items-center",
         right: "flex items-center justify-end gap-1",

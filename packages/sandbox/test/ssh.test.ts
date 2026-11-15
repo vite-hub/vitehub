@@ -221,6 +221,60 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     }
   }, 15000)
 
+  it("connects again until a starting SSH server accepts the connection", async () => {
+    const { root, cwd, server, options } = await fixture()
+    const port = server.port
+    await server.close()
+    await expectRefused(port)
+    const definition = sshLaunch(options)({ command: process.execPath, cwd })
+    const child = spawn(definition.command, [...definition.args, "-e", 'process.stdin.on("data", chunk => process.stdout.write(chunk))'], { stdio: "pipe" })
+    let stdout = ""
+    child.stdout.on("data", chunk => { stdout += chunk })
+    const done = once(child, "close")
+    cleanup.push(async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")
+      await done
+    })
+    // Input sent before the server listens reaches the command after the connection opens.
+    child.stdin.write("sent early\n")
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const restarted = await serveSsh({ hostKeyFile: options.hostKeyFile.slice(0, -".pub".length), authorizedKeyFile: `${options.identityFile}.pub`, user: "agent", cwd: root, host: "127.0.0.1", port })
+    cleanup.push(() => restarted.close())
+    await vi.waitFor(() => expect(stdout).toBe("sent early\n"), { timeout: 10_000 })
+    child.stdin.end()
+    expect((await done)[0]).toBe(0)
+  }, 20000)
+
+  it("cancels preparation while the SSH port refuses connections", async () => {
+    const { server, options, cwd } = await fixture()
+    await server.close()
+    const launch = sshLaunch(options)({ command: process.execPath, cwd })
+    const controller = new AbortController()
+    const preparing = launch.prepare({ abortSignal: controller.signal })
+    const aborted = expect(preparing).rejects.toMatchObject({ name: "AbortError" })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    controller.abort()
+    await aborted
+  }, 15000)
+
+  it("does not repeat a remote side effect when a nested ssh connection is refused", async () => {
+    const { server, cwd } = await fixture()
+    const closedPort = server.port
+    await server.close()
+    // Use a second live server for the outer connection and the closed port for the nested command.
+    const outer = await fixture()
+    const result = outer.launch(["-e", `
+      const { appendFileSync } = require("node:fs")
+      const { spawnSync } = require("node:child_process")
+      appendFileSync(${JSON.stringify(join(cwd, "executions"))}, "x")
+      const child = spawnSync("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
+      process.exitCode = child.status
+    `], { connectRetryMs: 1800 })
+    result.child.stdin.end()
+    expect(await result.done).toMatchObject({ code: 255, stderr: expect.stringContaining("Connection refused") })
+    expect(await readFile(join(cwd, "executions"), "utf8")).toBe("x")
+  }, 15000)
+
   it("closes TCP clients that have not sent SSH identification", async () => {
     const { server } = await fixture()
     const socket = connect({ host: "127.0.0.1", port: server.port, allowHalfOpen: true })
@@ -250,5 +304,64 @@ describe("SSH launch environment", () => {
   it("respects an explicit list while retaining framework-required names", () => {
     const launch = sshLaunch({ ...options, forwardEnvironment: [] })({ command: "codex", cwd: "/workspace", environment: { GH_TOKEN: "secret" }, requiredEnvironment: ["CODEX_HOME"] })
     expect(JSON.parse(launch.args.at(-1)!).forwardEnvironment).toEqual(["CODEX_HOME"])
+  })
+})
+
+describe.skipIf(process.platform === "win32")("SSH launch retry", () => {
+  // A stand-in ssh prints the stderr and exit code for each attempt, so the test controls which failure occurs.
+  async function launchWithFakeSsh(attempts: Array<{ stderr: string, code: number }>, overrides: Partial<SshLaunchOptions> = {}) {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-ssh-retry-"))
+    cleanup.push(() => rm(root, { recursive: true, force: true }))
+    const log = join(root, "attempts")
+    await writeFile(join(root, "ssh"), `#!${process.execPath}
+const { appendFileSync, readFileSync } = require("node:fs")
+appendFileSync(${JSON.stringify(log)}, "x")
+const attempts = ${JSON.stringify(attempts)}
+const attempt = attempts[Math.min(readFileSync(${JSON.stringify(log)}, "utf8").length, attempts.length) - 1]
+const diagnosticIndex = process.argv.indexOf("-E")
+if (diagnosticIndex === -1) process.stderr.write(attempt.stderr)
+else appendFileSync(process.argv[diagnosticIndex + 1], attempt.stderr)
+process.exitCode = attempt.code
+`, { mode: 0o700 })
+    const definition = sshLaunch({ host: "127.0.0.1", user: "agent", identityFile: join(root, "identity"), port: 2222, ...overrides })({ command: "codex", cwd: root })
+    const started = Date.now()
+    const result = await new Promise<{ code: number | null, stderr: string }>((resolve, reject) => {
+      const child = spawn(definition.command, definition.args, { env: { ...process.env, PATH: `${root}:${process.env.PATH}` }, stdio: ["ignore", "ignore", "pipe"] })
+      let stderr = ""
+      child.stderr.on("data", chunk => { stderr += chunk })
+      child.once("error", reject)
+      child.once("close", code => resolve({ code, stderr }))
+    })
+    return { ...result, attempts: (await readFile(log, "utf8")).length, elapsedMs: Date.now() - started }
+  }
+  const refused = { stderr: "ssh: connect to host 127.0.0.1 port 2222: Connection refused\n", code: 255 }
+
+  it("connects again while the SSH port refuses connections", async () => {
+    const result = await launchWithFakeSsh([refused, refused, { stderr: "", code: 0 }])
+    expect(result).toMatchObject({ code: 0, attempts: 3 })
+  })
+
+  it.each([
+    ["an authentication failure", { stderr: "agent@127.0.0.1: Permission denied (publickey).\n", code: 255 }],
+    ["a host key failure", { stderr: "Host key verification failed.\n", code: 255 }],
+    ["a command failure", { stderr: "ssh: connect to host 127.0.0.1 port 2222: Connection refused\n", code: 1 }],
+    ["a command that prints the same text", { stderr: "error: ssh: connect to host 127.0.0.1 port 2222: Connection refused\n", code: 255 }],
+  ])("does not connect again after %s", async (_name, attempt) => {
+    const result = await launchWithFakeSsh([attempt, { stderr: "", code: 0 }])
+    expect(result).toMatchObject({ code: attempt.code, attempts: 1, stderr: attempt.stderr })
+  })
+
+  it("stops connecting again when connectRetryMs passes", async () => {
+    const result = await launchWithFakeSsh([refused], { connectRetryMs: 1000 })
+    expect(result.code).toBe(255)
+    expect(result.attempts).toBeGreaterThan(1)
+    expect(result.elapsedMs).toBeLessThan(5000)
+    expect((await launchWithFakeSsh([refused], { connectRetryMs: 0 })).attempts).toBe(1)
+  }, 10000)
+
+  it("rejects a connectRetryMs that is not a non-negative integer", () => {
+    for (const connectRetryMs of [-1, 1.5, Number.NaN]) {
+      expect(() => sshLaunch({ host: "localhost", user: "agent", identityFile: "/ssh/id_ed25519", connectRetryMs })).toThrow("connectRetryMs")
+    }
   })
 })

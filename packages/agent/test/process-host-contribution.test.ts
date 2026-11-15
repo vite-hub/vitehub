@@ -137,7 +137,7 @@ describe("generated process hosts", () => {
       const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } })
       if (typeof plugin.config !== "function") throw new TypeError("Expected Agent config hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const options = { root, ...(preset ? { preset } : {}), nitro: {} } as never
+      const options = { root, ...(preset ? { vitehub: { host: preset } } : {}), nitro: {} } as never
       plugin.config.call({} as never, options, { command: "build", mode: "production" } as never)
       return options as { nitro: { plugins?: string[], handlers?: { route: string }[] } }
     }

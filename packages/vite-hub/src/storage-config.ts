@@ -12,7 +12,7 @@ import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
   if (typeof options.dataDir !== "string" || !options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
-  if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
+  if (options.host !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node host and a persistent filesystem. Configure remote stores for other hosts." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"
@@ -57,11 +57,24 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
 }
 
 /**
+ * The `file:` Agent State URL that the default journal goes next to on the node host, so one writable directory holds
+ * both. Undefined for other hosts, remote or memory State, and a journal with its own `databaseUrl`.
+ */
+export function agentJournalStateUrl(options: ViteHubOptions): string | undefined {
+  const agent = options.agent
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
+  const state = agent.providers?.state
+  if (!state || (state.driver && !["auto", "sqlite", "libsql"].includes(state.driver)) || typeof state.url !== "string") return
+  const url = state.url.trim()
+  return /^file:/i.test(url) ? url : undefined
+}
+
+/**
  * The D1 binding of the Database primitive on Cloudflare, where the default Agent Invocation journal lives.
  * Read the binding of the default or only Database Definition before integration defaults.
  */
 export function defaultDatabaseD1Binding(
-  preset: string,
+  host: string,
   database: ViteHubOptions["database"],
   definitions?: {
     /** Use the implicit default Database when the app has no Database Definition, as the Vite Database plugin does. */
@@ -70,7 +83,7 @@ export function defaultDatabaseD1Binding(
     serverDirs?: string[]
   },
 ): string | undefined {
-  if (preset !== "cloudflare" || !database) return
+  if (host !== "cloudflare" || !database) return
   if (!definitions) return
   const { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const options = database === true ? undefined : database

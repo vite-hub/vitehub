@@ -45,7 +45,7 @@ import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
 import { isRemoteProject } from "../client/project";
 import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
-import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
+import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, consolePublishPreviewUrl, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
 import { openConsoleTicket } from "../client/ticket";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
@@ -64,7 +64,7 @@ import ConsoleSeoPanel from "./console-seo-panel.vue";
 import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
 
-import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentTranslationState, ConsoleRawDocument } from "../client/documents";
+import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentPublished, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentTranslationState, ConsoleRawDocument } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
@@ -1084,7 +1084,7 @@ async function publish(): Promise<void> {
     // Publish exactly the draft on screen. A deleted document has no draft to expect.
     const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
     const pullRequest = result.pullRequest;
-    if (result.documents.length && pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
+    if (result.documents.length && pullRequest) toast.show({ action: pullRequestAction(pullRequest, result.previews, id.value), title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
     else if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
     notifyChanged();
     previewReloads.value++;
@@ -1318,6 +1318,13 @@ async function openSharedPublish(): Promise<void> {
   }
 }
 
+/** The toast action after a publish opened a pull request: its signed page preview when this Console can open it, else the pull request. */
+function pullRequestAction(pullRequest: { url: string }, previews: ConsoleDocumentPublished["previews"], documentId: string | undefined) {
+  const preview = consolePublishPreviewUrl(previews, documentId, remote ? undefined : window.location.origin);
+  const url = preview ?? pullRequest.url;
+  return { label: preview ? "Open preview" : "Open pull request", onClick: () => void window.open(url, "_blank", "noopener") };
+}
+
 /** Publishes exactly the shared draft that the dialog showed. The local edits stay in this tab. */
 async function publishShared(): Promise<void> {
   const reviewed = sharedPublish.value;
@@ -1333,7 +1340,7 @@ async function publishShared(): Promise<void> {
     sharedPublishOpen.value = false;
     // With `publish: "pr"` the store opens a pull request: nothing is live until it merges.
     const pullRequest = result.pullRequest;
-    if (pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The shared draft goes live when it merges. Your local edits are still here.` });
+    if (pullRequest) toast.show({ action: pullRequestAction(pullRequest, result.previews, props.documentId), title: `Pull request #${pullRequest.number} opened. The shared draft goes live when it merges. Your local edits are still here.` });
     else toast.show({ title: "Shared draft published. Your local edits are still here." });
     notifyChanged();
     previewReloads.value++;

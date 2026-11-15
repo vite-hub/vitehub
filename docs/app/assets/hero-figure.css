@@ -1,0 +1,84 @@
+/* The shared look of the primitive hero figures (app/utils/hero-figure). Scene CSS adds the parts of one figure. */
+.vh-fig{--bg:var(--ui-bg);--fg:var(--ui-text-highlighted);--muted:var(--ui-text-muted);--dim:var(--ui-text-dimmed);--line:var(--ui-border-accented);--soft:var(--ui-bg-elevated);--err:var(--vh-text-error);--ok:var(--vh-text-success);--warn:var(--vh-text-warning);--mono:var(--font-mono);--out:cubic-bezier(.23,1,.32,1);position:relative;margin:0;container-type:inline-size;color:var(--fg);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+.vh-fig *{box-sizing:border-box}
+@media(prefers-reduced-motion:reduce){.vh-fig *{animation:none!important;transition:none!important}}
+/* One figure. No frame. */
+.vh-fig .heads{position:relative;height:40px}
+.vh-fig .head{position:absolute;top:0;left:calc(var(--x)*1%);transform:translateX(-50%);text-align:center;white-space:nowrap}
+.vh-fig .head.l{transform:translateX(-100%);text-align:right}
+.vh-fig .head.r{transform:none;text-align:left}
+.vh-fig .lbl{font-size:14px;font-weight:500}
+.vh-fig .nm{display:block;margin-top:4px;color:var(--muted);font:12px var(--mono)}
+.vh-fig .lane{position:relative;margin-top:14px}
+.vh-fig .lane>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.vh-fig .lane>svg path{fill:none;stroke:var(--line);stroke-width:1;stroke-dasharray:4 5;vector-effect:non-scaling-stroke;transition:opacity 300ms ease,stroke 300ms ease}
+.vh-fig .lane>svg path.solid{stroke-dasharray:none}
+.vh-fig .lane>svg path.dyn{opacity:0}
+.vh-fig .lane>svg path.dyn.on{opacity:1}
+.vh-fig .lane>svg path.err{stroke:var(--err)}
+.vh-fig .lane>svg path.dyn.err{opacity:.5}
+.vh-fig .lane>svg path.ok{stroke:var(--ok)}
+.vh-fig .stop{position:absolute;top:50%;left:0;width:7px;height:7px;border-radius:99px;background:var(--dim);transform:translate(calc(var(--x)*1cqi - 50%),calc(var(--y)*1px - 50%));transition:background-color 300ms ease,box-shadow 300ms ease,opacity 300ms ease}
+.vh-fig .stop.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in oklab,var(--ok) 18%,transparent)}
+.vh-fig .stop.err{background:var(--err);box-shadow:0 0 0 3px color-mix(in oklab,var(--err) 18%,transparent)}
+.vh-fig .stop.on{background:var(--fg)}
+.vh-fig .stop.off{opacity:0}
+.vh-fig .stop.sq{border-radius:2px}
+/* Small text at a place on the lane. It fades in when the scene gives it a value. */
+.vh-fig .txt{position:absolute;top:50%;left:calc(var(--x)*1cqi);font:12px/1.35 var(--mono);white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums;opacity:0;transform:translate(-50%,calc(var(--y)*1px - 50% + 3px));transition:opacity 220ms var(--out),transform 220ms var(--out),color 300ms ease}
+.vh-fig .txt.l{transform:translate(0,calc(var(--y)*1px - 50% + 3px))}
+.vh-fig .txt.r{transform:translate(-100%,calc(var(--y)*1px - 50% + 3px))}
+.vh-fig .txt.on{opacity:1;transform:translate(-50%,calc(var(--y)*1px - 50%))}
+.vh-fig .txt.l.on{transform:translate(0,calc(var(--y)*1px - 50%))}
+.vh-fig .txt.r.on{transform:translate(-100%,calc(var(--y)*1px - 50%))}
+.vh-fig .txt>span{display:inline-block;animation:vh-fig-c 250ms var(--out)}
+.vh-fig .txt.fg{color:var(--fg)}
+.vh-fig .txt.ok{color:var(--ok)}
+.vh-fig .txt.err{color:var(--err)}
+.vh-fig .txt.warn{color:var(--warn)}
+.vh-fig .txt.dim{color:var(--dim)}
+.vh-fig .txt.sm{font-size:11px}
+.vh-fig .txt.sans{font-family:var(--font-sans);font-size:13px}
+.vh-fig .txt.strike>span{text-decoration:line-through}
+.vh-fig .txt.chip>span{padding:3px 8px;border-radius:99px;box-shadow:inset 0 0 0 1px var(--line);background:var(--bg)}
+.vh-fig .txt.chip.ok>span{box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--ok) 45%,transparent)}
+.vh-fig .txt.chip.err>span{box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--err) 45%,transparent)}
+/* A box groups parts: a machine, a page, a table. x and w in percent, y and h in px, y from the lane center. */
+.vh-fig .box{position:absolute;top:50%;left:calc(var(--x)*1cqi);width:calc(var(--w)*1cqi);height:calc(var(--h)*1px);transform:translateY(calc(var(--y)*1px));border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);transition:box-shadow 300ms ease,opacity 300ms ease,background-color 300ms ease}
+.vh-fig .box.dash{box-shadow:none;background:none;outline:1px dashed var(--line);outline-offset:-1px}
+.vh-fig .box.fill{background:var(--soft);box-shadow:none}
+.vh-fig .box.on{box-shadow:inset 0 0 0 1px var(--fg)}
+.vh-fig .box.ok{box-shadow:inset 0 0 0 1px var(--ok)}
+.vh-fig .box.err{box-shadow:inset 0 0 0 1px var(--err)}
+.vh-fig .box.off{opacity:0}
+.vh-fig .box-label{position:absolute;top:-8px;left:10px;padding:0 6px;background:var(--bg);color:var(--muted);font:11px var(--mono)}
+/* A token is one element: a ball, or a pill with text. The flex box keeps the pill centered on the line. */
+.vh-fig .job{position:absolute;top:50%;left:0;display:flex;transform:translate(calc(var(--x)*1cqi - 50% + var(--dx,0)*1px),calc(var(--y)*1px - 50%));opacity:var(--a,1);will-change:transform}
+.vh-fig .body{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--fg);color:transparent;font:12px/1 var(--mono);white-space:nowrap;
+ clip-path:inset(calc(50% - 5px) calc(50% - 5px) round 99px);
+ transition:clip-path 550ms cubic-bezier(.65,0,.35,1) 80ms,color 120ms ease-out,background-color 300ms ease}
+.vh-fig .job.small .body{clip-path:inset(calc(50% - 3.5px) calc(50% - 3.5px) round 99px)}
+.vh-fig .job.open{z-index:1}
+.vh-fig .job.open .body{color:var(--bg);clip-path:inset(0 round 99px);transition:clip-path 650ms cubic-bezier(.65,0,.35,1),color 250ms ease-out 350ms,background-color 300ms ease}
+.vh-fig .job.err .body{background:var(--err)}
+.vh-fig .job.ok .body{background:var(--ok)}
+.vh-fig .job.dim .body{background:var(--dim)}
+.vh-fig .job.warn .body{background:var(--warn)}
+.vh-fig .tail{display:inline-flex;justify-content:center;width:10px}
+.vh-fig .tail:empty:not(.spin){display:none}
+.vh-fig .short{display:none}
+@container (max-width:560px){.vh-fig .full,.vh-fig .head .nm{display:none}
+.vh-fig .short{display:inline}
+.vh-fig .heads{height:22px}
+}
+.vh-fig .spin{width:10px;height:10px;border:1.5px solid color-mix(in oklab,var(--bg) 35%,transparent);border-top-color:var(--bg);border-radius:99px;animation:vh-fig-s 700ms linear infinite}
+@keyframes vh-fig-s{to{transform:rotate(1turn)}
+}
+@keyframes vh-fig-c{from{opacity:0;transform:translateY(4px)}
+}
+.vh-fig.fading .txt,.vh-fig.fading .job{opacity:0!important;transition:opacity 400ms}
+
+/* Scenes that draw their own parts. */
+.vh-fig .lane.stage{overflow:visible}
+.vh-fig .icon{display:inline-block;vertical-align:middle;flex-shrink:0;fill:currentColor}
+.vh-fig .icon-missing{color:var(--err);font:10px var(--mono)}

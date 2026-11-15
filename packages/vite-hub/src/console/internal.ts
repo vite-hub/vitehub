@@ -1,7 +1,7 @@
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
+import type { RuntimeDatabaseEntry } from "@vite-hub/database"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -32,8 +32,14 @@ export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
 }
 
-/** The Console reads each database with `db` and lists its tables from `schema`. */
-export type ConsoleDatabaseEntry = Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
+/** The Console reads each database with `db` and lists its tables from `schema`. A Definition is SQLite or Postgres. */
+export type ConsoleDatabaseEntry =
+  | Pick<RuntimeDatabaseEntry<Record<string, unknown>>, "db" | "schema">
+  | {
+    // Inspection uses the primary query API, including for standalone Drizzle databases without replicas.
+    db: Omit<RuntimeDatabaseEntry<Record<string, unknown>, "postgresql">["db"], "$replica">
+    schema: Record<string, unknown>
+  }
 
 export interface ConsoleDatabaseInspection {
   databases: Record<string, ConsoleDatabaseEntry>

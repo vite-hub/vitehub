@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resolveDBViteConfig } from "@vite-hub/database/config"
 
-import { hubKv } from "../src/vite.ts"
+import { hubKV } from "../src/vite.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -37,8 +37,8 @@ function databasePlugin(root: string, serverDirs?: string[]): Plugin {
 }
 
 /** Runs the plugin as a Vite build does and returns the generated `#vitehub/kv/config` module. */
-async function generatedConfig(root: string, plugins: Plugin[], options?: Parameters<typeof hubKv>[1]): Promise<string> {
-  const plugin = hubKv(undefined, options)
+async function generatedConfig(root: string, plugins: Plugin[], options?: Parameters<typeof hubKV>[1]): Promise<string> {
+  const plugin = hubKV(undefined, options)
   // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.
   const config = { command: "build", envDir: false, mode: "production", plugins, root } as unknown as ResolvedConfig
   await (plugin.configResolved as Hook<[ResolvedConfig], Promise<void>>).handler(config)
@@ -52,11 +52,11 @@ async function generatedConfig(root: string, plugins: Plugin[], options?: Parame
 describe("KV driver inference in a build", () => {
   it("selects the database driver for a Postgres Default Database, and imports the app's databases", async () => {
     const root = await createApp("postgresql")
-    const output = await generatedConfig(root, [databasePlugin(root)], { databaseImport: "vite-hub/database/drizzle", hosting: "node-server" })
+    const output = await generatedConfig(root, [databasePlugin(root)], { databaseImport: "@vite-hub/database/runtime/registry", hosting: "node-server" })
 
     expect(output).toContain(`"driver":"database"`)
     expect(output).toContain(`"inferred":true`)
-    expect(output).toContain(`export const loadDatabases = () => import("vite-hub/database/drizzle").then(module => module.databases);`)
+    expect(output).toContain(`export const loadDatabases = () => import("@vite-hub/database/runtime/registry").then(module => module.databases);`)
   })
 
   it("reads the Database from the integration, also in server directories that KV does not know", async () => {
@@ -82,10 +82,32 @@ describe("KV driver inference in a build", () => {
   })
 })
 
+describe("KV Redis env warning in a build", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("prints the fix once when the build has REDIS_URL and infers the Database", async () => {
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379")
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const root = await createApp("postgresql")
+    const plugin = hubKV(undefined, { hosting: "node-server" })
+    // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.
+    await (plugin.configResolved as Hook<[ResolvedConfig], Promise<void>>).handler({ command: "build", envDir: false, mode: "production", plugins: [databasePlugin(root)], root } as unknown as ResolvedConfig)
+    // SAFETY: buildStart reads only the provider output catalog, which this test does not use.
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+    ;(plugin.buildStart as Hook<[], void>).handler.call({} as never)
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toBe("[vitehub] The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses the table vitehub_kv of the Database \"default\". To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.")
+  })
+})
+
 describe("KV Nitro plugin", () => {
-  async function nitroPlugins(hosting: string, options?: Parameters<typeof hubKv>[0]): Promise<string[] | undefined> {
+  async function nitroPlugins(hosting: string, options?: Parameters<typeof hubKV>[0]): Promise<string[] | undefined> {
     const root = await createApp("sqlite")
-    const plugin = hubKv(options, { hosting })
+    const plugin = hubKV(options, { hosting })
     const nitro = { options: {} as { plugins?: string[] } }
     plugin.nitro.setup(nitro)
     // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.

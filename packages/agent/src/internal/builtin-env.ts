@@ -57,6 +57,8 @@ function importServerEnvModule(): Promise<ServerEnvModule | undefined> {
   serverEnvModule ??= (import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as Promise<ServerEnvModule>)
     .catch((error: unknown) => {
       if (isMissingModule(error)) return undefined
+      // Other failures stay visible, and the next read tries the import again.
+      serverEnvModule = undefined
       throw error
     })
   return serverEnvModule

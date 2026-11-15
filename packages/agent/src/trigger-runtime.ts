@@ -41,6 +41,7 @@ import type {
   ResolvedAgentTriggerTask,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
+import { githubHmacSignatureFormat, verifyViteHubHmacSignature, viteHubHmacSha256 } from "@vite-hub/internal/secret"
 import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -492,51 +493,16 @@ async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256Digest(secret: Uint8Array<ArrayBuffer>, value: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  const key = await globalThis.crypto.subtle.importKey("raw", secret, { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
-  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, value))
-}
-
-function hexDigest(digest: Uint8Array): string {
-  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
 async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  return hexDigest(await hmacSha256Digest(new TextEncoder().encode(secret), value))
+  return [...await viteHubHmacSha256(secret, value)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
 
 function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
-  if (signature === "github-sha256") return { preset: "hmac-sha256", prefix: "sha256=" }
+  if (signature === "github-sha256") return { preset: "hmac-sha256", ...githubHmacSignatureFormat }
   if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
   return undefined
-}
-
-/** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
-export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
-  let binary: string
-  try {
-    binary = atob(value)
-  }
-  catch {
-    return undefined
-  }
-  if (!binary.length || btoa(binary).replace(/=+$/, "") !== value.replace(/=+$/, "")) return undefined
-  return Uint8Array.from(binary, character => character.charCodeAt(0))
-}
-
-// Verifies `<prefix><digest>`, where the digest is the HMAC-SHA256 of the raw body in hex or base64.
-async function verifyHmacSignature(signature: HmacSignaturePreset, secret: string, header: string, rawBody: Uint8Array<ArrayBuffer>): Promise<boolean> {
-  const prefix = signature.prefix ?? ""
-  if (!header.startsWith(prefix)) return false
-  const key = signature.secretEncoding === "base64" ? decodeBase64Key(secret) : new TextEncoder().encode(secret)
-  if (!key) return false
-  const digest = await hmacSha256Digest(key, rawBody)
-  const received = header.slice(prefix.length)
-  if (signature.encoding === "base64") return await constantTimeEqual(btoa(String.fromCharCode(...digest)), received)
-  return await constantTimeEqual(hexDigest(digest), received.toLowerCase())
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
@@ -589,6 +555,10 @@ function webhookVerificationError(message: string): AgentHttpError {
   return new AgentHttpError(401, message)
 }
 
+function unresolvedSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
+  return webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but it resolved to no secret. Configure the secret; secretToken: false explicitly disables verification.`)
+}
+
 export interface AgentWebhookVerificationOptions {
   rawBody?: Uint8Array
   /**
@@ -603,6 +573,7 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
   registrations: AgentWebhookRegistrationDefinition<TRuntimeConfig>[],
   context: AgentCallbackContext<TRuntimeConfig>,
 ): Promise<AgentWebhookVerificationResult> {
+  let unconfigured: AgentWebhookRegistrationDefinition<TRuntimeConfig> | undefined
   for (const registration of registrations) {
     const secretToken = await resolveWebhookSecret(registration.secretToken, context)
     if (secretToken !== undefined && secretToken !== false && typeof secretToken !== "string") {
@@ -615,6 +586,10 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
       if (secretToken) {
         throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.`)
       }
+      if (registration.secretToken !== undefined) {
+        throw unresolvedSecretError(registration)
+      }
+      if (registration.signature === undefined) unconfigured ??= registration
       continue
     }
     if (secretToken === false) {
@@ -625,7 +600,11 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
     }
     throw webhookVerificationError(`[vitehub] Webhook secret header "${secretHeader}" is required.`)
   }
-  return { verified: true }
+  // No registration verified the request. A required check never passes by default.
+  if (unconfigured) {
+    throw webhookVerificationError(`[vitehub] Webhook registration "${unconfigured.id || unconfigured.provider}" declares no verification. Set secretToken with secretHeader, signature: "bearer", or signature: { verify }; secretToken: false explicitly disables verification.`)
+  }
+  throw webhookVerificationError("[vitehub] Webhook secret verification failed.")
 }
 
 export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
@@ -677,6 +656,10 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       return { registration, verified: true }
     }
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
+      // A declared secret that resolves to nothing must not reach `verify` as an empty key.
+      if (!secretToken && registration.secretToken !== undefined) {
+        throw unresolvedSecretError(registration)
+      }
       const rawBody = await readRawBody()
       if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
         return { registration, verified: true }
@@ -704,7 +687,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     }
     const hmacSignature = hmacSignaturePreset(registration.signature)
     if (hmacSignature) {
-      if (await verifyHmacSignature(hmacSignature, secretToken, headerValue, await readRawBody())) {
+      if (await verifyViteHubHmacSignature(secretToken, headerValue, await readRawBody(), hmacSignature)) {
         return { registration, verified: true }
       }
       continue

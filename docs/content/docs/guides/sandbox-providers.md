@@ -36,7 +36,7 @@ Approvals, tool policy, and Capabilities decide what the agent may do. The sandb
 | Startup | Vercel says milliseconds. | Cloudflare says cold starts are often 1 to 3 seconds. | About 1 to 3 seconds with a pulled image in our tests, plus the broker when egress is on. | A local process. | Depends on your host. |
 | Limits | Sessions up to 45 minutes on Hobby, 24 hours on Pro. Up to 8 vCPUs and 16 GB memory on Pro. | From 1/16 vCPU and 256 MiB to 4 vCPUs and 12 GiB. Stops after 10 idle minutes by default. | The limits of your Docker host. Optional `cpus`, `memoryBytes`, and `pidsLimit`. | Your machine's. An optional memory cap on Linux. | Your host's. |
 | Pricing model | Usage based: active CPU, provisioned memory, creations, and data transfer. Hobby includes a monthly allowance. | Workers Paid plan. Billed per 10 ms of active vCPU, memory, and disk, plus Workers and Durable Objects usage. | The cost of your server. | Your server's cost. | Crabbox is free. You pay for the host. |
-| Select it | `runtime: 'vercel'`, or the `vercel` preset for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` preset for Sandbox Tasks | `runtime: { kind: 'container', image }` | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
+| Select it | `runtime: 'vercel'`, or the `vercel` host for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` host for Sandbox Tasks | `runtime: { kind: 'container', image }` | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
 
 Startup and limit values are vendor claims, not our measurements. Sources: [Vercel Sandbox](https://vercel.com/docs/sandbox), [Vercel Sandbox pricing and quotas](https://vercel.com/docs/sandbox/pricing), [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/), [Cloudflare Containers limits](https://developers.cloudflare.com/containers/platform/limits/), [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [Cloudflare container lifecycle](https://developers.cloudflare.com/containers/platform-details/architecture/), and [Crabbox](https://crabbox.sh/).
 
@@ -54,14 +54,14 @@ An Agent Sandbox starts the Codex or Claude Code process and sends it input whil
 
 [Vercel Sandbox](https://vercel.com/docs/sandbox) runs each sandbox in a Firecracker microVM, through the `@vercel/sandbox` SDK. On Vercel, it uses the project environment. Elsewhere, such as Netlify or the Vite dev server, set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`. A session ends after 5 minutes unless you set `timeout`; a Sandbox Task uses its Definition timeout.
 
-Select it for Sandbox Tasks with the `vercel` preset:
+Select it for Sandbox Tasks with the `vercel` host:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'vercel', sandboxTask: true },
+  vitehub: { host: 'vercel', sandboxTask: true },
 })
 ```
 :::
@@ -74,7 +74,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'vercel', sandboxTask: true }),
+    vitehub({ host: 'vercel', sandboxTask: true }),
     nitro(),
   ],
 })
@@ -88,7 +88,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'vercel', sandboxTask: true }),
+    vitehub({ host: 'vercel', sandboxTask: true }),
   ],
 })
 ```
@@ -124,14 +124,14 @@ Vercel offers persistent sandboxes, snapshots, custom images, and drives. ViteHu
 
 [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) runs a container on Cloudflare Containers, which your Worker reaches through a Durable Object. ViteHub generates that Durable Object. It starts the Container through the Workers Container API and uses the `Files` class of `@cloudflare/sandbox` 1.x for files. It needs Workers Paid.
 
-Select it for Sandbox Tasks with the `cloudflare` preset:
+Select it for Sandbox Tasks with the `cloudflare` host:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', sandboxTask: true },
+  vitehub: { host: 'cloudflare', sandboxTask: true },
 })
 ```
 :::
@@ -144,7 +144,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', sandboxTask: true }),
+    vitehub({ host: 'cloudflare', sandboxTask: true }),
     nitro(),
   ],
 })
@@ -158,14 +158,14 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', sandboxTask: true }),
+    vitehub({ host: 'cloudflare', sandboxTask: true }),
   ],
 })
 ```
 :::
 ::
 
-The preset writes the Container, the Durable Object binding, the migration, and the Worker exports. If the container has no image, it generates a Dockerfile:
+The host writes the Container, the Durable Object binding, the migration, and the Worker exports. If the container has no image, it generates a Dockerfile:
 
 - It builds on `node:24-bookworm-slim` with git, curl, jq, and zip.
 - It copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches your `@cloudflare/sandbox` version.
@@ -249,7 +249,7 @@ Neither runtime protects the host from the Agent. Run the Agent only on a host t
 ## Choose a sandbox for AI agents
 
 - Untrusted code: Vercel Sandbox or Cloudflare Sandbox. Never `trusted-host`.
-- An app on Cloudflare Workers: Cloudflare Sandbox. The preset generates the bindings, and an idle container stops billing.
+- An app on Cloudflare Workers: Cloudflare Sandbox. The host generates the bindings, and an idle container stops billing.
 - Long jobs or more CPU: Vercel Sandbox. A Pro session runs up to 24 hours with up to 8 vCPUs. The largest Cloudflare instance has 4.
 - Limited network access: Vercel Sandbox or the `container` runtime. ViteHub passes `networkPolicy` and reports the result.
 - Codex or Claude Code with restricted credentials and network access on native Linux: the `container` runtime.

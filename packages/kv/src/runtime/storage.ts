@@ -7,11 +7,12 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
+import { createKVLock } from "./lock.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -38,7 +39,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }
@@ -103,6 +104,17 @@ async function resolveStorage(name = "default") {
   return promise
 }
 
+/**
+ * The configured driver that a store uses in this server process. App tests return `fs-lite`.
+ * An unknown store throws. Reading the driver does not open a connection to the store.
+ */
+export async function getKVStoreDriver(name: KVStoreName = "default"): Promise<KVDriver> {
+  const config = await resolveHostedConfig()
+  const store = resolveHostedKVStore(config.kv, name)
+  if (getViteHubTestMode()) return "fs-lite"
+  return store.driver
+}
+
 async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   operation: KVOperation,
   name: string,
@@ -117,7 +129,7 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
       return runKVOperation("deleteIfEquals", name, async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
@@ -131,6 +143,7 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
+    async getMany(keys, options) { return runKVOperation("getMany", name, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
@@ -140,11 +153,13 @@ function createKVStorage(name = "default"): KVStorage {
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
+    lock(key, options) { return createKVLock(name, () => resolveStorage(name), key, options) },
     async list(options) {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
+    async setMany(entries, options) { return runKVOperation("setMany", name, async storage => storage.setMany(entries, options), kvWriteLimitCodes) },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })

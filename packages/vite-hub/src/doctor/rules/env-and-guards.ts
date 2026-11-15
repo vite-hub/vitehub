@@ -9,7 +9,8 @@ import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
 
-const serverEnvModule = "#vitehub/env/server"
+/** `vite-hub/env` and the alias that it replaced, so the rules also check apps that `vitehub migrate` did not move yet. */
+const serverEnvModules = ["env", "#vitehub/env/server"]
 
 /** The export name when `reference` is one of `names` from `modules`. */
 function matchExport(reference: ViteHubReference | undefined, modules: readonly string[], names: readonly string[]): string | undefined {
@@ -64,8 +65,8 @@ function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
     const target = unwrap(node)
     if (seen.has(target)) return
     seen.add(target)
-    if (isNodeType(target, "CallExpression") && isExport(r.callee(target), [serverEnvModule], "useServerEnv")) return { path: [], sync: true }
-    if (isNodeType(target, "AwaitExpression") && isNodeType(unwrap(target.argument), "CallExpression") && isExport(r.callee(target.argument), [serverEnvModule], "loadServerEnv")) {
+    if (isNodeType(target, "CallExpression") && isExport(r.callee(target), serverEnvModules, "useServerEnv")) return { path: [], sync: true }
+    if (isNodeType(target, "AwaitExpression") && isNodeType(unwrap(target.argument), "CallExpression") && isExport(r.callee(target.argument), serverEnvModules, "loadServerEnv")) {
       return { path: [], sync: false }
     }
     if (isNodeType(target, "MemberExpression")) {
@@ -368,7 +369,7 @@ export const awaitAsyncHelpers: DoctorRule = createRule({
           }), { range: ctx.range(node) })
           return
         }
-        const helper = matchExport(reference, [serverEnvModule], ["deriveSecret", "loadServerEnv"])
+        const helper = matchExport(reference, serverEnvModules, ["deriveSecret", "loadServerEnv"])
         if (!helper) return
         let misused = readsPromiseAsValue(parent, child)
         if (parent.type === "VariableDeclarator" && parent.init === child) {
@@ -463,11 +464,14 @@ export const checkRateLimitDecision: DoctorRule = createRule({
           || parent.type === "LogicalExpression"
           || ["IfStatement", "WhileStatement", "ConditionalExpression"].includes(parent.type) && parent.test === child
         if (!ignored && !asBoolean) return
+        const result = name === "checkRateLimit()"
         ctx.report(diagnostics.VHUB0008({
           why: ignored
-            ? `\`${name}\` uses a token and returns a decision, but this code ignores the decision. The operation runs when the limit is reached.`
-            : `\`${name}\` returns a decision object, which is always truthy. This check never sees a reached limit.`,
-          fix: "Store the decision and stop the operation when it is not allowed: `if (!decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429.",
+            ? `\`${name}\` uses a token and returns ${result ? "a Result with the decision" : "a decision"}, but this code ignores it. The operation runs when the limit is reached.`
+            : `\`${name}\` returns ${result ? "an `[error, decision]` Result" : "a decision object"}, which is always truthy. This check never sees a reached limit.`,
+          fix: result
+            ? "Read the Result and stop the operation when it is not allowed: `const [error, decision] = await checkRateLimit(...)`, then `if (error || !decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429."
+            : "Store the decision and stop the operation when it is not allowed: `if (!decision.allowed) ...`. Use `requireRateLimit()` to reject with status 429.",
         }), { range: ctx.range(awaited) })
       },
     }

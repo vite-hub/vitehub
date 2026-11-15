@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Page actions: the Markdown twin of the page, chat tools that read it, and the docs MCP server.
-import { CopyButton, useCopy } from "@vite-hub/ui/copy-button"
+import { CopyButton, useCopy } from "@vite-hub/ui"
 import { docsMarkdownLinks, docsMcpInstallLinks, findDocsPage } from "#docs/navigation"
 
 const route = useRoute()

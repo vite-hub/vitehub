@@ -43,8 +43,6 @@ export interface ConsoleSignInMethods {
   github: boolean
 }
 
-const passkeyEmailDomain = "@passkey.invalid"
-
 /** The origin of the Console page. Read without DOM types, like `isRemoteProject()`, for the package's server build. */
 function pageOrigin(): string {
   const location: unknown = Reflect.get(globalThis, "location")
@@ -76,35 +74,6 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   // SAFETY: The Console server owns these routes and their answers.
   return body as T
-}
-
-/**
- * The signed-in account, its teams, and the projects of the active team, or `undefined` before sign-in. With
- * `expectSession`, the page has a session cookie, so the details load together with the session, in one round trip.
- */
-export async function loadConsoleAccount(expectSession = false): Promise<ConsoleAccount | undefined> {
-  const teams = () => auth().organization.list()
-  const member = () => auth().organization.getActiveMember()
-  const list = () => json<{ projects: ConsoleAccountProject[] }>("/api/projects").catch(() => ({ projects: [] }))
-  const early = expectSession ? { teams: teams(), member: member(), projects: list() } : undefined
-  // A stale cookie leaves the early answers unread.
-  if (early) for (const answer of Object.values(early)) void answer.catch(() => undefined)
-  const { data } = await auth().getSession()
-  if (!data?.session) return undefined
-  const teamId: unknown = Reflect.get(data.session, "activeOrganizationId")
-  const [joined, active, projects] = await Promise.all([
-    early?.teams ?? teams(),
-    teamId ? early?.member ?? member() : undefined,
-    teamId ? early?.projects ?? list() : { projects: [] },
-  ])
-  return {
-    user: { id: data.user.id, name: data.user.name, email: data.user.email, image: data.user.image },
-    hasEmail: !data.user.email.endsWith(passkeyEmailDomain),
-    teams: (joined.data ?? []).map(team => ({ id: team.id, name: team.name, slug: team.slug })),
-    ...(String(teamId) === teamId ? { teamId } : {}),
-    roles: String(active?.data?.role ?? "").split(",").map(role => role.trim()).filter(Boolean),
-    projects: projects.projects,
-  }
 }
 
 let signInMethods: Promise<ConsoleSignInMethods> | undefined
@@ -315,17 +284,6 @@ export async function linkConsoleAccountProject(url: string, label?: string): Pr
 export async function unlinkConsoleAccountProject(id: string): Promise<void> {
   const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
   if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
-}
-
-/** Whether the person may link and unlink projects of the active team. */
-export function canManageConsoleProjects(account: ConsoleAccount): boolean {
-  return account.roles.includes("owner") || account.roles.includes("admin")
-}
-
-/** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */
-export function consoleInvitationOf(pathname: string): string | undefined {
-  const match = /^\/invite\/([^/]+)\/?$/.exec(pathname)
-  return match ? decodeURIComponent(match[1]!) : undefined
 }
 
 /** The sign-in methods that Account settings lists: the passkeys, the linked providers, and what this Console offers. */

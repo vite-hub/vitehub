@@ -87,7 +87,7 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
       dependencies: {
         "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
         "drizzle-orm": "1.0.0-rc.5",
-        nuxt: "4.5.2",
+        nuxt: "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
         vite: "8.2.2",
       },
       packageManager: "pnpm@12.16.1",
@@ -97,6 +97,7 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
+import { defineHandler } from "nitro/h3"
 import { codexDriver, defineAgent, runAgent } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
@@ -110,7 +111,7 @@ const capability = mcp({
   },
 })
 
-export default defineEventHandler(async () => {
+export default defineHandler(async () => {
   let mcp = "loaded"
   let provider = "loaded"
   try {

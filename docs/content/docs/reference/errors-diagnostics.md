@@ -36,7 +36,7 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 ## Diagnostic codes
 
-Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Other packages still use numbered codes:
+New codes use names: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Codes that a package published with a number keep it:
 
 | Format | Catalog group |
 | --- | --- |
@@ -77,6 +77,12 @@ Packages that do not follow the error contract yet keep the `ViteHubError` contr
 `ViteHubError` copies and freezes its public `name`, `code`, `message`, `details`, and `requestId` when created. `toJSON()` omits its `cause`. Public details must be bounded JSON data.
 
 Use an operational code to choose what your app does. Use a Nostics code to find and fix ViteHub config, build, or runtime code.
+
+<a id="durability"></a>
+
+## Durability diagnostics
+
+A Node server throws `RUNTIME_R0017` at boot when `VITEHUB_INSTANCES` or `node.instances` is greater than 1 and a primitive keeps its state in one process or on one host. The message lists each primitive with its fix. Move each one to a shared store, or run one instance. `RUNTIME_R0018` means that the instance count is not a positive integer. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances).
 
 ## Agent diagnostics
 

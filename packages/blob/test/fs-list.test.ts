@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -9,13 +9,14 @@ import { createDriver } from "../src/drivers/fs.ts"
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>()
-  return { ...fs, readFile: vi.fn(fs.readFile), stat: vi.fn(fs.stat) }
+  return { ...fs, readdir: vi.fn(fs.readdir), readFile: vi.fn(fs.readFile), stat: vi.fn(fs.stat) }
 })
 
 const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
 const directories: string[] = []
 
 afterEach(async () => {
+  vi.mocked(readdir).mockClear()
   vi.mocked(readFile).mockClear()
   vi.mocked(stat).mockReset().mockImplementation(fs.stat)
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
@@ -104,4 +105,73 @@ it("reads only the direct blobs selected for each folded page", async () => {
     cursor = page.cursor
   }
   expect(cursor).toBeUndefined()
+})
+
+async function folderFixture(folders: number, files: number) {
+  const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-list-"))
+  directories.push(base)
+  for (let folder = 0; folder < folders; folder++) {
+    await mkdir(join(base, `f${folder}`))
+    await Promise.all(Array.from({ length: files }, (_, file) => writeFile(join(base, `f${folder}`, `${file}.txt`), "x")))
+  }
+  return { base, driver: createDriver({ base, driver: "fs" }) }
+}
+
+function blobDirectoryReads(base: string) {
+  const internal = join(base, ".vitehub")
+  return vi.mocked(readdir).mock.calls.map(([path]) => String(path)).filter(path => path !== internal && !path.startsWith(`${internal}/`))
+}
+
+it("reads only the directories on the prefix path", async () => {
+  const { base, driver } = await folderFixture(5, 3)
+  vi.mocked(readdir).mockClear()
+
+  const page = await driver.list({ prefix: "f3/" })
+
+  expect(page.blobs.map(blob => blob.pathname)).toEqual(["f3/0.txt", "f3/1.txt", "f3/2.txt"])
+  expect(blobDirectoryReads(base)).toEqual([base, join(base, "f3")])
+})
+
+it("reads only the directories a page reaches", async () => {
+  const { base, driver } = await folderFixture(5, 3)
+  const first = await driver.list({ limit: 4 })
+  vi.mocked(readdir).mockClear()
+
+  const second = await driver.list({ cursor: first.cursor, limit: 4 })
+
+  expect(second.blobs.map(blob => blob.pathname)).toEqual(["f1/1.txt", "f1/2.txt", "f2/0.txt", "f2/1.txt"])
+  expect(blobDirectoryReads(base)).toEqual([base, join(base, "f1"), join(base, "f2")])
+})
+
+it.each([false, true])("does not repeat or skip keys when a key is added between pages (folded: %s)", async (folded) => {
+  const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-list-"))
+  directories.push(base)
+  await Promise.all(["b.txt", "d.txt", "f.txt"].map(name => writeFile(join(base, name), name)))
+  const driver = createDriver({ base, driver: "fs" })
+
+  const first = await driver.list({ folded, limit: 2 })
+  await writeFile(join(base, "a.txt"), "a")
+  await writeFile(join(base, "e.txt"), "e")
+  const second = await driver.list({ cursor: first.cursor, folded, limit: 2 })
+
+  expect(first.blobs.map(blob => blob.pathname)).toEqual(["b.txt", "d.txt"])
+  expect(second.blobs.map(blob => blob.pathname)).toEqual(["e.txt", "f.txt"])
+  expect(second.hasMore).toBe(false)
+})
+
+it("sorts keys by code unit so a folder stays next to its keys", async () => {
+  const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-list-"))
+  directories.push(base)
+  const driver = createDriver({ base, driver: "fs" })
+  for (const pathname of ["a/b.txt", "a.txt", "B.txt", "a-c.txt", "a0.txt"]) await driver.put(pathname, pathname)
+
+  const keys: string[] = []
+  let cursor: string | undefined
+  do {
+    const page = await driver.list({ cursor, limit: 1 })
+    keys.push(...page.blobs.map(blob => blob.pathname))
+    cursor = page.cursor
+  } while (cursor)
+
+  expect(keys).toEqual(["B.txt", "a-c.txt", "a.txt", "a/b.txt", "a0.txt"])
 })

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { budgetParks, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
-import { dailyPassResumeAt } from '../src/babysitter/inbox/budgets.ts'
+import { dailyPassResumeAt, repairPushAllowance } from '../src/babysitter/inbox/budgets.ts'
 
 const repository = 'vite-hub/vitehub'
 const pr = (head = 'a') => ({ number: 7, state: 'open', head: { sha: head, ref: 'fix' }, base: { ref: 'main' } })
@@ -382,8 +382,41 @@ test('a pass whose wait loses to a new event on the same head still uses the no-
       check_run: { id: 100 + index, name: 'lint', head_sha: 'a', status: 'completed', conclusion: 'success', app: { id: 1 }, pull_requests: [{ number: 7 }] } })
     assert.equal(await inbox.finish(claim, { text: 'Needs a maintainer', progress: { kind: 'no-progress' }, wait: { kind: 'external', reason: 'Needs a maintainer', evidenceKey: 'maintainer' } }), false)
   }
-  assert.deepEqual((await inbox.get(repository, 7))?.progressBudget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
+  const { exhaustedAt, ...budget } = (await inbox.get(repository, 7))!.progressBudget!
+  assert.deepEqual(budget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
+  assert.equal(typeof exhaustedAt, 'number')
   assert.equal((await inbox.claim(1)).length, 0)
+})
+
+test('an exhausted head waits three hours, then gets one more pass without a person', async t => {
+  // 2026-10-19: exhausted heads waited for a person to push until someone noticed.
+  let now = Date.UTC(2026, 9, 19)
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3 }, clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const wait = { reason: 'Required checks pending', evidenceKey: 'checks:pending' }
+  for (let index = 0; index < 3; index++) {
+    const claim = (await inbox.claim(1))[0]!
+    assert.ok(claim)
+    await inbox.finish(claim, { text: 'No progress', progress: { kind: 'no-progress' }, wait })
+    if (index < 2) assert.equal(await inbox.wake((await inbox.get(repository, 7))!, `checks:${index}`), true)
+  }
+  const parked = (await inbox.get(repository, 7))!
+  assert.equal(parked.progressBudget?.exhausted, true)
+  assert.equal(parked.wait?.retryAt, now + 3 * 60 * 60_000)
+  assert.equal(await inbox.wake(parked, 'early'), true)
+  assert.equal((await inbox.claim(1)).length, 0, 'a wake before the cooldown keeps the budget spent')
+  const claim = (await inbox.claim(1, { includeBlocked: true }))[0]!
+  await inbox.finish(claim, { text: 'Budget spent', wait })
+  now += 3 * 60 * 60_000
+  assert.equal(await inbox.wake((await inbox.get(repository, 7))!, 'cooldown'), true)
+  const [retried] = await inbox.claim(1)
+  assert.ok(retried, 'the cooldown gives the head one more pass')
+  assert.equal(retried.snapshot.progressBudget?.resetReason, 'cooldown')
+  await inbox.finish(retried, { text: 'Still no progress', progress: { kind: 'no-progress' }, wait })
+  const again = (await inbox.get(repository, 7))!
+  assert.equal(again.progressBudget?.exhausted, true)
+  assert.equal(again.wait?.retryAt, now + 3 * 60 * 60_000)
 })
 
 async function exhaust(inbox: PullRequestInbox) {
@@ -446,6 +479,35 @@ test('counts each review-driven push once and shows the count in the summary', a
   assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 2, heads: ['b', 'c', 'd', 'a'] })
 })
 
+test('settles automated review after minorReviewRounds heads in a row with nothing above P2', async t => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3, reviewPushes: 3, minorReviewRounds: 2 } })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const pass = async (id: number, head: string, automatedReview: 'P1' | 'P2' | 'none') => {
+    await inbox.seed(repository, pr(head))
+    await wake(inbox, id)
+    const [claim] = await inbox.claim(1)
+    assert.ok(claim)
+    claim.automatedReview = automatedReview
+    assert.ok(await inbox.finish(claim, { text: 'done', progress: { kind: 'no-progress' } }))
+  }
+  await pass(1, 'a', 'P2')
+  // A P0 or P1 starts the count again.
+  await pass(2, 'b', 'P1')
+  await pass(3, 'c', 'none')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 0, heads: [], minorHeads: ['c'] })
+  // The same head assessed again is not a second round.
+  await pass(4, 'c', 'P2')
+  assert.equal((await inbox.get(repository, 7))?.reviewPushBudget?.count, 0)
+  await pass(5, 'd', 'P2')
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 3, heads: ['d'], minorHeads: ['c', 'd'] })
+  // A later push keeps the record.
+  await wake(inbox, 6)
+  const [claim] = await inbox.claim(1)
+  assert.ok(await inbox.finish(claim!, { text: 'done', progress: { kind: 'verified', evidence: 'push:e', reviewDriven: true } }))
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 4, heads: ['d', 'e'], minorHeads: ['c', 'd'] })
+})
+
 test('records no review pushes when the budget is disabled', async t => {
   const inbox = memory(t)
   await inbox.seed(repository, pr())
@@ -498,4 +560,35 @@ test('lists a daily budget park with the time it resumes', async t => {
   const resumeAt = Date.parse('2026-10-20T00:00:00Z')
   assert.ok(await inbox.finish(claim!, { text: 'Daily pass budget spent.', wait: { reason: 'daily-pass-budget', evidenceKey: 'k', retryAt: resumeAt } }))
   assert.deepEqual(budgetParks(await inbox.summary()), [{ repository, number: 7, budget: 'daily-pass-budget', reason: 'Daily pass budget spent.', resumeAt: '2026-10-20T00:00:00.000Z' }])
+})
+
+test('gives back a pass and its exemption that the provider failed', async t => {
+  let now = Date.parse('2026-10-20T00:00:00Z')
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { dailyPasses: 2 }, clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1)
+  const first = await inbox.recordModelPass(claim!)
+  now += 60_000
+  const failed = await inbox.recordModelPass(claim!, 'required-failure:a')
+  assert.ok(first && failed)
+  assert.ok(await inbox.releaseModelPass(claim!, failed, 'required-failure:a'))
+  assert.deepEqual((await inbox.get(repository, 7))?.dailyPassBudget, { passes: [first], exemptions: [] })
+  assert.equal(await inbox.releaseModelPass(claim!, failed, 'required-failure:a'), false)
+})
+
+test('lets a PR push past its daily push budget only for conflicts, priority and spaced CI repairs', () => {
+  const hour = 60 * 60_000
+  const now = 10 * 24 * hour
+  const five = [10, 8, 6, 4, 3].map(hours => now - hours * hour)
+  const state = { requiredChecks: 'passed', conflicted: false, priority: false, now }
+  assert.deepEqual(repairPushAllowance(five.slice(1), 5, state), { allowed: true, count: 4 })
+  assert.deepEqual(repairPushAllowance(five, 5, state), { allowed: false, count: 5, nextAt: five[0]! + 24 * hour })
+  assert.deepEqual(repairPushAllowance(five, 5, { ...state, conflicted: true }), { allowed: true, count: 5 })
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 5, { ...state, requiredChecks: 'unknown', priority: true }), { allowed: true, count: 6 })
+  // Failing required checks still get one push every two hours.
+  assert.deepEqual(repairPushAllowance(five, 5, { ...state, requiredChecks: 'failed' }), { allowed: true, count: 5, spaced: true })
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 5, { ...state, requiredChecks: 'failed' }), { allowed: false, count: 6, nextAt: now + hour })
+  // Pushes older than a day do not count.
+  assert.deepEqual(repairPushAllowance([now - 25 * hour, ...five.slice(1)], 5, state), { allowed: true, count: 4 })
 })

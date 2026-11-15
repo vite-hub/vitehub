@@ -1,6 +1,6 @@
 import { byteRangeBounds } from "../internal/byte-range.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
-import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
+import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
@@ -102,9 +102,12 @@ function encodePathname(pathname: string): string {
 }
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
+  }
   const accountId = runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID")
-  const accessKeyId = runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID")
-  const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+  const accessKeyId = r2Credential(options, "accessKeyId")
+  const secretAccessKey = r2Credential(options, "secretAccessKey")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
     throw blobErrorDiagnostics.BLOB_R0002({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })
@@ -148,6 +151,16 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     },
     async resumeMultipartUpload(pathname, uploadId) {
       return toDriverMultipartUpload(getBucket(options).resumeMultipartUpload(pathname, uploadId))
+    },
+    // An R2 binding has no copy. The object body streams into the new object, with its HTTP and custom metadata.
+    async copy(from, to) {
+      const bucket = getBucket(options)
+      const source = await bucket.get(from)
+      if (!source) return null
+      return mapObject(await bucket.put(to, source.body ?? await readArrayBuffer(source), {
+        customMetadata: source.customMetadata,
+        httpMetadata: source.httpMetadata,
+      }))
     },
     async delete(pathnames) {
       await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => getBucket(options).delete(pathname)))

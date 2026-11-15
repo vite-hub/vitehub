@@ -127,6 +127,19 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.list()).resolves.toEqual([])
     expect(blobMock.list).toHaveBeenCalledTimes(2)
   })
+  it("loads @vercel/blob again on the next call after a failed load", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const importPeer = globalThis.__vitehubWorkspaceImportVercelBlobPeer
+    globalThis.__vitehubWorkspaceImportVercelBlobPeer = async () => {
+      globalThis.__vitehubWorkspaceImportVercelBlobPeer = importPeer
+      throw new Error("transient @vercel/blob import failure")
+    }
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await expect(store.readFile("notes.md")).rejects.toThrow("transient @vercel/blob import failure")
+    await expect(store.readFile("notes.md")).resolves.toBeUndefined()
+  })
 
   it("prefers current-root entries over legacy entries", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"

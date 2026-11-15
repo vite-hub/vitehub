@@ -35,7 +35,7 @@ const isDev = process.env.NODE_ENV === 'development'
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
+  vitehub: { host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
 })
 ```
 ::::
@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
-      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({ host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
       nitro(),
     ],
   }
@@ -69,7 +69,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
-      vitehub({ preset: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({ host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
     ],
   }
 })

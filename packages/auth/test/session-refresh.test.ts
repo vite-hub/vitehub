@@ -2,10 +2,11 @@ import { memoryAdapter } from "better-auth/adapters/memory"
 import { APIError, betterAuth } from "better-auth"
 import { describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
-import { createAuth, handleAuthRequest, withAuth } from "../src/server.ts"
+import { createAuth, handleAuthRequest, withAuth } from "../src/internal/server.ts"
 import { getAuthenticationSession } from "../src/session.ts"
 
 import type { AuthDefinition, AuthSessionRefresh } from "../src/index.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:3000"
 const secret = "vitehub-session-refresh-test-secret-2f8a9c1e7b"
@@ -15,9 +16,10 @@ interface MemoryRow { [key: string]: unknown }
 
 function createStoredAuth(onRefresh: AuthSessionRefresh, updateAge = 0) {
   const db: Record<string, MemoryRow[]> = { account: [], session: [], user: [], verification: [] }
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
-    runtime: { database: memoryAdapter(db), secret },
+    database: memoryAdapter(db),
+    secret,
     session: {
       additionalFields: { plan: { required: false, type: "string" } },
       // 0 refreshes on every read, so one request reaches the refresh path.
@@ -175,9 +177,9 @@ describe("session.onRefresh without a database", () => {
   })
 
   it("fails configuration, because Better Auth has no stateless refresh hook", () => {
-    const definition = defineAuth({ session: { onRefresh: ({ refresh }) => refresh() } })
+    const definition = defineAuth(() => ({ secret, session: { onRefresh: ({ refresh }) => refresh() } }))
 
-    expect(() => createAuth(definition, { secret })).toThrow(expect.objectContaining({ code: "AUTH_C0042" }))
+    expect(() => createAuth(definition)).toThrow(expect.objectContaining({ code: "AUTH_C0042" }))
   })
 
   it("rejects a value that is not a function", () => {

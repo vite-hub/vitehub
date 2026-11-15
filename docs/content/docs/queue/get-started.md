@@ -27,7 +27,7 @@ In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloud
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare', queue: true },
 })
 ```
 ::::
@@ -40,7 +40,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
 })
 ```
 ::::
@@ -52,13 +52,13 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 ::::
 :::
 
-- `preset: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
+- `host: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
 - `queue: true` turns on Queue.
 
 For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
@@ -250,7 +250,7 @@ The second argument is the payload, as JSON. Add `--url` to send to a deployed a
 ::details{summary="Options, access, and errors of the CLI commands"}
 Both commands call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
-`--delay-seconds`, `--id`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
+`--delay-seconds` and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
 
 Access needs the `queues` section. A read-only grant (`queues:read`) can list but not send.
 

@@ -1,6 +1,7 @@
+import { scriptNonce } from "@vite-hub/internal/runtime/page-tools"
 import { describe, expect, it } from "vitest"
 
-import { consolePageBoot, renderConsolePage } from "../src/page.ts"
+import { consoleAccountPath, consolePageBoot, consolePagePolicy, renderConsolePage } from "../src/page.ts"
 
 const session = "__Secure-better-auth.session_token=abc"
 const visit = (path: string, cookie?: string) => new Request(`https://console.example.com${path}`, cookie ? { headers: { cookie } } : {})
@@ -31,5 +32,29 @@ describe("renderConsolePage", () => {
     expect(renderConsolePage(html, visit("/team", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team"')
     expect(renderConsolePage(html, visit("/", session))).toContain('data-vitehub-boot="shell" data-vitehub-page=""')
     expect(renderConsolePage(html, visit("/"))).toContain('data-vitehub-boot="sign-in" data-vitehub-page=""')
+  })
+
+  it("starts the account read in the HTML when the request has a session, before the page code loads", () => {
+    const page = `<html><head><meta charset="UTF-8"><script type="module" src="/assets/console.js"></script></head><body>${html}</div></body></html>`
+    const preload = `<link rel="preload" href="${consoleAccountPath}" as="fetch" crossorigin>`
+    expect(consoleAccountPath).toBe("/api/account")
+    for (const path of ["/", "/team", "/logs"]) {
+      const rendered = renderConsolePage(page, visit(path, session))
+      expect(rendered, path).toContain(`<head>\n    ${preload}`)
+      expect(rendered.indexOf(preload), path).toBeLessThan(rendered.indexOf("<script"))
+    }
+    // Without a session cookie, and on an invitation, the page reads nothing before it knows that it needs to.
+    expect(renderConsolePage(page, visit("/"))).not.toContain('rel="preload"')
+    expect(renderConsolePage(page, visit("/invite/abc", session))).not.toContain('rel="preload"')
+  })
+})
+
+describe("consolePagePolicy", () => {
+  it("gives each page a new script nonce that the page tools read, so their check is not blocked", () => {
+    const first = consolePagePolicy()
+    const nonce = scriptNonce(new Headers({ "content-security-policy": first }))
+    expect(nonce).toMatch(/^[\w+/]{22}==$/)
+    expect(first).toContain(`script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'`)
+    expect(scriptNonce(new Headers({ "content-security-policy": consolePagePolicy() }))).not.toBe(nonce)
   })
 })

@@ -23,6 +23,7 @@ import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
+import ConsoleWorkspaceBrowser from "./console-workspace-browser.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSection from "./console-section.vue";
 
@@ -39,6 +40,8 @@ const props = defineProps<{
   sectionsBase: string;
   /** Console route of the `workflow.*` operations. Set on the Workflows section. */
   workflowBase?: string;
+  /** Console route of `workspaces.files`. Set on a section with the `workspace-browser` view. */
+  workspaceFilesBase?: string;
 }>();
 
 interface ConsoleSectionEntry {
@@ -68,7 +71,9 @@ function clearSearch(): void {
 }
 const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
-const catalogView = computed(() => props.details.view.kind === "definition-catalog");
+// A Workspace browser lists its Definitions like a catalog. The main view browses the selected Workspace.
+const workspaceBrowser = computed(() => props.details.view.kind === "workspace-browser" && Boolean(props.workspaceFilesBase));
+const catalogView = computed(() => props.details.view.kind === "definition-catalog" || props.details.view.kind === "workspace-browser");
 const recordColumns = computed(() => props.details.view.kind === "record-table" ? props.details.view.columns : []);
 const selectionQuery = computed(() => catalogView.value ? "definition" : "record");
 const itemsTitle = computed(() => catalogView.value ? `${sectionDetails.value.label} Definitions` : sectionDetails.value.label);
@@ -204,7 +209,8 @@ async function loadDefinitions(): Promise<void> {
   request = controller;
   loading.value = true;
   const current = section.value;
-  const kind = props.details.view.kind;
+  // A Workspace browser lists catalog content. Its main view reads the files itself.
+  const kind = props.details.view.kind === "workspace-browser" ? "definition-catalog" : props.details.view.kind;
   try {
     const installed = parseConsoleSectionContent(
       await requestConsole(props.definitionsBase, {
@@ -253,6 +259,11 @@ function selectDefinition(name: string): void {
     const query = { ...route.query, [selectionQuery.value]: name };
     // A new Rate Limit starts without a counter; history entries keep their own keys.
     if (section.value === "rate-limits") delete query.key;
+    if (section.value === "workspaces") {
+      delete query.ref;
+      delete query.revision;
+      delete query.file;
+    }
     void router.push({ query });
   } else {
     // Commit the selection with its URL so the counter reads the destination's key.
@@ -524,6 +535,12 @@ onBeforeUnmount(() => request?.abort());
           :icon="sectionDetails.icon"
           title="No definition selected"
           :description="entries.length ? 'Choose one from the sidebar to see its metadata.' : 'Nothing to show yet.'"
+        />
+        <ConsoleWorkspaceBrowser
+          v-else-if="workspaceBrowser && workspaceFilesBase"
+          class="min-h-0 flex-1"
+          :base="workspaceFilesBase"
+          :name="selectedDefinition.name"
         />
         <main v-else class="mx-auto grid w-full max-w-3xl gap-8 p-4 sm:p-6">
           <header class="grid gap-3">

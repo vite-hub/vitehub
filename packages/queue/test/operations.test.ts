@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { queueOperations } from "../src/operations.ts"
 import { closeLocalQueues, createLocalQueueRuntimeClient, startLocalQueue } from "../src/internal/runtime/local-client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
@@ -65,7 +66,7 @@ describe("queue operations", () => {
   it("fails to list when Queue is disabled", async () => {
     setQueueRuntimeConfig(false)
 
-    await expect(run("queue.list", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED", status: 409 })
+    await expect(run("queue.list", {})).rejects.toMatchObject({ code: "QUEUE_DISABLED", status: 409, fix: queueErrorDiagnostics.QUEUE_DISABLED().fix })
   })
 
   it("sends one job through the provider client", async () => {
@@ -140,41 +141,43 @@ describe("queue job operations", () => {
     })
     await installDev(handler)
 
-    await expect(run("queue.send", { id: "job-1", payload: { email: "ada@example.com" }, queue: "welcome" })).resolves.toMatchObject({ messageId: "job-1", provider: "local" })
+    const sent = await run("queue.send", { payload: { email: "ada@example.com" }, queue: "welcome" }) as { messageId: string, provider: string }
+    expect(sent).toMatchObject({ messageId: expect.stringMatching(/^queue_/), provider: "local" })
+    const id = sent.messageId
     // Cloudflare rules: 4 attempts, and a retry runs at once.
     await vi.waitFor(async () => {
-      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ attempts: 4, id: "job-1", state: "dead" }] })
+      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ attempts: 4, id, state: "dead" }] })
     })
     expect(handler).toHaveBeenCalledTimes(4)
     await expect(run("queue.list", {})).resolves.toMatchObject({ provider: "local", queues: [{ dead: 1, name: "welcome" }], rules: "cloudflare" })
     await expect(run("queue.jobs-list", { state: "pending" })).resolves.toMatchObject({ jobs: [], provider: "local", rules: "cloudflare" })
-    await expect(run("queue.jobs-show", { id: "job-1" })).resolves.toMatchObject({
-      job: { error: { code: "WELCOME_REJECTED", message: "Mailer rejected the address." }, id: "job-1", payload: { email: "ada@example.com" }, queue: "welcome", state: "dead" },
+    await expect(run("queue.jobs-show", { id })).resolves.toMatchObject({
+      job: { error: { code: "WELCOME_REJECTED", message: "Mailer rejected the address." }, id, payload: { email: "ada@example.com" }, queue: "welcome", state: "dead" },
     })
 
     fail = false
-    await expect(run("queue.jobs-retry", { id: "job-1" })).resolves.toMatchObject({ job: { attempts: 0, id: "job-1" } })
+    await expect(run("queue.jobs-retry", { id })).resolves.toMatchObject({ job: { attempts: 0, id } })
     await vi.waitFor(async () => {
       expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [] })
     })
     expect(handler).toHaveBeenCalledTimes(5)
-    expect(handler).toHaveBeenLastCalledWith({ attempts: 1, id: "job-1", payload: { email: "ada@example.com" } })
+    expect(handler).toHaveBeenLastCalledWith({ attempts: 1, id, payload: { email: "ada@example.com" } })
 
-    await run("queue.send", { delaySeconds: 3600, id: "job-2", payload: {}, queue: "welcome" })
-    await expect(run("queue.jobs-list", {})).resolves.toMatchObject({ jobs: [{ id: "job-2", state: "pending" }] })
+    const { messageId: later } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    await expect(run("queue.jobs-list", {})).resolves.toMatchObject({ jobs: [{ id: later, state: "pending" }] })
     await expect(run("queue.jobs-clear", { state: "dead" })).resolves.toEqual({ cleared: 0 })
     await expect(run("queue.jobs-clear", {})).resolves.toEqual({ cleared: 1 })
-    await expect(run("queue.jobs-show", { id: "job-2" })).rejects.toMatchObject({ code: "QUEUE_JOB_NOT_FOUND", status: 404 })
+    await expect(run("queue.jobs-show", { id: later })).rejects.toMatchObject({ code: "QUEUE_JOB_NOT_FOUND", status: 404 })
   })
 
   it("shows the message and stack of a plain Error in `vite dev`", async () => {
     await installDev(async () => { throw new Error("SMTP down") })
 
-    await run("queue.send", { id: "job-1", payload: {}, queue: "welcome" })
+    const { messageId: id } = await run("queue.send", { payload: {}, queue: "welcome" }) as { messageId: string }
     await vi.waitFor(async () => {
-      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id: "job-1", state: "dead" }] })
+      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id, state: "dead" }] })
     })
-    const shown = await run("queue.jobs-show", { id: "job-1" }) as { job: { error?: { message: string, stack?: string } } }
+    const shown = await run("queue.jobs-show", { id }) as { job: { error?: { message: string, stack?: string } } }
     expect(shown.job.error).toMatchObject({ message: "SMTP down", name: "Error" })
     expect(shown.job.error?.stack).toContain("operations.test.ts")
     const format = operation("queue.jobs-show").cli?.format as (result: unknown) => string
@@ -184,11 +187,11 @@ describe("queue job operations", () => {
   it("keeps the fixed message for a plain Error outside `vite dev`", async () => {
     await installDev(async () => { throw new Error("SMTP down for ada@example.com") }, false)
 
-    await run("queue.send", { id: "job-1", payload: {}, queue: "welcome" })
+    const { messageId: id } = await run("queue.send", { payload: {}, queue: "welcome" }) as { messageId: string }
     await vi.waitFor(async () => {
-      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id: "job-1", state: "dead" }] })
+      expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ id, state: "dead" }] })
     })
-    const shown = await run("queue.jobs-show", { id: "job-1" }) as { job: { error?: unknown } }
+    const shown = await run("queue.jobs-show", { id }) as { job: { error?: unknown } }
     expect(shown.job.error).toEqual({ message: "[vitehub] Queue Delivery failed.", name: "Error" })
   })
 
@@ -196,8 +199,8 @@ describe("queue job operations", () => {
     const handler = vi.fn(async () => {})
     await installDev(handler)
 
-    await run("queue.send", { delaySeconds: 3600, id: "later", payload: {}, queue: "welcome" })
-    await run("queue.jobs-retry", { id: "later" })
+    const { messageId: id } = await run("queue.send", { delaySeconds: 3600, payload: {}, queue: "welcome" }) as { messageId: string }
+    await run("queue.jobs-retry", { id })
     await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
   })
 

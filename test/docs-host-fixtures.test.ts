@@ -275,7 +275,7 @@ describe("host documentation fixtures", () => {
         ["build", appRoot, "--config", join(appRoot, "vite.config.ts")],
         context,
         repoRoot,
-        { VITEHUB_HOSTING: host === "node-self-hosted" ? "node" : host },
+        { VITEHUB_HOST: host === "node-self-hosted" ? "node" : host },
         process.platform === "win32",
       )
 

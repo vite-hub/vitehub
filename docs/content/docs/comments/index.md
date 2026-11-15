@@ -8,48 +8,50 @@ icon: i-lucide-message-square-text
 ---
 
 ::product-hero{tagline="Pin comments on any page of your site, sign in with GitHub, and post threads to the preview's pull request." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
-  :::code-tree
-  ```ts [vite.config.ts]
-  import vue from '@vitejs/plugin-vue'
-  import comments from '@vite-hub/comments/vite'
-  import { defineConfig } from 'vite'
+  :hero-figure{name="comments"}
+::
 
-  // One plugin turns Comments on. No Database, no login of your own.
-  export default defineConfig({
-    plugins: [vue(), comments()],
-  })
-  ```
+::code-tree
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import comments from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
 
-  ```bash [.env]
-  # Sign in with GitHub: people who can push to the repository may comment
-  VITEHUB_GITHUB_CLIENT_ID=Iv23li...
-  VITEHUB_GITHUB_CLIENT_SECRET=...
-  VITEHUB_SECRET=...
-  ```
+// One plugin turns Comments on. No Database, no login of your own.
+export default defineConfig({
+  plugins: [vue(), comments()],
+})
+```
 
-  ```ts [server/comments.ts]
-  import { defineComments } from '@vite-hub/comments'
+```bash [.env]
+# Sign in with GitHub: people who can push to the repository may comment
+VITEHUB_GITHUB_CLIENT_ID=Iv23li...
+VITEHUB_GITHUB_CLIENT_SECRET=...
+VITEHUB_SECRET=...
+```
 
-  // Optional: change who may comment, and post threads to pull requests.
-  export const comments = defineComments({
-    authorize: ({ user, action }) => action === 'read' || user?.github?.write === true,
-    forge: { provider: 'github' },
-  })
-  ```
+```ts [server/comments.ts]
+import { defineComments } from '@vite-hub/comments'
 
-  ```ts [server/api/open-threads.get.ts]
-  import { defineEventHandler } from 'h3'
-  import { comments } from '../comments'
+// Optional: change who may comment, and post threads to pull requests.
+export const comments = defineComments({
+  authorize: ({ user, action }) => action === 'read' || user?.github?.write === true,
+  forge: { provider: 'github' },
+})
+```
 
-  // The same threads, from server code
-  export default defineEventHandler(async () => {
-    const [error, threads] = await comments.list({ subjectKind: 'page', status: 'open' })
-    if (error) throw error
-    // A page thread's subject id is the app path
-    return threads.map(thread => ({ n: thread.n, page: thread.subject.id }))
-  })
-  ```
-  :::
+```ts [server/api/open-threads.get.ts]
+import { defineEventHandler } from 'h3'
+import { comments } from '../comments'
+
+// The same threads, from server code
+export default defineEventHandler(async () => {
+  const [error, threads] = await comments.list({ subjectKind: 'page', status: 'open' })
+  if (error) throw error
+  // A page thread's subject id is the app path
+  return threads.map(thread => ({ n: thread.n, page: thread.subject.id }))
+})
+```
 ::
 
 ## Pick a setup

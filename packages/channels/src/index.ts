@@ -17,6 +17,7 @@ export type {
   ChannelExtensionOptions,
   ChannelHandler,
   ChannelHandlerContext,
+  ChannelMessage,
   ChannelSendOptions,
   ChannelSendReceipt,
   ChannelSendResult,
@@ -26,7 +27,9 @@ export type {
   ChannelWebhookSecret,
   ChannelWebhookSignature,
   DiscoveredChannelDefinition,
+  WebhookAdapterBaseOptions,
   WebhookAdapterOptions,
+  WebhookAdapterVerification,
   WebhookChannelAdapter,
 } from "./types.ts"
 export type { ChannelDefinitionName } from "./registry-types.ts"

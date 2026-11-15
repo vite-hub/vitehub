@@ -54,7 +54,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!calls.sends && !usesModule) throw new CodemodError("No server code calls emails.send() on a Resend client, so there is nothing to migrate.")
 
   if (!calls.sends && calls.useResendRemaining.length) {
-    throw new CodemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email/server, then run the codemod again.`)
+    throw new CodemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email, then run the codemod again.`)
   }
   // nuxt-resend provides useResend(), so it stays while any call is left.
   const keepModule = calls.useResendRemaining.length > 0
@@ -119,7 +119,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const style = editor.style
   const envName = existingEnvImport(config) ?? (bindingFree(config, "env") ? "env" : "viteHubEnv")
   const sourceList = sources.length === 1 ? quoteString(sources[0]!, style) : `[${sources.map(name => quoteString(name, style)).join(", ")}]`
-  const { preset, presetNote } = addViteHubOptions(editor, config, {
+  const { host, hostNote } = addViteHubOptions(editor, config, {
     options: [{
       key: "email",
       label: "the Email options",
@@ -137,7 +137,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!existingEnvImport(config)) editor.addImport(`import { ${envName === "env" ? "env" : "env as viteHubEnv"} } from ${quoteString("vite-hub/env", style)}${style.semicolons ? ";" : ""}`)
   const configCode = editor.output.toString()
   const lineOf = createLineResolver(configCode)
-  if (presetNote) followUps.unshift({ file: config.fileName, line: lineOf(["vitehub", "preset"]), message: presetNote })
+  if (hostNote) followUps.unshift({ file: config.fileName, line: lineOf(["vitehub", "host"]), message: hostNote })
 
   // Keep ESM, CommonJS, TypeScript import-equals, and dynamic package loads.
   const rewritten = new Map(calls.edits.map(edit => [edit.path, edit.after ?? ""]))
@@ -153,7 +153,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (packageResult.edit) edits.push(packageResult.edit)
 
   return {
-    summary: `moved ${calls.sends} emails.send() call${calls.sends === 1 ? "" : "s"} to email.send() with the ViteHub Resend driver${preset ? `, deployment preset "${preset}"` : ""}.`,
+    summary: `moved ${calls.sends} emails.send() call${calls.sends === 1 ? "" : "s"} to email.send() with the ViteHub Resend driver${host ? `, host "${host}"` : ""}.`,
     edits,
     followUps: [...followUps, ...calls.followUps],
     notes: [

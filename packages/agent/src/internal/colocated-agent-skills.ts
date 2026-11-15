@@ -3,6 +3,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
+export const discoveredSkillsUpdate: symbol = Symbol.for("vitehub.agent.discoveredSkillsUpdate")
 export const discoveredSkillsSetter: symbol = Symbol.for("vitehub.agent.discoveredSkillsSetter")
 
 export const colocatedAgentSkillsContextKey = "agent.colocatedSkills"
@@ -28,6 +29,21 @@ export function decodeColocatedAgentSkills(
   })) as ColocatedAgentSkills
 }
 
+function skillName(source: unknown): string | undefined {
+  return isRuntimeRecord(source) && typeof source.workspacePath === "string" ? source.workspacePath.split("/")[2] : undefined
+}
+
+/**
+ * Skills extend by name. A Skill folder of the Agent replaces the inherited folder with the same name, including its references.
+ * The generated Agent registry in `vite.ts` keeps a copy of this rule.
+ */
+function extendColocatedAgentSkills(inherited: unknown, skills: ColocatedAgentSkills): ColocatedAgentSkills {
+  const ownSkillNames = new Set(Object.values(skills).map(skillName))
+  const kept = isRuntimeRecord(inherited) ? Object.entries(inherited).filter(([, source]) => !ownSkillNames.has(skillName(source))) : []
+  // SAFETY: Inherited entries come from the colocated Skills of the parent Agent.
+  return { ...Object.fromEntries(kept) as ColocatedAgentSkills, ...skills }
+}
+
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
   if (!agent || typeof agent !== "object") return agent
   const setDiscoveredSkills: unknown = Reflect.get(agent, discoveredSkillsSetter)
@@ -35,16 +51,24 @@ export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedA
     setDiscoveredSkills(skills)
     return agent
   }
-  const existing = Object.getOwnPropertyDescriptor(agent, colocatedAgentSkillsSymbol)
-  if (skills && existing?.get) {
-    const previous = Reflect.get(agent, colocatedAgentSkillsSymbol)
+  const inheritedSkills = Object.getOwnPropertyDescriptor(agent, colocatedAgentSkillsSymbol)?.get
+  const update: unknown = inheritedSkills && Reflect.get(inheritedSkills, discoveredSkillsUpdate)
+  if (typeof update === "function") {
+    update(skills)
+    return agent
+  }
+  if (skills && Object.keys(skills).length && inheritedSkills) {
+    // Read the inherited Skills when the Agent runs, so the result follows later changes to the parent.
+    let local = skills
+    const get = () => extendColocatedAgentSkills(inheritedSkills.call(agent), local)
+    // Keep the inherited accessor once; later discovery replaces only the local set.
+    Object.defineProperty(get, discoveredSkillsUpdate, {
+      value: (sources: ColocatedAgentSkills | undefined) => { local = sources ?? {} },
+    })
     Object.defineProperty(agent, colocatedAgentSkillsSymbol, {
       configurable: true,
       enumerable: true,
-      value: {
-        ...(typeof previous === "object" ? previous : {}),
-        ...skills,
-      },
+      get,
     })
     return agent
   }

@@ -72,7 +72,7 @@ interface OperationContext {
 
 An operation with `invoke: true` runs app code: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`. The Console registers it only when `console.invoke` is on. That is the default in development, and off in a production build. With `console.invoke` off, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch, so `schedule run --url` can run with a dispatch key and no Console credentials.
 
-The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKv()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
+The generated commands call the Console RPC. `vitehub()` installs it. Standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, need a running app with an operation RPC.
 
 `console.authorize` grants a section as `'kv'` (every operation) or `'kv:read'` (only `kind: 'read'` operations and calls that `readOnlyWhen` marks as reads). The check runs once, in the shared access path, so the Console RPC, the CLI with `--url`, agent tools, and MCP agree. An operation that both reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` so a read-only role keeps its reads.
 
@@ -94,7 +94,7 @@ const reports = {
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
   vite: {
     plugins: [reports],
   },
@@ -115,7 +115,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), nitro(), reports] })
 ```
 :::
 
@@ -123,20 +123,23 @@ export default defineConfig({ plugins: [vitehub({ preset: 'node' }), nitro(), re
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import type { OperationContributingPlugin } from 'vite-hub/operations'
 
 const reports = {
   name: 'reports',
   vitehub: {
     operations: [{ module: 'my-app/operations', export: 'reportOperations' }],
   },
-}
+} satisfies OperationContributingPlugin
 
-export default defineConfig({ plugins: [vitehub({ preset: 'node' }), reports] })
+export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
 ```
 :::
 ::
 
-`module` is a specifier your app can import. `export` is one operation or a list. Two operations with the same name fail the build with `INTERNAL_B0048`, naming both plugins.
+A library that does not install `vite-hub` imports `defineOperation` and the same types from `@vite-hub/runtime/operations`.
+
+The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.
 
 Run `vitehub inspect definitions --kind operation` to list the app's operations.
 
@@ -217,7 +220,7 @@ The RPC checks the section with `console.authorize` before it runs the operation
 In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
 
 ::warning
-A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
+A dev RPC without signed calls (`local` access, `console: { auth: false }`, or `console: true` before a `VITEHUB_CONSOLE_KEY_<NAME>` is set) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth` and set a `VITEHUB_CONSOLE_KEY_<NAME>`, so it takes only signed calls.
 ::
 
 In `vite dev`, a call without a signed user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments and Content see the same user. A build never adds it: a production call from the CLI has `context.user` unset, and a call from the Console has the person that the Console signed.
@@ -228,20 +231,22 @@ Duplicate operation names fail every build, also without a `console` option. An 
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
-| [Blob](/docs/cli/primitives#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, `blob.variants` |
-| [KV](/docs/cli/primitives#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.del` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| [Blob](/docs/cli/primitives#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
+| [KV](/docs/cli/primitives#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
+| [Cache](/docs/cli/primitives#read-and-invalidate-the-cache) (`cache` option) | `cache.list`, `cache.get`, `cache.delete` |
 | [Email](/docs/cli/primitives#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
 | [Rate Limit](/docs/cli/primitives#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
 | [Queue](/docs/queue) (Queues section) | `queue.list`, `queue.send` |
-| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap` |
+| [Content](/docs/content/cli) | `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.remove`, `content.restore`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, `content.sitemap`, `content.previews` |
 | [Workflow](/docs/workflows) (Workflows section) | `workflow.start`, `workflow.get`, `workflow.cancel`, `workflow.resume`, `workflow.runs-list`, `workflow.runs-show`, `workflow.runs-clear` (development only) |
 | [Schedule](/docs/schedule) (Schedules section) | `schedule.runs`, `schedule.attempts`, `schedule.run`, `schedule.list`, `schedule.start`, `schedule.cancel` |
 | [Workspace](/docs/workspace) (Workspaces section) | `workspace.history`, `workspace.refs`, `workspace.show` |
 
-- `blob.put`, `blob.del`, `kv.set`, and `kv.del` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
+- `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
 - `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
+- `cache.list`, `cache.get`, and `cache.delete` exist only when the app sets `cache`. They run as `vitehub cache list`, `get`, and `delete`. `cache.delete` is destructive, so a role needs `'cache'`. `'cache:read'` lists and reads.
 - The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
 - The Workspace operations read a Workspace's kept history and run as `vitehub workspace history`, `refs`, and `show`.

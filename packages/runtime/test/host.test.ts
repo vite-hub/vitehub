@@ -5,7 +5,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { detectHost, getHostBinding } from "../src/index.ts"
 
 const hostVariables = [
-  "VITEHUB_HOSTING",
+  "VITEHUB_HOST",
   "NITRO_PRESET",
   "SERVER_PRESET",
   "CF_PAGES",
@@ -98,15 +98,15 @@ describe("detectHost", () => {
     expect(detectHost(env)).toBe(expected)
   })
 
-  it("prefers VITEHUB_HOSTING, then NITRO_PRESET and SERVER_PRESET, over provider variables", () => {
-    expect(detectHost({ VITEHUB_HOSTING: "netlify", NITRO_PRESET: "vercel", VERCEL: "1" })).toBe("netlify")
+  it("prefers VITEHUB_HOST, then NITRO_PRESET and SERVER_PRESET, over provider variables", () => {
+    expect(detectHost({ VITEHUB_HOST: "netlify", NITRO_PRESET: "vercel", VERCEL: "1" })).toBe("netlify")
     expect(detectHost({ NITRO_PRESET: "cloudflare_module", SERVER_PRESET: "vercel", VERCEL: "1" })).toBe("cloudflare")
     expect(detectHost({ SERVER_PRESET: "node-server", VERCEL: "1" })).toBe("node")
   })
 
   it("returns undefined without a known host, and skips empty values and Cloudflare Pages", () => {
     expect(detectHost({})).toBeUndefined()
-    expect(detectHost({ VITEHUB_HOSTING: " ", VERCEL: "" })).toBeUndefined()
+    expect(detectHost({ VITEHUB_HOST: " ", VERCEL: "" })).toBeUndefined()
     expect(detectHost({ CF_PAGES: "1" })).toBeUndefined()
   })
 

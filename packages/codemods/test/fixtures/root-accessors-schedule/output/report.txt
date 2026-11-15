@@ -1,0 +1,12 @@
+root-accessors: moved the accessor imports of 2 file(s) to the primitive roots
+Dry run: no files were written.
+
+Files to change (2):
+  server/api/schedules/backfill.post.ts
+  server/api/schedules/run.post.ts
+
+Manual follow-ups (0):
+  none
+
+Next steps:
+  - Run your typecheck. The generated types in `.vitehub/types/` type the new imports after `vite dev` or `vitehub types prepare`.

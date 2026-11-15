@@ -1,3 +1,4 @@
+import { mountViteHubPageAccount } from "./page-account.ts"
 import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
 import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
@@ -93,6 +94,9 @@ const collapsedKey = "vitehub-tools-collapsed"
 /** The key in `localStorage` that keeps the edge and the place where the pill docks. */
 const dockKey = "vitehub-tools-dock"
 
+/** The slot of the account item in the pill. Tool ids name the other slots. */
+const accountSlot = "vitehub-account"
+
 /** The ViteHub mark, a hexagon with soft corners, in a 20 by 18 box. */
 const markPath = "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"
 
@@ -128,7 +132,7 @@ function storedDockText(): string | null {
 }
 
 /**
- * Whether a fixed or sticky element of the page, such as its own floating menu button, lies in the middle of the bottom
+ * Whether a fixed element of the page, or a sticky one that sticks to the bottom, such as its own floating menu button, lies in the middle of the bottom
  * edge, where the pill docks until the person drags it. Elements in the page's flow do not count: the pill floats over
  * text anyway. A layer over most of the screen, such as a backdrop, is no control, but a small element in it is.
  */
@@ -152,7 +156,9 @@ function pageControlAtPillPlace(): boolean {
       for (let node: Element | null = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
         if (node.localName.startsWith("vitehub-")) break
         const style = getComputedStyle(node)
-        if (style.position === "fixed" || style.position === "sticky") {
+        // A sticky element is a control only when it sticks to the bottom edge. A heading that sticks to the top only
+        // passes the bottom edge while the page scrolls.
+        if (style.position === "fixed" || (style.position === "sticky" && style.bottom !== "auto")) {
           if (small(node) || (node !== element && small(element))) return true
           break
         }
@@ -389,13 +395,30 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     name: "vitehub-pill",
     label: "ViteHub tools",
     mark: viteHubPageSvgIcon("0 0 20 18", markPath, { fill: "currentColor" }),
-    slots: session.tools.map(tool => tool.id),
+    // The account item ends the bar, before the exit button.
+    slots: [...session.tools.map(tool => tool.id), ...session.account ? [accountSlot] : []],
     storage: { collapsed: collapsedKey, dock: dockKey },
     exit: { label: "Turn off ViteHub tools", press: exit },
     onPlace: dockViteHubPageWindows,
     markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn },
     signal: pillController.signal,
   })
+  if (session.account) {
+    const bar = document.createElement("vitehub-account")
+    bar.slot = accountSlot
+    pill.append(bar)
+    mountViteHubPageAccount({
+      account: session.account,
+      bar,
+      mark: markPath,
+      // The Console segment draws nothing on an origin that the Console cannot open, so the menu leaves its item out too.
+      openConsole: () => {
+        const segment = pill.querySelector<HTMLElement>(`vitehub-tool[slot="console"]`)
+        return segment && !segment.hidden ? () => void openTool("console") : undefined
+      },
+      signal: pillController.signal,
+    })
+  }
   const windows = new Map<string, ViteHubPageWindow>()
   const windowKey = (id: string) => `vitehub-open:${options.session ?? viteHubPageSessionUrl(import.meta.url)}:${id}`
   const remember = (id: string, value: boolean) => { try { sessionStorage.setItem(windowKey(id), String(value)) } catch {} }

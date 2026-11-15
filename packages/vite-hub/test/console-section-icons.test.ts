@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
+import { resolvePrimitiveIconName } from "@vite-hub/docs/primitive-rail"
 
 import { consoleContributedSectionIcons, consoleContributedSections } from "../src/console/contributions.ts"
 import { consolePrimitives } from "../src/console/runtime/sections.ts"

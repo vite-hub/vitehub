@@ -54,7 +54,7 @@ pnpm build
 pnpm vitehub inspect output
 ```
 
-A build also fails when the preset cannot give a feature you turned on. For
+A build also fails when the host cannot give a feature you turned on. For
 example, `queue: true` fails on `netlify` and `deno`, and
 `rateLimit: true` fails on `vercel`, `netlify`, and `deno`. Turn the feature off
 or set a provider in its package. The

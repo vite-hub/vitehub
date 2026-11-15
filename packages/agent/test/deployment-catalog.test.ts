@@ -54,7 +54,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames, withDiscoveredAgentName } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       `export { namedChannelHosts } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/named-channels.ts"))}`,
       `export { withDeclaredAgentWorkspace } from ${JSON.stringify(join(import.meta.dirname, "../src/workspace-agent.ts"))}`,
-      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/h3.ts"))}`,
+      `export { getStandardContext } from ${JSON.stringify(join(import.meta.dirname, "../../runtime/src/internal/h3.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
@@ -569,7 +569,7 @@ describe("generated Agent deployment catalog", () => {
 
   it("executes the same catalog through the Netlify Adapter", async () => {
     await runtime!.close()
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     runtime = await createDeploymentRuntimeFixture("netlify")
 
     await expect((await runtime.request("support", "chat")).json()).resolves.toMatchObject({

@@ -1,5 +1,6 @@
-import type { WebContainerStage } from "@vite-hub/web-container";
+import { checkWebContainerSupport, type WebContainerStage } from "@vite-hub/web-container";
 import type { Connect, ConnectProviderName } from "@vite-hub/web-container/connect";
+import { type UseWebContainerReturn, useWebContainer } from "@vite-hub/web-container/vue";
 import {
   computed,
   defineComponent,
@@ -22,11 +23,10 @@ import { downloadZip } from "../playground/zip.ts";
 import { BrowserSupportNotice } from "./browser-support-notice.ts";
 import { ConnectPanel, type ConnectProviderState } from "./connect-panel.ts";
 import { useConnectStore } from "./connect-store.ts";
-import { checkWorkspaceSupport, useWorkspace, type Workspace } from "./use-workspace.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
-import { WorkspacePreview } from "./workspace-preview.ts";
+import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
@@ -51,7 +51,7 @@ export interface PlaygroundContainerTemplate {
 
 /** What the slots get, and what `context` gives to code outside the container. */
 export interface PlaygroundContext {
-  workspace: Workspace;
+  workspace: UseWebContainerReturn;
   /** The template that is open. */
   template: PlaygroundContainerTemplate;
   /** Paths whose contents differ from the files of the open template, sorted. */
@@ -83,7 +83,7 @@ export function usePlaygroundDevice() {
     queries = [window.matchMedia("(min-width: 64rem)"), window.matchMedia("(min-width: 48rem)")];
     for (const query of queries) query.addEventListener("change", update);
     update();
-    supported.value = checkWorkspaceSupport().supported;
+    supported.value = checkWebContainerSupport().supported;
   });
   onBeforeUnmount(() => {
     for (const query of queries) query.removeEventListener("change", update);
@@ -102,7 +102,7 @@ const stageLabels: Partial<Record<WebContainerStage, string>> = {
 /** One line that says what the workspace does now. */
 const statusTones = { busy: "warning", error: "error", ready: "success" } as const;
 
-function runState(workspace: Workspace): { tone: "busy" | "ready" | "error", label: string } {
+function runState(workspace: UseWebContainerReturn): { tone: "busy" | "ready" | "error", label: string } {
   const failure = workspace.failure.value;
   if (failure) return { tone: "error", label: failure.kind === "install" ? "Install failed" : failure.kind === "server" ? "The dev server stopped" : "Did not start" };
   if (workspace.status.value === "ready" && workspace.previewUrl.value) return { tone: "ready", label: "Running" };
@@ -160,9 +160,11 @@ const PlaygroundSession = defineComponent({
     // mount it and then install the difference.
     const sameManifest = props.files["package.json"] === booted.files["package.json"];
     const store = useConnectStore();
-    const workspace = useWorkspace({
+    const workspace = useWebContainer({
       files: props.files,
       port: props.port,
+      // The browser frame of the preview reads the page address and goes Back and Forward through this script.
+      previewScript: workspacePreviewScript,
       env: props.connect && store.env(props.connect),
       ...booted.snapshot && { snapshot: booted.snapshot, install: sameManifest ? false : "install" },
     });
@@ -214,7 +216,9 @@ const PlaygroundSession = defineComponent({
       selected.value = firstFile(next, next.files);
       previewPath.value = next.preview ?? "/";
       emit("change", next);
-      await workspace.setFiles(next.files, { mode: "replace" });
+      // A failed write is in the terminal. The files on disk are not the template's, so the server does not start again.
+      try { await workspace.setFiles(next.files, { mode: "replace" }); }
+      catch { return; }
       // The Vite config can differ, so the dev server starts again.
       await workspace.restart();
     }
@@ -253,7 +257,8 @@ const PlaygroundSession = defineComponent({
 
     const source = computed({
       get: () => workspace.files.value[selected.value] ?? "",
-      set: value => void workspace.setFiles({ [selected.value]: value }),
+      // A failed write is in the terminal, and the next edit writes the file again.
+      set: value => void workspace.setFiles({ [selected.value]: value }).catch(() => {}),
     });
 
     const hasConnect = computed(() => (props.connect?.providers.length ?? 0) > 0);

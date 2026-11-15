@@ -77,11 +77,14 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
  * The error chunk text. A diagnostic with a documented fix, such as `AGENT_R1016`, starts with its code, so a client can
  * show that fix. Diagnostics that only wrap another layer's message keep the message as it is.
  */
+/** Codes whose message is the text of another layer, such as the provider. The stream shows that text as it is. */
+const relayedErrorCodes = new Set(["AGENT_R0784", "AGENT_R0785", "AGENT_R0786", "AGENT_R0789", "AGENT_R0800", "AGENT_R0856", "AGENT_R0857"])
+
 function uiMessageStreamErrorText(error: unknown): string {
   if (!(error instanceof Error)) return "Agent stream failed."
   const code: unknown = Reflect.get(error, "code")
   const fix: unknown = Reflect.get(error, "fix")
-  return typeof code === "string" && typeof fix === "string" ? diagnosticErrorText(code, error.message) : error.message
+  return typeof code === "string" && typeof fix === "string" && !relayedErrorCodes.has(code) ? diagnosticErrorText(code, error.message) : error.message
 }
 
 function createAgentUIMessageStream(options: {
@@ -118,7 +121,7 @@ function createAgentUIMessageStream(options: {
 
 /**
  * Encodes UI message parts as SSE frames that end with `[DONE]`. When the parts fail, the body ends with an error frame
- * instead of failing: H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+ * instead of failing, so the client reads the error and the response always ends.
  */
 export function encodeUIMessageStream(parts: ReadableStream<unknown>): ReadableStream<string> {
   const reader = parts.getReader()

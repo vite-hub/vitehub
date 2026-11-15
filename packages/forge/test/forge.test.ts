@@ -63,6 +63,25 @@ describe("internal Forge client", () => {
     }
   })
 
+  it("replaces a cached token that expires within the requested lifetime", async () => {
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    try {
+      let calls = 0
+      const fetcher: typeof fetch = async () => Response.json({ token: `token-${++calls}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
+      const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      clock.mockReturnValue(now + 50 * 60_000)
+      await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-1" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
+      await expect(credentials.installationToken(1, { minLifetime: 55 * 60_000 })).resolves.toMatchObject({ token: "token-2" })
+      expect(calls).toBe(2)
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
   it("renews tokens at the 60-second expiry margin", async () => {
     const now = Date.now()
     const clock = vi.spyOn(Date, "now").mockReturnValue(now)
@@ -133,6 +152,35 @@ describe("internal Forge client", () => {
     const credentials = githubAppCredentials({ appId: 12, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
     await expect(credentials.app()).resolves.toEqual({ id: 12, slug: "vitehub", login: "vitehub[bot]" })
     await expect(credentials.installation("acme/app")).resolves.toBe(33)
+  })
+
+  it("lists the repositories of every active installation", async () => {
+    const page = (ids: number[], archived = false) => ids.map(id => ({ id, name: `repo-${id}`, full_name: `acme/repo-${id}`, owner: { login: "acme" }, archived, private: false, fork: false }))
+    const fixture = fixtureFetch([
+      {
+        request: { method: "GET", url: "https://api.github.com/app/installations?per_page=100" },
+        response: { status: 200, body: [{ id: 1, account: { login: "acme" } }, { id: 2, account: { login: "paused" }, suspended_at: "2026-01-01T00:00:00Z" }] },
+      },
+      {
+        request: { method: "POST", url: "https://api.github.com/app/installations/1/access_tokens" },
+        response: { status: 201, body: { token: "installation-1", expires_at: new Date(Date.now() + 3_600_000).toISOString() } },
+      },
+      {
+        request: { method: "GET", url: "https://api.github.com/installation/repositories?per_page=100" },
+        response: { status: 200, headers: { link: '<https://api.github.com/installation/repositories?per_page=100&page=2>; rel="next"' }, body: { total_count: 3, repositories: page([1, 2]) } },
+      },
+      {
+        request: { method: "GET", url: "https://api.github.com/installation/repositories?per_page=100&page=2" },
+        response: { status: 200, body: { total_count: 3, repositories: page([3], true) } },
+      },
+    ])
+    const credentials = githubAppCredentials({ appId: 77, privateKey: privateKeys("pkcs8"), fetch: fixture.fetch as typeof fetch })
+    await expect(credentials.repositories()).resolves.toEqual([
+      { repository: "acme/repo-1", installationId: 1, archived: false },
+      { repository: "acme/repo-2", installationId: 1, archived: false },
+      { repository: "acme/repo-3", installationId: 1, archived: true },
+    ])
+    expect(fixture.calls.filter(call => call.url.includes("/installation/repositories")).map(call => call.authorization)).toEqual(["Bearer installation-1", "Bearer installation-1"])
   })
 
   it("maps a missing installation to the existing diagnostic", async () => {

@@ -75,7 +75,7 @@ describe("UI server rendering", () => {
     expect(html).toContain("message");
   });
 
-  it("keeps raw HTML disabled when callers request the HTML plugin", async () => {
+  it("rejects the HTML plugin through public Markdown", async () => {
     const app = createSSRApp({
       render: () => h(Markdown, {
         plugins: [html()],
@@ -83,9 +83,7 @@ describe("UI server rendering", () => {
       }),
     });
 
-    const output = await renderToString(app);
-    expect(output).not.toContain("<script>");
-    expect(output).toContain("message");
+    await expect(renderToString(app)).rejects.toMatchObject({ code: "UI_R0002" });
   });
 
   it("preserves non-HTML Markdown defaults", async () => {
