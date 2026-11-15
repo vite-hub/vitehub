@@ -64,7 +64,8 @@ describe("diagnostic catalogs", () => {
 
   it("names the `vitehub()` option in each fix that names an owner plugin", () => {
     // These fixes are about an owner plugin that the app adds itself, so `vitehub()` has no part in them.
-    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE"])
+    // `vitehub()` always passes a Rate Limit provider, so only `hubRateLimit()` alone raises RATE_LIMIT_B0002 and B0003.
+    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE", "RATE_LIMIT_B0002", "RATE_LIMIT_B0003"])
     const missing = codes
       .filter(candidate => /\bhub[A-Z]\w*\(/.test(candidate.fix ?? "") && !candidate.fix!.includes("vitehub(") && !ownerPluginOnly.has(candidate.code))
       .map(candidate => `${candidate.code}: ${candidate.fix}`)
