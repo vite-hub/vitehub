@@ -65,6 +65,25 @@ export interface ViteHubConsoleOperationColumn {
   switch?: { operation: string, input: Readonly<Record<string, string>> }
 }
 
+/**
+ * A button on each row that calls `operation` with the Console user, then loads the list again. `input` maps each input
+ * key to a dot path of the item, as a `switch` column does.
+ */
+export interface ViteHubConsoleOperationAction {
+  label: string
+  operation: string
+  input: Readonly<Record<string, string>>
+  /**
+   * The result is `{ url }`, such as a one-time link or a provider sign-in: the Console opens it in a new tab, and loads
+   * the list again when the person comes back. The URL must be `https:`, or `http:` on a loopback host.
+   */
+  tab?: true
+  /** Show the button only on rows where each dot path holds one of the listed values. */
+  when?: Readonly<Record<string, readonly string[]>>
+  /** Ask this question before the call. `{path}` takes a value from the item. */
+  confirm?: string
+}
+
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
 export interface ViteHubConsoleOperationFilter {
   id: string
@@ -78,6 +97,8 @@ export interface ViteHubConsoleOperationFilter {
  * array of objects with an `id`. A failure of the operation, with its `fix`, shows where the list would be.
  */
 export interface ViteHubConsoleOperationView {
+  /** Buttons on each row. A user who may only read the section does not see them. */
+  actions?: readonly ViteHubConsoleOperationAction[]
   columns: readonly ViteHubConsoleOperationColumn[]
   /**
    * Opens the item of a row in a side panel. `comment-thread` shows an item of `comments.list` as a comment thread
@@ -963,8 +984,11 @@ const operationNamePattern = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 
 /** A checked copy of an operation view that only holds JSON. */
 export function describeOperationView(view: ViteHubConsoleOperationView, section = ""): ViteHubConsoleOperationView {
-  if (String(view.operation) !== view.operation || !operationNamePattern.test(view.operation)) {
-    throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
+  // The list and each row action call an operation by name.
+  for (const operation of [view.operation, ...(view.actions ?? []).map(action => action.operation)]) {
+    if (String(operation) !== operation || !operationNamePattern.test(operation)) {
+      throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(operation)}.`)
+    }
   }
   for (const column of view.columns) {
     if ((column.format === "switch") !== (column.switch !== undefined) || (column.switch && !operationNamePattern.test(column.switch.operation))) {

@@ -73,6 +73,21 @@ The Agent integration contributes `info`, `dev`, and `invocations`, plus `channe
 
 See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
 
+## Link and deploy several hosts
+
+`vitehub link` and `vitehub deploy` run before the CLI loads the project config. One app can link one project on each host. `.vitehub/link.json` keeps a target for each host and the default host:
+
+```sh
+pnpm vitehub link --host cloudflare
+pnpm vitehub link --host vercel
+pnpm vitehub deploy                # the default target, cloudflare
+pnpm vitehub deploy --host vercel
+```
+
+The first linked host is the default. `vitehub link --host <host> --default` changes it. `vitehub deploy --host <host>` builds with `VITEHUB_HOST=<host>`, and that host wins over `host` in `vitehub()`. With several targets and no default, deploy needs `--host`. Resources such as D1, KV, R2, and libSQL are separate on each host. See [Link a project to its host](https://vitehub.dev/docs/development/cli#link-a-project-to-its-host).
+
+On Cloudflare and Vercel, `vitehub deploy` first runs the provision plan of the host with the same credentials, including a `wrangler login`. It lists the resources it creates, asks first unless you pass `--yes`, and records their ids in `.vitehub/provision.json` before the build, so a second deploy creates nothing. `--no-provision` skips it. See [Create the host resources](https://vitehub.dev/docs/development/cli#create-the-host-resources).
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.
@@ -105,7 +120,7 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 - Root and namespace help is human-readable text, not a structured output contract. Use `inspect ... --json` for machine-readable output.
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.
-- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass a provider explicitly. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
+- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass `--host cloudflare` or `--host vercel`. It reads the credentials as `vitehub deploy` does: environment variables first, then a `wrangler login`. The old `--provider` flag exits with a `fix:` line. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
 - `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It marks a recorded id as `not declared` when no current Definition uses it, for example after a rename, and prints a `fix:` line that says how to delete the resource on the host. It never applies actions, deletes resources, or edits `.vitehub/provision.json`. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
 
 Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config. After a rename, status defers deletion guidance if a current declaration's resource cannot be verified against config, including when the new key already has a stale id. Verify D1 and KV ids against provider resource names and bindings before deleting anything. `provision run` refreshes R2 and Queue identities for comparison with config. R2 resource identities include jurisdiction; older entries with only a bucket name require checking the jurisdiction manually and receive no deletion guidance while an R2 Store remains declared.

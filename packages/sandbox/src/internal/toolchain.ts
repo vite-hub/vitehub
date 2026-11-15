@@ -276,6 +276,7 @@ async function nodeReleases(base: string, signal: AbortSignal | undefined) {
   if (cached && cached.expires > Date.now()) return await cached.value;
   const value = fetchBytes(url, "Node.js release index", signal).then((bytes) => {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    // Internal invariant: shape check of the Node.js release index that nodejs.org serves. No app setting changes it.
     if (!Array.isArray(parsed)) throw new TypeError("index.json is not a list");
     return parsed.flatMap((entry): NodeRelease[] => {
       const record = runtimeRecord(entry);

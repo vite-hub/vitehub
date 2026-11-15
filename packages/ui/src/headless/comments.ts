@@ -1,6 +1,7 @@
 import {
   computed,
   getCurrentInstance,
+  isRef,
   onBeforeUnmount,
   onMounted,
   provide,
@@ -31,6 +32,7 @@ import {
   type CreateAnchorOptions,
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
 import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
@@ -108,6 +110,13 @@ export interface UseCommentsOptions {
   autoStart?: boolean;
   /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
   can?: CommentCan;
+  /**
+   * Which comments show on the page. Default `"all"`. Pass a ref to keep the reader's choice, such as one saved in
+   * `localStorage`: the state reads and writes it.
+   */
+  visibility?: CommentVisibility | Ref<CommentVisibility>;
+  /** How long a comment or reply that was just sent shows while comments are hidden. Default `2500`. */
+  flashMs?: number;
 }
 
 export interface CommentsState {
@@ -139,6 +148,20 @@ export interface CommentsState {
   readonly listOpen: Ref<boolean>;
   /** Goes up when a composer with text stopped a click or a key. The composer shakes by itself. */
   readonly blocked: Ref<number>;
+  /** Which comments show. Writing or opening a comment never changes it. */
+  readonly visibility: Ref<CommentVisibility>;
+  /**
+   * The ids of the threads of this page that get a pin or a mark: all of them, or while comments are hidden, the open
+   * thread and each one that was just sent or replied to. The draft always shows.
+   */
+  readonly shown: ComputedRef<ReadonlySet<string>>;
+  /** The ids of threads that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out. */
+  readonly leaving: ComputedRef<ReadonlySet<string>>;
+  /** Keeps page marks visible without opening a popover. Call the returned release function when the panel closes. */
+  retainMark: (id: string) => () => void;
+  isShown: (id: string) => boolean;
+  /** Shows the thread for `flashMs` while comments are hidden. `send()`, `create()`, and `reply()` call it. */
+  flash: (id: string) => void;
   enter: () => void;
   exit: () => void;
   toggle: () => void;
@@ -228,6 +251,17 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const positions = shallowRef<ReadonlyMap<string, AnchorPosition>>(new Map());
   const draft = ref<CommentDraft | null>(null);
   const openId = ref<string | null>(null);
+  const retained = shallowRef<ReadonlyMap<symbol, string>>(new Map());
+  const retainedIds = computed(() => new Set(retained.value.values()));
+  const retainMark = (id: string): (() => void) => {
+    const key = Symbol();
+    retained.value = new Map(retained.value).set(key, id);
+    return () => {
+      const next = new Map(retained.value);
+      next.delete(key);
+      retained.value = next;
+    };
+  };
   const hoverId = ref<string | null>(null);
   const listOpen = ref(false);
   const blocked = ref(0);
@@ -252,15 +286,39 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   });
   const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
 
+  const visibility = isRef(options.visibility) ? options.visibility : ref<CommentVisibility>(options.visibility ?? "all");
+  const seen = createCommentVisibility({ visibility: visibility.value, flashMs: options.flashMs });
+  const seenChanges = ref(0);
+  seen.subscribe(() => seenChanges.value++);
+  watch(visibility, value => seen.set(value), { flush: "sync" });
+  watch(openId, id => seen.open(id), { flush: "sync" });
+  // Open panels and active flashes keep their marks even when a filter would hide them.
+  const marked = computed(() => {
+    void seenChanges.value;
+    const ids = new Set(pageThreads.value.map(thread => thread.id));
+    if (opened.value && onPage(opened.value)) ids.add(opened.value.id);
+    for (const thread of threads.value) {
+      const temporary = visibility.value === "hidden" && (seen.isShown(thread.id) || seen.leaving.includes(thread.id));
+      if (onPage(thread) && (retainedIds.value.has(thread.id) || temporary)) ids.add(thread.id);
+    }
+    return ids;
+  });
+  const shown = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set([...marked.value].filter(id => seen.isShown(id) || retainedIds.value.has(id)));
+  });
+  const leaving = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set(seen.leaving.filter(id => marked.value.has(id) && !retainedIds.value.has(id)));
+  });
+  const flash = (id: string): void => seen.flash(id);
+
   const root = (): ParentNode => toValue(options.root) ?? document;
   const uiRoot = (): ParentNode => toValue(options.uiRoot) ?? document;
 
   function measure(): void {
     const next = new Map<string, AnchorPosition>();
-    for (const thread of pageThreads.value) next.set(thread.id, resolveAnchor(thread.anchor, root()));
-    // An open thread keeps its pin even when a filter would hide it.
-    const current = opened.value;
-    if (current && onPage(current) && !next.has(current.id)) next.set(current.id, resolveAnchor(current.anchor, root()));
+    for (const thread of threads.value.filter(thread => marked.value.has(thread.id))) next.set(thread.id, resolveAnchor(thread.anchor, root()));
     if (draft.value) next.set(draftPositionKey, resolveAnchor(draft.value.anchor, root()));
     const previous = positions.value;
     const same = next.size === previous.size && [...next].every(([key, position]) => samePosition(position, previous.get(key)));
@@ -350,6 +408,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         ...(attachments.length > 0 ? { attachments } : {}),
       });
       current.busy = false;
+      flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
@@ -521,11 +580,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resizes?.disconnect();
       clearTimeout(revealTimer);
       if (frame) cancelAnimationFrame(frame);
+      seen.stop();
     });
 
     stops.push(watch(positions, follow, { flush: "post" }));
     stops.push(watch(
-      [pageThreads, () => draft.value?.anchor, openId],
+      [marked, () => draft.value?.anchor, openId],
       () => measure(),
       { flush: "post" },
     ));
@@ -593,6 +653,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     opened,
     listOpen,
     blocked,
+    visibility,
+    shown,
+    leaving,
+    retainMark,
+    isShown: id => shown.value.has(id),
+    flash,
     enter,
     exit,
     toggle,
@@ -601,10 +667,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     send,
     open,
     close,
-    create: ({ anchor = { kind: "page" }, attachments, body, mentions }) =>
-      client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
-    reply: (threadId, body, mentions, attachments) =>
-      client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
+    create: async ({ anchor = { kind: "page" }, attachments, body, mentions }) => {
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) });
+      flash(thread.id);
+      return thread;
+    },
+    reply: async (threadId, body, mentions, attachments) => {
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) });
+      flash(threadId);
+      return thread;
+    },
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
     remove: async (threadId, messageId) => {
       const next = await client.delete({ threadId, messageId });

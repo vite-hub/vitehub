@@ -475,7 +475,7 @@ export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
 }))
 ```
 
-`resourceName` is the name a client shows before sign-in. With the Console on, the Console answers its own resource and issuer first and leaves the others.
+`resourceName` is the name a client shows before sign-in. Every document allows any origin with CORS, and an `OPTIONS` preflight gets `204`, so MCP clients that run in a browser, such as the MCP Inspector, can read them. With the Console on, the Console answers its own resource and issuer first and leaves the others.
 
 ### Check the token of an MCP request
 

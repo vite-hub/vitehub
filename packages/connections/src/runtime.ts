@@ -22,6 +22,7 @@ import { callerActor, callerInheritedActors, decide, decisionActor, envActor } f
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
+import type { EnvStoreRotation } from "@vite-hub/env/database"
 import type { ConnectionState, ConnectionStore } from "./store.ts"
 import type {
   ConnectionAccount,
@@ -116,8 +117,12 @@ export interface ConnectionRuntimeClient {
 }
 
 export interface ConnectionCallback {
-  /** The manager that started the flow with `authorize()`, such as `user:<id>`. */
-  actor: string
+  /**
+   * The manager that started the flow with `authorize()`, such as `user:<id>`. Leave it out only for a flow that the
+   * Console started with `via: "console"`: the signed Console call checked the manager, so the callback completes it as
+   * that manager.
+   */
+  actor?: string
   code?: string
   error?: string
   clientId?: string
@@ -133,8 +138,11 @@ export interface ConnectionsRuntime {
   approvals: (input?: { before?: string, name?: string, status?: ConnectionApprovalStatus }) => Promise<ConnectionApprovalPage>
   /** Approve a pending write and run it under the actor that requested it. */
   approve: (input: { actor: string, id: string }) => Promise<{ approval: ConnectionApproval, result?: unknown }>
-  /** Start an OAuth flow with PKCE and return the provider URL. The `state` and its PKCE verifier work one time, until `expiresAt`. */
-  authorize: (input: { actor: string, name: string, redirectUri: string }) => Promise<{ expiresAt: string, state: string, url: string }>
+  /**
+   * Start an OAuth flow with PKCE and return the provider URL. The `state` and its PKCE verifier work one time, until
+   * `expiresAt`. `via: "console"` marks a flow that a signed Console call started: its callback needs no app session.
+   */
+  authorize: (input: { actor: string, name: string, redirectUri: string, via?: "console" }) => Promise<{ expiresAt: string, state: string, url: string }>
   client: (name: string, options: UseConnectionOptions) => ConnectionRuntimeClient
   /**
    * Exchange the authorization code and store the token. `state` is single-use. `actor` must be the
@@ -146,6 +154,12 @@ export interface ConnectionsRuntime {
   inspect: (name: string) => Promise<ConnectionInspection>
   list: () => Promise<ConnectionInspection[]>
   revoke: (input: { actor: string, name: string }) => Promise<ConnectionInspection>
+  /**
+   * Re-encrypt every stored token with the current key, the first of `VITEHUB_CONNECTIONS_KEYS`. Run it after you add
+   * a new current key, then remove the previous key. A token that a refresh replaces during the rotation keeps the
+   * refresh.
+   */
+  rotateKey: () => Promise<EnvStoreRotation>
   /** Store the key of an API key Connection. The provider `verify` check runs first. */
   setKey: (input: { actor: string, key: string, name: string }) => Promise<ConnectionInspection>
 }
@@ -180,6 +194,14 @@ const approvalInputSchema = v.variant("kind", [
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
+
+/** The `state` of a flow that the Console started starts with this, so its callback knows it needs no app session. */
+const CONSOLE_STATE_PREFIX = "console_"
+
+/** Whether a `state` belongs to a flow that a signed Console call started with `authorize({ via: "console" })`. */
+export function isConsoleState(state: string): boolean {
+  return state.startsWith(CONSOLE_STATE_PREFIX)
+}
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
   return v.is(v.string(), value) || value === undefined ? value : await value()
@@ -244,7 +266,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
+    // Fails alike on Workers and Node, where fetch with redirect: "error" throws a TypeError.
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "redirect", status: response.status })
     return response
   }
   const scheduler = createRequestScheduler()
@@ -905,10 +928,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  async function authorize(input: { actor: string, name: string, redirectUri: string }): Promise<{ expiresAt: string, state: string, url: string }> {
+  async function authorize(input: { actor: string, name: string, redirectUri: string, via?: "console" }): Promise<{ expiresAt: string, state: string, url: string }> {
     const actor = decisionActor(input.actor)
     const loaded = await definition(input.name)
     const chatgpt = isChatGPTProvider(loaded.provider)
+    if (chatgpt && input.via === "console") throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_LOOPBACK()
     const connections = await getStore()
     const registration = chatgpt ? await connections.state.get(input.name) : undefined
     const provider = oauthProvider(loaded, input.name, registration?.chatgpt?.clientId)
@@ -919,7 +943,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     else if (redirect.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "redirect-uri" })
     }
-    const state = randomToken()
+    const state = input.via === "console" ? `${CONSOLE_STATE_PREFIX}${randomToken()}` : randomToken()
     const verifier = randomToken()
     const nonce = chatgpt ? randomToken() : undefined
     const host = chatgpt ? await hostId() : undefined
@@ -952,12 +976,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function complete(input: ConnectionCallback): Promise<ConnectionInspection> {
-    const actor = decisionActor(input.actor)
+    const actor = input.actor === undefined && isConsoleState(input.state) ? undefined : decisionActor(input.actor)
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
     if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_EXPIRED()
-    if (authorization.actor !== actor) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
+    if (actor !== undefined && authorization.actor !== actor) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
     if (input.error === "access_denied") throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_CANCELLED()
     if (input.error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "token-request" })
     if (!input.code) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "body" })
@@ -1374,7 +1398,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)
-      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
+      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
       issuedAt = claims.iat * 1000
     }
     catch { throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY() }
@@ -1472,6 +1496,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     inspect,
     list,
     revoke,
+    async rotateKey() {
+      const store = await getStore()
+      if (!store.rotate) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "rotation" })
+      return await store.rotate()
+    },
     setKey,
   }
   registerChatGPTCredentialUse(runtime, useChatGPT)

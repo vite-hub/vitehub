@@ -154,6 +154,7 @@ describe("Source Skills", () => {
     })
     expect(sourceSkillMounts(resolved.sources)).toEqual([])
     const skills = await selectProviderSkills({
+      colocated: undefined,
       cwd: root,
       provider: "codex",
       sources: sourceSkillMounts(resolved.sources),
