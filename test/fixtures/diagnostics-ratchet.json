@@ -962,6 +962,7 @@
     "packages/codemods/src/nuxt-safe-runtime-config/call-sites.ts": 1,
     "packages/connections/src/internal/http-access.ts": 1,
     "packages/sandbox/src/internal/cloudflare-transport.ts": 1,
+    "packages/sandbox/src/ssh.ts": 1,
     "packages/vite-hub/src/console/runtime/client/operation-view.ts": 1,
     "packages/vite-hub/src/console/runtime/client/shiki-wasm.ts": 1,
     "packages/vite-hub/src/console/runtime/server/access-policy.ts": 2,
