@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
@@ -3519,8 +3520,7 @@ function resolveOwnedAgentWorkspaceDefinition(
 }
 
 function ownedAgentWorkspaceKey(agent: unknown): object {
-  // Internal invariant: every caller checks that the Workspace owner is an object first.
-  if (!isRuntimeObject(agent)) throw new Error("[vitehub] Owned Agent Workspace state requires an object owner.")
+  invariant(isRuntimeObject(agent), "every caller checks that the Workspace owner is an object first")
   return agent
 }
 
@@ -5567,8 +5567,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
 }
 
 function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
-  // Internal invariant: every caller passes an object result that has stream properties.
-  if (!isRuntimeObject(result)) throw new Error("[vitehub] Preserving Agent result properties requires an object result.")
+  invariant(isRuntimeObject(result), "every caller passes an object result that has stream properties")
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -6643,8 +6642,7 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
-          // Internal invariant: durableFailureDeadline is set whenever hasDurableFailureDelivery is true.
-          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = await runFinishActivity(
             deliveryActivity,
@@ -6706,8 +6704,7 @@ async function finishAgentInvocation<
           },
         )
         if (hasDurableFailureDelivery) {
-          // Internal invariant: durableFailureDeadline is set whenever hasDurableFailureDelivery is true.
-          if (!durableFailureDeadline) throw new Error("Durable failure delivery requires a deadline")
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           await runFinishActivity(
             deliveryActivity,
             async () => {

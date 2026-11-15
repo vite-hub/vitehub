@@ -927,5 +927,8 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/agent/src/index.ts": 4,
+    "packages/agent/src/internal/agent-structured-output.ts": 1
+  }
 }
