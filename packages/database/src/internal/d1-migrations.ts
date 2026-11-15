@@ -44,10 +44,12 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     !target.token && "`CLOUDFLARE_API_TOKEN`",
     !target.databaseId && "a value for `cloudflare.databaseId`",
   ]).filter(Boolean)
+  // Internal invariant: callers catch it and report it as the problem of DATABASE_MIGRATION_CHECK_FAILED, DATABASE_EXPORT_FAILED, or a failed D1 migration.
   if (missing.length) throw new Error(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
   const url = target.proxy
     ? target.proxy.url!
     : `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
+  // Internal invariant: callers catch it and report it as the problem of DATABASE_MIGRATION_CHECK_FAILED, DATABASE_EXPORT_FAILED, or a failed D1 migration.
   if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
   const token = target.proxy ? target.proxy.token : target.token
   return async (sql, params = []) => {
@@ -58,6 +60,7 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     })
     const payload: unknown = await response.json().catch(() => undefined)
     const rows = readD1Rows(payload)
+    // Internal invariant: callers catch it and report it as the problem of DATABASE_MIGRATION_CHECK_FAILED, DATABASE_EXPORT_FAILED, or a failed D1 migration.
     if (!response.ok || !rows) throw new Error(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
     return rows
   }

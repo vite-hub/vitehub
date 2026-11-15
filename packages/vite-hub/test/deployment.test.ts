@@ -12,6 +12,7 @@ import { vitehub } from "../src/index.ts"
 
 const hostVariables = [
   "VITEHUB_HOST",
+  "VITEHUB_HOST_SOURCE",
   "NITRO_PRESET",
   "SERVER_PRESET",
   "CF_PAGES",
@@ -102,5 +103,29 @@ describe("vitehub() without a host", () => {
     vi.stubEnv("NETLIFY", "true")
     const config = await buildConfig()
     expect(config.nitro?.preset).toBe("vercel")
+  })
+})
+
+describe("vitehub() with a host and the host of vitehub deploy", () => {
+  async function buildConfig(host: "cloudflare" | "vercel") {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-host-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const config = await resolveConfig({ root, plugins: [vitehub({ blob: false, env: false, host, queue: false, rateLimit: false })] }, "build")
+    return config as typeof config & { nitro?: { preset?: string } }
+  }
+
+  it("builds for the host that vitehub deploy sets, over a literal host", async () => {
+    for (const variable of hostVariables) vi.stubEnv(variable, "")
+    vi.stubEnv("VITEHUB_HOST", "vercel")
+    vi.stubEnv("VITEHUB_HOST_SOURCE", "cli")
+    const config = await buildConfig("cloudflare")
+    expect(getDeploymentHost(config)).toBe("vercel")
+    expect(config.nitro?.preset).toBe("vercel")
+  })
+
+  it("still rejects a VITEHUB_HOST that the CLI did not set and that conflicts with host", async () => {
+    for (const variable of hostVariables) vi.stubEnv(variable, "")
+    vi.stubEnv("VITEHUB_HOST", "vercel")
+    await expect(buildConfig("cloudflare")).rejects.toThrow("conflicts with VITEHUB_HOST")
   })
 })

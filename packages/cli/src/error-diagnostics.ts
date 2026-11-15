@@ -5,12 +5,17 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
+// Retired codes. Do not reuse them: CLI_R0006, SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
-    CLI_R0001: dynamicError,
-    CLI_R0002: dynamicError,
+    /** A host API answered with a shape that the CLI cannot read. */
+    CLI_HOST_RESPONSE_INVALID: {
+      fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
+      why: ({ host }: { host: string }) => `[vitehub] The ${host} API returned an unexpected response.`,
+    },
+    CLI_R0001: { ...dynamicError, fix: "Install `nuxt` in the project, such as with `pnpm add nuxt`, then run the command again." },
+    CLI_R0002: { ...dynamicError, fix: "Install `@vite-hub/cli` again, such as with `pnpm add -D @vite-hub/cli`." },
     CLI_R0003: {
       fix: "Run the command with --help to see its input.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
@@ -19,7 +24,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Start `vite dev` in this project, or pass `--url <origin>` of a running or deployed app. `VITEHUB_DEV_SERVER_URL` also names a server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
-    CLI_R0006: dynamicError,
+    /** A setup command failed with an error that has no code, and `--json` reports it. */
+    CLI_SETUP_FAILED: {
+      fix: "Fix the cause that the message names, then run the command again.",
+      why: ({ message }: { message: string }) => message,
+    },
     SETUP_CONFIG_NOT_LITERAL: {
       fix: "Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand.",
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `The vitehub() options in ${String(file)} cannot be read without running the config (${String(reason)}).`,
@@ -89,7 +98,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => `The ${String(host)} host has no project to link. A self-hosted Node server needs no link.`,
     },
     SETUP_LINK_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
     },
     SETUP_LINK_ACCOUNT_REQUIRED: {
@@ -97,6 +106,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ count }: { count?: unknown }) => Number(count) === 0
         ? "The Cloudflare token has access to no account."
         : `The Cloudflare token has access to ${String(count)} accounts, so the account to link is not clear.`,
+    },
+    SETUP_LINK_HOST_REQUIRED: {
+      fix: ({ command }: { command?: unknown, hosts?: unknown }) => `Run \`${String(command)} --host <host>\`, or make one host the default with \`vitehub link --host <host> --default\`.`,
+      why: ({ hosts }: { command?: unknown, hosts?: unknown }) => `The project links several hosts (${String(hosts)}) and none is the default, so the host is not clear.`,
     },
     SETUP_LINK_NAME_REQUIRED: {
       fix: "Pass --project <name>, or set `name` in vitehub() or in package.json.",
@@ -127,7 +140,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
     },
     SETUP_DEPLOY_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
     },
     SETUP_DEPLOY_TEMPORARY_UNSUPPORTED: {
@@ -153,8 +166,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,
     },
     SETUP_DEPLOY_HOST_MISMATCH: {
-      fix: "Build again for the linked host, or run `vitehub unlink` and link the host that the build targets.",
-      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but the project deploys to ${String(host)}.`,
+      fix: ({ host }: { built?: unknown, host?: unknown }) => `Build again for ${String(host)}: run \`vitehub deploy --host ${String(host)}\` without --no-build.`,
+      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but this deploy goes to ${String(host)}.`,
     },
     SETUP_DEPLOY_COMMAND_REJECTED: {
       fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
@@ -165,11 +178,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
     },
     SETUP_DEPLOYMENTS_NOT_LINKED: {
-      fix: "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
-      why: () => "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
+      fix: ({ host }: { host?: unknown }) => host ? `Run \`vitehub link --host ${String(host)}\`, or deploy once with \`vitehub deploy --host ${String(host)}\`.` : "Run `vitehub link` to link the project to its host, or deploy once with `vitehub deploy`.",
+      why: ({ host }: { host?: unknown }) => host ? `The project has no ${String(host)} target in .vitehub/link.json, so the host project to read is not known.` : "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
     },
     SETUP_DEPLOYMENTS_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login, so the deployments cannot be read.`,
     },
     SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED: {
@@ -187,6 +200,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_DEPLOY_CHECKOUT_MODULE_FAILED: {
       fix: "Reinstall the project dependencies and check that the Workspace package is the same version as the CLI. Or pass --no-push to deploy without the push.",
       why: ({ file, message, specifier }: { file?: unknown, message?: unknown, specifier?: unknown }) => `The project installs ${String(specifier)}, but ViteHub cannot load it from ${String(file)}, so it cannot push the checkout folders of vitehub.lock. Nothing was built or deployed: ${String(message)}`,
+    },
+    SETUP_DEPLOY_PROVISION_NEEDS_BUILD: {
+      fix: "Deploy again without --no-build, so the build gets the new ids.",
+      why: ({ count }: { count?: unknown, host?: unknown }) => `The deploy must create or change ${String(count)} resources, but --no-build deploys an output that was built without their ids. Nothing was created or deployed.`,
+    },
+    SETUP_DEPLOY_PROVISION_UNCHECKED: {
+      fix: "Set the credential that the reason names and deploy again. Or deploy with --no-provision to skip the resources.",
+      why: ({ host, missing, warnings }: { host?: unknown, missing?: unknown, warnings?: unknown }) => `The deploy could not check the ${String(host)} resources of the app, so it created and deployed nothing: ${String(warnings)} ${String(missing)}`,
     },
     SETUP_DEPLOY_PUSH_FAILED: {
       fix: ({ fix }: { fix?: unknown, message?: unknown, url?: unknown }) => `${fix ? `${String(fix)} ` : ""}Then run \`vitehub push\`. Do not deploy again.`,

@@ -2,13 +2,15 @@ import { defineOperation, table } from "@vite-hub/internal/operations"
 import stripAnsi from "strip-ansi"
 import * as v from "valibot"
 
+import { formsDiagnostics } from "./errors.ts"
+
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { FormSubmission } from "./types.ts"
 
 // The inbox lives in the Nitro runtime. The operations load it when they run, so the CLI can list them without it.
 async function inbox() {
   const installed = (await import("./runtime.ts")).installedForms()
-  if (!installed) throw new Error("[vitehub] The app has no forms. Add server/forms/<name>.ts with defineForm().")
+  if (!installed) throw formsDiagnostics.FORMS_NOT_INSTALLED()
   return installed.inbox
 }
 
