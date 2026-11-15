@@ -1,57 +1,101 @@
 ---
 title: ViteHub UI
-description: "Console-ready Vue components for chat, sessions, Agent runs, and code views."
+description: "Build UI that people and Agents use: ui-sdk parts with the kit, UI specs that an Agent sends, and the live page that an Agent works."
 navigation.title: Overview
 navigation.order: 1
 navigation.group: Start
 icon: i-lucide-layout-grid
 ---
 
-`@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. Start with a full Console block, then connect your data.
+An Agent meets UI in three ways. It builds UI as code, it sends UI as a spec, or it works the page that a person has open. ViteHub UI gives each way one owner.
 
-The package draws the UI. Your app sends and stores data and checks access. Every example uses fake data, makes no network requests, and shows its source below.
+| Way | What you use |
+| --- | --- |
+| [Build UI as code](#build-ui-as-code) | ui-sdk parts from `@ui-sdk/vue`, and `@vite-hub/kit` for the parts and styles that ui-sdk does not have |
+| [Send UI as a spec](#send-ui-as-a-spec) | The Agent UI catalog in `vite-hub/agent/ui`, with forms from `@vite-hub/forms` |
+| [Work the live page](#work-the-live-page) | The page Capability, with `connectPage()` from `vite-hub/agent/page` |
 
-## A Console with the defaults
+## Build UI as code
 
-Select a session to read and reply. This example uses the default styles and layouts.
+Import each part from its own `@ui-sdk/vue` entry. A part has behavior, focus, keyboard, and ARIA, and no styles. The kit adds the parts that ui-sdk does not have, today `TagsInput`, and a style family for every part.
 
-::example{name="ChatAppBlock" flush reset height=36}
-::
+```vue [app/components/RenameDialog.vue]
+<script setup lang="ts">
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@ui-sdk/vue/dialog"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+</script>
 
-[Install the package](/docs/ui/installation) and copy the [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), or [Collaborative editor](/docs/ui/blocks/collaborative-editor) into your app. Each block shows how to connect real data.
+<template>
+  <Dialog>
+    <DialogTrigger>Rename</DialogTrigger>
+    <DialogContent>
+      <DialogTitle>Rename the project</DialogTitle>
+      <Field>
+        <FieldLabel>Project name</FieldLabel>
+        <Input default-value="Apollo" />
+      </Field>
+    </DialogContent>
+  </Dialog>
+</template>
+```
 
-## Components
+Read [Get started](/docs/ui/get-started) to install the parts and the styles.
 
-::page-list{exclude="Start"}
-- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
-- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block), [Copy button](/docs/ui/copy-button), [Status](/docs/ui/status)
-- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Markdown Editor](/docs/ui/markdown-editor), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session), [Agent session](/docs/ui/agent-session)
-- **Collaboration:** [Comments](/docs/ui/comments), [Avatar stack](/docs/ui/avatar-stack), [Connection status](/docs/ui/connection-status), [Sync status](/docs/ui/sync-status), [Carets](/docs/ui/carets)
-- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree), [Device frame](/docs/ui/device-frame), [Playground render](/docs/ui/playground-render)
-- **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
-::
+## Send UI as a spec
 
-## What each layer owns
+An Agent can answer with UI instead of text, such as an approval card. It writes a [json-render](https://json-render.dev) spec, and `vite-hub/agent/ui` checks it against the catalog of parts that it may send:
 
-| Concern | Owner |
-| ------- | ----- |
-| Message contracts and transport | AI SDK or your ViteHub Agent route |
-| Scroll intent and message jumps | ViteHub headless Vue primitives |
-| Tokens and basic controls | Nuxt UI |
-| Chat, sessions, Agent views, Markdown, attachments | ViteHub UI |
-| Diffs and path-first file trees | Pierre |
+```json [approval.json]
+{
+  "root": "card",
+  "elements": {
+    "card": {
+      "type": "Card",
+      "props": { "title": "Deploy acme/web" },
+      "children": ["approve"]
+    },
+    "approve": {
+      "type": "Button",
+      "props": { "label": "Approve", "variant": "primary" },
+      "on": {
+        "press": { "action": "event", "params": { "name": "deploy.approve" } }
+      }
+    }
+  }
+}
+```
 
-The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or from `vite-hub/agent/vue`, then pass its values to the components.
+A spec draws no inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, so one schema draws the web form, the MCP elicitation, and the Slack modal. Read [UI that an Agent sends](https://github.com/vite-hub/vitehub/blob/main/packages/agent/README.md#ui-that-an-agent-sends), [one schema on every surface](/docs/forms/server-api#one-schema-on-every-surface), and [Forms in Vue](/docs/forms/vue).
 
-## Entry points
+## Work the live page
 
-| Import                    | Use it for                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| `@vite-hub/ui`            | Styled components, composables, and display and Pierre diff helpers. |
-| `@vite-hub/ui/headless`   | Message scroller and Choices input parts, without styles or Nuxt UI. |
-| `@vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
-| `@vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
-| `@vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
-| `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
-| `@vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |
-| `@vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and Nuxt UI. |
+The page Capability lets a server Agent read and change the page that the person has open, through ui-sdk's agent bridge. You set which parts it may not touch and which steps need approval:
+
+```ts [server/agents/settings.ts]
+import { defineAgent } from "vite-hub/agent"
+import { page } from "vite-hub/agent/capabilities"
+import { webChat } from "vite-hub/agent/channels"
+
+export default defineAgent({
+  capabilities: [page({ requireApproval: [{ label: "Save changes" }] })],
+  channels: { web: webChat() },
+  driver: { model: "openai/gpt-5" },
+})
+```
+
+Read [Page](/docs/agents/capabilities/page) for the page side, undo, and the security model.
+
+## Next
+
+- [Get started](/docs/ui/get-started): install the parts and the styles, render one part, and connect the page.
+- [Where does it belong?](/docs/ui/where-does-it-belong): the owner and the test of each layer, for a bug or a feature.
+- [From Reka UI](/docs/ui/from-reka-ui) and [From Nuxt UI](/docs/ui/from-nuxt-ui): move an app to ui-sdk parts.
+- [AI components](/docs/ui/ai-components): chat, sessions, Agent runs, and code views on Nuxt UI.
+- [Playground](/playground?template=ui): edit a Vue app with ui-sdk parts in the browser.
+- [Import paths](/docs/reference/import-paths): every entry of `vite-hub/agent/ui`, `vite-hub/agent/page`, and `vite-hub/forms`.
