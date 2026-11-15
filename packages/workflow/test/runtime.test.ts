@@ -9,12 +9,12 @@ import { isSerializedResponse, serializeResponse, ViteHubError } from "@vite-hub
 import { checkDurability } from "@vite-hub/runtime/durability"
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowExecutionContext, WorkflowHandler, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { workflowDurability } from "../src/durability.ts"
 import { defineWorkflow } from "../src/definition.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
-import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
+import { describeOpenWorkflowStorage, getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowDatabaseUrl, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
@@ -25,7 +25,7 @@ it("rejects workflow step files that normalize to an empty property name", () =>
   expect(() => createWorkflowSteps({ name: "demo", payload: undefined, provider: "cloudflare" }, [{ name: "01-.ts", run: async () => "ok" }]))
     .toThrow(/empty step property/i)
 })
-import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, getWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
+import { enterWorkflowRuntimeEvent, getInlineWorkflowDefinitions, getWorkflowRuntimeEvent, getWorkflowRuntimeRegistry, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, takeInlineWorkflowDefinition } from "../src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
 import type { VercelRun, VercelStep, VercelWorkflowRuntime } from "../src/runtime/vercel.ts"
@@ -131,10 +131,54 @@ const openWorkflowMock = vi.hoisted(() => {
     }
   }
 
+  // The advisory lock around OpenWorkflow's Postgres setup. Each tagged query records its SQL text.
+  const lockQueries: string[] = []
+  // The results of `pg_try_advisory_xact_lock`, in order. The lock is free when the list is empty.
+  const lockResults: boolean[] = []
+  const transaction = Object.assign(
+    async (strings: TemplateStringsArray) => {
+      lockQueries.push(strings.join("?"))
+      return [{ locked: lockResults.shift() ?? true }]
+    },
+    {
+      unsafe: async (query: string) => {
+        lockQueries.push(query)
+        return []
+      },
+    },
+  )
+  // `true` when the probe for a second connection never gets one, as behind a pool of one connection.
+  const probe = { hangs: false }
+  const postgres = vi.fn((_url: string, _options?: unknown) => Object.assign(
+    (strings: TemplateStringsArray) => {
+      lockQueries.push(strings.join("?"))
+      return probe.hangs ? new Promise(() => {}) : Promise.resolve([{ "?column?": 1 }])
+    },
+    {
+      begin: vi.fn(async (run: (sql: typeof transaction) => Promise<unknown>) => {
+        lockQueries.push("begin")
+        try {
+          const result = await run(transaction)
+          lockQueries.push("commit")
+          return result
+        }
+        catch (error) {
+          lockQueries.push("rollback")
+          throw error
+        }
+      }),
+      end: vi.fn(async () => {}),
+    },
+  ))
+
   return {
     cancelWorkflowRun,
     connect,
     definitions,
+    lockQueries,
+    lockResults,
+    postgres,
+    probe,
     newWorker,
     OpenWorkflow,
     runOptions,
@@ -159,6 +203,12 @@ it("types handler-owned results and unknown named Workflow results honestly", ()
 
 type OpenWorkflowMockBackend = Awaited<ReturnType<typeof openWorkflowMock.connect>>
 
+/** OpenWorkflow runs a definition durably only when the build registry has it, as it has a discovered file. */
+function durableOpenWorkflow(name: string, handler: WorkflowHandler) {
+  setWorkflowRuntimeRegistry({ ...getWorkflowRuntimeRegistry(), [name]: async () => ({ default: { handler } }) })
+  return createWorkflow(name)
+}
+
 vi.mock("openworkflow", () => ({
   OpenWorkflow: openWorkflowMock.OpenWorkflow,
 }))
@@ -168,6 +218,8 @@ vi.mock("openworkflow/postgres", () => ({
     connect: openWorkflowMock.connect,
   },
 }))
+
+vi.mock("postgres", () => ({ default: openWorkflowMock.postgres }))
 
 vi.mock("openworkflow/sqlite", () => ({
   BackendSqlite: {
@@ -188,6 +240,10 @@ function setOpenWorkflowMockImporter(): void {
     if (specifier === "openworkflow/sqlite") {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+    }
+    if (specifier === "postgres") {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      return { default: openWorkflowMock.postgres } as never
     }
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     return await import(specifier) as never
@@ -221,6 +277,10 @@ beforeEach(async () => {
   openWorkflowMock.connect.mockClear()
   openWorkflowMock.sqliteConnect.mockClear()
   openWorkflowMock.definitions.clear()
+  openWorkflowMock.lockQueries.length = 0
+  openWorkflowMock.lockResults.length = 0
+  openWorkflowMock.probe.hangs = false
+  openWorkflowMock.postgres.mockClear()
   openWorkflowMock.newWorker.mockClear()
   openWorkflowMock.runOptions.length = 0
   openWorkflowMock.runs.clear()
@@ -315,8 +375,10 @@ describe("workflow runtime", () => {
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,
-    details: { acknowledgement?: "unknown", operation: string, provider: string, status?: number },
+    expected: { acknowledgement?: "rejected" | "unknown", operation: string, provider: string, reason?: string, status?: number },
   ) {
+    // Every provider failure carries a short redacted reason. A case that does not name one accepts any reason.
+    const details = { reason: expect.any(String), ...expected }
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
@@ -331,7 +393,8 @@ describe("workflow runtime", () => {
       message: "Workflow provider operation failed.",
       name: "ViteHubError",
     })
-    expect(JSON.stringify(error)).not.toContain("provider-secret")
+    // The reason keeps the first line of the provider message. A value after a secret name is redacted.
+    expect(JSON.stringify(error)).not.toMatch(/provider-secret:(?!\[redacted\])/)
   }
 
   async function expectInvalidProviderResult(
@@ -448,10 +511,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -530,7 +590,7 @@ describe("workflow runtime", () => {
     await expect(startWorkflow("duplicate", {})).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
-  it("prefers inline definitions registered while loading discovered entries", async () => {
+  it("prefers resolved registry definitions over inline definitions registered during loading", async () => {
     const discovered = vi.fn(async () => "discovered")
     const inline = vi.fn(async () => "inline")
 
@@ -547,12 +607,12 @@ describe("workflow runtime", () => {
 
     await vi.waitFor(async () => {
       const firstResult = (await getWorkflowRun("mixed", firstRun.id))?.result
-      expect(firstResult).toBe("inline")
+      expect(firstResult).toBe("discovered")
       const secondResult = (await getWorkflowRun("mixed", secondRun.id))?.result
-      expect(secondResult).toBe("inline")
+      expect(secondResult).toBe("discovered")
     })
-    expect(inline).toHaveBeenCalledTimes(2)
-    expect(discovered).not.toHaveBeenCalled()
+    expect(discovered).toHaveBeenCalledTimes(2)
+    expect(inline).not.toHaveBeenCalled()
   })
 
   it("uses a single inline definition registered by a discovered location entry", async () => {
@@ -755,7 +815,7 @@ describe("workflow runtime", () => {
 
   it("persists serialized OpenWorkflow responses and decodes completed runs", async () => {
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
-    const workflow = createWorkflow("durable-open", async () => new Response("saved", {
+    const workflow = durableOpenWorkflow("durable-open", async () => new Response("saved", {
       status: 201, headers: { "x-workflow": "durable" },
     }))
     const started = await workflow.start()
@@ -772,10 +832,29 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("runs a Workflow that is not in the registry inline instead of on OpenWorkflow", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const workflow = createWorkflow("late-inline", async () => "inline result")
+
+    const started = await workflow.start()
+    await workflow.start()
+
+    // Another worker could claim the run and never know this definition, so the run does not go to storage.
+    expect(started).toMatchObject({ metadata: { mode: "inline", workflow: "late-inline" }, provider: "openworkflow", status: "queued" })
+    expect(openWorkflowMock.runOptions).toHaveLength(0)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]![0])).toContain("not durable")
+    await vi.waitFor(async () => expect(await workflow.getRun(started.id)).toMatchObject({ status: "completed" }))
+    const { result } = await workflow.getRun(started.id)
+    expect(result instanceof Response ? await result.text() : result).toBe("inline result")
+    warn.mockRestore()
+  })
+
   it("cancels pending OpenWorkflow runs of the same Workflow through the OpenWorkflow client", async () => {
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
-    const workflow = createWorkflow("cancel-open", async () => "done")
-    const other = createWorkflow("cancel-other", async () => "done")
+    const workflow = durableOpenWorkflow("cancel-open", async () => "done")
+    const other = durableOpenWorkflow("cancel-other", async () => "done")
     const started = await workflow.start()
     const foreign = await other.start()
     const stored = openWorkflowMock.runs.get(started.id)
@@ -794,7 +873,7 @@ describe("workflow runtime", () => {
 
   it("reports finished OpenWorkflow runs as they are instead of cancelling them", async () => {
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
-    const workflow = createWorkflow("cancel-finished", async () => "done")
+    const workflow = durableOpenWorkflow("cancel-finished", async () => "done")
     const started = await workflow.start()
     await vi.waitFor(() => expect(openWorkflowMock.runs.get(started.id)).toMatchObject({ output: expect.anything(), status: "completed" }))
 
@@ -804,7 +883,7 @@ describe("workflow runtime", () => {
 
   it.each(["completed", "failed", "canceled"])("returns the terminal OpenWorkflow run when it becomes %s during cancellation", async (status) => {
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
-    const workflow = createWorkflow("cancel-race", async () => "done")
+    const workflow = durableOpenWorkflow("cancel-race", async () => "done")
     const started = await workflow.start()
     const stored = openWorkflowMock.runs.get(started.id)
     await vi.waitFor(() => expect(stored).toMatchObject({ output: expect.anything(), status: "completed" }))
@@ -825,7 +904,7 @@ describe("workflow runtime", () => {
   it.each(["pending", "running", "unknown", "missing", "foreign", "unreadable"])("preserves the OpenWorkflow cancellation error when the fresh read is %s", async (state) => {
     const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
     setWorkflowRuntimeConfig(config)
-    const workflow = createWorkflow("cancel-error", async () => "done")
+    const workflow = durableOpenWorkflow("cancel-error", async () => "done")
     const started = await workflow.start()
     const stored = openWorkflowMock.runs.get(started.id)
     const runtime = await getOpenWorkflowRuntime(config)
@@ -903,7 +982,6 @@ describe("workflow runtime", () => {
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
-    const stepSleep = vi.fn(async () => {})
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
@@ -915,7 +993,6 @@ describe("workflow runtime", () => {
           throw error
         }
       }),
-      sleep: stepSleep,
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -925,8 +1002,7 @@ describe("workflow runtime", () => {
       event: { id: "run-1" },
       name: "welcome",
       registry: {
-        welcome: async () => ({ default: { handler: async (_payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
+        welcome: async () => ({ default: { handler: async () => {
           throw original
         } } }),
       },
@@ -935,7 +1011,6 @@ describe("workflow runtime", () => {
 
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
     expect(step.do).toHaveBeenCalledOnce()
-    expect(stepSleep).toHaveBeenCalledWith("settle", "1 second")
   })
 
   it("isolates overlapping Cloudflare fetch environments", async () => {
@@ -1129,10 +1204,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: { handler: async payload => ({ payload }) },
       }),
     })
 
@@ -1161,10 +1233,14 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
-        default: { handler: async (payload, { step }) => {
-          await step?.sleep?.("settle", "1 second")
-          return { payload }
-        } },
+        default: {
+          // A folder Workflow orchestrator: only it may sleep.
+          options: { rootStep: false },
+          handler: async (payload, { step }) => {
+            await step?.sleep?.("settle", "1 second")
+            return { payload }
+          },
+        },
       }),
     })
 
@@ -1441,8 +1517,168 @@ describe("workflow runtime", () => {
     })
   })
 
-  it("reports the DATABASE_URL backend used by the runtime and permits three instances", async () => {
-    vi.stubEnv("DATABASE_URL", " postgres://localhost/shared-workflows ")
+  it.each(["postgres://localhost/app", "postgresql://localhost/app", "POSTGRES://localhost/app"])("rejects an implicit SQLite fallback for DATABASE_URL %s", async (url) => {
+    process.env.DATABASE_URL = url
+    try {
+      const config = normalizeWorkflowOptions({ provider: "openworkflow" })!
+      expect(() => describeOpenWorkflowStorage(config)).toThrow(/DATABASE_URL/)
+      await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ code: "WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED" })
+      expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+      expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+    }
+    finally {
+      delete process.env.DATABASE_URL
+    }
+  })
+
+  it.each(["libsql://db.turso.io", "file:.data/app.db"])("does not use DATABASE_URL %s without a Postgres Default Database", async (url) => {
+    process.env.DATABASE_URL = url
+    try {
+      await getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)
+    }
+    finally {
+      delete process.env.DATABASE_URL
+    }
+    // Like Queue and Realtime, Workflow shares the Default Database or an explicit URL, never an ambient one.
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", expect.anything())
+  })
+
+  it("lets explicit storage override a legacy Postgres DATABASE_URL", () => {
+    process.env.DATABASE_URL = "postgres://localhost/legacy"
+    try {
+      expect(describeOpenWorkflowStorage({ provider: "openworkflow", sqlite: { path: ":memory:" } })).toMatchObject({ backend: "sqlite", source: "configured" })
+      expect(describeOpenWorkflowStorage({ provider: "openworkflow", postgres: { url: "postgres://localhost/configured" } })).toMatchObject({ backend: "postgres", source: "configured" })
+      process.env.OPENWORKFLOW_SQLITE_PATH = ":memory:"
+      expect(describeOpenWorkflowStorage({ provider: "openworkflow" })).toMatchObject({ backend: "sqlite", source: "configured" })
+    }
+    finally {
+      delete process.env.DATABASE_URL
+      delete process.env.OPENWORKFLOW_SQLITE_PATH
+    }
+  })
+
+  it("holds an advisory lock while OpenWorkflow sets up its Postgres schema", async () => {
+    const order: string[] = []
+    openWorkflowMock.connect.mockImplementationOnce(async () => {
+      order.push(`connect after ${openWorkflowMock.lockQueries.length} lock queries`)
+      return { getWorkflowRun: vi.fn(async () => null), stop: vi.fn() }
+    })
+    await getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { schema: "jobs", url: "postgres://localhost/lock" }, provider: "openworkflow" })!)
+
+    expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/lock", expect.objectContaining({ max: 1 }))
+    expect(openWorkflowMock.lockQueries).toEqual([
+      "begin",
+      "select pg_try_advisory_xact_lock(hashtextextended(?, 0)) as locked",
+      "select 1",
+      "commit",
+    ])
+    // OpenWorkflow sets up the schema while the transaction holds the lock, after the second connection answered.
+    expect(order).toEqual(["connect after 3 lock queries"])
+    expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
+  })
+
+  it("waits for the setup lock without holding a connection, then sets up the schema", async () => {
+    vi.useFakeTimers()
+    // Another server holds the lock for the first two tries.
+    openWorkflowMock.lockResults.push(false, false)
+    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/wait" }, provider: "openworkflow" })!)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await acquired
+    vi.useRealTimers()
+
+    // Each try commits its own short transaction, so the waiting server does not keep one open.
+    expect(openWorkflowMock.lockQueries.filter(query => query === "begin")).toHaveLength(3)
+    expect(openWorkflowMock.lockQueries.filter(query => query === "commit")).toHaveLength(3)
+    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.postgres).toHaveBeenCalledWith("postgres://localhost/wait", expect.objectContaining({ idle_timeout: 1, max: 1 }))
+  })
+
+  it("reports WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT and releases the connection when another server keeps the setup lock", async () => {
+    vi.useFakeTimers()
+    try {
+      openWorkflowMock.lockResults.push(...Array<boolean>(100).fill(false))
+      const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/locked" }, provider: "openworkflow" })!)
+      const failure = acquired.catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(122_000)
+
+      await expect(failure).resolves.toMatchObject({
+        code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+        cause: { code: "WORKFLOW_OPENWORKFLOW_SETUP_LOCK_TIMEOUT" },
+      })
+      expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+      expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
+      expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("holds the setup lock until the setup ends, however long it takes", async () => {
+    vi.useFakeTimers()
+    let finishSetup!: () => void
+    openWorkflowMock.connect.mockImplementationOnce(() => new Promise((resolve) => {
+      finishSetup = () => resolve({ getWorkflowRun: vi.fn(async () => null), stop: vi.fn() })
+    }))
+    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/slow" }, provider: "openworkflow" })!)
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    vi.useRealTimers()
+
+    // Ten minutes later the lock transaction is still open, so no other server can run the setup.
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("select 1")
+    finishSetup()
+    await expect(acquired).resolves.toMatchObject({ backend: expect.anything() })
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("commit")
+  })
+
+  it("stops with WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE before the setup when the pool has no second connection", async () => {
+    vi.useFakeTimers()
+    openWorkflowMock.probe.hangs = true
+    const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/one" }, provider: "openworkflow" })!)
+    const failure = acquired.catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(10_000)
+    vi.useRealTimers()
+
+    const codes: unknown[] = []
+    for (let error: unknown = await failure; error instanceof Error; error = error.cause) codes.push(Reflect.get(error, "code"))
+    expect(codes).toContain("WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE")
+    // The lock transaction rolled back, and OpenWorkflow never started a migration.
+    expect(openWorkflowMock.lockQueries.at(-1)).toBe("rollback")
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+  })
+
+  it("uses the Postgres Default Database before DATABASE_URL, and the OpenWorkflow URL before both", async () => {
+    process.env.DATABASE_URL = "postgres://localhost/ambient"
+    try {
+      setOpenWorkflowDatabaseUrl(() => "postgres://localhost/definition")
+      await getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)
+      expect(openWorkflowMock.connect).toHaveBeenLastCalledWith("postgres://localhost/definition", expect.anything())
+      expect(describeOpenWorkflowStorage(normalizeWorkflowOptions({ provider: "openworkflow" })!)).toEqual({ backend: "postgres", location: "schema openworkflow", source: "database" })
+
+      process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/openworkflow"
+      await getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)
+      expect(openWorkflowMock.connect).toHaveBeenLastCalledWith("postgres://localhost/openworkflow", expect.anything())
+
+      // A Default Database without a URL does not send runs to a SQLite file of one host.
+      delete process.env.OPENWORKFLOW_POSTGRES_URL
+      setOpenWorkflowDatabaseUrl(() => undefined)
+      await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ provider: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING" })
+    }
+    finally {
+      delete process.env.DATABASE_URL
+    }
+  })
+
+  it("does not lock when OpenWorkflow Postgres migrations are off", async () => {
+    await getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { runMigrations: false, url: "postgres://localhost/nolock" }, provider: "openworkflow" })!)
+
+    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.postgres).not.toHaveBeenCalled()
+  })
+
+  it("reports the OPENWORKFLOW_POSTGRES_URL backend used by the runtime and permits three instances", async () => {
+    vi.stubEnv("OPENWORKFLOW_POSTGRES_URL", " postgres://localhost/shared-workflows ")
     const config = { provider: "openworkflow" as const }
     await getOpenWorkflowRuntime(config)
 
@@ -1740,6 +1976,7 @@ describe("workflow runtime", () => {
     })
 
     await expectProviderFailure(startWorkflow("welcome", {}, { id: "source-run" }), cause, {
+      acknowledgement: "rejected",
       operation: "run",
       provider: "openworkflow",
       status: 403,
@@ -2267,16 +2504,18 @@ describe("workflow runtime", () => {
     expect(processSignals.off).toHaveBeenCalledTimes(2)
   })
 
-  it("registers inline workflow definitions in OpenWorkflow workers", async () => {
+  it("registers only the registry definitions in OpenWorkflow workers", async () => {
     setWorkflowRuntimeConfig({
       postgres: { url: "postgres://localhost/vitehub" },
       provider: "openworkflow",
     })
+    setWorkflowRuntimeRegistry({ discovered: async () => ({ default: { handler: async () => "discovered" } }) })
+    // Its runs execute inline, so no worker needs it.
     createWorkflow("inline-worker", async () => ({ ok: true }))
 
     await createOpenWorkflowWorker()
 
-    expect(openWorkflowMock.definitions.has("inline-worker")).toBe(true)
+    expect([...openWorkflowMock.definitions.keys()]).toEqual(["discovered"])
   })
 
   it("ignores OpenWorkflow definitions whose handler is inherited", async () => {
@@ -2336,19 +2575,6 @@ describe("workflow runtime", () => {
     await createOpenWorkflowWorker()
 
     expect(openWorkflowMock.definitions.has("pipeline")).toBe(true)
-  })
-
-  it("rejects duplicate inline and discovered OpenWorkflow worker definitions", async () => {
-    setWorkflowRuntimeConfig({
-      postgres: { url: "postgres://localhost/vitehub" },
-      provider: "openworkflow",
-    })
-    setWorkflowRuntimeRegistry({
-      duplicate: async () => ({ default: { handler: async () => "discovered" } }),
-    })
-    createWorkflow("duplicate", async () => "inline")
-
-    await expect(createOpenWorkflowWorker()).rejects.toThrow(/Duplicate workflow name "duplicate"/)
   })
 
   it("shares in-flight discovered workflow definition loads", async () => {
@@ -3310,6 +3536,30 @@ describe("workflow runtime", () => {
   })
 
   it.each([
+    { acknowledgement: "rejected", message: "(instance.already_exists) Workflow instance already exists" },
+    { acknowledgement: "rejected", message: "Workflow instance has invalid id" },
+    { acknowledgement: "unknown", message: "Network connection lost." },
+  ] as const)("reports a Cloudflare create that fails with \"$message\" as $acknowledgement", async ({ acknowledgement, message }) => {
+    const cause = new Error(message)
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName("welcome")]: { createBatch: async () => { throw cause }, get: vi.fn() },
+      } } } },
+    })
+
+    await expectProviderFailure(startWorkflow("welcome", {}, { id: "welcome-1" }), cause, {
+      acknowledgement,
+      operation: "create",
+      provider: "cloudflare",
+      reason: `Error: ${message}`,
+    })
+  })
+
+  it.each([
     { providerStatus: "suspended", status: "unknown" },
     { providerStatus: "constructor", status: "unknown" },
     { providerStatus: "__proto__", status: "unknown" },
@@ -3417,7 +3667,7 @@ describe("Workflow input dispatch", () => {
     if (fails) openWorkflowMock.sqliteConnect.mockImplementationOnce(() => { throw new Error("database unavailable") })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
     enterWorkflowRuntimeEvent({ onDispatch })
-    const workflow = createWorkflow("input-owner", async () => "done")
+    const workflow = durableOpenWorkflow("input-owner", async () => "done")
     if (fails) await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
     else await expect(workflow.start()).resolves.toMatchObject({ status: "queued" })
     expect(onDispatch).toHaveBeenCalledTimes(fails ? 0 : 1)

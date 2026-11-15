@@ -74,16 +74,52 @@ function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>
   return { ...context, steps: {} }
 }
 
+/** The root step result that says the handler called `context.step.sleep()`. A replay reads it and fails the same way. */
+const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
+
+/**
+ * Runs the handler in its root step, or alone for a folder Workflow (`rootStep: false`). A sleep inside the root step
+ * fails the run with `WORKFLOW_ROOT_STEP_SLEEP` on every provider. The root step returns a marker instead of throwing,
+ * so the provider does not retry it and run the code before the sleep again.
+ */
+async function runInRootStep<TPayload, TResult, TOutput>(
+  context: WorkflowProviderContext<TPayload>,
+  definition: WorkflowDefinition<TPayload, TResult>,
+  encode: (value: TResult) => TOutput | Promise<TOutput>,
+): Promise<TOutput> {
+  if (definition.options?.rootStep === false) {
+    return await encode(await definition.handler(context.payload, toExecutionContext(context)))
+  }
+
+  let slept = false
+  const sleepError = () => workflowErrorDiagnostics.WORKFLOW_ROOT_STEP_SLEEP({ name: context.name })
+  const step: WorkflowProviderStep = {
+    ...context.step,
+    async sleep() {
+      slept = true
+      throw sleepError()
+    },
+  }
+  const output = await runProviderStep(context.step, context.name, async () => {
+    try {
+      const value = await encode(await definition.handler(context.payload, toExecutionContext({ ...context, step })))
+      return slept ? rootStepSleepResult : value
+    }
+    catch (error) {
+      if (slept) return rootStepSleepResult
+      throw error
+    }
+  })
+  if (typeof output === "object" && output !== null && "~vitehubRootStepSleep" in output) throw sleepError()
+  // SAFETY: Only a root step that slept returns the marker, and the check above throws for it.
+  return output as TOutput
+}
+
 export async function runWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<Response> {
-  const run = () => definition.handler(context.payload, toExecutionContext(context))
-  const value = definition.options?.rootStep === false
-    ? await run()
-    : await runProviderStep(context.step, context.name, run)
-
-  return toResponse(value)
+  return toResponse(await runInRootStep(context, definition, value => value))
 }
 
 /**
@@ -101,8 +137,5 @@ export async function runSerializedWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<unknown> {
-  const run = async () => await toStoredWorkflowResult(await definition.handler(context.payload, toExecutionContext(context)))
-  return definition.options?.rootStep === false
-    ? await run()
-    : await runProviderStep(context.step, context.name, run)
+  return await runInRootStep(context, definition, toStoredWorkflowResult)
 }
