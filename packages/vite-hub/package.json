@@ -302,6 +302,11 @@
       "import": "./dist/connections/google.js",
       "default": "./dist/connections/google.js"
     },
+    "./connections/operations": {
+      "types": "./dist/connections/operations.d.ts",
+      "import": "./dist/connections/operations.js",
+      "default": "./dist/connections/operations.js"
+    },
     "./connections/server": {
       "types": "./dist/connections/server.d.ts",
       "import": "./dist/connections/server.js",
@@ -1031,7 +1036,7 @@
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "evlog": "^2.28.1",
     "nitro": "catalog:nitro-compat",
     "openworkflow": "catalog:workflow",
