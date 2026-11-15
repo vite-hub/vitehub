@@ -1119,7 +1119,9 @@ function deploymentPlugins(
       config(config) {
         // Nuxt replays config for separate Nitro builds without running Vite configResolved.
         if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
-          resolvedPlugins = config.plugins?.flat(Infinity)
+          // Widen first: flattening Vite's recursive PluginOption type is too deep for TypeScript.
+          const plugins: readonly unknown[] | undefined = config.plugins
+          resolvedPlugins = plugins?.flat(Infinity)
         }
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
