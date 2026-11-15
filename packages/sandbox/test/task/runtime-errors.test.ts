@@ -411,6 +411,7 @@ describe("Sandbox Task incomplete output recovery", () => {
     setSandboxTaskRuntimeDevelopment(boundary === "development")
     const partial = '{"ok":false,"error":{"stack":"TOKEN=private-token /app/crash.ts'
     const { session, files } = createSession()
+    const read = vi.spyOn(session.files, "read")
     const exec = session.exec.getMockImplementation()!
     session.exec.mockImplementation(async (command, args, options) => {
       const result = await exec(command, args, options)
@@ -422,7 +423,10 @@ describe("Sandbox Task incomplete output recovery", () => {
     const result = boundary === "runner"
       ? runner.run().catch((error: unknown) => toSandboxTaskError(error))
       : runSandboxTaskRuntime("example")
-    await vi.advanceTimersByTimeAsync(60_000)
+    // Provider loading can finish after the first timer advance. Wait until
+    // recovery reads the incomplete file before advancing past its deadline.
+    await vi.waitFor(() => expect(read).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(120_000)
 
     if (boundary === "runner") {
       expect(await result).toMatchObject({
@@ -433,7 +437,7 @@ describe("Sandbox Task incomplete output recovery", () => {
     else {
       const response = await result as Response
       expect(response.status).toBe(500)
-      const body = await response.json()
+      const body = await response.json() as { error: { code: string, details: Record<string, unknown> } }
       expect(body.error.code).toBe("SANDBOX_TASK_HANDLER_ERROR")
       expect(body.error.details.provider).toBe("cloudflare")
       if (boundary === "development")
