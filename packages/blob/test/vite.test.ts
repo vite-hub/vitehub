@@ -1109,6 +1109,11 @@ describe("hubBlob", () => {
   const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      name: "CORS headers, also on error responses",
+    },
+    {
+      expectedCacheControl: "public, max-age=0, s-maxage=0",
       headers: undefined,
       name: "default",
     },
@@ -1272,6 +1277,7 @@ describe("hubBlob", () => {
         const errorHead = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/${pathname}`, { method: "HEAD" }))
         expect(errorHead.status).toBe(status)
         expect(errorHead.body).toBeNull()
+        expect(errorHead.headers.get("access-control-allow-origin")).toBe(headers?.["Access-Control-Allow-Origin"] ?? null)
       }
       Reflect.deleteProperty(globalThis, "__vitehubBlobHeadPaths")
     }
