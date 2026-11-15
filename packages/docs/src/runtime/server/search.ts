@@ -2,7 +2,7 @@ import { defineHandler } from "nitro/h3"
 
 import type { EventHandler, EventHandlerRequest } from "nitro/h3"
 import manifest from "#docs/manifest"
-import { docsIndexedPages, docsUnindexedSearchSections } from "../../navigation.ts"
+import { docsIndexedPages, docsManifestPages, docsUnindexedSearchSections } from "../../navigation.ts"
 import { docsSearchSections } from "../../markdown.ts"
 
 import { readDocsPage } from "../content.ts"
@@ -21,7 +21,9 @@ async function buildIndex(): Promise<DocsSearchSection[]> {
   // A page with `seo.index: false` gets one record with its title and description, so search finds it by name
   // and thousands of generated pages do not fill the index with their headings.
   sections.push(...docsUnindexedSearchSections(manifest))
-  return sections
+  // Visibility comes from the full server manifest; the app may not have loaded a panel yet.
+  const listed = new Set(docsManifestPages(manifest).filter(page => page.navigation).map(page => page.path))
+  return sections.filter(record => listed.has(record.id.split("#")[0] ?? record.id))
 }
 
 let indexed: Promise<DocsSearchSection[]> | undefined

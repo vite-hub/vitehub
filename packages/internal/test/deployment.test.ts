@@ -127,6 +127,34 @@ describe("built-in deployment plans", () => {
     expect(manifest.identity).toEqual(identity)
     expect(manifest.services).toEqual(services)
   })
+  it("records Server Env names and copies no other field", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    const env = [
+      { path: "env.server.token", names: ["VITEHUB_TOKEN", "VENDOR_TOKEN"], required: true, secret: true, hasDefault: false },
+      { names: ["DIRECT_URL"], required: false, secret: false, hasDefault: true },
+    ]
+    // A value that reaches the entry at runtime must not reach the manifest.
+    const leaked = { ...env[0]!, value: "canary-value-91b0" }
+
+    await finalizeDeploymentPlanOutput({ env: [leaked, env[1]!], plan, rootDir })
+
+    const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
+    expect(JSON.parse(text).env).toEqual(env)
+    expect(text).not.toContain("canary-value-91b0")
+  })
+  it("omits env when the app has no Env plugin", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-no-env-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    await finalizeDeploymentPlanOutput({ plan, rootDir })
+    expect(JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))).not.toHaveProperty("env")
+  })
   it("uses Netlify's deployment root above its Nitro output directory", async () => {
     const rootDir = await temporaryDirectory("vitehub-plan-netlify-output-")
     const outputDir = resolve(rootDir, "custom-netlify", "functions-internal")

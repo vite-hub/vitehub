@@ -119,6 +119,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     create: async input => await (await store()).create(input),
     delete: async (id) => {
       const target = await store()
+      // Internal invariant: the Database store always has delete(); createD1AgentInvocationStore() returns every method.
       if (!target.delete) throw new TypeError("[vitehub] The Database Invocation store does not support delete.")
       return await target.delete(id)
     },
@@ -131,6 +132,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     listTriggeredBy: async agentName => await (await store()).listTriggeredBy?.(agentName) ?? [],
     prune: async (options) => {
       const target = await store()
+      // Internal invariant: the Database store always has prune(); createD1AgentInvocationStore() returns every method.
       if (!target.prune) throw new TypeError("[vitehub] The Database Invocation store does not support prune.")
       return await target.prune(options)
     },
@@ -154,7 +156,7 @@ export function resolveAgentInvocationsSetting(setting: AgentInvocationsSetting 
   if (setting === "database" || setting === "memory") return journal(setting)
   if (!("store" in setting)) return setting
   if ("database" in setting && setting.database !== undefined && setting.store !== "database") {
-    throw new TypeError("[vitehub] Agent invocations accept `database` only with `store: \"database\"`.")
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE()
   }
   if (setting.store === "database" || setting.store === "memory") {
     // SAFETY: The checks above select the built-in store form.

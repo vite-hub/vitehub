@@ -173,6 +173,26 @@ describe("vitehub database up", () => {
     await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ stdout: expect.stringContaining("no pending migrations.") })
   }, 120_000)
 
+  it("records the unique indexes of 0.x .unique() columns as constraints, so generate keeps the tables", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-unique"), migrationsDir, { recursive: true })
+    // Drizzle Kit 0.x made `members_email_unique` for `.unique()`. `members_slug_idx` stays an index in the schema.
+    await writeFile(join(project.rootDir, "schema.ts"), [
+      "import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'",
+      "export const members = sqliteTable('members', { id: integer('id').primaryKey(), email: text('email').notNull().unique(), slug: text('slug').notNull() }, table => [uniqueIndex('members_slug_idx').on(table.slug)])",
+      "",
+    ].join("\n"))
+
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(migrationsDir)
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    // Without the conversion, Drizzle Kit writes a migration that rebuilds `members` with `email` UNIQUE.
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": the snapshots record 1 unique index of `.unique()` columns as UNIQUE constraints")
+  }, 120_000)
+
   it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
     const project = await createProject()
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })

@@ -161,7 +161,24 @@ Env does not read secret values, call providers, or check credentials. Values an
 
 ## Manage Connections
 
-The Console has no Connections section. To connect a provider account, use [`vitehub connections`](/docs/connections) against the app. In production, it needs the Connections management API with your own `actor` policy: `connections: { management: { actor: './server/connections-actor.ts' } }`.
+An app with [`connections`](/docs/connections) has a **Connections** section. It lists each Connection with its provider, status, account, and last refresh, and works in production without app Auth or `connections.management`.
+
+1. **Connect** or **Reconnect** on an OAuth Connection calls `connections.connect` with your signed Console call. The app starts the sign-in for you and returns the provider URL.
+2. The Console opens the provider in a new tab. You choose the account and approve the scopes.
+3. The provider sends the browser to the app's callback, `/_vitehub/connections/callback`. The app exchanges the code and keeps the grant. The Console never sees a code or a token.
+4. Close the tab. The list loads again when you come back to the Console.
+
+**Revoke** calls `connections.revoke`, which revokes the grant at the provider and deletes it from the app. Activity names you as `user:<your Console user id>`.
+
+| Operation | Kind | Use |
+| --- | --- | --- |
+| `connections.list` | read | List the Connections. |
+| `connections.connect` | write | Return the provider URL of a new sign-in, valid for 10 minutes. |
+| `connections.revoke` | destructive | Revoke the grant of a Connection. |
+
+- The callback of a Console sign-in needs no app session and no `state` cookie, because the Console page and the app have different origins. The signed call that started it checked you, and the `state` works once, for 10 minutes.
+- The provider must allow the callback URL of the app, such as `https://app.example.com/_vitehub/connections/callback`.
+- API key and ChatGPT Connections show their status here. Set a key, or sign in with a ChatGPT plan, with [`vitehub connections`](/docs/connections/server-api#cli).
 
 ## Connect to MCP servers
 
@@ -275,7 +292,7 @@ The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your 
 
 Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
 
-- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool.
+- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. With `console.authorize`, the member needs the `site` section, and `grants` in the result picks the [page tool roles](#limit-a-user-to-some-sections).
 - A guest gets the `guest` role and the roles you picked. Comments offers `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`, and [checks them](/docs/comments/configure#roles-from-site-access).
 
 A guest user has no password and a placeholder email, `guest-<id>@guests.invalid`. Better Auth runs your `databaseHooks.user.create` for them, so a hook that closes sign-up refuses guests too.
@@ -599,6 +616,7 @@ Every Console call runs `authorize` with the Web `Request` before it reads data:
 | `{ sections: ['content'] }` | Allows only these section ids, with all their actions. An empty list returns `403`. |
 | `{ sections: ['kv:read'] }` | Allows `kv` for reads only. `write` and `destructive` operations return `403`, unless the call only reads (`readOnlyWhen`). |
 | `{ sections: ['blob:media'] }` | Allows Blob operations on the `media` store only. `'blob:media:read'` allows only reads. |
+| `{ sections: ['site'], grants: ['comments-read'] }` | With the `site` section, [Site access](#give-browsers-site-access) signs the person in to the app with only these page tool roles, and the `console` role. Without `grants`, they get every page tool role. |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401`. |
 
