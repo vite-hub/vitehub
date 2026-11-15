@@ -41,7 +41,14 @@ export type WorkflowProviderName = typeof workflowProviderNames[number]
 type WorkflowNameDetails = { name?: string }
 type VercelWorkflowDetails = { name?: string, provider: "vercel" }
 type WorkflowOperationDetails = { operation: WorkflowOperationName, provider: WorkflowProviderName }
-type WorkflowProviderOperationDetails = WorkflowOperationDetails & { status?: number }
+/** `rejected`: the provider answered and refused the call. `unknown`: the call can have reached the provider. */
+export type WorkflowProviderAcknowledgement = "rejected" | "unknown"
+type WorkflowProviderOperationDetails = WorkflowOperationDetails & {
+  acknowledgement?: WorkflowProviderAcknowledgement
+  /** The provider error name and the first line of its message, without URLs, file paths, or credentials. */
+  reason?: string
+  status?: number
+}
 
 export type WorkflowErrorDetails<TCode extends WorkflowErrorCode = WorkflowErrorCode> =
   TCode extends "OPENWORKFLOW_BACKEND_CLOSE_FAILED" | "OPENWORKFLOW_RUNTIME_RESET" | "OPENWORKFLOW_WORKER_FAILED" | "OPENWORKFLOW_WORKER_STOP_FAILED" ? { provider: "openworkflow" }
