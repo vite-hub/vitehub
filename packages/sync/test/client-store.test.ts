@@ -5,9 +5,11 @@ import { SyncError } from "../src/client/types.ts"
 import { accountOf, createFakeSyncServer, scopeIdOf } from "./client-fake-server.ts"
 import { createHarness, until } from "./client-harness.ts"
 
+import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
 import type { SyncPage } from "../src/client/store.ts"
-import type { SyncLocal } from "../src/client/types.ts"
+import type { SyncLocal, SyncStore } from "../src/client/types.ts"
+import type { FakeSyncServer } from "./client-fake-server.ts"
 import type { Harness, Todo, TodoActions } from "./client-harness.ts"
 
 let harness: Harness
@@ -727,7 +729,7 @@ describe("actions across stores", () => {
       if (init?.method === "POST") await gate
       return h.server.fetch(input, init)
     } }).store
-    const page: SyncPage = { stores: new Set() }
+    const page: SyncPage = { stores: new Set(), version: 0 }
     const two = h.open({ page, actions: { add } }).store
     const shownComments = h.open({ page, name: "comments", fetch: comments.fetch }).store
     await Promise.all([one.refresh(), two.refresh(), shownComments.refresh()])
@@ -742,6 +744,103 @@ describe("actions across stores", () => {
     await until(() => shownComments.getState().status === "ready")
     expect(shownComments.get("t1-c")).toMatchObject({ body: "First" })
     expect(shown.slice(shown.indexOf(true))).not.toContain(false)
+  })
+
+  /**
+   * The todos store, whose `complete` changes the comment `c1` of todo `t1` with `optimistic` in the browser and with
+   * `apply` on the comments server, and a comments store for each subset.
+   */
+  async function commentPage(optimistic: (local: SyncLocal<Todo>) => void, apply: (comments: FakeSyncServer) => void, subsets: SyncValues[], gate?: Promise<void>) {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    comments.write({ id: "c1", ownerId: "ada", todoId: "t1", body: "First" })
+    h.server.actions.complete = () => apply(comments)
+    // A push of todos waits for `gate`. It starts once the queue is stored.
+    let pushes = 0
+    const todos = h.open({ actions: { complete: optimistic }, fetch: async (input, init) => {
+      if (init?.method === "POST") {
+        pushes++
+        await gate
+      }
+      return h.server.fetch(input, init)
+    } }).store
+    const stores = subsets.map(where => h.open({ name: "comments", fetch: comments.fetch, where }).store)
+    await Promise.all([todos.refresh(), ...stores.map(store => store.refresh())])
+    const pulls = (where: SyncValues) => comments.requests.filter(request => request.method === "GET" && request.url.searchParams.get("where") === JSON.stringify(where)).length
+    return { comments, todos, stores, pulls, pushes: () => pushes }
+  }
+
+  /** The body of `c1` in `store` at each change. */
+  function bodies(store: SyncStore<Todo, TodoActions>): unknown[] {
+    const seen: unknown[] = []
+    store.subscribe(() => {
+      const row = store.get("c1")
+      seen.push(row && Reflect.get(row, "body"))
+    })
+    return seen
+  }
+
+  it("keeps a deletion in another store until that store pulled, and pulls that store", async () => {
+    const { todos, stores: [shown], pulls } = await commentPage(local => local.sync("comments").delete("c1"), comments => comments.remove("c1"), [{ todoId: "t1" }])
+    const seen = bodies(shown!)
+    const before = pulls({ todoId: "t1" })
+    const call = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toBeUndefined()
+    await call
+    await until(() => pulls({ todoId: "t1" }) > before)
+    await shown!.refresh()
+    expect(shown!.get("c1")).toBeUndefined()
+    // The row never came back.
+    expect(seen).not.toContain("First")
+  })
+
+  it("runs an optimistic function again on the rows of the other store without its own earlier change", async () => {
+    let send!: () => void
+    const gate = new Promise<void>((resolve) => {
+      send = resolve
+    })
+    const { todos, stores: [shown], pushes } = await commentPage((local) => {
+      const comment = local.sync("comments").get("c1")
+      if (comment) local.sync("comments").update("c1", { body: `${comment.body}!` })
+    }, (comments) => {
+      const row = comments.rows.get("c1")!
+      comments.write({ ...row, body: `${String(row.body)}!` })
+    }, [{ todoId: "t1" }], gate)
+    const seen = bodies(shown!)
+    const first = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // Storing the queue builds the view of todos again, and runs the function again.
+    await until(() => pushes() > 0)
+    expect(todos.getState().queued).toBe(1)
+    expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+    // A second call sees the change of the first one.
+    const second = todos.actions.complete({ id: "t1" })
+    expect(shown!.get("c1")).toMatchObject({ body: "First!!" })
+    send()
+    await Promise.all([first, second])
+    await shown!.refresh()
+    expect(shown!.get("c1")).toMatchObject({ body: "First!!" })
+    expect(seen.filter(body => body !== "First!" && body !== "First!!")).toEqual([])
+  })
+
+  it("moves a row between the stores of two subsets when a linked update changes the subset column", async () => {
+    const { todos, stores: [first, second], pulls } = await commentPage(local => local.sync("comments").update("c1", { todoId: "t2" }), (comments) => {
+      comments.write({ ...comments.rows.get("c1")!, todoId: "t2" })
+    }, [{ todoId: "t1" }, { todoId: "t2" }])
+    const seen = bodies(second!)
+    const before = [pulls({ todoId: "t1" }), pulls({ todoId: "t2" })]
+    const call = todos.actions.complete({ id: "t1" })
+    expect(first!.get("c1")).toBeUndefined()
+    expect(second!.get("c1")).toMatchObject({ id: "c1", todoId: "t2", body: "First" })
+    expect(second!.pending("c1")).toBe(true)
+    await call
+    // Both stores showed the change, so both pull.
+    await until(() => pulls({ todoId: "t1" }) > before[0]! && pulls({ todoId: "t2" }) > before[1]!)
+    await Promise.all([first!.refresh(), second!.refresh()])
+    expect(first!.get("c1")).toBeUndefined()
+    expect(second!.get("c1")).toMatchObject({ todoId: "t2", body: "First" })
+    expect(seen).not.toContain(undefined)
   })
 })
 

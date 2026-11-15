@@ -3,7 +3,7 @@ import { syncPushLimit } from "../protocol.ts"
 import { readEvents } from "./live.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, generationOf, inSubset, isActive, isOwnFailure, keyColumnOf, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
@@ -17,6 +17,8 @@ type SyncOptimisticAction = (local: SyncLocal<SyncRow>, args: unknown) => void
 /** The open stores of one page, so the optimistic function of an action can change a store of another Sync name. */
 interface SyncPage {
   stores: Set<SyncPageStore>
+  /** Goes up each time a store of the page changes, so the other stores build their views again. */
+  version: number
 }
 
 /** What a store shows to the other stores of its page. */
@@ -24,13 +26,16 @@ interface SyncPageStore {
   name: string
   /** The primary key column, once the store pulled. */
   key: () => string | undefined
-  /** The row with this key in the view that the store built last. */
+  /** The row with this key, without the writes that the actions of other stores make in this store. */
   row: (key: SyncKey) => SyncRow | undefined
   /** The writes that the optimistic functions of this store make in the stores of `name`. */
   writes: (name: string) => readonly SyncLinkedWrite[]
-  /** Another store of the page changed its writes. */
+  /** Another store of the page changed. */
   changed: () => void
-  /** Keeps writes of actions that the server applied, until a pull brings the rows of the server. */
+  /**
+   * Keeps writes of actions that the server applied, until a pull brings the rows of the server. The store that calls
+   * it tells the page after.
+   */
   hold: (writes: readonly SyncLinkedWrite[]) => void
 }
 
@@ -212,7 +217,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let flushQueued = false
   // The last write of a flush to storage. A pass waits for it, so it sends the writes made before it started.
   let flushed: Promise<void> = Promise.resolve()
-  let view: SyncView = { rows: confirmed, pending: new Set(), outgoing: new Map() }
+  // The rows with the writes of this store, and the view, which adds the writes of the actions of other stores.
+  let base: SyncView = { rows: confirmed, pending: new Set(), outgoing: new Map() }
+  let view = base
   // `idle` until the stored copy is read, as on the server, so a server-rendered page hydrates without a mismatch.
   let status: SyncStatus = "idle"
   let loaded = false
@@ -245,15 +252,22 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let livePulls: LivePull[] = []
   // The generation of the open live stream. An object, so a stream that ended late does not clear the next one.
   let streamGeneration: { value: string } | undefined
-  // Writes of the actions of other stores of the page: what the optimistic functions of this store write in other
-  // stores, the writes of applied actions until the next pull, and whether another store changed its writes.
+  // Writes of the actions of other stores of the page: the writes of applied actions until the next pull, the actions
+  // of this store whose writes other stores hold now, and the writes that the view shows.
   const { page } = options
-  let outgoing: SyncView["outgoing"] = new Map()
   let held: { mark: number, write: SyncLinkedWrite }[] = []
   let holdMark = 0
-  let linksChanged = false
+  const handed = new Set<string>()
   let incomingText = "[]"
   let building = false
+  // `base` is built again after a change of this store, or of the page when its optimistic functions read other stores.
+  let baseDirty = true
+  let basing = false
+  let readsPage = false
+  let baseAt = 0
+  // The page version and the base of the view.
+  let viewAt = 0
+  let viewBase = base
 
   function addActions(actions: Record<string, SyncOptimisticAction | undefined> | undefined): void {
     for (const [action, run] of Object.entries(actions ?? {})) {
@@ -284,8 +298,34 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /**
-   * Builds the view and the state after a change, once. A build reads the writes of the other stores of the page, and
-   * they build their own views for it. A read of this store during its own build gets the last state.
+   * The rows with the writes of this store, built again when they changed. The other stores of the page read them, and
+   * the optimistic functions of this store read theirs. A read during the build gets the last base.
+   */
+  function ensureBase(): SyncView {
+    const at = page?.version ?? 0
+    if (basing || (!baseDirty && !(readsPage && baseAt !== at))) return base
+    basing = true
+    baseDirty = false
+    baseAt = at
+    readsPage = false
+    try {
+      base = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report, page: pageReader, held: held.map(item => item.write), handed })
+    }
+    finally {
+      basing = false
+    }
+    if (handed.size) {
+      const queued = new Set([...writes, ...local].map(write => write.id))
+      for (const id of handed) {
+        if (!queued.has(id)) handed.delete(id)
+      }
+    }
+    return base
+  }
+
+  /**
+   * Builds the view and the state after a change, once. A build reads the writes of the other stores of the page. A
+   * read of this store during its own build gets the last state.
    */
   function current(): SyncState<SyncRow> {
     if (building) return state
@@ -299,19 +339,19 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   function build(): SyncState<SyncRow> {
-    let linked: SyncLinkedWrite[] | undefined
-    if (linksChanged) {
-      linksChanged = false
-      linked = incoming()
-      if (JSON.stringify(linked) !== incomingText) dirty = true
-    }
-    if (!dirty) return state
+    const at = page?.version ?? 0
+    if (!dirty && viewAt === at) return state
+    viewAt = at
+    const own = ensureBase()
+    // The writes of the actions of this store in its own name show in it as in the other stores of the name.
+    const linked = [...incoming(), ...own.outgoing.get(name) ?? []]
+    const text = JSON.stringify(linked)
+    if (!dirty && own === viewBase && text === incomingText) return state
     dirty = false
-    linked ??= incoming()
-    incomingText = JSON.stringify(linked)
+    viewBase = own
+    incomingText = text
     const previous = view
-    view = buildView(confirmed, [...writes, ...local], { meta, where, actions: optimistic, report, name, page: pageReader, incoming: linked, held: held.map(item => item.write) })
-    outgoing = view.outgoing
+    view = linkWrites(own, linked, where, meta)
     stabilize(view, previous, changedKeys)
     changedKeys = []
     const account = meta?.account
@@ -340,19 +380,25 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   function publish(): void {
     dirty = true
+    baseDirty = true
     settlePending()
     for (const listener of listeners) listener()
-    // The optimistic functions of this store may write other stores of the page.
-    if (optimistic.size) {
-      for (const other of page?.stores ?? []) {
-        if (other !== link) other.changed()
-      }
+    changePage()
+  }
+
+  /** Tells the other stores of the page: they may show writes of the actions of this store, or read its rows. */
+  function changePage(): void {
+    if (!page) return
+    page.version++
+    for (const other of page.stores) {
+      if (other !== link) other.changed()
     }
   }
 
   /** The other stores of the page, as an optimistic function of this store reads them. */
   const pageReader: SyncViewPage = {
     get(target, key) {
+      readsPage = true
       for (const other of page?.stores ?? []) {
         const row = other.name === target ? other.row(key) : undefined
         if (row) return row
@@ -369,19 +415,22 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /**
-   * Gives the writes that applied actions made in other stores to those stores. They keep them until they pull, so a
-   * row does not go away between the answer of this store and the pull of the other store.
+   * Gives the writes that applied actions made in the stores of the page to those stores, also to this store for its
+   * own name. They keep them until they pull, so a row does not go away between this answer and their pull. The
+   * optimistic functions of these actions stop writing other stores, so no store gets the writes twice.
    */
   function handOver(applied: ReadonlySet<string>): void {
     if (!page || !applied.size) return
-    current()
-    for (const [target, list] of outgoing) {
-      const done = list.filter(write => applied.has(write.id))
-      if (!done.length) continue
+    // The writes as this store makes them now. A store that holds them changes what a later function reads.
+    const done = [...ensureBase().outgoing].map(([target, list]) => [target, list.filter(write => applied.has(write.id))] as const)
+    for (const [target, list] of done) {
+      if (!list.length) continue
       for (const other of page.stores) {
-        if (other !== link && other.name === target) other.hold(done)
+        if (other.name === target) other.hold(list)
       }
     }
+    for (const id of applied) handed.add(id)
+    publish()
   }
 
   /** Drops the held writes up to `mark`, after a pull that started after them. Returns `true` when it dropped one. */
@@ -951,22 +1000,21 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const link: SyncPageStore = {
     name,
     key: () => meta?.key,
-    row: key => view.rows.get(key),
-    writes(target) {
-      current()
-      return outgoing.get(target) ?? []
-    },
+    row: key => ensureBase().rows.get(key),
+    writes: target => ensureBase().outgoing.get(target) ?? [],
     changed() {
-      linksChanged = true
       for (const listener of listeners) listener()
     },
     hold(list) {
-      // Only writes that this store shows: an insert in its subset, or a change of a row that it has.
-      const shown = list.filter(write => write.op === "insert" ? inSubset(write.value, where) : view.rows.has(write.key))
+      // Only the writes that change what this store shows, such as a row that comes into its subset or leaves it.
+      const rows = new Map(ensureBase().rows)
+      const shown = list.filter(write => linkWrite(rows, write, where, meta))
       if (!shown.length) return
       const mark = ++holdMark
       held = [...held, ...shown.map(write => ({ mark, write }))]
-      publish()
+      // The store that hands the writes over tells the page once, after every store holds them.
+      dirty = true
+      baseDirty = true
       wantPull = true
       void schedule(true)
     },
@@ -1011,6 +1059,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     removals = []
     livePulls = []
     held = []
+    handed.clear()
     results.clear()
     status = "loading"
     error = null

@@ -180,8 +180,10 @@ const issues = useSync('issues', {
 ```
 
 - An insert shows in each open store of that name on the page whose subset the row matches, such as `useSync('comments', { where: { issueId } })`. A store that opens later gets the row from the server.
+- An update that changes a subset column moves the row: it leaves the stores whose subset it does not match now, and shows in the stores whose subset it matches.
+- `local.sync(name).get(key)` reads the row as that store has it without the changes of optimistic functions, plus the changes of the earlier actions in the queue. So when the function runs again, it does not apply its own change twice, such as a count that goes up by one.
 - When the server refuses the action, the change goes away in every store.
-- When the server applies the action, the other stores pull at once, and keep the change until their pull brings the rows of the server. The row does not go away in between.
+- When the server applies the action, the stores that show a change of it pull at once, and keep the change until their pull brings the rows of the server. A row does not go away or come back in between.
 
 ## Live changes
 

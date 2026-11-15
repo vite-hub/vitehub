@@ -145,7 +145,7 @@ export function createHarness(): Harness {
   const server = createFakeSyncServer()
   const storage = createMemoryStorage()
   const bus = createFakeBus()
-  const page: SyncPage = { stores: new Set() }
+  const page: SyncPage = { stores: new Set(), version: 0 }
   const stores: SyncStore<Todo, TodoActions>[] = []
   return {
     server,

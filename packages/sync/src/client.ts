@@ -29,7 +29,7 @@ let indexedDBStorage: SyncStorage | undefined
 // The storages whose stored writes this page sends, with the fetch of the last `createSync()` that used each one.
 const senders = new Map<SyncStorage, typeof fetch>()
 // The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
-const page: SyncPage = { stores: new Set() }
+const page: SyncPage = { stores: new Set(), version: 0 }
 
 const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
