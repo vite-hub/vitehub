@@ -1502,7 +1502,7 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it.each([true, false])("builds Connections without a Console section (dev: %s)", async (dev) => {
+  it.each([true, false])("builds the Connections Console section (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
       const configure = () => viteHubNuxtModule({
@@ -1512,8 +1512,7 @@ describe("ViteHub Nuxt integration", () => {
         console: dev ? { auth: false } : productionConsole,
       }, application.nuxt)
       await configure()
-      const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin${dev ? "-dev" : ""}.mjs`, "utf8")
-      expect(generated.includes('"connections"')).toBe(false)
+      await expect(generatedConsoleSections(dev)).resolves.toContain("connections")
     }
     finally {
       await application.runCloseHook()
@@ -2844,7 +2843,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
   })
 
-  it("adds no Console section or Console actor for the Connections management API", async () => {
+  it("adds the Connections Console section but no Console actor for the Connections management API", async () => {
     const development = createNuxt(true)
     development.nuxt.options.vite.root = `${tmp}/vitehub-nuxt/app`
     await viteHubNuxtModule({
@@ -2856,7 +2855,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const config = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(config)
 
-    await expect(generatedConsoleSections()).resolves.not.toContain("connections")
+    await expect(generatedConsoleSections()).resolves.toContain("connections")
     expect(config.alias).not.toHaveProperty("#vitehub/console/connections-actor")
   })
 
