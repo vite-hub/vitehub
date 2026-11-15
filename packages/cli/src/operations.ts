@@ -359,9 +359,11 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
     }
     return { target: parsed.url }
   }
-  const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
+  const roots = acceptedRoots(context.rootDir)
+  const found = findViteHubDevServerUrl(roots, context.env)
   if (found) return { target: found }
-  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
+  // Name the project root, not the Vite root: in a Nuxt app, the Vite root is the `app/` source folder.
+  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
   return { failure: failureOf(error, 503) }
 }
 

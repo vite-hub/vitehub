@@ -5,6 +5,7 @@ import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./se
 import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
+import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
 declare global {
   interface ImportMeta {
@@ -41,10 +42,18 @@ export interface ConsoleProject {
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
   operations: string[]
+  /**
+   * What the Console page shows in its rail and Overview, the answer of `sections.list`, so the page opens the project
+   * with one call. The CLI and the ViteHub MCP do not get it.
+   */
+  navigation?: ConsoleSectionsResponse
 }
 
-/** Describe the project for one Console access. `console.authorize` limits the sections and the operations. */
-export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
+/**
+ * Describe the project for one Console access. `console.authorize` limits the sections and the operations. With
+ * `navigation`, the answer also has the sections that the Console page shows.
+ */
+export async function readConsoleProject(access: ConsoleAccess, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
@@ -57,5 +66,6 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations }
+  const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }

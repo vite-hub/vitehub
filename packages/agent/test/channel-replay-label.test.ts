@@ -33,6 +33,8 @@ describe("trusted Channel replay metadata", () => {
       expect(response.status).toBe(200)
       const result = await response.json() as { items: { id: string }[] }
       expect(result).toMatchObject({ processed: 1, failed: 0 })
+      // Agent output can quote the item, so the route answers with IDs and statuses only.
+      expect(Object.hasOwn(result.items[0]!, "output")).toBe(false)
       const record = await invocations.getByRunId(result.items[0].id, "support")
       expect(record?.status).toBe("completed")
       expect(record?.annotations).toMatchObject({ authored: "kept", "vitehub.channel.key": "m1", "vitehub.channel.thread": "t1" })

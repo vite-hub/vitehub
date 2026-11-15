@@ -183,11 +183,12 @@ const codes = {
     fix: "Reconnect the Connection. If the error stays, check that one app version writes the Connections tables.",
   },
   CONNECTIONS_NOT_CONFIGURED: {
-    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" }): string => {
+    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" | "rotation" }): string => {
       if (missing === "chatgpt-runtime") return "This Connections runtime does not support ChatGPT plan usage or credential transfer."
       if (missing === "bridge-revision") return "Connection revocation requires the Env Bridge to provide the leased token revision."
-      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY with 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
+      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY, or VITEHUB_CONNECTIONS_KEYS as a comma list with the current key first. Each key is 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
       if (missing === "database") return "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store."
+      if (missing === "rotation") return "The Connection store cannot re-encrypt stored tokens. Use createDatabaseConnectionStore() or add rotate() to the store."
       if (missing === "leases") return "The Connection store must provide atomic token mutation leases."
       return "The Connection secret store must return token revisions."
     },

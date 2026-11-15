@@ -24,6 +24,7 @@ import { recentTimestamp } from "../client/format";
 import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import ConsoleState from "./console-state.vue";
@@ -218,7 +219,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="console-home">
       <template #header>
-        <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }" />
+        <ConsolePageHeader title="Overview" :toggle="false" />
       </template>
 
       <template #body>

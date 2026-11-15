@@ -25,7 +25,7 @@ export default defineAgent({
 Then:
 
 1. Turn on the Agent integration with the Node preset ([Enable the Agent integration](#enable-the-agent-integration)).
-2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events, and set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
+2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events, and set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
 3. Set these variables on the host:
 
 | Variable | Value |
@@ -119,11 +119,12 @@ The preset prompt already carries the generic repair rules: it classes findings 
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). Without an `author` or `authorAssociation` rule, only authors with write access are selected. Without `repository.allow`, every repository the GitHub App can access ([Choose repositories](#choose-repositories)). `author` and `authorAssociation` combine ([Choose whose pull requests](#choose-whose-pull-requests)). |
 | `lifecycle` | `{}` | Label rules (`labels.require`, `labels.deny`) that decide which pull requests can get work. Without them or `filter.labels`, `babysitter:skip` pauses a pull request. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set model and provider settings with the usual `driver` field. |
-| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
+| `merge` | `'direct'` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }`. `ready` is a callback or `'approved-if-outside'` (the default for a direct merge; [Gate outside contributors](#gate-outside-contributors)). `bypassInheritedChecks` is off by default ([Failures from the base branch](#failures-from-the-base-branch)). |
+| `merge.trustedAuthors` | `[]` | Logins, such as `'renovate[bot]'`, whose pull requests the default gate merges without an approval ([Gate outside contributors](#gate-outside-contributors)). |
 | `merge.markDraftsReady` | `[]` | Logins whose drafts the host marks ready for review once a pass has reviewed the head and no required check failed. Only drafts from a branch in the repository itself qualify, so a fork's draft stays a draft. |
 | `reviewChecks` | `[]` | Check names, such as a review bot check. A PR waits while these run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews with no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
-| `ignoreFeedbackAuthors` | `[]` | Logins, such as preview bots, whose feedback needs no assessment, blocks no direct merge, and wakes no PR. List a bot once: `vercel[bot]` also matches `vercel`. |
+| `ignoreFeedbackAuthors` | Preview bots | Logins whose feedback needs no assessment, blocks no direct merge, and wakes no PR. The default lists the deployment preview bots `pkg-pr-new[bot]`, `vercel[bot]`, `cloudflare-workers-and-pages[bot]`, and `netlify[bot]`. A list replaces it. To add a login, extend it: `[...babysitter.options.ignoreFeedbackAuthors, 'review-bot[bot]']`. List a bot once: `vercel[bot]` also matches `vercel`. |
 | `deferWhilePending` | `true` | Wait for running checks on the head, even after a fast failure, so one pass handles CI and review together. A conflict starts the pass at once. A GitHub Actions check counts as stuck after 24 hours in the queue or 8 hours running. Other checks count as stuck after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits for a new head or a person's comment. `false` turns it off. |
 | `dailyPassBudget` | `16` | Model passes per PR in a rolling 24 hours. Then the PR parks until its oldest pass is 24 hours old ([Limit passes per pull request](#limit-passes-per-pull-request)). `false` turns it off. |
@@ -183,6 +184,18 @@ merge: { strategy: 'direct', ready: 'approved-if-outside' },
 - A push after the approval, including the Babysitter's own repair, needs a new approval.
 
 The Babysitter still repairs the pull request while it waits.
+
+A bot's `author_association` is usually `NONE` or `CONTRIBUTOR`, so its pull requests wait for an approval too. List the authors you trust in `trustedAuthors`, and the gate merges their pull requests like a maintainer's:
+
+```ts fragment
+filter: {
+  authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] },
+  author: { allow: ['renovate[bot]'] },
+},
+merge: { strategy: 'direct', trustedAuthors: ['renovate[bot]'] },
+```
+
+Write a bot with its `[bot]` suffix. An entry with the suffix matches only a bot account, and one without it matches only a user, so a person cannot sign up as `renovate` and pass as the bot. The filter still decides which pull requests get work, so add the bot there too. `trustedAuthors` works only with the default gate: a `ready` function decides every author itself.
 
 For another policy, pass a function: `ready({ repository, number, head, snapshot, requiredChecks })` returns `true` or the reason the pull request waits. `ready: () => true` merges every ready pull request, including bot pull requests, whose author has no write access.
 
@@ -280,7 +293,7 @@ A Babysitter Sandbox uses the host-prepared pull request checkout as its `cwd`. 
 To add capacity beyond one host, set `options.placement`:
 
 - `place({ repository, number })` runs before the host install and returns `{ sandbox?, release }`.
-- A pass with a `sandbox` runs there and skips the host install, for example on a custom SSH runtime with `network: "direct"`. The Sandbox installs dependencies through its session's `refreshDependencies`.
+- A pass with a `sandbox` runs there and skips the host install, for example on a custom SSH runtime with `network: "direct"`. The Sandbox installs dependencies through its session's `refreshDependencies`. It also skips this host's worker queue, so a host whose memory admits no pass still starts it.
 - A pass without a `sandbox` runs on this host.
 - `release()` runs once when the pass ends.
 - An optional `remoteActive()` function next to `place` counts remote passes toward `concurrency`. They reserve no local memory.
@@ -353,7 +366,7 @@ The worker records and recovers Invocations under `<discovered-agent-name>-worke
 
 ## Configure GitHub
 
-Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, and push events. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
+Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events. The workflow run event lets [`mainRepair`](#repair-a-red-default-branch) react to a failed run at once. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
 
 Set these variables on the host, or declare them in `env.server.github`:
 
@@ -471,7 +484,7 @@ Every 10 minutes per repository, and at once when GitHub delivers a failed `work
 2. A failed run on the tip is red. When the tip has no finished run, the newest finished run of each workflow counts, if it started after the last repair pull request merged. Cancelled and skipped runs do not count.
 3. When it finds a failure, and no repair pull request is open, the host pushes an empty commit on the tip to the branch `<mainRepairBranchPrefix><short SHA of the red commit>` and opens a pull request with the failed jobs. The queue claims it first.
 
-One repair pull request is open at a time. A red commit gets one repair pull request. If branch creation succeeds but the pull request request fails, the host checks for an existing pull request before retrying with that branch. Closed and merged repair pull requests are never reopened. For a same-repository repair branch targeting the watched default branch, the host explicitly authorizes the worker to repair inherited base failures, including when the initial tree equals the base tree. `repositories` limits the check to some of the served repositories. The `filter` must select pull requests that the GitHub App opens, and the App needs `contents: write`, `pull_requests: write`, and `actions: write` to cancel runs. The journal records each check as `babysitter.main_repair.opened`, `.repair_open`, `.already_attempted`, `.waiting`, `.green`, `.cancelled_stuck`, or `.failed`.
+One repair pull request is open at a time. A red commit gets one repair pull request. If branch creation succeeds but the pull request request fails, the host checks for an existing pull request before retrying with that branch. Closed and merged repair pull requests are never reopened. For a same-repository repair branch targeting the watched default branch, the host explicitly authorizes the worker to repair inherited base failures, including when the initial tree equals the base tree. `repositories` limits the check to some of the served repositories. The `filter` must select pull requests that the GitHub App opens, and the App needs `contents: write`, `pull_requests: write`, and `actions: write` to cancel runs. Without the workflow run event, the App still finds a red branch on the next 10 minute check. The journal records each check as `babysitter.main_repair.opened`, `.repair_open`, `.already_attempted`, `.waiting`, `.green`, `.cancelled_stuck`, or `.failed`.
 
 A required check that never reported on a head whose checks finished 10 minutes ago gets a fresh run once per head every six hours: the host updates a branch that is behind its base, or reruns the head's Actions runs.
 

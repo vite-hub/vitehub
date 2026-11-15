@@ -63,6 +63,7 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
+// Internal invariant: queueProviderResult() returns it as QUEUE_PROVIDER_FAILED with this error as the cause.
 class VercelQueueBatchFailedError extends Error {
   constructor(readonly results: readonly VercelQueueBatchSendResult[]) {
     super(`@vercel/queue did not accept ${results.filter(result => result.status === "failed").length} of ${results.length} batch messages.`)
@@ -182,6 +183,7 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
       }))
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
+        // Internal invariant: queueProviderResult() returns it as QUEUE_PROVIDER_FAILED with this error as the cause.
         if (typeof client.sendBatch !== "function") throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
         const results = await client.sendBatch!(topic, messages)
         if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
