@@ -13,6 +13,7 @@ import { installConsoleOperations } from "../src/console/runtime/server/operatio
 import { installConsoleDevelopment, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { consoleTestKey } from "./support/console-signature.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http"
 import type { SetupCommandRunner } from "@vite-hub/cli/setup"
@@ -198,12 +199,20 @@ describe("dev Setup endpoints", () => {
   it("refuses browser Setup writes when the Console takes only signed calls", async () => {
     const running = await start()
     const before = await readFile(join(running.root, "vite.config.ts"), "utf8")
-    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
-    const headers = auth(running)
-    const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
-    const { planId } = JSON.parse(planned.body) as { planId: string }
-    expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
-    expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
+    // With a key, a dev server with console: true takes only signed calls. Without one, it answers this machine.
+    const { env } = await consoleTestKey()
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    try {
+      installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["setup"] }) })
+      const headers = auth(running)
+      const planned = await send(running.port, "POST", "plan", headers, { action: "add", features: ["kv"] })
+      const { planId } = JSON.parse(planned.body) as { planId: string }
+      expect(await send(running.port, "POST", "apply", headers, { planId })).toMatchObject({ status: 403 })
+      expect(await readFile(join(running.root, "vite.config.ts"), "utf8")).toBe(before)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("connects the Console client without Fetch Metadata", async () => {

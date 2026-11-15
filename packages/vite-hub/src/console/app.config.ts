@@ -13,21 +13,11 @@ export const consoleAppConfig = {
   },
   dashboardNavbar: {
     slots: {
-      root: "h-11 px-3 sm:px-4",
+      root: "h-(--ui-header-height) px-3 sm:px-4",
       title: "text-sm font-medium",
       icon: "size-4 opacity-80",
       left: "gap-1.5",
       right: "gap-1.5",
-    },
-  },
-  dashboardSearchButton: {
-    defaultVariants: {
-      size: "sm",
-    },
-    slots: {
-      base: "h-9 rounded-md px-2.5 text-sm",
-      leadingIcon: "size-4 opacity-80",
-      trailing: "text-xs opacity-75",
     },
   },
   // Body editor. The block handle follows the pointer at once, and the `/` menu, opened from the keyboard, appears
