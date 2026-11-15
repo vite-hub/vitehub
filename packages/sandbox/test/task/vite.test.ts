@@ -176,6 +176,38 @@ describe("hubSandboxTask", () => {
     await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([])
   })
 
+  it("reports the chosen size in the Container resource and on each Definition", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "cloudflare", cpu: 1, memory: 8192, maxInstances: 30 })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } as Record<string, any> }
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toMatchObject({ instance_type: "standard-3", max_instances: 30 })
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toContainEqual(expect.objectContaining({
+      kind: "cloudflare-container",
+      note: expect.stringContaining("Instance type standard-3 (2 vCPU, 8192 MiB memory), at most 30 instances."),
+    }))
+    const [inspector] = await collectViteHubDefinitionInspectors([plugin])
+    expect((await inspector!.list())[0]?.fields).toContainEqual({ label: "Size", value: "Instance type standard-3 (2 vCPU, 8192 MiB memory), at most 30 instances" })
+  })
+
+  it("reports the Vercel vCPU count on each Definition", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const sized = hubSandboxTask({ provider: "vercel", memory: 8192 })
+    const configHook = sized.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+    const [inspector] = await collectViteHubDefinitionInspectors([sized])
+    expect((await inspector!.list())[0]?.fields).toContainEqual({ label: "Size", value: "4 vCPU (8192 MiB memory)" })
+
+    const unsized = hubSandboxTask({ provider: "vercel" })
+    await (unsized.config as typeof configHook)({ root: rootDir }, { command: "build", mode: "production" })
+    const [defaultInspector] = await collectViteHubDefinitionInspectors([unsized])
+    expect((await defaultInspector!.list())[0]?.fields).toContainEqual({ label: "Size", value: "2 vCPU (4096 MiB memory), the Vercel default" })
+  })
+
   it("exposes Vite Sandbox state", async () => {
     const rootDir = await createViteRoot(process.cwd())
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -770,7 +802,7 @@ describe("hubSandboxTask", () => {
         class_name: "Sandbox",
         image: "../../../../.vitehub/sandbox-task/Dockerfile",
         image_build_context: "../../../..",
-        instance_type: "lite",
+        instance_type: "standard-1",
         max_instances: 12,
         name: "image-optimizer",
       }],

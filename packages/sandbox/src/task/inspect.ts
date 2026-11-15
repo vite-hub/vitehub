@@ -2,6 +2,7 @@ import { relativeDefinitionFile } from '@vite-hub/internal/inspect'
 
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, type CloudflareSandboxEntrypointOptions } from './cloudflare'
 import { discoverSandboxTaskDefinitions } from './discovery'
+import { describeCloudflareInstanceType, type CloudflareInstanceType } from './size'
 
 import type { ViteHubConsoleSectionContribution } from '@vite-hub/internal/console'
 import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from '@vite-hub/internal/inspect'
@@ -9,22 +10,44 @@ import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from '@vite-hub
 export interface SandboxTaskInspectionOptions {
   projectRoot: string
   rootDir: string
+  /** The provider size that runs every Sandbox Task, such as `standard-1 (1/2 vCPU, 4096 MiB memory)`. */
+  size?: string
 }
 
 /** Lists Sandbox Task Definitions and package entries as serializable inspection summaries. */
 export function inspectSandboxTaskDefinitions(options: SandboxTaskInspectionOptions): ViteHubDefinitionSummary[] {
   return discoverSandboxTaskDefinitions({ rootDir: options.rootDir }).map(definition => ({
-    fields: [{ label: 'Kind', value: definition.kind === 'package-entry' ? 'Package entry' : 'Definition' }],
+    fields: [
+      { label: 'Kind', value: definition.kind === 'package-entry' ? 'Package entry' : 'Definition' },
+      ...(options.size ? [{ label: 'Size', value: options.size }] : []),
+    ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,
     source: definition.source,
   }))
 }
 
+/** The Cloudflare build options, and the instance type and limit that the generated containers entry holds. */
+export type SandboxTaskResourceInspectionOptions = CloudflareSandboxEntrypointOptions & {
+  instanceType?: CloudflareInstanceType
+}
+
+/** The Cloudflare instance type and instance limit, as the Container resource and the Definition list report them. */
+export function describeCloudflareSandboxTaskSize(options: SandboxTaskResourceInspectionOptions) {
+  const instanceType = options.instanceType === undefined
+    ? undefined
+    : describeCloudflareInstanceType(options.instanceType)?.label ?? JSON.stringify(options.instanceType)
+  return [
+    instanceType ? `Instance type ${instanceType}` : '',
+    options.maxInstances ? `at most ${options.maxInstances} instances` : '',
+  ].filter(Boolean).join(', ')
+}
+
 /** Lists the Cloudflare Durable Object and Container that run every Sandbox Task. Reads build options only. */
-export function inspectSandboxTaskResources(options: CloudflareSandboxEntrypointOptions): ViteHubResourceSummary[] {
+export function inspectSandboxTaskResources(options: SandboxTaskResourceInspectionOptions): ViteHubResourceSummary[] {
   const binding = options.binding || defaultCloudflareSandboxBinding
   const className = options.className || defaultCloudflareSandboxClassName
+  const size = describeCloudflareSandboxTaskSize(options)
   return [
     {
       binding,
@@ -41,7 +64,7 @@ export function inspectSandboxTaskResources(options: CloudflareSandboxEntrypoint
       host: 'cloudflare',
       kind: 'cloudflare-container',
       name: options.name || className,
-      note: `Wrangler builds the image from the containers entry of class ${className} in the generated wrangler.json.`,
+      note: `Wrangler builds the image from the containers entry of class ${className} in the generated wrangler.json.${size ? ` ${size}.` : ''}`,
       owner: 'sandbox',
       ...(options.name ? { source: 'name' as const } : {}),
     },
