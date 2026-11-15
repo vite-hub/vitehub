@@ -139,6 +139,7 @@ async function refresh() {
     }
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
+      // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
       throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
     const query = { offset: offset.value, limit, search: search.value.trim(), filter: filter.value };
     let list: AuthConsoleList<unknown>;

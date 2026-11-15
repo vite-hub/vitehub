@@ -171,10 +171,12 @@ function decodeUsageCursor(value: string): Uint8Array {
   // Cursors are emitted as unpadded Base64url. Reject standard Base64 and
   // whitespace so malformed transport values cannot be accepted differently
   // by the host's atob implementation.
+  // Internal invariant: caught in usageQueryWindow() and answered as VITE_HUB_R0115.
   if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) throw new Error("Invalid usage cursor encoding")
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
   // atob ignores unused pad bits, so require the canonical spelling too.
+  // Internal invariant: caught in usageQueryWindow() and answered as VITE_HUB_R0115.
   if (btoa(binary).replace(/=+$/, "") !== normalized) throw new Error("Invalid usage cursor encoding")
   return Uint8Array.from(binary, character => character.charCodeAt(0))
 }
@@ -194,6 +196,7 @@ export function usageQueryWindow(options: UsageQuery): {
   let after: v.InferOutput<typeof historyCursorSchema> | undefined;
   if (options.cursor !== undefined) {
     try {
+      // Internal invariant: caught below and answered as VITE_HUB_R0115.
       if (options.cursor.length > 32_768) throw new Error("Cursor too long");
       after = v.parse(
         historyCursorSchema,
@@ -208,6 +211,7 @@ export function usageQueryWindow(options: UsageQuery): {
         after.at > after.to ||
         Date.parse(after.at) < Date.parse(after.to) - window.durationMs
       ) {
+        // Internal invariant: caught below and answered as VITE_HUB_R0115.
         throw new Error("Cursor does not match this query");
       }
     } catch {

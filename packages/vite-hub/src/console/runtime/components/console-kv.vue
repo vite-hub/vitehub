@@ -162,6 +162,7 @@ function editedValue(): unknown {
   try {
     return JSON.parse(editText.value);
   } catch {
+    // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
     throw new Error("This value is not valid JSON.");
   }
 }

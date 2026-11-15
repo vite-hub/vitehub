@@ -292,7 +292,9 @@ async function writeCloudflareWorkersDevShim(buildDir: string): Promise<string> 
     "  },",
     "})",
     "export async function waitUntil(promise) { if (globalThis.__wait_until__) return globalThis.__wait_until__(promise); await promise }",
+    // Internal invariant: generated stub source for Node development. This module does not throw it.
     "export function withEnv() { throw new Error('cloudflare.withEnv is not available in Node development.') }",
+    // Internal invariant: generated stub source for Node development. This module does not throw it.
     "class Unsupported { constructor() { throw new Error('This Cloudflare runtime class is not available in Node development.') } }",
     "export { Unsupported as DurableObject, Unsupported as RpcTarget, Unsupported as WorkerEntrypoint, Unsupported as WorkflowEntrypoint }",
     "",
@@ -1074,6 +1076,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let consoleAccess: ConsoleAccessBuild | undefined
   if (consoleOptions) {
     const configuredConsole = resolveConsoleOptions(consoleOptions)
+    // Internal invariant: resolveConsoleOptions() returned options for the same value above, so it cannot return undefined here.
     if (!configuredConsole) throw new TypeError("[vitehub] Invalid console configuration")
     if (!nuxt.options.vitehubCliDiscovery) {
       const appAuth = effectiveAuth

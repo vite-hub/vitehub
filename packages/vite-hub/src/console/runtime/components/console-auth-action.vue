@@ -129,6 +129,7 @@ async function submit() {
         if (unset.value && !props.field?.required) value = null;
         else if (props.field?.type === "boolean") value = checked.value;
         else if (props.field?.type === "number") {
+          // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
           if (!text.value.trim()) throw new Error("Enter a number.");
           value = Number(text.value);
         } else if (props.field?.type.endsWith("[]")) value = JSON.parse(text.value);

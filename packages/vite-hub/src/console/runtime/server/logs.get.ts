@@ -31,6 +31,7 @@ export async function consoleLogsHandler(
     });
     for (const filter of ["text", "level", "service"] as const) {
       if (query[filter] && !source.info.filters.includes(filter))
+        // Internal invariant: caught below and answered as a 400 for an unsupported filter.
         throw new Error(`The source does not support ${filter} filters.`);
     }
   } catch {
@@ -39,9 +40,11 @@ export async function consoleLogsHandler(
   try {
     const page = v.parse(logPageSchema, await source.query(query, { signal: getStandardContext(event).req.signal }));
     if (page.entries.length > query.limit)
+      // Internal invariant: caught below and answered as a 502 for the log source.
       throw new Error("The source exceeded the requested page size.");
     const json = JSON.stringify(page);
     if (new TextEncoder().encode(json).byteLength > 4 * 1024 * 1024)
+      // Internal invariant: caught below and answered as a 502 for the log source.
       throw new Error("The source exceeded the response size limit.");
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {

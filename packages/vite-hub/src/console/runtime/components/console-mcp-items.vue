@@ -100,8 +100,10 @@ async function load(): Promise<void> {
         emit("connection", response.connection);
         cursor = response.nextCursor;
         if (!cursor) break;
+        // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
         if (cursors.has(cursor)) throw new Error("The server returned a repeated pagination cursor. It could not finish the list.");
         cursors.add(cursor);
+        // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
         if (page + 1 === maximumListPages) throw new Error("The server returned more than 1,000 pages. It could not finish the list.");
       }
       return all;

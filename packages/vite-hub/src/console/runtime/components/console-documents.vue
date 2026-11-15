@@ -223,6 +223,7 @@ async function loadCollections(): Promise<void> {
   try {
     const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
     if (current !== collectionsRequest) return;
+    // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
     if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
     loading.value = false;
     error.value = undefined;

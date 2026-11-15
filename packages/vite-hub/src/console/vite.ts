@@ -229,9 +229,9 @@ export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
 /** Resolve the `console.authorize` file. A configured path must exist. */
 export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): string | undefined {
   if (authorize === undefined) return
-  if (typeof authorize !== "string" || !authorize.trim()) throw new TypeError("[vitehub] console.authorize must be a path to a server file.")
+  if (typeof authorize !== "string" || !authorize.trim()) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_PATH_INVALID()
   const file = resolve(root, authorize)
-  if (!existsSync(file)) throw new TypeError(`[vitehub] console.authorize file does not exist: ${file}`)
+  if (!existsSync(file)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_FILE_MISSING({ file })
   return file
 }
 

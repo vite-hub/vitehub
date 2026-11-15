@@ -63,6 +63,7 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
 /** Read bounded JSON from the body of the Standard Context request. */
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const body = getStandardContext(event).req.body
+  // Internal invariant: a missing body fails like the JSON parse below. Callers answer both as a malformed request.
   if (!body) throw new SyntaxError("Request body is unavailable.")
   return JSON.parse(await consoleRequestText(body, maximumBytes))
 }

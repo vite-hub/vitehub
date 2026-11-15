@@ -12,6 +12,7 @@ export const legacyConsoleAttachmentPrefix = "vitehub-console-attachments/"
 const cleanupPrefix = consoleAttachmentCleanupPrefix
 const idSchema = v.pipe(v.string(), v.uuid())
 
+// Internal invariant: caught in this module, which moves the record to quarantine.
 class CorruptCleanupRecord extends Error {
   constructor(readonly body: string) {
     super("Invalid attachment cleanup batch record")
@@ -131,11 +132,13 @@ export async function isConsoleAttachmentPendingCleanup(storage: Pick<BlobStorag
         if (blob.pathname.startsWith(`${cleanupPrefix}batch/`) && (await cleanupIds(storage, blob.pathname, cleanupPrefix))?.includes(id)) return true
       }
       if (!result.hasMore) break
+      // Internal invariant: a Blob driver that returns the same cursor twice is a driver bug. This stops an endless cleanup loop.
       if (!result.cursor || result.cursor === cursor) throw new Error("Attachment cleanup listing did not advance")
       cursor = result.cursor
     } while (cursor)
     const [quarantineError, quarantine] = await storage.list({ prefix: quarantinePrefixes[index], limit: 1 })
     if (quarantineError) throw quarantineError
+    // Internal invariant: cleanup fails closed while a quarantined record exists. No app option changes it.
     if (quarantine.blobs.length) throw new Error("Attachment cleanup ownership is quarantined")
   }
   return false

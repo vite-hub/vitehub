@@ -119,6 +119,7 @@ export async function loadOperationItems(view: ConsoleOperationView, input: Reco
     if (!pagination || page.length < pagination.limit) return items
     const last = page.at(-1)!
     const before = Object.fromEntries(Object.entries(pagination.cursor).map(([key, path]) => [key, operationValue(last, path)]))
+    // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
     if (Object.values(before).some(value => value === undefined)) throw new Error("The operation returned an item without a pagination cursor.")
     next = { ...input, limit: pagination.limit, before }
   }

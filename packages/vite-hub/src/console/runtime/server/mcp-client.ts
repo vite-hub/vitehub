@@ -264,6 +264,7 @@ function serverInfo(client: Client, protocolVersion: string | undefined): Consol
 /** What a `401` asked for in `WWW-Authenticate`: where its resource metadata is, and which scope. */
 type Challenge = ReturnType<typeof extractWWWAuthenticateParams>
 
+// Internal invariant: caught in this module and answered as CONSOLE_MCP_SIGNED_OUT.
 class SignedOutError extends Error {
   constructor(message: string, readonly challenge?: Challenge) {
     super(message)
@@ -560,6 +561,7 @@ async function authorize(connection: StoredConnection, prompt: "login" | undefin
       delete connection.error
       return oauth.pending.url
     }
+    // Internal invariant: caught below and answered as CONSOLE_MCP_AUTHORIZATION_FAILED.
     throw new Error("The authorization server did not start a sign-in.")
   }
   catch (error) {
@@ -662,6 +664,7 @@ async function finishSignIn(caller: ConsoleMcpCaller, connection: StoredConnecti
   return withClientOperation(connection, async () => {
     try {
       const result = await auth(oauthProvider(connection), { authorizationCode: input.code, fetchFn: withTimeout(requestTimeoutMs, connection.consoleOrigin), serverUrl: connection.url })
+      // Internal invariant: caught below and answered as CONSOLE_MCP_AUTHORIZATION_FAILED.
       if (result !== "AUTHORIZED") throw new Error("The authorization server did not issue a token.")
     }
     catch (error) {
