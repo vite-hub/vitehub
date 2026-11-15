@@ -995,7 +995,7 @@ async function resolveAgentWebhookState(
   const { stateScope: declaredScope } = registration
   const stateScope = declaredScope === undefined ? undefined : typeof declaredScope === "string" ? declaredScope.replace(/:+$/, "") : ""
   if (stateScope !== undefined && !stateScope.trim()) {
-    throw new TypeError(`[vitehub] Webhook registration "${registration.id || registration.provider}" stateScope must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_WEBHOOK_STATE_SCOPE_INVALID({ id: registration.id || registration.provider })
   }
   const stateOption = handlerOptions.webhookState
   if (!stateOption) return
@@ -1165,7 +1165,7 @@ function queuedWebhookTask(
   if (saved.task === undefined) return undefined
   const task = agentTriggerTask(trigger, saved.task)
   if (options.validateOwnership !== false && saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
-    throw new Error(`[vitehub] Queued task "${saved.task}" of trigger "${trigger.id}" no longer runs the Agent it was accepted for.`)
+    throw agentDiagnostics.AGENT_QUEUED_TASK_AGENT_CHANGED({ task: saved.task, triggerId: trigger.id })
   }
   return task
 }
@@ -1849,7 +1849,7 @@ async function executeQueuedWebhookDelivery(
         }
         throw error
       }
-      if (!webhookFence) throw new Error(`[vitehub] Webhook delivery "${delivery.deliveryId}" could not acquire its concurrency fence.`)
+      if (!webhookFence) throw agentDiagnostics.AGENT_WEBHOOK_FENCE_UNAVAILABLE({ deliveryId: delivery.deliveryId })
       stopWebhookFenceHeartbeat = startWebhookLockHeartbeat(state, webhookFence, delivery.leaseTtlMs, () => {
         console.error(`[vitehub] Lost the durable fence for webhook delivery "${delivery.deliveryId}".`)
       })
@@ -1942,10 +1942,10 @@ async function executeQueuedWebhookDelivery(
         }
         const resolvedAgentName = resolved.agent ? taskAgentIdentity(resolved.agent).name : undefined
         if (invocation?.task !== undefined && resolved.task !== invocation.task) {
-          throw new Error(`[vitehub] Persisted webhook delivery resolved task "${resolved.task ?? ""}" instead of "${invocation.task}".`)
+          throw agentDiagnostics.AGENT_WEBHOOK_REHYDRATION_CHANGED({ kind: "task", resolved: resolved.task ?? "", expected: invocation.task })
         }
         if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
-          throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
+          throw agentDiagnostics.AGENT_WEBHOOK_REHYDRATION_CHANGED({ kind: "Agent", resolved: resolvedAgentName ?? "", expected: String(invocation.agentName) })
         }
         reconcileSignal = resolved.input.abortSignal
         invocation = { ...invocation, input: resolved.input, run: resolved.run }
@@ -1963,7 +1963,7 @@ async function executeQueuedWebhookDelivery(
           executionTimeout,
         ])
         // The provider has already received admission, so this queue owns transient retries.
-        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}${retryReason ? ` (${retryReason})` : ""}.`)
+        if (handledResponse.status >= 500) throw agentDiagnostics.AGENT_WEBHOOK_HANDLED_RETRY({ phase: "rehydration", status: handledResponse.status, reason: retryReason })
       }
     }
     else if (delivery.invocation) {
@@ -2003,7 +2003,7 @@ async function executeQueuedWebhookDelivery(
           executionTimeout,
         ])
         // A 5xx answer such as `retryLater()` retries the delivery. Its reason goes into the error.
-        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook delivery returned HTTP ${handledResponse.status}${retryReason ? ` (${retryReason})` : ""}.`)
+        if (handledResponse.status >= 500) throw agentDiagnostics.AGENT_WEBHOOK_HANDLED_RETRY({ phase: "delivery", status: handledResponse.status, reason: retryReason })
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
@@ -6024,7 +6024,7 @@ async function updateInterruptedChatIndex(
     lock = await state.acquireLock(`${key}:lock`, 10_000).catch(() => null)
     if (!lock) await new Promise(resolve => setTimeout(resolve, 100))
   }
-  if (!lock) throw new Error("Could not acquire the interrupted chat index lock.")
+  if (!lock) throw agentDiagnostics.AGENT_CHAT_RECOVERY_INDEX_CONFLICT({ step: "acquire" })
   try {
     const current = await state.get(key)
     // SAFETY: This private index is written only with InterruptedChatRecord values below.
@@ -6033,7 +6033,7 @@ async function updateInterruptedChatIndex(
     const committed = await mutationState.mutateWithLock(lock, [Object.keys(records).length
       ? { type: "set", key, value: records }
       : { type: "delete", key }])
-    if (!committed) throw new Error("Lost the interrupted chat index lock before committing.")
+    if (!committed) throw agentDiagnostics.AGENT_CHAT_RECOVERY_INDEX_CONFLICT({ step: "commit" })
   }
   finally {
     await state.releaseLock(lock).catch(() => undefined)
@@ -6258,7 +6258,7 @@ async function resumeInterruptedChatInvocations(
           // Keep the delivered id when a failed dispatch below releases its replay reservation.
           record.recoveryNoticeId = messageId
           await updateInterruptedChatIndex(state.state, state.titleKeyPrefix, (current) => {
-            if (current[record.runId]?.recoveryToken !== recoveryToken) throw new Error("Interrupted chat recovery no longer owns this record.")
+            if (current[record.runId]?.recoveryToken !== recoveryToken) throw agentDiagnostics.AGENT_CHAT_RECOVERY_INDEX_CONFLICT({ step: "owner" })
             current[record.runId] = { ...current[record.runId], recoveryNoticeId: messageId }
           })
         },
@@ -9246,7 +9246,7 @@ async function queuedTriggerDelivery(options: {
     ...(options.order ? { order: options.order } : {}),
   }
   if (!isJsonSafe(persistedInvocation)) {
-    throw new TypeError(`[vitehub] Queued invocation through trigger "${invocation.trigger.id}" needs JSON-serializable invocation input and run metadata.`)
+    throw agentDiagnostics.AGENT_QUEUED_INPUT_NOT_JSON({ triggerId: invocation.trigger.id })
   }
   const channelDelivery = await openAgentChannelDelivery(webhookState.state, {
     agentName: options.deliveryAgentName,
@@ -9351,7 +9351,7 @@ function createChannelTaskQueue(
         task,
         webhook: { concurrencyGroup: `task:${task}`, concurrencyLimit: 1, deliveryId },
       }, trigger)
-      if (isResolvedAgentTriggerHandledInvocation(invocation)) throw new TypeError(`[vitehub] Channel task "${task}" did not resolve to an invocation.`)
+      if (isResolvedAgentTriggerHandledInvocation(invocation)) throw agentDiagnostics.AGENT_CHANNEL_TASK_HANDLED({ task })
       // The registration path routes the queued row back to this Channel when it runs.
       const requestUrl = new URL(webhookRegistrationPaths(registration)[0] ?? "/_vitehub/channel-task", "http://vitehub.local").href
       const { channelDelivery, delivery } = await queuedTriggerDelivery({
@@ -9453,7 +9453,7 @@ function createQueuedChannelDispatch(
     if (typeof triggerName !== "string" || !definition?.triggers || !Object.hasOwn(definition.triggers, triggerName)) {
       throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channelId}" has no trigger "${String(triggerName)}" to dispatch to.` })
     }
-    if (!Array.isArray(items)) throw new TypeError(`[vitehub] Channel "${channelId}" dispatch needs an array of items.`)
+    if (!Array.isArray(items)) throw agentDiagnostics.AGENT_DISPATCH_ITEMS_INVALID({ channelId })
     const triggerId = `${channelId}.${triggerName}`
     const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
     const queue: AgentWebhookQueueRegistration<AgentChannelWebhookRouteOptions> = {
@@ -9465,11 +9465,11 @@ function createQueuedChannelDispatch(
     const result: ReplayChannelResult = { failed: 0, items: [], nextCursor: null, processed: 0, skipped: 0 }
     for (const item of items) {
       if (typeof item?.key !== "string" || !item.key.trim()) {
-        throw new TypeError(`[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`)
+        throw agentDiagnostics.AGENT_DISPATCH_ITEM_KEY_MISSING({ channelId })
       }
       const { order } = item
       if (order !== undefined && (!isRecord(order) || typeof order.key !== "string" || !order.key.trim() || typeof order.version !== "number" || !Number.isFinite(order.version))) {
-        throw new TypeError(`[vitehub] Channel "${channelId}" dispatch item "${item.key}" needs order { key, version } with a non-empty key and a finite number version.`)
+        throw agentDiagnostics.AGENT_DISPATCH_ITEM_ORDER_INVALID({ channelId, key: item.key })
       }
       const commit = createAgentChannelStateCommit(webhookState.state)
       try {
@@ -9497,7 +9497,7 @@ function createQueuedChannelDispatch(
         if (isResolvedAgentTriggerHandledInvocation(invocation)) {
           await invocation.response.body?.cancel()
           if (invocation.response.status >= 400) {
-            throw new Error(`[vitehub] Channel trigger "${triggerId}" rejected item "${item.key}" with HTTP ${invocation.response.status}.`)
+            throw agentDiagnostics.AGENT_DISPATCH_ITEM_REJECTED({ triggerId, key: item.key, status: invocation.response.status })
           }
           await settleAgentChannelStateCommit(commit)
           result.items.push({ id: item.key, key: item.key, reason: "handled", status: "skipped" })
@@ -9513,7 +9513,7 @@ function createQueuedChannelDispatch(
           || ownership.rehydrate
           || (ownership.concurrencyKey !== undefined && !ownership.concurrencyKey.trim())
         ) {
-          throw new TypeError(`[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`)
+          throw agentDiagnostics.AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID({ triggerId })
         }
         const { channelDelivery, delivery } = await queuedTriggerDelivery({
           agentName,

@@ -20,6 +20,7 @@ interface Parsed {
   url?: string
 }
 
+// Internal invariant: a CLI usage error; the CLI prints its message, which says what to pass.
 class UsageError extends Error {}
 
 /** The absolute path of a file that the server named, or an error when it leaves the directory. The server is not trusted with paths. */

@@ -52,6 +52,7 @@ async function registeredInvocationJournals(): Promise<AgentInvocations[]> {
   return [...journals]
 }
 
+// Internal invariant: this module catches it and answers HTTP 409 with its message.
 class InvocationJournalAmbiguityError extends Error {}
 
 async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant, journals: readonly AgentInvocations[], id: string): Promise<AgentInvocationCancelResult> {

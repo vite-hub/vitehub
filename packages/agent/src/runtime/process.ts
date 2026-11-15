@@ -282,8 +282,10 @@ function parseLimit(value: string, name: string): number {
 
 function parseCgroupNumber(value: string, name: string): number {
   const parsed = value.trim()
+  // Internal invariant: Linux writes these cgroup files; readProcessResources() catches this message and skips cgroup limits.
   if (!/^\d+$/.test(parsed)) throw new Error(`Invalid cgroup ${name} value.`)
   const number = Number(parsed)
+  // Internal invariant: Linux writes these cgroup files; readProcessResources() catches this message and skips cgroup limits.
   if (!Number.isFinite(number)) throw new Error(`Invalid cgroup ${name} value.`)
   return number
 }

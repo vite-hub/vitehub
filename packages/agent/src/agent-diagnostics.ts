@@ -432,6 +432,22 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0929",
   "AGENT_R0938",
   "AGENT_R1039",
+  // Named codes that replace TypeErrors keep their input-error status.
+  "AGENT_CHANNEL_TASK_HANDLED",
+  "AGENT_DISPATCH_DRY_RUN_WITH_QUEUE",
+  "AGENT_DISPATCH_ITEMS_INVALID",
+  "AGENT_DISPATCH_ITEM_KEY_MISSING",
+  "AGENT_DISPATCH_ITEM_ORDER_INVALID",
+  "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
+  "AGENT_QUEUED_INPUT_NOT_JSON",
+  "AGENT_TASK_AGENT_NAME_MISSING",
+  "AGENT_TRIGGER_PREPARE_INVALID",
+  "AGENT_TRIGGER_SERIALIZE_CONFLICT",
+  "AGENT_TRIGGER_SERIALIZE_INVALID",
+  "AGENT_TRIGGER_TASKS_INVALID",
+  "AGENT_TRIGGER_TASK_INVALID",
+  "AGENT_TRIGGER_TASK_UNKNOWN",
+  "AGENT_WEBHOOK_STATE_SCOPE_INVALID",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -2161,6 +2177,129 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
+    },
+    // Named errors. Keep these codes in alphabetical order.
+    AGENT_CHANNEL_TASK_HANDLED: {
+      why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
+      fix: "Make the queued Channel task that the message names start an Agent or a `run` function, and not answer with a `Response`.",
+    },
+    AGENT_CHAT_RECOVERY_INDEX_CONFLICT: {
+      why: ({ step }: { step: "acquire" | "commit" | "owner" }) => step === "acquire"
+        ? "Could not acquire the interrupted chat index lock."
+        : step === "commit"
+          ? "Lost the interrupted chat index lock before committing."
+          : "Interrupted chat recovery no longer owns this record.",
+      fix: "Nothing to change when it happens once: another server instance recovers the same chat. If it repeats, check that the Agent State can take and keep locks.",
+    },
+    AGENT_CONSOLE_DELIVERY_INCOMPLETE: {
+      why: "Console delivery requires both url and token.",
+      fix: "Pass both `url` and `token` to `createAgentConsoleDelivery({ url, token })`, or pass neither to turn Console delivery off.",
+    },
+    AGENT_CONSOLE_DELIVERY_URL_INVALID: {
+      why: "Console delivery requires an HTTP(S) URL without embedded credentials.",
+      fix: "Pass an `http:` or `https:` URL without a user name or password as `createAgentConsoleDelivery({ url })`, and pass the secret as `token`.",
+    },
+    AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
+      fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
+    },
+    AGENT_DISPATCH_ITEMS_INVALID: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" dispatch needs an array of items.`,
+      fix: "Pass an array of items to `dispatch(items, { trigger })`.",
+    },
+    AGENT_DISPATCH_ITEM_KEY_MISSING: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`,
+      fix: "Give each item of `dispatch(items, { trigger })` a non-empty `key`, such as the provider's event ID.",
+    },
+    AGENT_DISPATCH_ITEM_ORDER_INVALID: {
+      why: ({ channelId, key }: { channelId: string, key: string }) => `[vitehub] Channel "${channelId}" dispatch item "${key}" needs order { key, version } with a non-empty key and a finite number version.`,
+      fix: "Set `order` of each dispatched item to `{ key, version }` with a non-empty key and a finite number, or omit `order`.",
+    },
+    AGENT_DISPATCH_ITEM_REJECTED: {
+      why: ({ triggerId, key, status }: { triggerId: string, key: string, status: number }) => `[vitehub] Channel trigger "${triggerId}" rejected item "${key}" with HTTP ${status}.`,
+      fix: "Check the trigger that the message names: it answered the item with an HTTP error. Make it admit the item, or leave the item out of `dispatch()`.",
+    },
+    AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`,
+      fix: "Return `webhook.deliveryId` and `webhook.concurrencyLimit` or `webhook.serialize` from the trigger, without `busy: \"steer\"` or `rehydrate`, when you dispatch with `queue: true`.",
+    },
+    AGENT_HOST_ROUTE_DUPLICATE: {
+      why: ({ route }: { route: string }) => `Agent host route already registered: ${route}`,
+      fix: "Pass a `route` to `agentHostRoutes({ health, workspace })` that no other Nitro handler uses.",
+    },
+    AGENT_HOST_ROUTE_EXPORT_NAME_INVALID: {
+      why: "Agent host route exportName must be a JavaScript identifier.",
+      fix: "Set `exportName` in `agentHostRoutes({ health, workspace })` to the name of an export of the entry file, such as `\"inspectHealth\"`.",
+    },
+    AGENT_HOST_ROUTE_PATH_INVALID: {
+      why: "Agent host routes require an absolute path without query, hash, or wildcard; Workspace routes require an :id parameter.",
+      fix: "Set `route` in `agentHostRoutes()` to a path that starts with `/` and has no `?`, `#`, or `*`. A Workspace route also needs an `:id` segment.",
+    },
+    AGENT_PROCESS_HOST_DRAIN_ROUTE_INVALID: {
+      why: "Process host drainRoute must be an absolute route without query, hash, or wildcard.",
+      fix: "Set `processAgentHost({ drainRoute })` to a path that starts with `/` and has no `?`, `#`, or `*`, such as `\"/api/drain\"`.",
+    },
+    AGENT_PROCESS_HOST_EXPORT_NAME_INVALID: {
+      why: "Process host exportName must be a JavaScript identifier.",
+      fix: "Set `processAgentHost({ exportName })` to the name of an export of the entry file, or omit it to use the default export.",
+    },
+    AGENT_PROCESS_HOST_ROUTE_DUPLICATE: {
+      why: ({ route }: { route: string }) => `Process host route already registered: ${route}`,
+      fix: "Pass a `drainRoute` to `processAgentHost()` that no other Nitro handler uses.",
+    },
+    AGENT_QUEUED_INPUT_NOT_JSON: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Queued invocation through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`,
+      fix: "Pass only JSON values, without functions, class instances, or `undefined` in arrays, in the input and run metadata of a queued trigger invocation.",
+    },
+    AGENT_QUEUED_TASK_AGENT_CHANGED: {
+      why: ({ task, triggerId }: { task: string, triggerId: string }) => `[vitehub] Queued task "${task}" of trigger "${triggerId}" no longer runs the Agent it was accepted for.`,
+      fix: "Keep the Agent of a trigger task the same while queued deliveries wait, or let them finish before you deploy the change.",
+    },
+    AGENT_TASK_AGENT_NAME_MISSING: {
+      why: ({ task, triggerId }: { task?: string, triggerId?: string }) => task
+        ? `[vitehub] Task "${task}" of trigger "${triggerId}" needs an Agent with a stable non-empty name. The webhook queue stores the name with the delivery.`
+        : "[vitehub] A task Agent needs a stable non-empty name.",
+      fix: "Point the task `agent` at an Agent Definition with a non-empty `name`, such as `defineAgent({ name: \"reviewer\" })` or an Agent file in `server/agents/`.",
+    },
+    AGENT_TRIGGER_PREPARE_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" prepare must be a function.`,
+      fix: "Set `prepare` of the trigger to a function, or remove it.",
+    },
+    AGENT_TRIGGER_SERIALIZE_CONFLICT: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" webhook.serialize replaces concurrencyKey and concurrencyLimit. Set only one of them.`,
+      fix: "Return either `webhook.serialize` or `webhook.concurrencyKey` with `webhook.concurrencyLimit` from the trigger, not both.",
+    },
+    AGENT_TRIGGER_SERIALIZE_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" webhook.serialize must be a non-empty string.`,
+      fix: "Set `webhook.serialize` in the trigger result to a non-empty key, such as the conversation ID, or omit it.",
+    },
+    AGENT_TRIGGER_TASKS_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" tasks must be an object of named tasks.`,
+      fix: "Set `tasks` of the trigger to an object whose keys are task names, such as `{ review: { agent } }`.",
+    },
+    AGENT_TRIGGER_TASK_INVALID: {
+      why: ({ task, triggerId, problem }: { task: string, triggerId: string, problem: "failed must be a function." | "must be an object." | "must declare exactly one of agent or run." | "prepare must be a function." | "run must be a function." }) => `[vitehub] Task "${task}" of trigger "${triggerId}" ${problem}`,
+      fix: "Declare each task in the trigger `tasks` as an object with exactly one of `agent` or `run`, and give `run`, `prepare`, and `failed` function values.",
+    },
+    AGENT_TRIGGER_TASK_UNKNOWN: {
+      why: ({ task, triggerId }: { task: string, triggerId: string }) => `[vitehub] Task "${task}" is not declared by trigger "${triggerId}".`,
+      fix: "Select a task that the trigger declares in `tasks`, or add the task to `tasks`. Keep a removed task while queued deliveries still name it.",
+    },
+    AGENT_WEBHOOK_FENCE_UNAVAILABLE: {
+      why: ({ deliveryId }: { deliveryId: string }) => `[vitehub] Webhook delivery "${deliveryId}" could not acquire its concurrency fence.`,
+      fix: "The webhook queue retries the delivery by itself. If it repeats, check that the Agent State can take locks.",
+    },
+    AGENT_WEBHOOK_HANDLED_RETRY: {
+      why: ({ phase, status, reason }: { phase: "delivery" | "rehydration", status: number, reason: string | undefined }) => `[vitehub] Handled webhook ${phase} returned HTTP ${status}${reason ? ` (${reason})` : ""}.`,
+      fix: "The webhook queue retries the delivery. Check the trigger handler that answered with 5xx, and answer with 2xx or 4xx to stop the retries.",
+    },
+    AGENT_WEBHOOK_REHYDRATION_CHANGED: {
+      why: ({ kind, resolved, expected }: { kind: "Agent" | "task", resolved: string, expected: string }) => `[vitehub] Persisted webhook delivery resolved ${kind} "${resolved}" instead of "${expected}".`,
+      fix: "Keep the task and Agent that a trigger selects for a delivery the same while queued deliveries wait, or let them finish before you deploy the change.",
+    },
+    AGENT_WEBHOOK_STATE_SCOPE_INVALID: {
+      why: ({ id }: { id: string }) => `[vitehub] Webhook registration "${id}" stateScope must be a non-empty string.`,
+      fix: "Set `stateScope` of the webhook registration to a non-empty string, or omit it.",
     },
   },
 })
