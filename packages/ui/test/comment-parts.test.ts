@@ -383,6 +383,18 @@ describe("composer attachments", () => {
     expect(wrapper.emitted("submit")?.at(-1)).toEqual([{ body: "", files: [shot], mentions: [] }]);
   });
 
+  it("marks a picture as an image, so the box can draw it as a thumbnail, and keeps its name for a screen reader", async () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes] } }));
+    await flushPromises();
+    const [picture, file] = wrapper.findAll("[data-slot=attachment]");
+    expect(picture!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("image");
+    expect(picture!.get("img").attributes("alt")).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-title]").text()).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-actions] button").attributes("aria-label")).toBe("Remove shot.png");
+    expect(file!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("icon");
+    expect(file!.get("[data-slot=attachment-title]").text()).toBe("notes.txt");
+  });
+
   it("has no file button when attachments is off, or while editing", () => {
     expect(keep(mount(CommentComposer, { global, props: { attachments: false, autofocus: false } })).find("input[type=file]").exists()).toBe(false);
     expect(keep(mount(CommentComposer, { global, props: { autofocus: false, variant: "edit" } })).find("input[type=file]").exists()).toBe(false);
@@ -522,6 +534,45 @@ describe("thread slots", () => {
 });
 
 describe("CommentPanel", () => {
+  it.each(["open", "resolved"] as const)("reveals %s panel selections without opening a page popover and preserves flashes on release", async (status) => {
+    const selected = client([thread(1, { status }), thread(2, { status })]);
+    let state!: ReturnType<typeof useComments>;
+    const visible = ref(true);
+    const selection = ref<string | null | undefined>(undefined);
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: selected, subject: pricing, visibility: "hidden", hotkey: false });
+        return () => visible.value ? h(CommentPanel, { comments: state, status, thread: selection.value }) : null;
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(selected.status).toBe("ready"));
+    expect([...state.shown.value]).toEqual([]);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    expect(state.isShown("thread-1")).toBe(true);
+    expect(state.openId.value).toBe(null);
+    expect(state.opened.value).toBeUndefined();
+    expect(state.visibility.value).toBe("hidden");
+    await wrapper.get("[aria-label='Back to comments']").trigger("click");
+    expect(state.isShown("thread-1")).toBe(false);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    selection.value = "thread-2";
+    await flushPromises();
+    expect(state.isShown("thread-1")).toBe(false);
+    expect(state.isShown("thread-2")).toBe(true);
+    vi.useFakeTimers();
+    try {
+      state.flash("thread-2");
+      visible.value = false;
+      await flushPromises();
+      expect(state.isShown("thread-2")).toBe(true);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(state.isShown("thread-2")).toBe(false);
+      expect(state.visibility.value).toBe("hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])("provides its explicit state to children with ancestor=%s", async (ancestor) => {
     const selected = client([thread(1, { messages: [message("m1", { body: "Hello @Ben Soto", mentions: ["ben"], author: ben })] })]);
     const wrapper = keep(mount(defineComponent({

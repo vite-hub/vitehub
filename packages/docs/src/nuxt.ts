@@ -29,7 +29,7 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { docsFilesModule } from "./files.ts"
-import { docsAppManifestSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
+import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
@@ -479,7 +479,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
     // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
     addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
-    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    // Each panel's pages get their own module, which the app loads when a reader opens the panel. Development keeps
+    // them in the manifest, since a content change there can add a panel after the templates exist.
+    const app = () => docsAppManifest(manifest, { panels: !nuxt.options.dev })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(app().manifest), write: true }).dst
+    const panelFiles = app().panels.map((panel, index) => ({
+      path: panel.path,
+      file: addTemplate({ filename: `docs/panels/${index}.mjs`, getContents: () => docsAppPanelSource(app().panels.find(candidate => candidate.path === panel.path) ?? { ...panel, pages: [] }), write: true }).dst,
+    }))
+    nuxt.options.alias["#docs/panels"] = addTemplate({
+      filename: "docs/panels.mjs",
+      write: true,
+      getContents: () => `export default {\n${panelFiles.map(({ path, file }) => `  ${JSON.stringify(path)}: () => import(${JSON.stringify(file)}),\n`).join("")}}\n`,
+    }).dst
+    // Nuxt prefetches every dynamic import when the browser is idle. A reader opens one panel at most, so the others
+    // would download for nothing.
+    nuxt.hook("build:manifest", (chunks) => {
+      for (const [key, chunk] of Object.entries(chunks)) if (/docs[/\\]panels[/\\]\d+\.mjs$/.test(decodeURIComponent(key))) chunk.prefetch = false
+    })
+    addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")
@@ -601,7 +619,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: (): string => [
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
-        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
+        // Absolute paths, like the theme below: the app may not depend on either package, and Nuxt can read this
+        // template from outside the app (a custom `buildDir`), where a bare name does not resolve.
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "${stylesheet("tailwindcss")}";`, `@import "${stylesheet("@nuxt/ui")}";`],
         `@import "${scopedTheme?.dst ?? sharedTheme}";`,
         `@import "${join(runtime, "theme/design.css")}";`,
         "",
@@ -898,6 +918,19 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
+}
+
+/** The file a CSS `@import "<name>"` loads: the package's `style` export. */
+function stylesheet(name: string): string {
+  // `@nuxt/ui` does not export its package.json, so walk up from its entry.
+  let root = dirname(fileURLToPath(import.meta.resolve(name)))
+  while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
+    // Internal invariant: a package that resolved has a package.json above its entry.
+    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    root = dirname(root)
+  }
+  const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }
+  return join(root, exports["."].style)
 }
 
 function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {

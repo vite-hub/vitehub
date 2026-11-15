@@ -1,20 +1,24 @@
 /**
  * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
  * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay uses the system sans-serif font, as Drop does, and follows the page's light or dark scheme. It sets the Nuxt UI
+ * the list in the pill's window. The overlay takes ViteHub's theme, as Drop does: Geist when the page has it (else the system
+ * sans-serif), the neutral primary, and the comment blue. It follows the page's light or dark scheme. It sets the Nuxt UI
  * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
  */
 export const overlayStyles = `
 :host {
   all: initial;
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
-  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #2563eb;
+  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #171717;
+  /* The comment blue of ViteHub's theme (--ring in @vite-hub/ui/theme.css), for the areas of comments here and in Drop. */
+  --mark: oklch(0.588 0.158 241.966); --vh-ui-comment-mark: var(--mark);
 }
 :host(.dark) {
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #fafafa;
+  --mark: oklch(0.746 0.16 232.661);
 }
-.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
 .root > .cursors, .root > .outlines, .root > .areas, .root > [data-slot="comment-layer"] { pointer-events: none; }
@@ -25,10 +29,10 @@ export const overlayStyles = `
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
-.outline { position: fixed; border: 2px solid var(--vh-primary); border-radius: 4px; }
+.outline { position: fixed; border: 2px solid var(--mark); border-radius: 4px; }
 .outline[data-kind="draft"] { border-style: dashed; border-color: #f59e0b; }
 .tag { position: fixed; transform: translateY(-100%); padding: 2px 6px; border-radius: 4px 4px 0 0; background: #f59e0b; color: #18181b; font-size: 11px; font-weight: 600; }
-.outline[data-kind="hover"] + .tag { background: var(--vh-primary); color: #fff; }
+.outline[data-kind="hover"] + .tag { background: var(--mark); color: #fff; }
 
 .card { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; width: min(320px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 1.5); box-shadow: 0 8px 24px rgb(0 0 0 / .16); font-size: 13px; }
 .card label { display: grid; gap: 4px; font-weight: 500; }
@@ -68,7 +72,7 @@ export const overlayStyles = `
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 28px; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
-  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
 /* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
 [data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
@@ -119,18 +123,16 @@ export const overlayStyles = `
   }
 }
 
-/* The area that a drag in comment mode draws. The areas of threads are in areaStyles, under the page's floating controls. */
-[data-slot="comment-layer-area"] {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ui-text-highlighted); border-radius: 3px;
-  background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); pointer-events: none;
-}
+/* The area that a drag in comment mode draws, in the comment blue as @vite-hub/ui draws it. The overlay is fixed to the
+   screen. The areas of threads are in areaStyles, under the page's floating controls. */
+[data-slot="comment-layer-area"] { position: fixed; }
 
 /* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
 .selection-bar {
   position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
   border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
   box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  font: 500 12px/1 "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased;
   --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
   transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
 }
@@ -169,7 +171,7 @@ export const panelStyles = `
 :host {
   all: initial; display: block; height: 100%; color-scheme: dark;
   --ui-bg: #0a0a0a; --ui-bg-elevated: #171717; --ui-bg-accented: #262626; --ui-bg-muted: #171717; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #fafafa;
 }
 .panel-root { height: 100%; }
 [data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
@@ -189,7 +191,7 @@ export const pillBarStyles = `
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
+.swatch, .icon, .eye { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
@@ -216,16 +218,23 @@ html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 
 /**
  * The areas that threads point at, in their own element at z-index 1 of the page: over its text, under its own
- * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
+ * floating controls, such as a menu button, which a box must not cross. An area is a thin line in the comment blue at
+ * half strength, with no fill, so a page with many of them stays readable. The area of the open or hovered thread is
+ * full blue with a faint tint. A resolved area is dashed and grey. Drop draws its review areas the same way.
  */
 export const areaStyles = `
-:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --ink: #171717; --muted: #737373; }
-:host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
+:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --mark: oklch(0.588 0.158 241.966); --muted: #737373; }
+:host(.dark) { --mark: oklch(0.746 0.16 232.661); --muted: #a3a3a3; }
 .area {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;
-  background: color-mix(in oklab, var(--ink) 6%, transparent); transition: background-color 120ms ease-out;
+  position: fixed; box-sizing: border-box; border: 1px solid color-mix(in oklab, var(--mark) 50%, transparent); border-radius: 4px;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
 }
-.area[data-status="active"] { background: color-mix(in oklab, var(--ink) 14%, transparent); }
-.area[data-status="resolved"] { border-style: dashed; border-color: var(--muted); background: none; opacity: .6; }
+.area[data-status="active"] { border-color: var(--mark); background: color-mix(in oklab, var(--mark) 8%, transparent); }
+.area[data-status="resolved"] { border-style: dashed; border-color: color-mix(in oklab, var(--muted) 50%, transparent); }
 @media (prefers-reduced-motion: reduce) { .area { transition: none; } }
+/* While comments are hidden, an area that stops showing pops out, as its pin does. */
+.area[data-leaving="true"] { animation: leave 180ms cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes leave { to { opacity: 0; scale: .97; } }
+@keyframes fade { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .area[data-leaving="true"] { animation-name: fade; } }
 `

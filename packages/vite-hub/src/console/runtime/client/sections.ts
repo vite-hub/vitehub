@@ -20,11 +20,18 @@ export interface ConsoleNavigation {
   setup?: string
 }
 
+/** The Console path of `sections.list`. Views pass it as `sectionsBase`, and the navigation cache keys on it. */
+export const consoleSectionsPath = "/_vitehub/api/sections"
+
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
 const navigationErrors = new Map<string, unknown>()
+// The last navigation of each base, so a subscriber that comes after a load or a seed, such as the router of
+// `main.js`, still gets it.
+const navigationValues = new Map<string, ConsoleNavigation>()
 
-function parseConsoleNavigation(value: unknown): ConsoleNavigation {
+/** Read an untrusted `sections.list` answer. Unknown sections and fields are left out. */
+export function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
   const response = value as { contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown, setup?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
@@ -68,6 +75,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
+        navigationValues.set(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
@@ -79,6 +87,18 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+/**
+ * Keep the navigation that `project.get` sent with the project, so the rail and the Overview show it without a
+ * `sections.list` call. A load that already started keeps its own answer.
+ */
+export function seedConsoleNavigation(base: string, navigation: ConsoleNavigation): void {
+  if (navigationRequests.has(base)) return
+  navigationErrors.delete(base)
+  navigationRequests.set(base, Promise.resolve(navigation))
+  navigationValues.set(base, navigation)
+  for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
 }
 
 /** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
@@ -93,6 +113,8 @@ export function subscribeConsoleNavigation(
   const subscribers = navigationSubscribers.get(base) || new Set()
   subscribers.add(subscriber)
   navigationSubscribers.set(base, subscribers)
+  const known = navigationValues.get(base)
+  if (known) subscriber(known)
   return () => {
     subscribers.delete(subscriber)
     if (subscribers.size === 0) navigationSubscribers.delete(base)

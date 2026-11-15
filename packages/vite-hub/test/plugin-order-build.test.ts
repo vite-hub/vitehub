@@ -69,10 +69,16 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       expect(existsSync(join(root, ".output/public/_vitehub/assets"))).toBe(false)
 
       await withBuiltServer(root, async (fetchServer) => {
-        // Apps no longer serve the Console page; this SPA serves its own fallback instead.
-        const page = await fetchServer("/_vitehub")
-        expect(page.status).toBe(200)
-        expect(await page.text()).not.toContain("ViteHub Console")
+        // The entry route redirects to the hosted Console in either plugin order.
+        const page = await fetchServer("/_vitehub", { redirect: "manual" })
+        expect(page.status).toBe(303)
+        const target = new URL(page.headers.get("location")!)
+        expect(target.origin).toBe("https://console.vitehub.dev")
+        expect(target.pathname).toBe("/open")
+        expect(target.searchParams.get("project")).toBe(publicUrl)
+        expect(target.searchParams.get("site")).toBe("/")
+        expect(target.searchParams.get("state")).toMatch(/^[\w-]{43}$/)
+        expect(page.headers.get("set-cookie")).toContain(`__Host-vitehub-site-state=${target.searchParams.get("state")};`)
         const signed = await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` })
         const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)
