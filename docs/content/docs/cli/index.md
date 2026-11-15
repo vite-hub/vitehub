@@ -55,6 +55,7 @@ Available namespaces:
   cms         Inspect the CMS roles and their permissions.
   database    Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
+  cache       List, read, and invalidate the entries of Nitro's cache, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
   rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
   env         Server Env inspection workflows.
@@ -63,9 +64,11 @@ Available namespaces:
   schedule    Run Static Schedule Definitions, start Schedules from the CLI, and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
+  durability  Show where each primitive of this Node server keeps its state: shared, on this host, or in this process.
   types       Generate ViteHub TypeScript declarations.
   i18n        Show translation coverage, and move translations to and from PO files.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
