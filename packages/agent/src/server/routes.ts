@@ -10181,17 +10181,18 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             receivedAt: new Date(webhookReceivedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
             webhookId,
-          })
+          }, webhookStartedAt + ackTimeoutMs)
         }
         catch (error) {
-          if (typeof error === "object" && error !== null && (error as { webhookStored?: boolean }).webhookStored === true) {
-            return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
-          }
           // Without a stored request, the route waits for admission as before.
           console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
           return await admitWebhook()
         }
         if (inbox.duplicate) {
+          // The first request has not stored its copy, and may never. The provider has to send it again.
+          if (!inbox.stored) {
+            return Response.json({ accepted: false, duplicate: true, ok: false }, { headers: { "cache-control": "no-store", "retry-after": "1", "x-vitehub-webhook-duplicate": "1" }, status: 503 })
+          }
           return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store", "x-vitehub-webhook-duplicate": "1" }, status: 202 })
         }
         return await acknowledgeWebhookAdmission(admitWebhook(), inbox, webhookStartedAt + ackTimeoutMs, inboxFields, waitUntil)
