@@ -19,7 +19,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0009: dynamicError,
     BROWSER_R0010: dynamicError,
     BROWSER_R0011: dynamicError,
-    BROWSER_B0001: dynamicError,
-    BROWSER_B0002: dynamicError,
+    BROWSER_B0001: { ...dynamicError, fix: "Set `browser: { binding }` in `vitehub()` to letters, digits, and `_` that do not start with a digit, such as `\"BROWSER\"`, or remove `binding`." },
+    BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
   },
 })
