@@ -624,6 +624,10 @@ A Workflow is a durable runner that can retry steps after a crash. Journals also
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 
+Each Agent turn on Cloudflare Workflows or OpenWorkflow starts two Workflow runs: the turn, and a recovery run named `vitehub-agent-invocation-recovery-<workflow>`. The recovery run reads the turn run until it ends, then writes the same final status to the journal record. The turn writes its own outcome when its handler returns or throws. But when the process stops and the provider fails the run after its last retry, or a run is cancelled or terminated from outside, no turn code runs, and only the recovery run can close the record. ViteHub starts the recovery run right after the provider accepts the turn, and creates the journal record only after that, so no record exists without a run that can close it. The recovery run cannot be skipped when a turn ends normally, because it must exist before anyone knows how the turn ends.
+
+The recovery run reads every second for one minute, then every minute for one hour, then every 30 minutes, for up to one day. After a normal turn it ends at its next read, about one second later. Count two runs per turn when you size the OpenWorkflow worker concurrency. In `vitehub workflow` output and `getWorkflowRun()`, the recovery run is a normal run; its result is empty.
+
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 
 ## Store invocations in Cloudflare D1
