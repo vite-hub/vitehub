@@ -896,7 +896,11 @@ describe("Database Nuxt integration", () => {
       })
       await hubDatabase({ driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
-      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({
+        code: "DATABASE_D1_MIGRATIONS_DIR_OVERLAP",
+        fix: expect.stringContaining("migrations_dir"),
+        message: expect.stringContaining("D1 migration directories overlap"),
+      })
       expect(nitroConfig).not.toHaveProperty("modules")
     }
     finally {
