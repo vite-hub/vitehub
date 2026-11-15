@@ -176,6 +176,21 @@ describe("hubSandboxTask", () => {
     await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([])
   })
 
+  it("reports the chosen size in the Container resource", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "cloudflare", cpu: 1, memory: 8192, maxInstances: 30 })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } as Record<string, any> }
+    await configHook(userConfig, { command: "build", mode: "production" })
+
+    expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toMatchObject({ instance_type: "standard-3", max_instances: 30 })
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toContainEqual(expect.objectContaining({
+      kind: "cloudflare-container",
+      note: expect.stringContaining("Instance type standard-3 (2 vCPU, 8192 MiB memory), at most 30 instances."),
+    }))
+  })
+
   it("exposes Vite Sandbox state", async () => {
     const rootDir = await createViteRoot(process.cwd())
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -772,7 +787,7 @@ describe("hubSandboxTask", () => {
         class_name: "Sandbox",
         image: "../../../../.vitehub/sandbox-task/Dockerfile",
         image_build_context: "../../../..",
-        instance_type: "lite",
+        instance_type: "standard-1",
         max_instances: 12,
         name: "image-optimizer",
       }],
