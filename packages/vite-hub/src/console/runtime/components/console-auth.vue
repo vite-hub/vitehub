@@ -14,6 +14,7 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import {
   authDate,
   authFieldValue,
@@ -140,8 +141,7 @@ async function refresh() {
     }
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
-      // Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
-      throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
+      throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTH_PLUGIN_MISSING();
     const query = { offset: offset.value, limit, search: search.value.trim(), filter: filter.value };
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {

@@ -279,6 +279,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] withConsoleAccess() requires { section } or { anySection: true }.",
       fix: "Pass `{ section: \"<section id>\" }` or `{ anySection: true }` as the second argument of `withConsoleAccess(handler, scope)`.",
     },
+    VITE_HUB_CONSOLE_ATTACHMENT_CLEANUP_QUARANTINED: {
+      why: "Attachment cleanup ownership is quarantined",
+      fix: "Repair the record under `_vitehub/console/quarantine/` in the Blob store as the Console guide says, then delete the quarantine object. Stored images stay unavailable until no quarantine record is left.",
+    },
     VITE_HUB_CONSOLE_AUTHORIZE_FILE_MISSING: {
       why: ({ file }: { file: string }) => `[vitehub] console.authorize file does not exist: ${file}`,
       fix: "Create the file that the message names, or set `vitehub({ console: { authorize } })` to the path of an existing server file, relative to the project root.",
@@ -291,6 +295,32 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] console.authorize must be a path to a server file.",
       fix: "Set `vitehub({ console: { authorize: \"./server/console-authorize.ts\" } })` to a non-empty path string.",
     },
+    VITE_HUB_CONSOLE_AUTH_PLUGIN_MISSING: {
+      why: "This page needs a Better Auth plugin that the app has not enabled.",
+      fix: "Open an Auth page that the Console lists, or add the Better Auth plugin of this page to the auth configuration of the app and deploy again.",
+    },
+    VITE_HUB_CONSOLE_INVOCATION_FILES_LIMIT: {
+      why: "Use at most ten images.",
+      fix: "Attach at most ten images to one message. Send the other images in a second message.",
+    },
+    VITE_HUB_CONSOLE_JSON_INVALID: {
+      why: ({ subject }: { subject: "The payload" | "This value" }) => `${subject} is not valid JSON.`,
+      fix: "Correct the JSON in the editor. Put strings and keys in double quotes, and remove a comma after the last item of an object or array.",
+    },
+    VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE: {
+      why: ({ reason }: { reason: "repeated-cursor" | "too-many-pages" }) => reason === "repeated-cursor"
+        ? "The server returned a repeated pagination cursor. It could not finish the list."
+        : "The server returned more than 1,000 pages. It could not finish the list.",
+      fix: "Check the pagination of the MCP server: each page must return a new `nextCursor`, and a list must end within 1,000 pages.",
+    },
+    VITE_HUB_CONSOLE_NUMBER_REQUIRED: {
+      why: "Enter a number.",
+      fix: "Enter a number in the field before you save it.",
+    },
+    VITE_HUB_LOGS_FILTER_UNSUPPORTED: {
+      why: ({ filter }: { filter: "level" | "service" | "text" }) => `The source does not support ${filter} filters.`,
+      fix: "Remove the filter that the message names from the Logs query. The log source accepts only the filters in its `info.filters`.",
+    },
     VITE_HUB_LOGS_MAX_ENTRIES_INVALID: {
       why: "logs.maxEntries must be an integer from 1 to 10000.",
       fix: "Set `maxEntries` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 1 to 10000.",
@@ -302,6 +332,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_LOGS_SOURCE_MISSING: {
       why: "[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: \"./server/logs.ts\" } }. The local buffer is per process and has no durable history.",
       fix: "Set `vitehub({ observability: { logs: { source: \"./server/logs.ts\" } } })` to a server file that default-exports a `LogSource`, or remove `observability.logs` from the production build.",
+    },
+    VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
+      why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
+      fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
     },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",

@@ -94,8 +94,7 @@ function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: s
  * signature of a signed request covers: the bytes must match it before the message is parsed.
  */
 async function readConsoleEnvelope(request: Request, bodySha256?: string): Promise<unknown> {
-  // Internal invariant: a missing body fails like a malformed body. The caller answers it as a 400.
-  if (!request.body) throw new SyntaxError("Request body is unavailable.")
+  if (!request.body) throw consoleRequestError(400, "Request body is unavailable.")
   const reader = request.body.getReader()
   const decoder = new TextDecoder()
   const chunks: Uint8Array[] = []

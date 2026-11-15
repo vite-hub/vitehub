@@ -985,5 +985,11 @@
     "WORKFLOW_C0018",
     "WORKFLOW_C0019"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/vite-hub/src/console/runtime/client/operation-view.ts": 1,
+    "packages/vite-hub/src/console/runtime/client/shiki-wasm.ts": 1,
+    "packages/vite-hub/src/console/runtime/server/access-policy.ts": 2,
+    "packages/vite-hub/src/console/runtime/server/attachment-cleanup.ts": 1,
+    "packages/vite-hub/src/nuxt.ts": 1
+  }
 }

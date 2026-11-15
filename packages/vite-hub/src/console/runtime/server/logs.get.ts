@@ -10,8 +10,15 @@ import {
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
 import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { consoleHttpError } from "./http-error.ts";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 import type { LogPage, LogSourceInfo } from "../../../logs/source.ts";
+
+/** A Logs failure that names its own code, which the route answers with. */
+function isLogsDiagnostic(error: unknown): error is Error & { code: string } {
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
+  return typeof code === "string" && code.startsWith("VITE_HUB_LOGS_");
+}
 
 export async function consoleLogsHandler(
   event: ConsoleRequestEvent,
@@ -31,25 +38,22 @@ export async function consoleLogsHandler(
     });
     for (const filter of ["text", "level", "service"] as const) {
       if (query[filter] && !source.info.filters.includes(filter))
-        // Internal invariant: caught below and answered as a 400 for an unsupported filter.
-        throw new Error(`The source does not support ${filter} filters.`);
+        throw viteHubErrorDiagnostics.VITE_HUB_LOGS_FILTER_UNSUPPORTED({ filter });
     }
-  } catch {
-    throw consoleHttpError(400, new Error("Invalid or unsupported log filter."));
+  } catch (error) {
+    throw consoleHttpError(400, isLogsDiagnostic(error) ? error : new Error("Invalid or unsupported log filter."));
   }
   try {
     const page = v.parse(logPageSchema, await source.query(query, { signal: getStandardContext(event).req.signal }));
     if (page.entries.length > query.limit)
-      // Internal invariant: caught below and answered as a 502 for the log source.
-      throw new Error("The source exceeded the requested page size.");
+      throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE({ limit: "entries" });
     const json = JSON.stringify(page);
     if (new TextEncoder().encode(json).byteLength > 4 * 1024 * 1024)
-      // Internal invariant: caught below and answered as a 502 for the log source.
-      throw new Error("The source exceeded the response size limit.");
+      throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE({ limit: "bytes" });
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {
     if (error instanceof LogCursorExpiredError) throw consoleHttpError(409, error);
-    throw consoleHttpError(502, new Error("Could not read the log source."));
+    throw consoleHttpError(502, isLogsDiagnostic(error) ? error : new Error("Could not read the log source."));
   }
 }
 /** The log page, for the `logs.list` operation. */

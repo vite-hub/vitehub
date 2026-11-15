@@ -1,4 +1,5 @@
 import { installOperationSectionResolver } from "@vite-hub/internal/operation-registry"
+import { invariant, invariantError } from "@vite-hub/internal/invariant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -22,16 +23,12 @@ export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } take
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
-  if (!(policy instanceof Object) || !modes.has(policy.mode)) {
-    // Internal invariant: generated Console output passes a mode that resolveConsoleOptions() derived from checked options.
-    throw new TypeError("[vitehub] Console access requires a known access mode.")
-  }
+  invariant(policy instanceof Object && modes.has(policy.mode), "generated Console output passes an access mode that resolveConsoleOptions() derived from checked options")
   if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
     throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_NOT_FUNCTION({ site: "file" })
   }
   if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
-    // Internal invariant: generated Console output passes console.impersonation after resolveConsoleOptions() checked it (VITE_HUB_B0004).
-    throw new TypeError("[vitehub] console.impersonation must be true or false.")
+    throw invariantError("generated Console output passes console.impersonation after resolveConsoleOptions() checked it")
   }
   if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentBuild() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
