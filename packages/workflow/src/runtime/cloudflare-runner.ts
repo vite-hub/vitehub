@@ -5,6 +5,7 @@ import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntime
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError } from "../errors.ts"
 
 export interface CloudflareWorkflowEvent {
   id?: string
@@ -14,7 +15,7 @@ export interface CloudflareWorkflowEvent {
 
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
-  createNonRetryableError?: (error: Error & { isRetryable: false }) => Error
+  createNonRetryableError?: (error: Error) => Error
   env: CloudflareWorkerEnv
   event: CloudflareWorkflowEvent
   name: string
@@ -22,18 +23,17 @@ export interface RunCloudflareWorkflowOptions {
   step?: WorkflowProviderStep
 }
 
-// Check the fields that the generated NonRetryableError reads, so an Error from another realm also matches.
-function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  return typeof error === "object" && error !== null
-    && "isRetryable" in error && error.isRetryable === false
-    && "message" in error && typeof error.message === "string"
-}
+/** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */
+const cloudflareNonRetryableErrors = new WeakSet<object>()
 
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
 ): unknown {
-  return createNonRetryableError && isNonRetryableError(error) ? createNonRetryableError(error) : error
+  if (!createNonRetryableError || !isNonRetryableError(error) || cloudflareNonRetryableErrors.has(error)) return error
+  const translated = createNonRetryableError(error)
+  cloudflareNonRetryableErrors.add(translated)
+  return translated
 }
 
 function wrapCloudflareWorkflowStep(
