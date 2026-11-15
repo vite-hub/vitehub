@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -146,8 +146,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
-    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app. Without it,",
-    "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
+    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
+    "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
     "With --database, list, show, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
@@ -155,8 +155,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --url <url>               App URL, such as https://app.example.com or http://localhost:3000, as in every",
     "                            vitehub command. Uses the Console RPC endpoint under it. Set",
     "                            VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls to a deployment.",
-    "                            Without --url, list, show, and tail read the invocation endpoint",
-    "                            (default http://localhost:5173/api/invocations).",
+    "                            Without --url, the commands use the dev server of this project",
+    "                            (.vitehub/dev-server.json) and its Console.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
     "                            Defaults to 30m.",
@@ -270,7 +270,8 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     observations: false,
     server: false,
     staleAfter: waitIdleDefaults.staleAfter,
-    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
+    // Without --url or this variable, useProjectDevServer() reads the dev server of the project.
+    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "",
     urlSet: false,
     waitTimeout: waitIdleDefaults.timeout,
   }
@@ -1217,6 +1218,28 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
   return { ...result.invocation, observations: result.observations }
 }
 
+/**
+ * Without --url, --server, or --database, list, show, tail, export, wait-idle, and cancel use the dev server that wrote
+ * `.vitehub/dev-server.json` in this project, as every `vitehub` command does. Reads go through its Console. It never
+ * guesses a port, since another project may use it. Returns false when no dev server runs for a read.
+ */
+function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
+  if (parsed.urlSet || (parsed.database !== undefined && fileActions.has(parsed.action))) return true
+  if (parsed.action !== "cancel" && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
+  const rootDir = context.rootDir ?? process.cwd()
+  const found = findViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], context.env)
+  // cancel keeps the Vite Development Server default for hosts that do not write the file.
+  if (parsed.action === "cancel") {
+    if (found) parsed.url = found
+    return true
+  }
+  const app = found ? appUrl(found) : undefined
+  if (!found || !app) return false
+  parsed.url = found
+  parsed.console = app.base
+  return true
+}
+
 export async function runAgentInvocationsCli(
   args: string[],
   context: AgentInvocationsCliContext,
@@ -1234,6 +1257,10 @@ export async function runAgentInvocationsCli(
   if (parsed.help) {
     usage(context)
     return 0
+  }
+  if (!useProjectDevServer(parsed, context)) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_INVOCATIONS_NO_DEV_SERVER({ root: context.rootDir ?? process.cwd() }))}\n`)
+    return 1
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000

@@ -58,7 +58,7 @@ function invocationEndpoint(records: Summary[], observations: Record<string, Obs
 async function run(args: string[], fetch: typeof globalThis.fetch) {
   const stdout = stream()
   const stderr = stream()
-  const exitCode = await runAgentInvocationsCli(args, { env: {}, stderr, stdout }, { fetch })
+  const exitCode = await runAgentInvocationsCli(args, { env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" }, stderr, stdout }, { fetch })
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
 

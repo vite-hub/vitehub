@@ -1735,7 +1735,7 @@ describe("agent CLI", () => {
     const exitCode = await runAgentInvocationsCli([
       "list", "--status", "failed", "--limit", "10", "--json",
     ], {
-      env: {},
+      env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" },
       stderr: stream(),
       stdout,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1908,7 +1908,7 @@ describe("agent CLI", () => {
     }))
 
     const exitCode = await runAgentInvocationsCli(["show", "invocation-1"], {
-      env: {},
+      env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" },
       stderr: stream(),
       stdout,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -1951,7 +1951,7 @@ describe("agent CLI", () => {
       }))
 
     const exitCode = await runAgentInvocationsCli(["tail", "invocation-1", "--json"], {
-      env: {},
+      env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" },
       stderr,
       stdout,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.

@@ -48,7 +48,7 @@ async function waitIdle(args: string[], fetch: typeof globalThis.fetch) {
     sleeps.push(milliseconds)
     vi.setSystemTime(Date.now() + milliseconds)
   }
-  const exitCode = await runAgentInvocationsCli(["wait-idle", ...args], { env: {}, stderr, stdout }, { fetch, sleep })
+  const exitCode = await runAgentInvocationsCli(["wait-idle", ...args], { env: { VITEHUB_AGENT_INVOCATIONS_URL: "http://localhost:5173/api/invocations" }, stderr, stdout }, { fetch, sleep })
   return { exitCode, sleeps, stderr: stderr.output(), stdout: stdout.output() }
 }
 
