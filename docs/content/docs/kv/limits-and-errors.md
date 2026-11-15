@@ -42,7 +42,6 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
-| `KV_INVALID_OPTION` | `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
 | `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
@@ -74,10 +73,6 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 ### KV_INVALID_LIMIT
 
 `kv.list()` needs `limit` as a positive integer.
-
-### KV_INVALID_OPTION
-
-`kv.set()` and `kv.setIfAbsent()` accept only `{ ttl }`. Other options, such as the Cloudflare `expirationTtl`, `expiration`, and `metadata`, return this code, because other drivers cannot honor them. Pass `{ ttl: seconds }` to expire the value.
 
 ### KV_INVALID_TTL
 
