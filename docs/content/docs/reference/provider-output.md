@@ -12,7 +12,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
-| `deployment.json` | All built-in hosts | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. |
+| `deployment.json` | All built-in hosts | `vite-hub` | Deployment identity and source, with host, runtime, output, and service contract. `env` lists the host variable names of each Server Env declaration, with required, secret, and default flags, and never values. |
 | Worker bundle | Cloudflare | Packages with Cloudflare output | Runs server and primitive code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state | Bindings, crons, durable objects, queues, Rate Limiting bindings, and other Worker config. |
 | Vercel Build Output | Vercel | Packages with Vercel output | Functions, static files, routes, and function config in `.vercel/output`. |
