@@ -1,5 +1,7 @@
 
+import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { defineOperation } from "@vite-hub/internal/operations"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { inspectServerEnv } from "@vite-hub/env/server"
@@ -8,6 +10,7 @@ import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, conso
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -173,6 +176,34 @@ describe("Console RPC", () => {
       i: "probe",
       e: expect.objectContaining({ code: "CONSOLE_NOT_FOUND", message: "Console operation not found.", status: 404 }),
     })
+  })
+
+  it("says that an operation that runs app code needs console.invoke", async () => {
+    const start = defineOperation({
+      description: "Start a fixture run.",
+      input: v.object({}),
+      invoke: true,
+      kind: "write",
+      name: "fixture.start",
+      run: () => ({ started: true }),
+      section: "fixture",
+    })
+    installConsoleOperations([{ operations: [start], plugin: "fixture-plugin" }], { invoke: false })
+    try {
+      const held = await call(operationRpcBody("fixture.start", {}))
+      expect(held.status).toBe(404)
+      const failure = await operationRpcResponseResult(held)
+      expect(failure).toMatchObject({ code: "CONSOLE_NOT_FOUND", message: expect.stringContaining("console.invoke"), status: 404 })
+      expect(failure).toMatchObject({ fix: expect.stringContaining("invoke: true") })
+
+      // An operation that the app does not have at all is a version mismatch, not stale Console data.
+      const missing = await operationRpcResponseResult(await call(operationRpcBody("fixture.nothing", {})))
+      expect(missing).toMatchObject({ code: "CONSOLE_NOT_FOUND", message: "Console operation not found." })
+      expect(missing).toMatchObject({ fix: expect.not.stringContaining("Reload") })
+    }
+    finally {
+      installConsoleOperations([])
+    }
   })
 
   it("sends a thrown operation error with its code and message, and without the stack", async () => {
