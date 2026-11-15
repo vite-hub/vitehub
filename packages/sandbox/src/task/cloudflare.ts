@@ -14,6 +14,7 @@ import type {
 } from './internal/shared/cloudflare-target'
 import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertCloudflareInstanceTypeFits, readSandboxTaskSize, resolveCloudflareSandboxTaskInstanceType, type SandboxTaskSizeOptions } from './size.ts'
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
@@ -46,9 +47,10 @@ function resolveCloudflareSandboxVersion() {
   return pkg.version
 }
 
-export type CloudflareSandboxEntrypointOptions = {
+export type CloudflareSandboxEntrypointOptions = SandboxTaskSizeOptions & {
   binding?: string
   className?: string
+  maxInstances?: number
   migrationTag?: string
   name?: string
 }
@@ -59,11 +61,16 @@ function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEnt
     className: options.className || defaultCloudflareSandboxClassName,
     migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
     name: options.name || undefined,
+    cpu: options.cpu,
+    memory: options.memory,
+    maxInstances: options.maxInstances,
   }
 }
 
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
-  const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
+  const { binding, className, migrationTag, name, ...size } = resolveCloudflareSandboxEntrypointOptions(options)
+  const instanceType = resolveCloudflareSandboxTaskInstanceType(size)
+  const { maxInstances } = readSandboxTaskSize(size)
   if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0006({ message: '[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.' })
   }
@@ -90,16 +97,23 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
     containers.push({
       class_name: className,
       image,
-      instance_type: 'lite',
-      max_instances: defaultCloudflareSandboxMaxInstances,
+      instance_type: instanceType,
+      max_instances: maxInstances ?? defaultCloudflareSandboxMaxInstances,
       ...(name ? { name } : {}),
     })
   }
   else {
+    // The app owns this entry. ViteHub fills only the fields that it leaves out.
     const container = containers.find(entry => entry.class_name === className)!
     container.image ??= image
+    if (container.instance_type === undefined)
+      container.instance_type = instanceType
+    else
+      assertCloudflareInstanceTypeFits(container.instance_type, size, className)
     if (typeof container.max_instances !== 'number')
-      container.max_instances = defaultCloudflareSandboxMaxInstances
+      container.max_instances = maxInstances ?? defaultCloudflareSandboxMaxInstances
+    else if (maxInstances !== undefined && maxInstances !== container.max_instances)
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT({ className, configured: container.max_instances, requested: maxInstances })
     if (name)
       container.name ??= name
   }
