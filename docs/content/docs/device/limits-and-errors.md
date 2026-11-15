@@ -35,34 +35,4 @@ icon: i-lucide-circle-alert
 
 `setDeviceAccount()` and `clearDevice()` return `[error, undefined]`. Wrong input throws. The device prints the other codes once in the browser console, and the read goes on.
 
-### DEVICE_STORAGE_FAILED
-
-IndexedDB failed to change the stored copies, such as when the disk is full. `setDeviceAccount()` and `clearDevice()` return it. A failed write of a copy prints it once. Call the function again. If it fails again, ask the user to clear the site data in the browser settings.
-
-### DEVICE_INVALID_ACCOUNT
-
-`setDeviceAccount()` got an empty string or a value that is not a string or `null`. Pass the user id from your session.
-
-### DEVICE_INVALID_KEY
-
-`useStoredData()` got a key that is not a string, or an empty string. Give each read a key that names its data.
-
-### DEVICE_INVALID_MAX_AGE
-
-`maxAge` is not a number of milliseconds that is 0 or more.
-
-### DEVICE_ALREADY_OPEN
-
-`openDevice()` ran again with another `version`. Call it once, before the app mounts.
-
-### DEVICE_NOT_OPEN
-
-A read stored an answer, and the app never called `openDevice()`. The answer stays in memory, so a reload shows the default. Call `await openDevice()` before `app.mount()`.
-
-### DEVICE_VALUE_NOT_JSON
-
-The loader returned a value that JSON cannot store, such as an object that contains itself. Return plain data.
-
-### DEVICE_VALUE_TOO_LARGE
-
-One answer is larger than 5 MB as JSON. Load less, such as one page of a list.
+See the [Device diagnostics](/docs/device/diagnostics) for each code, why it happens, and how to fix it.

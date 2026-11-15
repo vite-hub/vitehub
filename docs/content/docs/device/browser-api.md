@@ -1,6 +1,6 @@
 ---
 title: Device browser API
-description: openDevice(), setDeviceAccount(), clearDevice(), inspectDevice(), and useStoredData() with every option, the status values, and the rules for accounts, tabs, and server rendering.
+description: Open the device, name its account, inspect stored copies, and useStoredData() with options, status values, and rules for tabs and server rendering.
 navigation.title: Browser API
 navigation.order: 4
 icon: i-lucide-code
