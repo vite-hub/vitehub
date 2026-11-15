@@ -237,7 +237,7 @@ export async function migrateD1Http(
 
 /**
  * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
- * runs on start. It holds the same advisory lock, so `vitehub db migrate` and a starting server never migrate at the
+ * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
  * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
  */
 export async function migratePostgresDatabases(
