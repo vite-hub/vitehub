@@ -11,6 +11,7 @@ import { connectionsRuntimeFor } from "./http-access.ts";
 import { managementErrorBody } from "./http-diagnostics.ts";
 import { page, readCookie, requestReturnPath, RETURN_COOKIE } from "./http-page.ts";
 
+import { isConsoleState } from "../runtime.ts";
 import type { ConnectionsRuntime } from "../runtime.ts";
 import type { ConnectionsAccess } from "./http-access.ts";
 
@@ -242,6 +243,35 @@ const callback: ConnectionsRoute = {
     return response;
   },
 };
+
+/**
+ * The callback of a flow that the Console started with `authorize({ via: "console" })`. The Console page and the app
+ * have different origins, so the browser carries no state cookie and no app session here. The signed Console call that
+ * started the flow checked the manager, and `complete()` finishes it as that manager: the `state` works once, for
+ * 10 minutes, and the PKCE verifier never leaves the server.
+ */
+export async function completeConsoleCallback(request: Request, runtime: () => ConnectionsRuntime): Promise<Response | undefined> {
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state");
+  if (request.method !== "GET" || !state || !isConsoleState(state)) return undefined;
+  const code = url.searchParams.get("code");
+  const providerError = url.searchParams.get("error");
+  if (!code && !providerError)
+    return page({ code: "CONNECTIONS_STATE_MISMATCH", message: "The authorization response has no code.", outcome: "error", status: 400, title: "Connection failed" });
+  let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
+  try {
+    result = await runtime().complete({ code: code ?? undefined, error: providerError ?? undefined, state });
+  } catch (error) {
+    if (!isConnectionError(error)) throw error;
+    return page({ code: error.code, fix: error.fix, message: error.message, outcome: "error", status: errorStatus(error), title: error.code === "CONNECTIONS_AUTHORIZATION_CANCELLED" ? "Connection cancelled" : "Connection failed" });
+  }
+  return page({
+    message: `${result.name} is connected${result.account?.email ? ` as ${result.account.email}` : ""}.`,
+    outcome: "success",
+    status: 200,
+    title: "Connected",
+  });
+}
 
 type ApprovalPage = Awaited<ReturnType<ConnectionsRuntime["approvals"]>>;
 

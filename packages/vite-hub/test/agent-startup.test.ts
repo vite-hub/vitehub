@@ -160,10 +160,7 @@ it("loads the Agent runtime of a Workflow Agent on its first run, not when the W
     await expect.poll(async () => (await instance.status()).status, { interval: 100, timeout: 60_000 }).toMatch(/^(?:complete|errored|terminated)$/)
     const status = await instance.status()
     expect({ error: status.error, status: status.status }).toEqual({ error: undefined, status: "complete" })
-    // The Workflow stores the Agent's text reply as a portable Response.
-    const output = status.output as { body?: { data?: string }, status?: number }
-    expect(output.status).toBe(200)
-    expect(Buffer.from(output.body?.data ?? "", "base64").toString()).toBe("Hello from the Agent")
+    expect(status.output).toBe("Hello from the Agent")
   }
   finally {
     await worker?.dispose()

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
+import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -151,6 +151,29 @@ describe("hubSandboxTask", () => {
 
     const inspectors = await collectViteHubDefinitionInspectors([plugin])
     expect(inspectors).toEqual([])
+  })
+
+  it("lists the Cloudflare Durable Object and Container as host resources", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "cloudflare", name: "image-optimizer" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }, { command: "build", mode: "production" })
+
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([
+      expect.objectContaining({ binding: "SANDBOX", host: "cloudflare", kind: "cloudflare-durable-object", name: "Sandbox", owner: "sandbox" }),
+      expect.objectContaining({ host: "cloudflare", kind: "cloudflare-container", name: "image-optimizer", owner: "sandbox" }),
+    ])
+  })
+
+  it("lists no host resources for the Vercel provider", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+    await configHook({ root: rootDir }, { command: "build", mode: "production" })
+
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toEqual([])
   })
 
   it("exposes Vite Sandbox state", async () => {
@@ -763,7 +786,7 @@ describe("hubSandboxTask", () => {
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/Dockerfile"), "utf8"))
-      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:1\.\d+\.\d+ AS sandbox-tools\n[\s\S]*FROM docker\.io\/library\/node:[\s\S]*COPY --from=sandbox-tools \/usr\/local\/bin\/sandbox-shim \/usr\/local\/bin\/sandbox-shim[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn[\s\S]*CMD \["sleep", "infinity"\]/)
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:1\.\d+\.\d+ AS sandbox-tools\n[\s\S]*FROM docker\.io\/library\/node:[\s\S]* procps tini [\s\S]*COPY --from=sandbox-tools \/usr\/local\/bin\/sandbox-shim \/usr\/local\/bin\/sandbox-shim[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn[\s\S]*ENTRYPOINT \["\/usr\/bin\/tini", "--"\]\nCMD \["sleep", "infinity"\]/)
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {
@@ -819,6 +842,10 @@ describe("hubSandboxTask", () => {
 
     await configHook(userConfig, { command: "build", mode: "production" })
     await configResolved({ ...userConfig, resolve: { alias: [] } })
+
+    await expect(collectViteHubResourceSummaries([plugin])).resolves.toContainEqual(
+      expect.objectContaining({ kind: "cloudflare-container", name: "application-owned" }),
+    )
 
     expect(userConfig.nitro.cloudflare.wrangler.containers[0]).toBe(container)
     expect(userConfig.nitro.cloudflare.wrangler.containers).toEqual([{
