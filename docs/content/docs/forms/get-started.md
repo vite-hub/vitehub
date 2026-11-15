@@ -116,7 +116,7 @@ The message is stored first. When the email fails, the message stays in the inbo
 ::tutorial-step{title="Draw the form"}
 ## Draw the form
 
-In a Vue app, install `@formisch/vue` and draw the form from the same schema:
+In a Vue app, draw the form from the same schema:
 
 ```vue [app/components/ContactForm.vue] fragment
 <script setup lang="ts">

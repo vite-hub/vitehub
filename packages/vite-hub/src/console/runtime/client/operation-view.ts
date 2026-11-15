@@ -1,4 +1,4 @@
-import type { ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
+import type { ConsoleOperationAction, ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
 import { resolveProjectUrl } from "./project"
 import { requestConsoleOperation } from "./request"
 
@@ -99,6 +99,36 @@ export function operationSwitchCall(item: unknown, column: ConsoleOperationColum
   }
   input[column.key] = checked
   return { input, operation: column.switch.operation }
+}
+
+/** The actions of a view that apply to one item: each path of `when` holds one of its values. */
+export function operationActions(item: unknown, view: ConsoleOperationView): ConsoleOperationAction[] {
+  return (view.actions ?? []).filter(action => Object.entries(action.when ?? {}).every(([path, values]) => values.includes(String(operationValue(item, path)))))
+}
+
+/** The call of an action for one item, or undefined when the item lacks a value of its input. */
+export function operationActionCall(item: unknown, action: ConsoleOperationAction): { operation: string, input: Record<string, unknown> } | undefined {
+  const input: Record<string, unknown> = {}
+  for (const [key, path] of Object.entries(action.input)) {
+    const value = operationValue(item, path)
+    if (value === undefined || value === null) return undefined
+    input[key] = value
+  }
+  return { input, operation: action.operation }
+}
+
+/** The question of an action with `{path}` values from the item. */
+export function operationActionQuestion(item: unknown, action: ConsoleOperationAction): string | undefined {
+  return action.confirm?.replaceAll(/\{([^}]+)\}/g, (_match, path: string) => String(operationValue(item, path) ?? ""))
+}
+
+/** The `url` of an action result that the Console opens: `https:`, or `http:` on a loopback host. */
+export function operationActionUrl(result: unknown): string | undefined {
+  const value = result !== null && typeof result === "object" ? Reflect.get(result, "url") : undefined
+  if (typeof value !== "string" || !URL.canParse(value)) return undefined
+  const url = new URL(value)
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  return url.protocol === "https:" || (url.protocol === "http:" && loopback) ? url.href : undefined
 }
 
 /** The items of an operation result. Anything else is a failure of the owner operation. */

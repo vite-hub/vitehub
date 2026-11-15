@@ -24,5 +24,10 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
     FORGE_R0007: dynamicError,
     /** A GitHub-only Forge helper received a reference that is not a numbered pull request, or an empty input. */
     FORGE_R0009: dynamicError,
+    // Named errors. Keep these codes in alphabetical order.
+    FORGE_UNSUPPORTED: {
+      why: "Unsupported Forge.",
+      fix: "Set `forge` of the Forge connection to `github`, `gitlab`, or `forgejo`.",
+    },
   },
 })

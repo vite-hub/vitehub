@@ -17,6 +17,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Check that the cache driver supports the requested storage operation. Vercel Runtime Cache cannot list keys.",
     },
+    VITE_HUB_AGENT_OPTION_MISSING: {
+      ...dynamicError,
+      fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
+    },
     VITE_HUB_R0120: dynamicError,
     VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0124: dynamicError,
@@ -204,7 +208,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0063: {
       ...dynamicError,
-      fix: "Add an Agent Definition, such as `server/agents/support/agent.ts`, and keep the Console on, so that ViteHub installs the Agent journal before `getConsoleInvocations()` runs.",
+      fix: "Turn the Console on with `console: true` in `vitehub()`, or in the `vitehub` key of `nuxt.config.ts`, and add an Agent Definition, such as `server/agents/support/agent.ts`. Without the Console, read the journal file with `vitehub agent invocations list --database .vitehub/data/agent-invocations.sqlite`.",
     },
     VITE_HUB_R0070: {
       ...dynamicError,

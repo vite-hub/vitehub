@@ -241,7 +241,7 @@ export default defineAuth({
 })
 ```
 
-The callback receives the signed-in `user`, `session`, and request. ViteHub defines no admin role, so check your own roles or permissions here.
+The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no admin role, so check your own roles or permissions here.
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
