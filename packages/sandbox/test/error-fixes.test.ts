@@ -5,16 +5,64 @@ import { resolveSandbox, type SandboxRuntime } from "../src/index.ts"
 
 const fixedCodes = [
   "SANDBOX_R0020",
-  ...range(22, 64),
+  "SANDBOX_R0022",
+  "SANDBOX_R0023",
+  "SANDBOX_R0024",
+  "SANDBOX_R0025",
+  "SANDBOX_R0026",
+  "SANDBOX_R0027",
+  "SANDBOX_R0028",
+  "SANDBOX_R0029",
+  "SANDBOX_R0030",
+  "SANDBOX_R0031",
+  "SANDBOX_R0032",
+  "SANDBOX_R0033",
+  "SANDBOX_R0034",
+  "SANDBOX_R0035",
+  "SANDBOX_R0036",
+  "SANDBOX_R0037",
+  "SANDBOX_R0038",
+  "SANDBOX_R0039",
+  "SANDBOX_R0040",
+  "SANDBOX_R0041",
+  "SANDBOX_R0042",
+  "SANDBOX_R0043",
+  "SANDBOX_R0044",
+  "SANDBOX_R0045",
+  "SANDBOX_R0046",
+  "SANDBOX_R0047",
+  "SANDBOX_R0048",
+  "SANDBOX_R0049",
+  "SANDBOX_R0050",
+  "SANDBOX_R0051",
+  "SANDBOX_R0052",
+  "SANDBOX_R0053",
+  "SANDBOX_R0054",
+  "SANDBOX_R0055",
+  "SANDBOX_R0056",
+  "SANDBOX_R0057",
+  "SANDBOX_R0058",
+  "SANDBOX_R0059",
+  "SANDBOX_R0060",
+  "SANDBOX_R0061",
+  "SANDBOX_R0062",
+  "SANDBOX_R0063",
+  "SANDBOX_R0064",
   "SANDBOX_R0088",
   "SANDBOX_R0090",
-  ...range(91, 98),
-  ...range(100, 103),
-] as const
-
-function range(from: number, to: number) {
-  return Array.from({ length: to - from + 1 }, (_, index) => `SANDBOX_R${String(from + index).padStart(4, "0")}`)
-}
+  "SANDBOX_R0091",
+  "SANDBOX_R0092",
+  "SANDBOX_R0093",
+  "SANDBOX_R0094",
+  "SANDBOX_R0095",
+  "SANDBOX_R0096",
+  "SANDBOX_R0097",
+  "SANDBOX_R0098",
+  "SANDBOX_R0100",
+  "SANDBOX_R0101",
+  "SANDBOX_R0102",
+  "SANDBOX_R0103",
+] as const satisfies readonly (keyof typeof sandboxErrorDiagnostics)[]
 
 const runtime: SandboxRuntime = {
   name: "probe",
@@ -45,7 +93,7 @@ describe("Sandbox error fixes", () => {
   it("gives each fixed Sandbox code a fix and its own docs page", () => {
     expect(fixedCodes).toHaveLength(58)
     for (const code of fixedCodes) {
-      const error = sandboxErrorDiagnostics[code as Exclude<keyof typeof sandboxErrorDiagnostics, "SANDBOX_R0165">]({ message: "m", retryable: undefined })
+      const error = sandboxErrorDiagnostics[code]({ message: "m", retryable: undefined })
       expect(error.fix, code).toMatch(/\S/)
       expect(error.docs, code).toBe(`https://vitehub.dev/docs/sandbox/diagnostics/${code.toLowerCase()}`)
     }
