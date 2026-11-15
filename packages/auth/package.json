@@ -167,6 +167,7 @@
     "bun-types": "^1.4.3",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "undici": "8.12.2",
@@ -182,6 +183,7 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
