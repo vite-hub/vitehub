@@ -10,6 +10,7 @@ import { createRouter, createWebHistory } from "vue-router";
 const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
+const ConsoleCache = () => import("../components/console-cache.vue");
 const ConsoleChannels = () => import("../components/console-channels.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
@@ -265,6 +266,19 @@ const router = createRouter({
       name: "vitehub-console-kv",
       path: "/kv",
       meta: { consoleSection: "kv", title: "KV · ViteHub Console" },
+      props: {
+        agentsBase: "/_vitehub/api/agents",
+        definitionsBase: "/_vitehub/api/definitions",
+        kvBase: "/_vitehub/api/kv",
+        searchBase: "/_vitehub/api/search",
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleCache,
+      name: "vitehub-console-cache",
+      path: "/cache",
+      meta: { consoleSection: "cache", title: "Cache · ViteHub Console" },
       props: {
         agentsBase: "/_vitehub/api/agents",
         definitionsBase: "/_vitehub/api/definitions",
