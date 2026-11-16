@@ -381,6 +381,15 @@ describe("calls of the ViteHub MCP in the Console", () => {
     await expect(callAsMcp("test.drop", { key: "a" }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { dropped: "a" } })
   })
 
+  it("runs only reads for a read-only caller, even with a confirmation", async () => {
+    stubKeys(link.env)
+    install()
+    const reader: ConsoleCaller = { confirmed: true, readOnly: true, surface: "mcp", user: { id: "user-1" }, via: "console" }
+    await expect(callAsMcp("test.whoami", {}, reader)).resolves.toMatchObject({ ok: true, value: { surface: "mcp" } })
+    await expect(callAsMcp("test.store", { text: "x" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.store is a write operation, and this caller may only read.", status: 403 }, ok: false })
+    await expect(callAsMcp("test.drop", { key: "a" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.drop is a destructive operation, and this caller may only read.", status: 403 }, ok: false })
+  })
+
   it("does not take the confirmation from an unsigned header or a changed caller", async () => {
     stubKeys(link.env)
     install()
