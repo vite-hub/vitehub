@@ -59,7 +59,7 @@ const [error, sent] = await email.send({
 if (error) throw error
 ```
 
-A message needs `text`, `html`, or both. ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
+A message needs `text`, `html`, or both, or a template of `server/emails` (see [Send a template](#send-a-template)). ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
 
 `send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
@@ -90,7 +90,7 @@ if (error) throw error
 
 `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
-### Discover application templates
+### Send a template
 
 Place reusable Markdown under `server/emails`:
 
@@ -100,7 +100,24 @@ Place reusable Markdown under `server/emails`:
 Your workspace is ready.
 ```
 
-ViteHub turns `server/emails/welcome.md` into a typed async renderer:
+Send it by name. `email.send()` renders the HTML and text body:
+
+```ts
+import { email } from "@vite-hub/email"
+
+const [error] = await email.send({
+  template: "welcome",
+  data: { user: { name: "Maxi" } },
+  from: "hello@example.com",
+  to: "you@example.com",
+  subject: "Your workspace is ready",
+})
+if (error) throw error
+```
+
+TypeScript completes `template` with the names under `server/emails`, and types `data` from the `data.*` values that the template reads. An unknown name or wrong `data` does not compile. The Vite integration writes these types to `.vitehub/types/email-templates.d.ts`, only when the app has templates. When `data` does not fit at runtime, `send()` returns `EMAIL_TEMPLATE_RENDER_FAILED`.
+
+To render a template without sending it, import its typed async renderer:
 
 ```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
