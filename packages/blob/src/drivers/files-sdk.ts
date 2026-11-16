@@ -1,7 +1,7 @@
 import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
-import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
@@ -41,8 +41,7 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   let decoded: string
   try {
     const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
@@ -50,21 +49,17 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
   }
   catch {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  if (encodeBase64Url(decoded) !== cursor) throw blobErrors.BLOB_INVALID_CURSOR()
   let parsed: unknown
   try {
     parsed = JSON.parse(decoded)
   }
   catch {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
+  if (!isPlainObject(parsed)) throw blobErrors.BLOB_INVALID_CURSOR()
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
     !isNumber(index)
@@ -73,8 +68,7 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     || (providerCursor !== undefined && !isString(providerCursor))
     || (providerCursorHistory !== undefined && (!Array.isArray(providerCursorHistory) || !providerCursorHistory.every(isString)))
   ) {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
   return {
     index,
@@ -254,8 +248,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           })
 
           if (start > 0 && start >= result.items.length) {
-            // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-            throw new TypeError("Invalid Blob cursor.")
+            throw blobErrors.BLOB_INVALID_CURSOR()
           }
 
           let consumed = start

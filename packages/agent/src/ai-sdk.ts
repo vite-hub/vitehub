@@ -1361,7 +1361,7 @@ async function createAgent(
     : model
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
-    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+    throw agentDiagnostics.AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED()
   }
   const instructions = await composeInstructions(
     joinInstructions(

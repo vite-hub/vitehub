@@ -3,6 +3,7 @@ import type { HighlighterCore } from "shiki/core";
 import { computed, ref, watch } from "vue";
 import { consoleHighlightLanguages } from "../client/highlight-languages";
 import { languageForPath } from "./console-session-code-language";
+import Icon from "./console-icon.vue";
 
 let highlighter: Promise<HighlighterCore> | undefined;
 
@@ -65,7 +66,7 @@ watch(
 <template>
   <div class="session-code-preview" :data-wrap="wrap">
     <div v-if="loading && !html" class="session-inspector__state">
-      <UIcon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
+      <Icon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
     </div>
     <pre v-else-if="highlightingFailed" class="session-code-preview__plain"><code><span
       v-for="(line, index) in plainLines"

@@ -100,6 +100,7 @@ async function createNestedProject() {
 function collectionModule(name: string): string {
   return [
     `export const ${name} = {`,
+    `  access: "public" as const,`,
     `  async page() { return { items: [], nextCursor: null } },`,
     `  async parseQuery(input: object) { return input },`,
     `}`,
