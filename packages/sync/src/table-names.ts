@@ -4,6 +4,7 @@
  */
 export const syncTableNames: Readonly<Record<string, string>> = {
   syncChanges: "vitehub_sync_changes",
+  syncColumns: "vitehub_sync_columns",
   syncMutations: "vitehub_sync_mutations",
   syncState: "vitehub_sync_state",
 }

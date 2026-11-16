@@ -3,12 +3,12 @@ import { jsonReplacer } from "./canonical.ts"
 import type { SyncLiveEvent } from "./protocol.ts"
 
 /**
- * The listeners of open live streams in this process, by Database and Sync name. The key is the `db` of the
+ * The listeners of open live streams in this process, by Database and synced table. The key is the `db` of the
  * `SyncServices`, the Database or the function that returns it, because it stays the same for every request.
  */
 const listeners = new WeakMap<object, Map<string, Set<() => void>>>()
 
-/** Wakes the live streams of a Sync name on this Database in this process, after a write committed. */
+/** Wakes the live streams of a table on this Database in this process, after a write committed. */
 export function wakeLiveStreams(key: object, name: string): void {
   for (const listener of listeners.get(key)?.get(name) ?? []) listener()
 }
@@ -31,6 +31,7 @@ const pingInterval = 15_000
 export interface LiveStream {
   /** The key of `wakeLiveStreams()`. */
   key: object
+  /** The SQL name of the synced table. A write to the table wakes the stream. */
   name: string
   signal: AbortSignal
   /** Milliseconds between two checks of the change log. */

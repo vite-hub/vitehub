@@ -40,7 +40,7 @@ A value of `where` is one value, or a list that matches any of its values, such 
 Each definition has one route, `syncRoute(name)`: `/api/_vitehub/sync/<name>`. `protocol.ts` has the types of every request and answer.
 
 - `GET ?cursor=<n>&scope=<id>&version=<v>&where=<json>` pulls the changes since `cursor`. Without `cursor`, with another `scope` or `version`, or with a cursor that is older than the oldest kept change, the answer is a full snapshot with `reset: true`. A pull sends at most 500 changes, then `more: true`. Each pull has `account`, `version`, and `defaults`.
-- `GET ?live&...` with the same fields streams pulls as Server-Sent Events: an `event: pull` with `id: <cursor>` for each change that the caller can see. The server checks the change log each second, a write in the same process wakes the stream at once, and the stream ends after 25 seconds.
+- `GET ?live&...` with the same fields streams pulls as Server-Sent Events: an `event: pull` with `id: <cursor>` for each change that the caller can see. The server checks the change log each second, a push in the same process wakes the stream at once, and the stream ends after 25 seconds.
 - `POST` with `{ account, scope, version, cursor, where, mutations }` applies at most `syncPushLimit` (100) mutations in order and answers `{ results, pull }`. Each result is `applied` (with the `result` of an action), `duplicate`, or `rejected` with a `SYNC_*` error.
 
 `where` in a pull or a push is a subset: single column values, such as `{ issueId }`, that narrow the scope. A subset outside the caller's `where` gets 403 `SYNC_OUT_OF_SCOPE`.
@@ -50,7 +50,7 @@ What the server guarantees:
 - The cursor is the `seq` of the change log, never a clock time. A full snapshot reads the newest `seq` and the rows in one atomic batch.
 - Each mutation applies in one atomic batch that starts with its id in the ledger. A retried mutation, such as after a lost answer, is a `duplicate` and writes nothing. A duplicate of an action has the `result` of its first run.
 - A push made for another account, such as before a sign-in as another user, gets 409 `SYNC_ACCOUNT_CHANGED` and writes nothing. The account is a fingerprint of the user id, so a push of the same user after a team change applies under the current `where`.
-- The change log keeps a copy of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
+- The change log keeps the key and the scope columns of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
 - An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them.
 - Unknown columns and a changed primary key are refused with `SYNC_INVALID`.
 - A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams.
@@ -58,39 +58,32 @@ What the server guarantees:
 
 Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify })` from your own route. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
 
-## Writes from server code
+## Change capture
 
-When server code changes the table directly, record the change so that clients get it on their next pull. Pass the keys of inserted and updated rows in `put`, the deleted rows as they were before the delete in `delete`, and the rows whose `where` column changed, as they were before, in `moved`:
+Three SQLite triggers on each synced table write the change log: `vitehub_sync_<table>_insert`, `_update`, and `_delete`. So every write reaches the browsers, also a write of server code, a job, or plain SQL that does not go through Sync. `src/capture.ts` has them.
 
-```ts fragment
-import { recordSyncChanges } from "vite-hub/sync"
-
-await db.insert(todos).values(todo)
-const [error] = await recordSyncChanges("todos", { put: [todo.id] })
-
-const [deleted] = await db.delete(todos).where(eq(todos.id, id)).returning()
-await recordSyncChanges("todos", { delete: [deleted] })
-
-const [before] = await db.select().from(issues).where(eq(issues.id, id))
-await db.update(issues).set({ teamId: "t2" }).where(eq(issues.id, id))
-await recordSyncChanges("issues", { moved: [before] })
-```
+- After an insert or an update, the `put` of the key is the newest change. After a delete, an exit `delete` keeps the key and the scope columns of the old row. After an update that changes a scope column, an exit `move` keeps the old values. A new key is a delete of the old key.
+- The scope columns are the rows of `vitehub_sync_columns`: the columns of `subsets` and each column that a `where` result returned. A pull or a push adds the columns of its scope before it answers, so no browser holds rows before a move of their columns is recorded.
+- The triggers name only the key and the scope columns that the table has, as `pragma_table_info()` lists them. A migration can drop any other column, and a column that the code has before its migration stays out until the table has it.
+- Each server process checks the triggers at its first request for each table and new scope column, and compares them with `sqlite_master`. It replaces old triggers in one batch that fails when another process registered a column at the same time. When the triggers were missing on a table that has a change log, such as after a migration rebuilt the table, it raises the floor, so every client gets a full snapshot.
+- The change log is kept by table, not by Sync name, so two definitions of one table see each other's writes.
 
 ## The Database
 
-`@vite-hub/sync/database` has three tables as `syncSchema`, and the same tables as SQL in `syncTables`. A ViteHub app adds them to the default Database; apply them with `vitehub database generate` and `vitehub database migrate`.
+`@vite-hub/sync/database` has four tables as `syncSchema`, and the same tables as SQL in `syncTables`. A ViteHub app adds them to the default Database; apply them with `vitehub database generate` and `vitehub database migrate`.
 
 | Table | Holds |
 | --- | --- |
-| `vitehub_sync_changes` | `seq`, `name`, `key`, `op`, `row`, and the time. One `put` for each changed key, the newest. One exit (`delete` or `move`) for each row that left a scope, with the row as it was before. |
+| `vitehub_sync_changes` | `seq`, `table_name`, `key`, `op`, `row`, and the time of the Database. One `put` for each changed key, the newest. One exit (`delete` or `move`) for each row that left a scope, with the key and the scope columns as they were before, by SQL column name. |
+| `vitehub_sync_columns` | `table_name` and `column`: the scope columns of each table, by SQL name. |
 | `vitehub_sync_mutations` | The ids of applied mutations, for 7 days. |
-| `vitehub_sync_state` | The `floor` of each name: the highest `seq` that compaction removed. |
+| `vitehub_sync_state` | The `floor` of each table: the lowest cursor that a pull continues from. Compaction and a new install of missing triggers raise it. |
 
-At most once an hour for each name, a push removes mutation ids older than 7 days and exits older than 30 days, and raises the floor. A client with an older cursor gets a full snapshot.
+At most once an hour for each name, a push removes its mutation ids older than 7 days and the exits of its table older than 30 days, and raises the floor. A client with an older cursor gets a full snapshot.
 
 ## Inspect
 
-`vitehub sync list` shows each definition with its table, key, write mode, live streams, action names, row count, change count, exit count, floor, and last `seq`. `vitehub sync changes <name>` shows the newest changes: `seq`, `op` (`put`, `delete`, or `move`), key, and time, without row data. MCP and the Console run the same `sync.list` and `sync.changes` operations.
+`vitehub sync list` shows each definition with its table, key, write mode, live streams, action names, row count, change count, exit count, floor, last `seq`, whether the table has its triggers, and its scope columns. `vitehub sync changes <name>` shows the newest changes: `seq`, `op` (`put`, `delete`, or `move`), key, and time, without row data. MCP and the Console run the same `sync.list` and `sync.changes` operations.
 
 ## The client
 
@@ -101,4 +94,4 @@ At most once an hour for each name, a push removes mutation ids older than 7 day
 - SQLite only: libSQL, D1, and the local default Database. Postgres comes later.
 - The last write wins for each column, in the order that the server applies them. An action reads and writes in two steps, not in one transaction (D1 has no interactive transactions).
 - `where` filters by equal column values, or lists of values, only.
-- A move is seen when the moved column is in the `where` of the caller that writes it, or when server code passes it in `moved`.
+- A migration that drops a scope column must drop the triggers of the table and the row of the column in `vitehub_sync_columns` first. See the Sync docs.

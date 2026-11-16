@@ -13,7 +13,7 @@ icon: i-lucide-circle-alert
 | Writes in one push | 100. The client sends a longer queue in parts. |
 | Changes in one pull | 500. The client pulls again until it has all. |
 | Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
-| Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A write in the same server process wakes the stream at once. The browser opens a new one at once. |
+| Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A push in the same server process wakes the stream at once. The browser opens a new one at once. |
 | Live streams per browser | One per synced table or subset, in a tab that shows. |
 | Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. Every 5 minutes at most while the live stream is open. |
 | Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |
@@ -27,8 +27,17 @@ icon: i-lucide-circle-alert
 - **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
 - **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
 - **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions. When another write changes a row that the action read, the server runs the action function again, up to 3 times. Only its writes apply once, so put effects outside them, such as an email, in a [Queue](/docs/queue) job.
-- **Two definitions of one table.** Each table has one definition. The server does not start when two definitions sync the same table. Use one definition whose `where` returns different values for each kind of caller.
-- **Moves that the writer cannot see.** A move reaches the old scope when the moved column is in the `where` of the caller that writes it, such as `teamId`, when it is in `subsets`, or when server code passes the row in `recordSyncChanges({ moved })`. If your `where` uses other columns for other callers, such as `ownerId` for people and `{}` for admins, add those columns to `subsets`.
+- **Dropping a column that the triggers read.** The triggers read the key, the scope columns (the columns of `subsets` and each column that a `where` result returned), and the columns of unique indexes. A migration that drops one of them fails with `error in trigger vitehub_sync_<table>_... after drop column`. Put these statements before the drop in the same migration, here for the column `team_id` of the table `issues`. For a scope column, also remove it from `where` and `subsets`. For a column of a unique index, leave out the `DELETE` line. Sync adds the triggers again at its next request, and each browser gets every row again.
+
+  ```sql
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_insert;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_update;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_delete;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_insert;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_update;
+  DELETE FROM vitehub_sync_columns WHERE table_name = 'issues' AND "column" = 'team_id';
+  ```
+- **Unique indexes on expressions.** `INSERT OR REPLACE` removes a row that has the same value in a unique column, and the triggers send that to the old scope. A unique index on an expression, such as `lower(email)`, has no column name, so a row that it replaces stays in the old scope. Use an upsert, such as Drizzle's `onConflictDoUpdate()`.
 - **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
 - **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
 - **An app shell offline.** Sync keeps data. Loading the page itself offline needs a service worker, which Sync does not add.
