@@ -325,13 +325,28 @@ export async function readLocalEnvValues(root: string, stage: string, env: NodeJ
   }
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
-  const loaded = await withViteStageEnvironment(env, async () => vite.loadEnv(stage, root, ""))
+  const loaded = await withViteStageEnvironment(env, async () => withoutStderr(() => vite.loadEnv(stage, root, "")))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
     const source = env[name] !== undefined ? "process" : sources.get(name)
     if (source && value !== "") values.set(name, { source, value })
   }
   return values
+}
+
+/**
+ * With `DEBUG=vite:env`, Vite logs every value that loadEnv resolves to stderr. loadEnv is synchronous, so this drops
+ * only its own writes.
+ */
+function withoutStderr<T>(load: () => T): T {
+  const write = process.stderr.write
+  process.stderr.write = () => true
+  try {
+    return load()
+  }
+  finally {
+    process.stderr.write = write
+  }
 }
 
 interface PlannedValue {

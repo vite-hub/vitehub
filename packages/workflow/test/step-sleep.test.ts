@@ -99,7 +99,7 @@ describe("Vercel and inline runs", () => {
     const started = await startWorkflow("nap")
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "failed", metadata: rootStepSleep })
+      await expect(getWorkflowRun("nap", started.id)).resolves.toMatchObject({ status: "failed", error: rootStepSleep })
     })
     expect(calls).toEqual(["before"])
   })
