@@ -345,7 +345,7 @@ jobs:
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
           BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
-        run: node .github/scripts/check-ui-sdk.mjs $BASE_REF
+        run: node .github/scripts/check-ui-sdk.mjs ${BASE_REF:+"$BASE_REF"}
       - name: Install Chromium
         if: ${{ steps.changed.outputs.run == 'true' }}
         run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
