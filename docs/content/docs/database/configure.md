@@ -125,7 +125,7 @@ ViteHub loads the Definition with your Vite or Nuxt string aliases, such as `~~`
 `db.query.<table>` reads rows with Drizzle's relational queries. To read related rows in the same query, pass `relations` from Drizzle's `defineRelations()`:
 
 ```ts [server/databases/blog.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { defineRelations } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -152,7 +152,7 @@ export default defineDatabase({
 Then `with` reads the related rows, and its result is typed:
 
 ```ts [server/api/users.get.ts]
-import { useDatabase } from '@vite-hub/database'
+import { useDatabase } from 'vite-hub/database'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(() => {
@@ -171,7 +171,7 @@ Without `relations`, ViteHub uses `defineRelations(schema)`: `db.query.<table>` 
 Drizzle 1.0 sets the casing of column names on each table, not on the database. To write camelCase keys as snake_case columns, declare the table with `snakeCase.table()`. Queries and the migrations of `vitehub database generate` both use the snake_case names.
 
 ```ts [server/databases/default/index.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, snakeCase, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({

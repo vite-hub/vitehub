@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation, AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import { invocation as run, timestamp, tool } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 function invocation(completedAt: string): AgentInvocationView {
   const startedAt = "2026-08-30T10:00:00.000Z";
@@ -23,6 +24,8 @@ function invocation(completedAt: string): AgentInvocationView {
     updatedAt: completedAt,
   };
 }
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation durations", () => {
   it.each([
