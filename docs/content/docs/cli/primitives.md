@@ -93,8 +93,8 @@ Both load the Vite config in the stage mode, with `.env.<stage>` files, and proc
 `vitehub env diff` and `vitehub env push` compare and set the variables that the deployed app reads. They read the names of the last build in `deployment.json` and the target of the host in `.vitehub/link.json`, and they run the host CLI with your login. Neither loads the project config.
 
 ```bash [Terminal]
-pnpm vitehub env diff [--host <host>] [--stage <name>] [--json]
-pnpm vitehub env push [--host <host>] [--stage <name>] [--only <NAME>]... [--yes] [--json]
+pnpm vitehub env diff [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--json]
+pnpm vitehub env push [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--only <NAME>]... [--yes] [--json]
 ```
 
 - `--host`: the link target to use. Without it, the default target.
@@ -106,7 +106,9 @@ When the build output for the host is missing, both commands build first, as `vi
 
 `env diff` prints three lists: missing required names, missing optional names, and extra names on the host that no declaration reads. An entry with several names, such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN`, is set when one of them is. Hosts do not return values, so `env diff` compares names only and never says that a value changed. It exits with `1` when a required name is missing, so it can gate a deploy step.
 
-`env push` reads each value from the shell first, then from `.env.<stage>.local`, `.env.<stage>`, `.env.local`, and `.env`, as Vite does. For each entry it pushes the first name in read order that has a value. It does not push an entry without a local value, and it never deletes a host variable. It prints the names and where each value came from, never a value. Values go to the host CLI on stdin, or in an API request body, never in argv, and host CLI errors have the values replaced by `<redacted>`.
+`env push` reads each value from the shell first, then from `.env.<stage>.local`, `.env.<stage>`, `.env.local`, and `.env`, as Vite does. It reads the files in the `envDir` that the build recorded in `deployment.json`, so `envDir: "config"` reads `config/.env.production`, and `envDir: false` reads the shell only. For each entry it pushes the first name in read order that has a value. It does not push an entry without a local value, and it never deletes a host variable. It prints the names and where each value came from, never a value. Values go to the host CLI on stdin, or in an API request body, never in argv, and host CLI errors have the values replaced by `<redacted>`.
+
+A secret from an env file must come from a file that git ignores and does not track. `env push` checks every file that the value reads: its own file, the files of the names that it expands with `$NAME`, and the real path of a symlink. When git cannot answer inside a repository, nothing is pushed. A file outside any git repository passes with a warning, because git cannot commit it. A secret from the shell is not checked.
 
 | Host | Names | Values | Stages |
 | --- | --- | --- | --- |
@@ -115,9 +117,34 @@ When the build output for the host is missing, both commands build first, as `vi
 | Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
 | Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno infers secrecy from the name. Secret declarations with names outside its supported secret suffixes, such as `DATABASE_URL`, are refused before writing; set those in the Deno dashboard. A plain declaration gets `--non-secrets`. | `production` only |
 
+### GitHub Actions secrets
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host. Use it when your own GitHub workflow runs the deploy. It does not create a workflow or set up CI deploy: `vitehub deploy` runs on your machine by default.
+
+```bash [Terminal]
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --yes
+pnpm vitehub env push --to github --repo acme/web --environment production --yes
+```
+
+- `--repo`: the repository as `owner/name`. Without it, the GitHub repository of the git remote `origin`.
+- `--environment`: write the secrets of this GitHub deployment environment instead of the repository secrets. The environment must exist.
+- `--host`: the build that lists the names. Without it, the default link target.
+- `--stage`: only picks the `.env.<stage>` file. Any stage name works.
+
+The token comes from `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`, then an installation token of the GitHub App that `@vite-hub/forge` reads when `VITEHUB_GITHUB_APP_ID` is set. It needs write access to the repository secrets. The CLI encrypts each value with the repository public key (a libsodium sealed box) before the request, so the value is not in argv, in output, or in plain text on the wire. GitHub reserves names that start with `GITHUB_`, so an entry such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN` uses `VITEHUB_GITHUB_TOKEN` there.
+
+### `SETUP_ENV_FILE_NOT_IGNORED`
+
+A secret value comes from an env file that git does not track and does not ignore, so the next commit can add it. Nothing was pushed. Add `.env*` to `.gitignore`. The command exits with `3`.
+
 ### `SETUP_ENV_FILE_TRACKED`
 
-A secret value comes from an env file that git tracks. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+A secret value comes from an env file that git tracks, directly, through `$NAME` expansion, or through a symlink. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+
+### `SETUP_ENV_GIT_FAILED`
+
+A secret value comes from an env file in a git repository, but `git ls-files` or `git check-ignore` failed, so the CLI cannot tell whether git has the secret. Nothing was pushed. Fix the repository, or set the value in the shell. The command exits with `1`.
 
 ### `SETUP_ENV_NAME_UNKNOWN`
 
@@ -126,6 +153,14 @@ A secret value comes from an env file that git tracks. Nothing was pushed. Remov
 ### `SETUP_ENV_STAGE_UNSUPPORTED`
 
 The stage is not `production` or `preview`, or the host has no preview environment. The command exits with `3`.
+
+### `SETUP_GITHUB_REPOSITORY_REQUIRED`
+
+`--to github` found no `--repo` and no github.com remote named `origin`. The command exits with `2`.
+
+### `SETUP_GITHUB_REQUEST_FAILED`
+
+The GitHub API refused a request, for example because the token cannot write secrets or the environment does not exist. The command exits with `1`.
 
 ### `SETUP_ENV_VALUE_UNSUPPORTED`
 

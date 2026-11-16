@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { Window } from "happy-dom"
-import { createApp, defineComponent, h } from "vue"
-import { describe, expect, it } from "vitest"
+import { createApp } from "vue"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
+  const { defineComponent, h } = await import("vue")
+  return { default: defineComponent({
+    props: { name: { required: true, type: String } },
+    setup(props) { return () => h("span", { "data-icon-name": props.name }) },
+  }) }
+})
 
 import SectionIcon from "../src/console/runtime/components/console-section-icon.vue"
 import { consolePrimitives } from "../src/console/runtime/sections"
@@ -9,10 +17,6 @@ import { consolePrimitives } from "../src/console/runtime/sections"
 function render(icon: string) {
   const root = new Window().document.createElement("div")
   const app = createApp(SectionIcon, { class: "size-4", icon })
-  app.component("UIcon", defineComponent({
-    props: { name: { required: true, type: String } },
-    setup(props) { return () => h("span", { "data-icon-name": props.name }) },
-  }))
   app.mount(root)
   return { app, root }
 }

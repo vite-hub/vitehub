@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 
 import type { ForgeProvider } from "forges"
 import { forgeDiagnostics } from "./error-diagnostics.ts"
-import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
+import { abortError, forgeErrorStatus, forgeResponseError, withSignal } from "./provider.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 export interface GitHubAppCredentials {
@@ -106,7 +106,7 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
         "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
       ), options.signal)
-      if (!response.data.token) throw new ForgeResponseError("GitHub App installation token response did not include token.")
+      if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
       const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
       installationTokens.set(provider, { token: details.token, expiresAt: details.expiresAt.getTime() })
       return details
@@ -132,8 +132,8 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const response = await provider.request<unknown>("GET", "/app", { signal })
       const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
       const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
-      if (!id) throw new ForgeResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw new ForgeResponseError("GitHub App response did not include a slug.")
+      if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
+      if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
       return { id, slug, login: `${slug}[bot]` }
     },
     async repositories(signal) {

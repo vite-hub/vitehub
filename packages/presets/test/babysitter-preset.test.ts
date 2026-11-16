@@ -2589,7 +2589,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
+      .mockRejectedValueOnce(githubInstalls.gitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
       .mockResolvedValueOnce();
     try {
       await f.reconcile("babysitter.install.failed");
@@ -2609,7 +2609,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
+      .mockRejectedValueOnce(githubInstalls.gitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
     try {
       await f.reconcile();
       const waiting = await f.runtime.inbox.get("acme/app", 12);
@@ -3874,6 +3874,35 @@ describe("Babysitter preset runtime", () => {
         expect(place).toHaveBeenCalledOnce();
         expect(f.passes).toHaveLength(0);
         expect((await f.runtime.inbox.get("acme/app", 12))?.wait).toMatchObject({ kind: "external", reasonCode: "placement-capacity" });
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("lets placement admit a conflict that needs the model while this host's memory admits none", async () => {
+      const release = vi.fn();
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      // Without the no-findings prefix, the bot review is feedback, so the merge needs a model pass.
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).not.toHaveBeenCalled();
+        expect(place).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(1);
+        expect(f.events).not.toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything());
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("keeps host admission for a conflict that an install defect keeps off placement", async () => {
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      await f.runtime.inbox.setMeta("install-defect:acme/app#12", { head: "a".repeat(40), error: "ERR_PNPM_OUTDATED_LOCKFILE" });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).toHaveBeenCalledOnce();
+        expect(place).not.toHaveBeenCalled();
+        expect(f.install).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
       } finally { f.restore(); await f.runtime.inbox.close(); }
     });
 

@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { subset, validRange } from "semver"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { FileEdit } from "../types.ts"
 
@@ -70,14 +70,14 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     manifest = JSON.parse(before)
   }
   catch (error) {
-    throw new CodemodError(`Cannot parse package.json: ${error instanceof Error ? error.message : String(error)}`)
+    throw codemodError(`Cannot parse package.json: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (!isRecord(manifest)) throw new CodemodError("package.json must contain an object.")
+  if (!isRecord(manifest)) throw codemodError("package.json must contain an object.")
   const range = `^${version}`
   let target: (typeof sections)[number] = "dependencies"
   for (const section of sections) {
     const dependencies = manifest[section]
-    if (dependencies !== undefined && !isDependencyMap(dependencies)) throw new CodemodError(`package.json ${section} must map names to version strings.`)
+    if (dependencies !== undefined && !isDependencyMap(dependencies)) throw codemodError(`package.json ${section} must map names to version strings.`)
     if (dependencies && change.remove.some(name => name in dependencies)) {
       target = section
       manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !change.remove.includes(name)))

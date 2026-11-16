@@ -337,10 +337,10 @@ After provisioning and the build, before migrations, env writes, or publishing c
 
 1. Deploy reads the names that the host has, as `vitehub env diff` does. It reads them only when the build lists env names.
 2. Each required name must be on the host or have a local value. When one has neither, nothing is deployed and the command exits with `SETUP_DEPLOY_ENV_MISSING`.
-3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it refuses a secret from a file that git tracks, never deletes a host variable, and prints names, never values.
+3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it reads the env files in the recorded `envDir`, refuses a secret from a file that git tracks or does not ignore, never deletes a host variable, and prints names, never values.
 4. An optional name that is on neither prints one warning line.
 
-Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or an untracked stage env file. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
+Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or a stage env file that git ignores. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
 
 On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
@@ -454,6 +454,76 @@ Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked
 ### `SETUP_DEPLOY_PUSH_FAILED`
 
 The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
+
+## Sign in to a Console
+
+`vitehub login` signs the CLI in to a ViteHub Console with the device flow of RFC 8628. It needs no project.
+
+```bash [Terminal]
+vitehub login                                         # console.vitehub.dev
+vitehub login --console https://console.example.com   # a self-hosted Console
+```
+
+```txt [Output]
+Open https://console.vitehub.dev/device and enter the code WDJB-MJHT
+Or open https://console.vitehub.dev/device?user_code=WDJBMJHT
+Waiting for approval...
+Signed in to https://console.vitehub.dev as Ada (ada@example.com) in team Acme.
+The API key expires on 13 Feb 2027. Saved in /home/ada/.config/vitehub/credentials.json.
+```
+
+1. The CLI asks the Console for a code and prints it with the `/device` address.
+2. In the browser, you sign in, check the machine name and the code, choose a team, and click **Approve** or **Deny**.
+3. The CLI gets an API key for that team, valid for 90 days. The Console keeps only a SHA-256 hash of the key, and the CLI never prints it.
+
+The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. `--console` and `VITEHUB_CONSOLE_URL` name the Console. Plain `http://` works only for `localhost`.
+
+- `vitehub whoami` shows the person, the team, the role, and the projects of the key.
+- `vitehub logout` revokes the key on the Console and removes it from the file.
+- In CI, set `VITEHUB_CONSOLE_TOKEN` to an API key from **Account settings** > **API keys** in the Console. It wins over the saved key.
+
+A key acts as you in one team. A key made in the Console can name some projects of the team: it then opens only those and cannot link or unlink projects. Revoke a key in **Account settings** > **API keys**.
+
+### `CLI_CONSOLE_LOGIN_FAILED`
+
+The device flow did not finish: the Console did not answer, the person denied the code, or the code expired after 15 minutes. Run `vitehub login` again.
+
+### `CLI_CONSOLE_SIGNED_OUT`
+
+The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
+
+## Pull env values from a Console
+
+A self-hosted Console can keep the env values of each app and stage when its operator turns them on. The hosted Console at console.vitehub.dev never stores values. `vitehub env pull --from console` writes the values of one stage to `.env.<stage>` with the key of `vitehub login`. It needs no project config.
+
+```bash [Terminal]
+vitehub env pull --from console                                # production of the only project of the key
+vitehub env pull --from console --stage preview --project <id>
+vitehub env pull --from console --yes                          # replace the file
+```
+
+```txt [Output]
+Wrote 2 values of production to .env.production (mode 600): API_TOKEN, DATABASE_URL.
+```
+
+- Values retain literal dollar expressions, quotes and newlines when Vite loads the file. If dotenv cannot represent a value faithfully (such as a carriage return or a value containing every quote delimiter), the pull fails before writing the file.
+- With `--yes`, the command replaces the file entry; it never writes through a symlink to another file.
+- The command prints names, never values. The Console logs each value that it gives out, with the key and the person.
+- You must be an owner or admin of the team. A member gets `CONSOLE_ENV_FORBIDDEN`.
+- `--project` is needed when the key opens more than one project.
+- In a git repository, git must ignore the file and must not track it. The command checks this before it calls the Console.
+
+### `CLI_ENV_FILE_EXISTS`
+
+`.env.<stage>` exists. Pass `--yes` to replace it. A replaced file gets mode `600`.
+
+### `CLI_ENV_FILE_NOT_IGNORED`
+
+git tracks `.env.<stage>`, or `.gitignore` does not cover it, so the values could be committed. Add `.env.*` to `.gitignore`, and run `git rm --cached .env.<stage>` for a tracked file.
+
+### `CLI_ENV_PULL_FAILED`
+
+The Console refused the pull. The message has the Console's code, such as `CONSOLE_ENV_VALUES_OFF` when the Console stores no values, or `CONSOLE_ENV_FORBIDDEN` for a member.
 
 ## List deployments
 

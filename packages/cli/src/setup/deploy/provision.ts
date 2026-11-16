@@ -6,7 +6,7 @@ import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writePro
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { isProvisionHost, provisionActionStatus, provisionEnv, writeProvisionActions } from "../../provision.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
@@ -93,7 +93,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
     },
   })
   if (!plan.checked) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_UNCHECKED({ host, missing: missingCredential(host, env), warnings: plan.warnings.join(" ") }), setupExitCodes.inputNeeded, { rerun: input.rerun })
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_UNCHECKED({ host, missing: missingCredential(host, env), warnings: plan.warnings.join(" ") }), setupExitCodes.inputNeeded, { rerun: input.rerun })
   }
 
   const changes = plan.actions.flatMap((planned) => {
@@ -101,7 +101,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
     return status === "exists" ? [] : [{ planned, status }]
   })
   if (changes.length && !input.build) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_NEEDS_BUILD({ count: changes.length, host }), setupExitCodes.conflict)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PROVISION_NEEDS_BUILD({ count: changes.length, host }), setupExitCodes.conflict)
   }
   if (changes.length) {
     if (!input.json) {
@@ -110,7 +110,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
     }
     // The deploy question already ran, so without --yes this is a terminal.
     if (!input.yes && !await confirmProvision(changes.length, host)) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The resources were not confirmed. Nothing was created or deployed." }), setupExitCodes.error)
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The resources were not confirmed. Nothing was created or deployed." }), setupExitCodes.error)
     }
   }
 

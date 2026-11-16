@@ -244,6 +244,18 @@ export const docsLegacyFragmentRedirects = {
   },
   // The CLI page moved to its own section and split into one page per command group. The old page redirect keeps the hash.
   "/docs/cli": {
+    "sign-in-to-a-console": "/docs/cli/project",
+    "pull-env-values-from-a-console": "/docs/cli/project",
+    "cli_console_login_failed": "/docs/cli/project",
+    "cli_console_signed_out": "/docs/cli/project",
+    "cli_env_file_exists": "/docs/cli/project",
+    "cli_env_file_not_ignored": "/docs/cli/project",
+    "cli_env_pull_failed": "/docs/cli/project",
+    "github-actions-secrets": "/docs/cli/primitives",
+    "setup-env-file-not-ignored": "/docs/cli/primitives",
+    "setup-env-git-failed": "/docs/cli/primitives",
+    "setup-github-repository-required": "/docs/cli/primitives",
+    "setup-github-request-failed": "/docs/cli/primitives",
     "check-and-push-host-env": "/docs/cli/primitives",
     "setup-env-file-tracked": "/docs/cli/primitives",
     "setup-env-name-unknown": "/docs/cli/primitives",

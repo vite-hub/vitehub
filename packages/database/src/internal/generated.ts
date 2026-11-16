@@ -10,6 +10,7 @@ import { localPgliteDir } from "../runtime/local-path.ts"
 import { postgresEnvNames } from "../runtime/postgres-env.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { renderManyDatabasesDrizzleConfig } from "./drizzle-config.injected.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./schema-tables.ts"
 
 import type { ResolvedDatabaseContribution } from "../contributions.ts"
@@ -189,11 +190,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
   if (databaseNames.length > 1) {
     // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
-    return [
-      // Internal invariant: generated drizzle.config source. This module does not throw it.
-      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub database generate\` and \`vitehub database migrate\`.`)})`,
-      "",
-    ].join("\n")
+    return renderManyDatabasesDrizzleConfig(configs)
   }
   const database = config.databases[databaseNames[0]!]!
   const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)

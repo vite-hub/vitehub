@@ -22,6 +22,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleLoading from "./console-loading.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 // The editor brings Tiptap, the Comark kit, and the code highlighter, most of this page's code. The dashboard and the
 // lists show without it, and the page loads it in the background so a document opens without a wait.
@@ -337,7 +338,7 @@ onBeforeUnmount(() => {
               :aria-label="collapsed ? entry.label : undefined"
               @click="sidebarOpen = false"
             >
-              <UIcon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+              <Icon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
               <span v-if="!collapsed" class="truncate">{{ entry.label }}</span>
             </RouterLink>
           </UTooltip>
@@ -423,7 +424,7 @@ onBeforeUnmount(() => {
                 :aria-label="collapsed ? entry.label : undefined"
                 @click="sidebarOpen = false"
               >
-                <UIcon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+                <Icon :name="entry.icon" class="vitehub-console__section-icon" aria-hidden="true" />
                 <span v-if="!collapsed" class="truncate">{{ entry.label }}</span>
               </RouterLink>
             </UTooltip>

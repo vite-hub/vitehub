@@ -98,9 +98,16 @@ pnpm vitehub env push --yes               # values from the shell, then .env.pro
 pnpm vitehub env diff --host vercel --stage preview
 ```
 
-`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
+`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It reads the files in the build's Vite `envDir`, refuses a secret from a file that git tracks or does not ignore (also through `$NAME` expansion and symlinks), sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
 
 `vitehub deploy` runs the same check after provisioning and the build, before migrations, env writes, or publishing code. `vitehub deploy` reads stage `production`, and `vitehub deploy --preview` reads stage `preview`. A required name that is on neither the host nor a local value stops the deploy. Deploy sets the names that the host lacks from their local values, and `--push-env` also replaces the names that the host has. Cloudflare gets the values with the new version through `wrangler deploy --secrets-file`. With `--yes`, deploy generates a missing `VITEHUB_SECRET`. See [Check Env before a deploy](https://vitehub.dev/docs/cli/project#check-env-before-a-deploy).
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host, for a deploy that your own workflow runs. It does not set up CI deploy. The repository comes from `--repo owner/name` or the git remote `origin`, `--environment <name>` targets a GitHub deployment environment, and the token comes from `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`, or the GitHub App of `@vite-hub/forge`. Each value is sealed with the repository public key before it leaves the CLI.
+
+```sh
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --environment production --yes
+```
 
 ## Run the CLI from code
 
