@@ -80,8 +80,8 @@ export function installRedirects(nitroApp: NitroAppLike, policy: RedirectsPolicy
 
 /**
  * Wraps a Cloudflare Worker handler whose static files run the Worker first (`assets.run_worker_first`). It sends the
- * redirect before any file is served, then does what Cloudflare does without `run_worker_first`: a `GET` or `HEAD`
- * gets the static file when one matches, and the app answers the rest.
+ * redirect before any file is served, then delegates to Nitro, which uses its public-asset manifest to choose
+ * between the asset binding and dynamic routes. The binding itself may return an SPA fallback for missing files.
  */
 export function withCloudflareRedirects<Handler extends WorkerHandler>(handler: Handler, policy: RedirectsPolicy): Handler & WorkerHandler {
   return {
@@ -89,10 +89,6 @@ export function withCloudflareRedirects<Handler extends WorkerHandler>(handler: 
     async fetch(request, env, context) {
       const redirect = canonicalRedirect(request, policy)
       if (redirect) return redirect
-      if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {
-        const asset = await env.ASSETS.fetch(request)
-        if (asset.status !== 404) return asset
-      }
       return handler.fetch(request, env, context)
     },
   }

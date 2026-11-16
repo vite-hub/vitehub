@@ -15,6 +15,7 @@ const files = {
   "package.json": JSON.stringify({ name: "redirects-build", private: true, type: "module" }),
   "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
   "server/routes/docs.ts": "export default () => 'docs'\n",
+  "server/routes/api/name.get.ts": "export default () => ({ name: 'Nitro' })\n",
   "server/routes/api/notes.post.ts": "export default () => ({ ok: true })\n",
   "public/robots.txt": "User-agent: *\n",
 }
@@ -76,8 +77,8 @@ describe("redirects on Cloudflare", () => {
       compatibilityFlags: [...new Set([...wrangler.compatibility_flags ?? [], "nodejs_compat"])],
       modules: ["index.mjs", ...modules.filter(file => file !== "index.mjs")].map(file => ({ path: join(server, file), type: "ESModule" as const })),
       modulesRoot: server,
-      // The asset layer behind `run_worker_first`: the Worker asks it for each file.
-      serviceBindings: { ASSETS: (request: { url: string }) => new URL(request.url).pathname === "/robots.txt" ? new Response("User-agent: *\n") : new Response("Not Found", { status: 404 }) },
+      // Missing files return the SPA shell with 200, as with single-page-application fallback.
+      serviceBindings: { ASSETS: (request: { url: string }) => new URL(request.url).pathname === "/robots.txt" ? new Response("User-agent: *\n") : new Response("<html>SPA</html>") },
     })
     try {
       const fetch = (url: string, init?: RequestInit) => worker.dispatchFetch(url, { redirect: "manual", ...init } as never) as unknown as Promise<Response>
@@ -85,6 +86,7 @@ describe("redirects on Cloudflare", () => {
       expect(where(await fetch("https://example.com/docs/"))).toEqual([301, "https://example.com/docs"])
       expect(await (await fetch("https://example.com/robots.txt")).text()).toBe("User-agent: *\n")
       expect(await (await fetch("https://example.com/docs")).text()).toBe("docs")
+      expect(await (await fetch("https://example.com/api/name")).json()).toEqual({ name: "Nitro" })
       expect(await (await fetch("https://redirects-build.acme.workers.dev/docs")).text()).toBe("docs")
     }
     finally {

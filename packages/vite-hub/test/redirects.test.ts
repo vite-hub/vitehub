@@ -69,15 +69,15 @@ describe("installRedirects", () => {
 })
 
 describe("withCloudflareRedirects", () => {
-  const files: Record<string, string> = { "/about": "<h1>About</h1>" }
-  const env = { ASSETS: { fetch: async (request: Request) => new Response(files[new URL(request.url).pathname] ?? "not found", { status: files[new URL(request.url).pathname] ? 200 : 404 }) } }
+  const env = { ASSETS: { fetch: async () => new Response("<html>SPA</html>") } }
   const worker = withCloudflareRedirects({ fetch: async () => new Response("app"), scheduled: () => {} }, policy({ host: "example.com", https: true }))
 
-  it("redirects static files, then serves them, and lets the app answer the rest", async () => {
+  it("redirects before delegating asset and dynamic routing to the Worker", async () => {
     const moved = await worker.fetch(new Request("http://www.example.com/about"), env, {})
     expect([moved.status, moved.headers.get("location")]).toEqual([301, "https://example.com/about"])
-    expect(await (await worker.fetch(new Request("https://example.com/about"), env, {})).text()).toBe("<h1>About</h1>")
-    expect(await (await worker.fetch(new Request("https://example.com/dashboard"), env, {})).text()).toBe("app")
+    for (const method of ["GET", "HEAD"]) {
+      expect(await (await worker.fetch(new Request("https://example.com/api/name", { method }), env, {})).text()).toBe("app")
+    }
     expect(await (await worker.fetch(new Request("https://example.com/about", { method: "POST" }), env, {})).text()).toBe("app")
     expect(worker.scheduled).toBeTypeOf("function")
   })
