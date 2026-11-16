@@ -161,7 +161,8 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       follow(item, conflict)
       return
     }
-    if (item.shorthand) editor.output.overwrite(start(item), end(item), `${to}: ${from}`)
+    // A shorthand `{ preset }` and a computed `{ ["preset"]: ... }` key both need the whole property rewritten.
+    if (item.shorthand || item.computed) editor.output.overwrite(start(item), end(item), `${to}: ${text(item.value)}`)
     else editor.output.overwrite(start(item.key), end(item.key), to)
     changed = true
   }

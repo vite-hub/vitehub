@@ -313,6 +313,7 @@ describe("vitehub-options transform", () => {
     ["vitehub({ preset })", "vitehub({ host: preset })"],
     ["vitehub({ 'preset': 'vercel', sandbox: true })", "vitehub({ host: 'vercel', sandboxTask: true })"],
     ["vitehub({ host: 'node', devtools: true })", "vitehub({ host: 'node' })"],
+    ["vitehub({ ['preset']: 'node', ['sandbox']: true })", "vitehub({ host: 'node', sandboxTask: true })"],
   ])("renames the removed vitehub() options in %s", (from, to) => {
     const input = `import { vitehub } from 'vite-hub'\nconst preset = 'node'\nexport default { plugins: [${from}] }\n`
     expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: true, code: input.replace(from, to), followUps: [] })
