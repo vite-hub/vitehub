@@ -586,6 +586,21 @@ describe("tabs", () => {
     expect(disk.keys).toEqual([])
   })
 
+  it("takes the disk for its version when a message of another build came before it opened", async () => {
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    const page = openPage(disk, browser)
+    void page.setAccount("ada")
+    // A tab of the default version names the same account before this page opens with version 2.
+    const other = openPage(disk, browser)
+    await other.open()
+    await other.setAccount("ada")
+    await page.open({ version: "2" })
+    await page.settled()
+    expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
+    expect(page.inspect().persisted).toBe(true)
+  })
+
   it("keeps the shared disk under its size cap when several tabs write", async () => {
     let time = 1
     const disk = createFakeDisk()
