@@ -204,6 +204,7 @@ describe("CI merge gate", () => {
     "docs-snippets",
     "docs-demo",
     "console",
+    "console-pixels",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
