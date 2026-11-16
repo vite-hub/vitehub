@@ -3,7 +3,9 @@ import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
+import type { FeatureId } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, featurePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -191,26 +193,95 @@ function readViteHubManifest(): unknown {
 }
 
 /**
+ * Packages that the host or a provider adds to a feature, such as `@vercel/queue` for Queue on Vercel. They are optional
+ * peers of the feature's owner package, which loads them, so the check resolves them from that owner.
+ */
+export type FeatureHostPackages = Partial<Record<OptionalFeature, readonly string[]>>
+
+/**
+ * The packages that each feature in `enabled` adds on `host` with its option value in `options`. `vitehub add` and
+ * `vitehub status` read the same catalog, so the build asks for the packages that the CLI installs.
+ */
+export function hostFeaturePackages(enabled: readonly OptionalFeature[], host: ViteHubHost, options: object): FeatureHostPackages {
+  return Object.fromEntries(enabled.flatMap((feature) => {
+    if (!isFeatureId(feature)) return []
+    const added = featurePackages(feature, Reflect.get(options, feature), host).filter(name => !optionalFeaturePackages[feature].includes(name))
+    return added.length ? [[feature, added]] : []
+  }))
+}
+
+function isFeatureId(feature: OptionalFeature): feature is OptionalFeature & FeatureId {
+  return featureIds.some(id => id === feature)
+}
+
+function packagesOf(feature: OptionalFeature, hostPackages: FeatureHostPackages): string[] {
+  return [...new Set([...optionalFeaturePackages[feature], ...hostPackages[feature] ?? []])]
+}
+
+/** Whether `packageName` is installed where the feature loads it: from `vite-hub` for its own peers, else from the owner. */
+function isFeaturePackageInstalled(feature: OptionalFeature, packageName: string): boolean {
+  const own: readonly string[] = optionalFeaturePackages[feature]
+  if (own.includes(packageName)) return isPackageInstalled(packageName)
+  return isPackageInstalled(packageName) || isPackageInstalledFrom(own[0]!, packageName)
+}
+
+/** Whether `owner` resolves `packageName`. pnpm links an optional peer only into the packages that declare it. */
+function isPackageInstalledFrom(owner: string, packageName: string): boolean {
+  const key = `${owner}>${packageName}`
+  let installed = packageChecks.get(key)
+  if (installed === undefined) {
+    installed = resolvesPackageFrom(owner, packageName)
+    packageChecks.set(key, installed)
+  }
+  return installed
+}
+
+function isModuleNotFound(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error.code === "MODULE_NOT_FOUND" || error.code === "ERR_MODULE_NOT_FOUND")
+}
+
+function resolvesPackageFrom(owner: string, packageName: string): boolean {
+  let ownerFile: string
+  try {
+    ownerFile = fileURLToPath(import.meta.resolve(`${owner}/package.json`))
+  }
+  catch {
+    return false
+  }
+  try {
+    createRequire(ownerFile).resolve(`${packageName}/package.json`)
+    return true
+  }
+  catch (error) {
+    // A package that does not export its manifest is still installed.
+    return !isModuleNotFound(error)
+  }
+}
+
+/**
  * The error for enabled features whose packages the app did not install. It lists one install command for every package
  * that it names. A package that another dependency happens to provide is still an optional peer of `vite-hub`, so the
  * app installs it too.
  */
-export function missingFeaturePackagesError(features: readonly OptionalFeature[]) {
-  const lines = features.map(feature => `The ${feature} feature needs ${optionalFeaturePackages[feature].join(", ")}.`)
-  const packages = [...new Set(features.flatMap(feature => optionalFeaturePackages[feature]))]
+export function missingFeaturePackagesError(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}) {
+  const lines = features.map(feature => `The ${feature} feature needs ${packagesOf(feature, hostPackages).join(", ")}.`)
+  const packages = [...new Set(features.flatMap(feature => packagesOf(feature, hostPackages)))]
   return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install them in your app with: pnpm add ${installArguments(packages).join(" ")}` })
 }
 
-/** Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range. */
-export function assertFeaturePackages(features: readonly OptionalFeature[]): void {
-  const isMissing = (feature: OptionalFeature) => !optionalFeaturePackages[feature].every(isPackageInstalled)
+/**
+ * Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range.
+ * `hostPackages` adds the packages that the host or a provider needs, from `hostFeaturePackages`.
+ */
+export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}): void {
+  const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
   if (features.some(isMissing)) {
     // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
     forgetPackageChecks()
     const missing = features.filter(isMissing)
-    if (missing.length) throw missingFeaturePackagesError(missing)
+    if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  warnUnsupportedPackageVersions(features.flatMap(feature => optionalFeaturePackages[feature]))
+  warnUnsupportedPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
 }
 
 /**

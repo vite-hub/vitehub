@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { assertFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, hostFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning } from "../src/internal/optional-owners.ts"
 
 const sha = "52e6aba01356ffd6c5f1d0d6e8dafc3d63788b82"
 
@@ -278,4 +278,43 @@ it("sees a package that the app installed before a Vite restart", async () => {
     kv.stop()
   }
   expect(kv.lookups).toEqual(["@vite-hub/kv/package.json", "@vite-hub/kv/package.json"])
+})
+
+describe("host packages", () => {
+  it("adds the SDKs that the host or the provider of a feature needs", () => {
+    expect(hostFeaturePackages(["kv", "queue", "sandboxTask", "workflow"], "vercel", { kv: true, queue: true, sandboxTask: true, workflow: true })).toEqual({
+      queue: ["@vercel/queue", "@vercel/functions"],
+      sandboxTask: ["@vercel/sandbox"],
+      workflow: ["@vercel/functions"],
+    })
+    expect(hostFeaturePackages(["queue"], "node", { queue: { provider: "postgres" } })).toEqual({ queue: ["postgres"] })
+    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { provider: "openworkflow" } })).toEqual({})
+    expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
+  })
+
+  it("stops a Vercel Workflow build that misses @vercel/functions with the install command", async () => {
+    const { assertFeaturePackages, hostFeaturePackages } = await importOptionalOwners()
+    // `importOptionalOwners()` loads a new catalog, and a catalog guard matches only its own errors.
+    const { viteHubErrorDiagnostics } = await import("../src/error-diagnostics.ts")
+    const functions = watchPackage("@vercel/functions")
+    let error: unknown
+    try {
+      functions.hidden = true
+      assertFeaturePackages(["workflow"], hostFeaturePackages(["workflow"], "vercel", { workflow: true }))
+    }
+    catch (caught) {
+      error = caught
+    }
+    finally {
+      functions.stop()
+    }
+    expect(viteHubErrorDiagnostics.VITE_HUB_R0136.is(error)).toBe(true)
+    expect(error).toHaveProperty("message", "[vitehub] The workflow feature needs @vite-hub/workflow, @vercel/functions. Install them in your app with: pnpm add @vite-hub/workflow @vercel/functions")
+  })
+
+  it("resolves a host SDK from the owner package that loads it", async () => {
+    // `vite-hub` does not declare `@vercel/queue`. `@vite-hub/queue` does, so pnpm links it there.
+    const { assertFeaturePackages, hostFeaturePackages } = await importOptionalOwners()
+    expect(() => assertFeaturePackages(["queue"], hostFeaturePackages(["queue"], "vercel", { queue: true }))).not.toThrow()
+  })
 })

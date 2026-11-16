@@ -255,7 +255,7 @@ When an installed package has a version that your `vite-hub` release does not su
 
 Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
-Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
+Some hosts and providers add an SDK, and the build names it in the same error. On Vercel, [Workflow](/docs/workflows/hosts) needs `@vercel/functions`, and Queue needs `@vercel/queue` and `@vercel/functions`. A Sandbox Task needs `@vercel/sandbox` on Vercel or `@cloudflare/sandbox` on Cloudflare, and also `typescript`. `queue: { provider: "postgres" }` needs `postgres`. A [native Vercel Workflow](/docs/workflows/configure#add-a-durable-vercel-entry), such as a Workflow folder, also needs `workflow` and `@workflow/builders`. When they are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 ::
 
 ## Update ViteHub
