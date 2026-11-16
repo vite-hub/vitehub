@@ -1,4 +1,4 @@
-import { formatDiagnostic, type Diagnostic, type DiagnosticJSON } from "nostics"
+import { formatDiagnostic, type Diagnostic, type DiagnosticJSON, type InferDiagnosticCodes } from "nostics"
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineErrors, runtimeErrorDiagnostics, type Result, type ResultError } from "@vite-hub/runtime"
@@ -71,6 +71,20 @@ describe("Result types", () => {
       fix: string | undefined
       docs: string | undefined
     }>()
+  })
+
+  it("narrows errors with the catalog and code guards", () => {
+    const error: unknown = errors.EXAMPLE_BUSY()
+    if (errors.is(error)) {
+      expectTypeOf(error.code).toEqualTypeOf<"EXAMPLE_BUSY" | "EXAMPLE_FAILED" | "EXAMPLE_NOT_FOUND" | "EXAMPLE_RETRY">()
+      if (error.code === "EXAMPLE_RETRY") expectTypeOf(error.data).toEqualTypeOf<{ attempt: number }>()
+    }
+    if (errors.EXAMPLE_BUSY.is(error)) {
+      expectTypeOf(error).toEqualTypeOf<ResultError<"EXAMPLE_BUSY", { readonly retryAfter: 10 }>>()
+    }
+    expectTypeOf<InferDiagnosticCodes<typeof errors>>().toEqualTypeOf<"EXAMPLE_BUSY" | "EXAMPLE_FAILED" | "EXAMPLE_NOT_FOUND" | "EXAMPLE_RETRY">()
+    // @ts-expect-error `is` is reserved for the catalog guard.
+    defineErrors({ docs: "https://vitehub.dev/docs/example", codes: { is: { why: "Reserved." } } })
   })
 
   it("keeps the Runtime catalog keys and parameters", () => {

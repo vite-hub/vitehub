@@ -3,7 +3,7 @@ import { literal, object, parse, string } from "valibot"
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
-import { blobError, blobResult } from "./errors.ts"
+import { blobError, blobHttpError, blobResult } from "./errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
@@ -79,9 +79,16 @@ function isReservedPath(pathname: string): boolean {
   return first === "_vitehub" && (second === undefined || reservedNamespaces.includes(second))
 }
 
+// No object lives under `.vitehub/`: writes there fail on every driver. `_vitehub/media/` holds crop replacements that
+// an app reads, so it is not in this check.
+function isInternalPath(pathname: string): boolean {
+  return resolvedParts(pathname)[0]?.toLowerCase() === ".vitehub"
+}
+
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." })
+    // An H3 `HTTPError`, so a route that writes a client pathname answers 403, like the Blob operations.
+    throw blobHttpError(403, blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." }))
   }
 }
 
@@ -273,12 +280,15 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         await Promise.all(normalizedPathnames.map(clearDerived))
       })
     },
+    // A `.vitehub/` pathname reads as a missing object, as in `serve()`, on every driver.
     async get(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("get", store, () => driver.get(normalizedPathname))
     },
     async head(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
@@ -571,8 +581,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
-      // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-      throw new Error("Blob changed repeatedly while preparing its response.")
+      throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "response" })
     })
   }
   return storage

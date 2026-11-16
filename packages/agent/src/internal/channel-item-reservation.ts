@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import type { AgentInvocationJournal } from "../invocations.ts"
 import type { AgentInput, AgentRuntimeConfig, AgentRuntimeContext } from "../types.ts"
 
@@ -15,7 +16,6 @@ export function installAgentChannelItemReservation(value: ReserveAgentChannelIte
 
 /** Claims the Invocation of one Channel item before a replay runs it. */
 export const reserveAgentChannelItem: ReserveAgentChannelItem = async (agent, context) => {
-  // Internal invariant: the Agent root installs the reservation callback before Channel replay can run.
-  if (!reserve) throw new Error("[vitehub] The @vite-hub/agent root entry must load before a Channel replay.")
+  invariant(reserve, "the @vite-hub/agent root entry installs the reservation callback before a Channel replay runs")
   return await reserve(agent, context)
 }

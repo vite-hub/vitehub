@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { format } from "node:util"
 import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
@@ -72,9 +73,9 @@ function downloads() {
   return fake.requests.filter(request => /\/tarball\/|\/tar\.gz\//.test(request.path)).length
 }
 
-/** The warnings with a diagnostic code. */
+/** The warnings with a diagnostic code, as the console prints them, with the cause after the message. */
 function warned(code: string) {
-  return warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes(code))
+  return warn.mock.calls.map(args => format(...args)).filter(message => message.includes(code))
 }
 
 describe("content.sources", () => {
@@ -350,6 +351,10 @@ describe("content.sources", () => {
     vi.advanceTimersByTime(5_500)
     expect(await title(content, "/guide")).toBe("Guide")
     expect(warned("CONTENT_R0022")).toEqual([expect.stringContaining("KV is down")])
+    // The log passes the KV error to the console as the cause, so its stack is printed too.
+    const [, , cause] = warn.mock.calls.find(([, message]) => String(message).includes("CONTENT_R0022")) ?? []
+    expect(cause).toBeInstanceOf(Error)
+    expect(cause).toMatchObject({ message: "KV is down" })
     // Without the fallback to the served commit, the read would load the latest commit of the branch.
     expect(fake.head("main")).not.toBe(first)
   })

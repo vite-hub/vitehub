@@ -120,7 +120,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` as an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. `serve()` returns a `400` response for it instead. `get()` and `head()` read a pathname under `.vitehub/` as a missing file. A write under `.vitehub/`, `_vitehub/derived/`, or `_vitehub/media/` throws `BLOB_R0033` with status `403`. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 ### Copy a file
 
@@ -157,7 +157,7 @@ Use `blob.serve()` in an application route when authorization or a database look
 In a Nitro 3 or H3 2 handler:
 
 ```ts [server/routes/files/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -176,7 +176,7 @@ Every response that serves an object sends `X-Content-Type-Options: nosniff`. A 
 Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
 
 ```ts [server/routes/exports/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -240,7 +240,7 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
 
 ```ts [server/routes/builds/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {

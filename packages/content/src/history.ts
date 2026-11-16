@@ -1,6 +1,5 @@
-import { formatDiagnostic } from "nostics"
-
 import { parserHash } from "./commit-cache.ts"
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./kv.ts"
 
@@ -160,7 +159,7 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     if (await definition.authenticated()) return true
     if (!warned.has(source)) {
       warned.add(source)
-      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source })))
+      warnDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source }))
     }
     return false
   }

@@ -1,4 +1,3 @@
-import { useKV } from "nitro/kv"
 import files from "#docs/files"
 
 const decoder = new TextDecoder()
@@ -21,13 +20,10 @@ async function unpack(base64: string): Promise<Uint8Array> {
 /**
  * A Markdown file of a docs store: a content folder (`docs`, `docs-1`, ...) or the raw copies (`docs-raw`), or null.
  * A production build packs every file into one module. Nitro server assets would add one module per file, and
- * Cloudflare rejects a Worker upload with more than 5,000 modules. Development reads the folders through Nitro.
+ * Cloudflare rejects a Worker upload with more than 5,000 modules. Development loads each file through Vite.
  */
 export async function readDocsFile(store: string, file: string): Promise<string | null> {
-  if (!files) {
-    const content = await useKV(`assets:${store}`).getItem<string>(file)
-    return content === null ? null : String(content)
-  }
+  if ("read" in files) return await files.read(store, file)
   const ranges = Object.hasOwn(files.index, store) ? files.index[store]! : undefined
   const range = ranges && Object.hasOwn(ranges, file) ? ranges[file] : undefined
   if (!range) return null

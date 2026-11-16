@@ -5,6 +5,7 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { consoleDocsItem } from "../client/sidebar";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The last row of the sidebar of a Console without accounts, such as the Console of a development server. It has no
@@ -34,7 +35,7 @@ const items = computed<DropdownMenuItem[][]>(() => [
   <UDropdownMenu :items="items" :content="{ side: 'top', align: 'start', sideOffset: 4 }" :ui="{ content: 'w-56' }">
     <ConsoleSidebarItem label="Preferences" icon="i-lucide-settings-2">
       <template #trailing>
-        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+        <Icon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
       </template>
     </ConsoleSidebarItem>
   </UDropdownMenu>
