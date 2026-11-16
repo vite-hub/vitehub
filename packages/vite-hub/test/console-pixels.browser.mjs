@@ -260,6 +260,9 @@ async function settle(session, url) {
   const { open, page, viewport } = session;
   open.clear();
   await page.goto(url);
+  // On a cold start, Vite optimizes dependencies and reloads the page, so the requests can stop before the Console
+  // mounts. Wait for the Vue app and its router first.
+  await page.waitForFunction(() => document.querySelector("#app")?.__vue_app__?.config.globalProperties.$router, null, { timeout: 120_000 });
   // The headless pointer starts at 0,0 over the rail, and the rail expands over the page on hover.
   await page.mouse.move(viewport.width - 1, viewport.height - 1);
   const deadline = Date.now() + 30_000;
