@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
   }
   .logs-workspace > aside {
     border-left: 0;
-    border-top: 1px solid var(--ui-border);
+    border-top: 1px solid var(--border);
     min-height: 280px;
   }
 }
