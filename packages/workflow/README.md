@@ -120,16 +120,26 @@ export function installWorkflowRuntime() {
 }
 ```
 
+For a standalone Vite app, install Nitro 3 before adding its server plugin:
+
+```sh
+pnpm add -D nitro@^3.0.261103-rc
+```
+
 ```ts fragment
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { workflowConfig } from "./server/workflow-runtime.ts";
 
 export default defineConfig({
-  plugins: [hubWorkflow(workflowConfig)],
+  nitro: { serverDir: "./server" },
+  plugins: [hubWorkflow(workflowConfig), nitro()],
 });
 ```
+
+`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the provider config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
 
 The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a provider.
 
@@ -192,6 +202,24 @@ The `result` of a completed run is the value that the handler returned, stored a
 Inline runs buffer a returned `Response` body before completion. Each inspection and duplicate start returns a fresh `Response`, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 
 Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
+
+## Start a run later
+
+Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+
+```ts fragment
+await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+```
+
+| Provider | How the delay works | Status during the delay |
+| --- | --- | --- |
+| OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
+| Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
+| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
+
+For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
 
 ## Make a Vercel workflow durable
 

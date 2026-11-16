@@ -92,6 +92,14 @@ describe("vitehub add", () => {
     expect(result.json.install.packages).not.toContain(other)
   })
 
+  it("writes Sandbox Task provider options to the framework config", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "cloudflare" }') })
+    const result = await add(["sandboxTask", "--option", "sandboxTask.provider=cloudflare", "--option", "sandboxTask.keepAlive=true", "--option", "sandboxTask.migrationTag=v2", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.sandboxTask).toMatchObject({ value: { provider: "cloudflare", keepAlive: true, migrationTag: "v2" } })
+  })
+
   it("adds a Logs source under observability", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -655,7 +663,6 @@ describe("vitehub add", () => {
     expect((await add(["kv", "--name", "cache"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["queue", "--name", "../escape"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["kv", "--option", "nope"], root)).json.error?.code).toBe("CLI_R0003")
-    expect((await add(["sandboxTask", "--option", "driver=x"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["email", "--option", "database.connection.url=libsql://example.com"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["nope"], root)).json.error?.code).toBe("CLI_R0003")
   })

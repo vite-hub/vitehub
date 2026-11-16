@@ -42,6 +42,8 @@ Connection names may include punctuation, spaces, Unicode, and nested paths. The
 
 A provider can also be an object with `id`, `authorizationEndpoint`, `tokenEndpoint`, `clientId`, and optional `clientSecret`, `revocationEndpoint`, `identityScopes`, `authorizationParams`, `apis`, and `account`. `apis` defaults to no catalogs, so the token goes nowhere. Without `account`, a provider whose `identityScopes` include `openid` reads the account from the ID token of the token response: `sub` is the id and a string `email` labels it. The signature is not checked because the token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. `google()` uses this default.
 
+A provider with an `mcp` endpoint can leave out the endpoints and `clientId`. ViteHub finds the authorization server as MCP clients do: the protected resource metadata of `mcp` (RFC 9728), then the server metadata (RFC 8414 or OpenID Connect discovery). On the first Connect it registers a public client (RFC 7591) for the callback URL, seals it in the Connections store, and reuses it for every grant at that server. It registers again when the server rejects the client with `invalid_client`. `clientName` sets the name that the provider shows on its consent page; the default is the app host.
+
 ## Call the API
 
 ```ts
@@ -105,13 +107,7 @@ A keyed definition defines one Connection per instance, for example one per tena
 export default defineConnection({
   instances: ["acme", "globex"],
   definition: tenant => ({
-    provider: {
-      id: "portal",
-      authorizationEndpoint: `https://${tenant}.example.com/oauth/authorize`,
-      tokenEndpoint: `https://${tenant}.example.com/oauth/token`,
-      clientId: "portal-client-id",
-      mcp: `https://${tenant}.example.com/mcp`,
-    },
+    provider: { id: "portal", mcp: `https://${tenant}.example.com/mcp` },
     scopes: ["openid", "offline_access"],
   }),
 });
