@@ -5,6 +5,7 @@ import { join, relative, resolve } from "node:path"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { findDefaultExportCall, objectProperties, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { isDefinitionSourceFile } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
@@ -36,7 +37,7 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
     if (!existsSync(folder)) continue
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const extension = extensions.find(candidate => entry.name.endsWith(candidate))
-      if (!entry.isFile() || !extension || entry.name.endsWith(".d.ts")) continue
+      if (!entry.isFile() || !extension || !isDefinitionSourceFile(entry.name)) continue
       const name = entry.name.slice(0, -extension.length)
       const file = join(folder, entry.name)
       if (!namePattern.test(name)) {
