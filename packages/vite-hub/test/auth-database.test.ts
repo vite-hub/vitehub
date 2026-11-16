@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
-import { admin } from "better-auth/plugins"
+import { admin, twoFactor } from "better-auth/plugins"
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/payload/sqlite"
 import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/auth.ts"
 import { authDatabase } from "../src/auth/database.ts"
-import { authSqliteSchema } from "../src/auth/schema.ts"
+import { authSqliteSchema, createAuthSqliteSchema } from "../src/auth/schema.ts"
 import { createAuthForRequest } from "../src/_internal/auth/internal/server.ts"
 import { mcpOAuth } from "../src/auth/mcp.ts"
 
@@ -62,7 +62,40 @@ describe("authDatabase()", () => {
   })
 
   it("rejects user fields absent from the migrated table before opening the Database", () => {
-    expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
+    expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/`user` table of the "default" Database has no `plan` column/)
+  })
+
+  it("stores additional user fields and twoFactor() in the tables that the Definition adds", async () => {
+    const schema = createAuthSqliteSchema({ plugins: ["twoFactor"], additionalFields: { user: { login: { type: "string" } } } })
+    const extended = createClient({ url: `file:${join(directory, "extended.db")}` })
+    try {
+      for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await extended.execute(statement)
+      state.databases.extended = { db: drizzle({ client: extended, relations: defineRelations(schema) }), schema: { ...schema } }
+      // comark-ui stores the GitHub login; Finance and Lesson Video turn on two-factor sign-in.
+      const definition = defineAuth({
+        database: authDatabase("extended"),
+        emailAndPassword: { enabled: true },
+        plugins: [twoFactor()],
+        user: { additionalFields: { login: { type: "string", required: false } } },
+      })
+      const auth = createAuthForRequest(definition, new Request(app))
+      const post = (path: string, body: unknown, cookie = "") => auth.handler(new Request(`${app}/api/auth${path}`, {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", cookie, origin: app },
+        method: "POST",
+      }))
+      const signUp = await post("/sign-up/email", { email: "grace@example.com", login: "grace", name: "Grace", password: "correct-horse-battery" })
+      expect(signUp.status, await signUp.clone().text()).toBe(200)
+      const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const enable = await post("/two-factor/enable", { password: "correct-horse-battery" }, cookie)
+      expect(enable.status, await enable.clone().text()).toBe(200)
+      expect((await extended.execute("select login, two_factor_enabled from user")).rows).toEqual([expect.objectContaining({ login: "grace", two_factor_enabled: 0 })])
+      expect((await extended.execute("select count(*) as count from two_factor")).rows[0]?.count).toBe(1)
+    }
+    finally {
+      delete state.databases.extended
+      extended.close()
+    }
   })
 
   it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {

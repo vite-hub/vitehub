@@ -7,8 +7,8 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
 import { createAdminsPlugin, readAdmins } from "./admins.ts"
-import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authMemoryDatabaseError } from "./database-options.ts"
-import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseName, authMemoryDatabaseError } from "./database-options.ts"
+import { assertAuthDatabaseNames } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
@@ -151,8 +151,8 @@ function stripViteHubOptions(
   }
   if (authDatabaseName(database) !== undefined) {
     assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
-    assertAuthDatabaseAdditionalFields(rest)
-    assertAuthDatabaseSchema(rest)
+    // The adapter compares the tables and columns with the Database when it opens it.
+    assertAuthDatabaseNames(rest)
   }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
