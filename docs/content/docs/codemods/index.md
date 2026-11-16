@@ -32,6 +32,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | [`one-entry-imports`](/docs/codemods/upgrade-vitehub#one-entry-imports) | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | [`agent-surface`](/docs/codemods/upgrade-vitehub#agent-surface) | The old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
+| [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 
