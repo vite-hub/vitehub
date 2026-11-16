@@ -718,6 +718,9 @@ jobs:
   # gets the console-pixels:expected label: the job then passes and still uploads the shots and the diff images.
   console-pixels:
     name: console pixels
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -776,13 +779,16 @@ jobs:
         id: compare
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
-          EXPECTED: ${{ contains(github.event.pull_request.labels.*.name, 'console-pixels:expected') }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if node packages/vite-hub/test/console-pixels.browser.mjs compare "$RUNNER_TEMP/console-pixels/base" "$RUNNER_TEMP/console-pixels/head"; then
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          if [ "$EXPECTED" = "true" ]; then
+          # Reruns retain the original event payload, so read the current labels.
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'any(.labels[]; .name == "console-pixels:expected")')"
+          if [ "$expected" = "true" ]; then
             echo "::warning::Console pixels changed, and the console-pixels:expected label accepts it. Explain each changed shot in the pull request."
             exit 0
           fi
