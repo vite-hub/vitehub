@@ -9,23 +9,33 @@ icon: i-lucide-map
 
 A sitemap tells search engines which pages your site has. Set `seo: { sitemap: true }` and `publicUrl` in `vitehub()`:
 
-::code-group
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import viteHubNuxt from 'vite-hub/nuxt'
-
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { publicUrl: 'https://shop.example.com', seo: { sitemap: true } }]],
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    publicUrl: 'https://shop.example.com',
+    seo: { sitemap: true },
+  },
 })
 ```
+:::
 
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: true } })],
+  plugins: [
+    vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: true } }),
+    nitro(),
+  ],
 })
 ```
+:::
 ::
 
 ViteHub then serves two files on every host:
@@ -73,12 +83,13 @@ An entry without a valid `loc` or `lastmod` makes `/sitemap.xml` fail with [`SEO
 
 `exclude` lists path prefixes to leave out of the sitemap. A prefix also leaves out the paths below it:
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: { exclude: ['/admin', '/account'] } } })],
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    publicUrl: 'https://shop.example.com',
+    seo: { sitemap: { exclude: ['/admin', '/account'] } },
+  },
 })
 ```
 

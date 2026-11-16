@@ -237,6 +237,23 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
   }
 })
 
+it("leaves /sitemap.xml and /robots.txt to the app when it serves them with appSitemap", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ access: "public", seo: { sitemap: true, robots: true, rss: true } })')
+    const routes = async (appSitemap: boolean) => (await prepareSourceGeneration({ projectRoot, appSitemap })).flatMap(handler => handler.route ?? []).sort()
+    expect(await routes(false)).toEqual(expect.arrayContaining(["/robots.txt", "/rss.xml", "/sitemap.xml"]))
+    expect(await routes(true)).toEqual(expect.arrayContaining(["/rss.xml"]))
+    expect(await routes(true)).not.toContain("/sitemap.xml")
+    expect(await routes(true)).not.toContain("/robots.txt")
+    await expect(access(join(projectRoot, ".vitehub/content/sitemap.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("adds no GitHub push webhook route without a github() Source", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,
