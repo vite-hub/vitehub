@@ -149,9 +149,14 @@ export function createNodeHost(): OsHost {
     platform: process.platform,
     uid: process.getuid?.(),
     user: process.platform === "win32" && process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user,
-    homedir: homedir(),
+    // Read on each call, so a change of HOME or TZ in the process applies to the next call.
+    get homedir() {
+      return homedir()
+    },
     env: process.env,
-    machineTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    get machineTimeZone() {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone
+    },
     now: () => new Date(),
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     exec,
