@@ -252,6 +252,45 @@ describe("app MCP prompts, resources, and server info", () => {
   })
 })
 
+describe("MCP Apps metadata", () => {
+  const playerUri = "ui://lessons/player.html"
+  const html = "<!doctype html><title>Player</title>"
+  const showLesson = defineMcpTool({
+    description: "Play a lesson.",
+    input: z.object({ id: z.string() }),
+    _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } },
+    handler: ({ id }) => ({ content: [{ text: `Playing ${id}.`, type: "text" }], structuredContent: { id }, _meta: { audio: `/audio/${id}.mp3` } }),
+  })
+  const player = {
+    uri: playerUri,
+    mimeType: "text/html;profile=mcp-app",
+    _meta: { ui: { csp: { connectDomains: ["https://app.example.com"] }, prefersBorder: false } },
+    handler: () => html,
+  } satisfies McpResourceDefinition
+  const options = { resources: { player }, tools: { show_lesson: showLesson } }
+
+  it("lists the _meta of a tool, so the client knows which UI shows its result", async () => {
+    const { body } = await rpc(options, "tools/list")
+    expect(body.result.tools).toEqual([expect.objectContaining({ _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } }, name: "show_lesson" })])
+  })
+
+  it("sends the _meta of a tool result to the client", async () => {
+    const { body } = await rpc(options, "tools/call", { arguments: { id: "l1" }, name: "show_lesson" })
+    expect(body.result).toEqual({ _meta: { audio: "/audio/l1.mp3" }, content: [{ text: "Playing l1.", type: "text" }], isError: false, structuredContent: { id: "l1" } })
+  })
+
+  it("lists and reads the HTML resource with its _meta", async () => {
+    const meta = player._meta
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", name: "player", uri: playerUri }])
+    expect((await rpc(options, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+
+  it("sends the _meta of contents that a handler returns", async () => {
+    const domains = { uri: playerUri, handler: (uri: string) => ({ contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: html, _meta: { ui: { domain: "https://app.example.com" } } }] }) } satisfies McpResourceDefinition
+    expect((await rpc({ resources: { player: domains } }, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: { ui: { domain: "https://app.example.com" } }, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+})
+
 describe("app MCP hooks", () => {
   const signedIn = { clientId: "client", clientName: "Claude Code", scopes: [], user: { id: "u1", name: "Ada" } }
   const verify = async () => [undefined, signedIn] as const
@@ -273,6 +312,28 @@ describe("app MCP hooks", () => {
     await rpc(options, "initialize")
     await rpc(options, "tools/list")
     expect(resolveCaller).toHaveBeenCalledTimes(3)
+  })
+
+  it("accepts another bearer token through verifyToken and gives its caller to resolveCaller", async () => {
+    const notOAuth = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Budget script", scopes: [], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "fin_valid" ? keyCaller : undefined)
+    const resolveCaller = vi.fn(({ caller }: { caller: McpToolCaller | undefined }) => ({ team: `team-of-${caller?.user.id}` }))
+    const options = { hooks: { resolveCaller, verifyToken }, tools: { team }, verify: notOAuth }
+
+    const { body } = await rpc(options, "tools/call", { name: "team" }, { authorization: "Bearer fin_valid" })
+    expect(body.result.content).toEqual([{ text: "Team team-of-u2", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "fin_valid" })
+    expect(resolveCaller).toHaveBeenCalledWith(expect.objectContaining({ caller: keyCaller }))
+
+    const refused = await rpc(options, "tools/list", undefined, { authorization: "Bearer fin_revoked" })
+    expect(refused.response.status).toBe(401)
+    expect(refused.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+
+    // A request without a token, or with an access token of mcpOAuth(), never reaches verifyToken.
+    expect((await rpc({ ...options, verify: async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "No token." }, undefined] as const }, "tools/list")).response.status).toBe(401)
+    expect((await rpc({ ...options, verify }, "tools/list", undefined, { authorization: "Bearer jwt" })).response.status).toBe(200)
+    expect(verifyToken).toHaveBeenCalledTimes(2)
   })
 
   it("refuses the call with the message of a 4xx error from resolveCaller", async () => {

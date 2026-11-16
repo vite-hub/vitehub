@@ -36,7 +36,7 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 ## Diagnostic codes
 
-Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Other packages still use numbered codes:
+New codes use names: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Codes that a package published with a number keep it:
 
 | Format | Catalog group |
 | --- | --- |
@@ -241,7 +241,7 @@ For Env, read the `ENV_*` code first. Its codes and public messages are fixed:
 Raw labels and diagnostics stay in `cause`, which the serialized shape omits. Errors from custom source resolvers pass through unchanged.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
 pnpm --filter @vite-hub/sandbox test
 ```

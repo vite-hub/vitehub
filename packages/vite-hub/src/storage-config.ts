@@ -27,7 +27,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     : options.cache
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
-  const state = agent && agent.providers?.state
+  const state = agent ? agent.providers?.state ?? {} : undefined
+  const sqlState = state && state.driver !== "cloudflare" && state.driver !== "memory" ? state : undefined
   return {
     ...options,
     ...(cache ? { cache } : {}),
@@ -41,8 +42,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.driver || ["auto", "sqlite", "libsql"].includes(state.driver)) ? {
-          providers: { ...agent.providers, state: { ...state, driver: state?.driver ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(sqlState ? {
+          providers: { ...agent.providers, state: { ...sqlState, driver: sqlState.driver ?? "libsql", url: sqlState.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
@@ -54,6 +55,19 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+}
+
+/**
+ * The `file:` Agent State URL that the default journal goes next to on the node host, so one writable directory holds
+ * both. Undefined for other hosts, remote or memory State, and a journal with its own `databaseUrl`.
+ */
+export function agentJournalStateUrl(options: ViteHubOptions): string | undefined {
+  const agent = options.agent
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
+  const state = agent.providers?.state
+  if (!state || (state.driver === "memory" || state.driver === "cloudflare") || typeof state.url !== "string") return
+  const url = state.url.trim()
+  return /^file:/i.test(url) ? url : undefined
 }
 
 /**

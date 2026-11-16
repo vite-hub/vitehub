@@ -202,4 +202,4 @@ export function getRuntimeContext(
   return createStandardRuntimeContext(value, (value as Partial<ViteHubContext>)["~standard"], options)
 }
 
-export { installRequestStandardContext } from "../request-context.ts"
+export { installRequestStandardContext, sendPreparedResponse } from "../request-context.ts"
