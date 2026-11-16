@@ -346,11 +346,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const ownsApp = !hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions)
     nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
     addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
-    // comark-ui's blocks add their styles when they mount. The page links them too, so the first paint, before the app
-    // hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text. They are one
-    // static file, because Vite's CSS pipeline does not parse some of their newer syntax, such as `interpolate-size`.
+    // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
+    // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
+    // moves when it does. They are one static file, because Vite's CSS pipeline does not parse some of their newer
+    // syntax, such as `interpolate-size`.
     const stylesDir = join(nuxt.options.buildDir, "docs/styles")
-    const comarkCss = comarkStylesheet()
+    const { css: comarkCss, names: comarkCssNames } = comarkStylesheet()
     const comarkCssFile = `comark-${createHash("sha256").update(comarkCss).digest("hex").slice(0, 10)}.css`
     function writeComarkCss() {
       mkdirSync(stylesDir, { recursive: true })
@@ -516,8 +517,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")
-    nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
-    addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
+    nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\nexport const names = ${JSON.stringify(comarkCssNames)}\n` }).dst
+    addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\nexport declare const names: string[]\n" })
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
     const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
@@ -1009,30 +1010,26 @@ function publicConfig(options: DocsModuleOptions, base: string, appBase: string)
 }
 
 /**
- * The stylesheets of the comark-* packages that comark-ui renders with, in one file. It names the layer order first,
- * the same as the app's CSS, so it can load before or after it.
+ * comark-ui's `style.css` for the page to link, and the names to mark the link with. A comark-ui component adds its
+ * styles on mount unless the page has a `link` or `style` with `data-comark-<name>`. The file holds the styles of every
+ * comark-* package comark-ui depends on, the Mermaid wrapper's, and the issues box's. comark-time's component still adds
+ * its own, since they hold a query the file leaves out. The file names the layer order first, the same as the app's CSS,
+ * so it can load before or after it.
  */
-function comarkStylesheet(): string {
+function comarkStylesheet(): { css: string, names: string[] } {
   const layers = "@layer theme, base, comark, components, utilities;"
+  const require = createRequire(import.meta.url)
   let ui: string
   try {
-    ui = createRequire(import.meta.url).resolve("comark-ui/package.json")
+    ui = require.resolve("comark-ui/package.json")
   }
   catch {
     // An app that installs the module without its dependencies, as the module tests do, gets the layer order alone.
-    return layers
+    return { css: layers, names: [] }
   }
-  const dependencies = Object.keys((JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {})
-  const fromUi = createRequire(ui)
-  const sheets = dependencies.filter(name => name.startsWith("comark-")).flatMap((name) => {
-    try {
-      return [readFileSync(fromUi.resolve(`${name}/style.css`), "utf8")]
-    }
-    catch {
-      return []
-    }
-  })
-  return [layers, ...sheets].join("\n")
+  const { dependencies = {} } = JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }
+  const names = Object.keys(dependencies).filter(name => name.startsWith("comark-") && name !== "comark-time").map(name => name.slice("comark-".length))
+  return { css: `${layers}\n${readFileSync(require.resolve("comark-ui/style.css"), "utf8")}`, names: [...names, "mermaid", "issues"] }
 }
 
 // The header shows the star count next to the GitHub link. One request per build; a failure only drops the count.
