@@ -7,6 +7,11 @@ const sourceSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] a
 
 const sourceSkillsKeyPrefix = "__vitehubSourceSkills:"
 
+/** True when `key` is one of the Skill Sources that `withSourceSkills()` added for the Source `sourceKey`. */
+export function isSourceSkillsOf(key: string, sourceKey: string): boolean {
+  return key.startsWith(`${sourceSkillsKeyPrefix}${sourceKey}:`)
+}
+
 /** True when a Source binding sets `skills: false`, at any binding level. */
 function skillsDisabled(source: unknown): boolean {
   if (!isRuntimeRecord(source)) return false

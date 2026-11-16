@@ -1,0 +1,5 @@
+/* The Console's stylesheet: Tailwind, Nuxt UI, and the ViteHub theme. */
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../theme.css";
+@source inline("CLASSES");
