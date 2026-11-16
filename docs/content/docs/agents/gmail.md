@@ -369,7 +369,9 @@ The first push or poll only stores the cursor; [replay](#replay-past-mail) reads
 
 One process at a time reads the mailbox. A push during a sync makes the running sync read once more.
 
-A push or poll that finds no new mail sends 5 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+A sync stops after 4 minutes. It saves its checkpoint and frees the mailbox, and the next push or poll continues. A sync that hangs, for example on a request without a timeout, stops renewing its mailbox lock at 4 minutes and loses it within a minute. A process that stops in the middle of a sync also frees the mailbox within a minute. Then the next sync reads the mailbox, and the late writes of the hung sync fail.
+
+A push or poll that finds no new mail sends 6 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
 
 Background work runs in the host's `waitUntil`, which Cloudflare Workers stop 30 seconds after the response. For large bursts on Workers, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run.
 
@@ -395,8 +397,8 @@ pnpm vitehub channels status labeller gmail --url https://mail.example.com
 
 | Field | Value |
 | --- | --- |
-| `status` | `failing` after two failed syncs in a row (a sync that keeps a retried message also fails), else `ok`. |
-| `failures`, `failingSince`, `error` | Current failure streak and its last error. |
+| `status` | `failing` after two failed syncs in a row (a sync that keeps a retried message also fails), or when a sync started more than 5 minutes ago and did not finish. Else `ok`. |
+| `failures`, `failingSince`, `error` | Current failure streak and its last error, or the start of the sync that did not finish. |
 | `syncedAt` | When the history cursor last advanced. |
 | `retrying` | Messages that the next sync retries, with `id`, `attempts`, and the last `error`. |
 | `skipped` | The last 100 skipped messages, newest first, with `id`, `attempts`, the last `error`, and `skippedAt`. |

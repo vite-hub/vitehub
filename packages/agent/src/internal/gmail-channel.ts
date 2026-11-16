@@ -19,7 +19,15 @@ const googleIssuers = new Set(["https://accounts.google.com", "accounts.google.c
 const requestTimeoutMs = 30_000
 const clockSkewMs = 60_000
 const labelCacheMs = 5 * 60_000
-const syncLockTtlMs = 10 * 60_000
+/**
+ * The mailbox lock lasts this long without renewal. A request that the host cancels in the middle of a message, such as a
+ * push whose client disconnected, frees the mailbox within about this time.
+ */
+const syncLockTtlMs = 60_000
+/** A sync stops after this time by default, below the 15 minute Cloudflare Cron limit. */
+const syncDeadlineMs = 4 * 60_000
+/** A sync that started this long ago and did not finish is stuck. The extra minute lets a stopped sync save its checkpoint. */
+const stuckSyncMs = syncDeadlineMs + 60_000
 const watchRenewalMarginMs = 24 * 60 * 60_000
 const messageFetchConcurrency = 5
 export const gmailDefaultBodyLimit = 10_000
@@ -887,6 +895,11 @@ export interface GmailMailboxSync {
    * costs no State request. The sync updates it.
    */
   cursors?: Map<string, string>
+  /**
+   * The time budget of this call in milliseconds. Defaults to 4 minutes. Between pages and messages, a sync past it saves
+   * its checkpoint and returns `{ finished: false }`.
+   */
+  deadlineMs?: number
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
   /**
@@ -955,7 +968,15 @@ interface GmailMailboxRecord {
   health?: GmailSyncHealth
   progress?: GmailSyncProgress
   syncedAt?: string
+  /** Set while a sync runs. A sync keeps the time of an earlier sync that did not finish. */
+  syncStartedAt?: string
   watchExpiresAt?: string
+}
+
+/** The record that a sync writes when it ends, whatever the outcome. */
+function finishedRecord(record: GmailMailboxRecord): GmailMailboxRecord {
+  const { syncStartedAt: _syncStartedAt, ...finished } = record
+  return finished
 }
 
 function mailboxKeys(keyPrefix: string) {
@@ -1046,12 +1067,15 @@ export async function readGmailChannelStatus(binding: AgentChannelStateBinding):
     state.get<AgentChannelSkippedMessage[]>(keys.skipped),
   ])
   const health = record?.health
+  const stuckSince = record?.syncStartedAt && Date.now() - Date.parse(record.syncStartedAt) > stuckSyncMs ? record.syncStartedAt : undefined
   return {
-    ...(health ? { error: health.error, failingSince: health.failingSince } : {}),
+    ...(stuckSince
+      ? { error: `A sync started at ${stuckSince} and did not finish.`, failingSince: stuckSince }
+      : health ? { error: health.error, failingSince: health.failingSince } : {}),
     failures: health?.failures ?? 0,
     retrying: Object.entries(record?.progress?.attempts ?? {}).map(([id, attempt]) => ({ id, ...attempt })),
     skipped: skipped ?? [],
-    status: (health?.failures ?? 0) >= failingAfterSyncs ? "failing" : "ok",
+    status: stuckSince || (health?.failures ?? 0) >= failingAfterSyncs ? "failing" : "ok",
     ...(record?.syncedAt ? { syncedAt: record.syncedAt } : {}),
   }
 }
@@ -1068,14 +1092,19 @@ interface MailboxLease {
   /** Throws when the lease renewal failed, before the sync starts work that a successor could repeat. */
   assertOwner: () => void
   keys: GmailMailboxKeys
+  /** Whether the time budget of this sync is used. */
+  pastDeadline: () => boolean
   /** The record as this holder last read or wrote it. */
   record: GmailMailboxRecord
   state: AtomicAgentStateLockAdapter
   write: (record: GmailMailboxRecord, mutations?: readonly AgentStateCacheMutation[]) => Promise<void>
 }
 
-/** `current`: the notification is not newer than the cursor, so the sync read nothing. */
-type MailboxSyncOutcome = "advanced" | "current" | "resumed" | "retrying"
+/**
+ * `current`: the notification is not newer than the cursor, so the sync read nothing.
+ * `stopped`: the sync used its time budget and saved a checkpoint for the next sync.
+ */
+type MailboxSyncOutcome = "advanced" | "current" | "resumed" | "retrying" | "stopped"
 
 async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, notification: string | undefined): Promise<MailboxSyncOutcome> {
   const { client } = sync
@@ -1083,13 +1112,15 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
   const maxAttempts = sync.maxAttempts ?? gmailDefaultMaxAttempts
   const record = lease.record
   const cursor = record.historyId
+  if (notification !== undefined && cursor && !isNewerHistoryId(notification, cursor)) return "current"
+  // Record the start before the first Gmail request, which can hang, so status can report a sync that does not finish.
+  if (!record.syncStartedAt) await lease.write({ ...record, syncStartedAt: new Date().toISOString() })
   if (!cursor) {
     const historyId = typeof sync.notificationHistoryId === "string" ? sync.notificationHistoryId : await sync.notificationHistoryId()
-    await lease.write({ ...record, historyId, progress: undefined }, [{ key: keys.seen, type: "delete" }])
+    await lease.write({ ...finishedRecord(lease.record), historyId, progress: undefined }, [{ key: keys.seen, type: "delete" }])
     log("cursor.initialized", { historyId })
     return "advanced"
   }
-  if (notification !== undefined && !isNewerHistoryId(notification, cursor)) return "current"
   const resumable = record.progress !== undefined
   let progress: GmailSyncProgress = record.progress ?? {
     historyId: cursor, mode: "history", pageLoaded: false, done: false, pendingIds: [], retryIds: [],
@@ -1101,6 +1132,12 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
     await lease.write({ ...lease.record, progress: next }, saveSeen || !seenStored ? [{ key: keys.seen, type: "set", value: [...seen] }] : [])
     seenStored = true
     progress = next
+  }
+  /** Saves the checkpoint and ends the sync when its time budget is used. The next push or poll continues. */
+  const stop = async (): Promise<MailboxSyncOutcome> => {
+    await lease.write({ ...finishedRecord(lease.record), progress }, seenStored ? [] : [{ key: keys.seen, type: "set", value: [...seen] }])
+    log("sync.stopped", { pendingIds: progress.pendingIds.length })
+    return "stopped"
   }
   let restartedPageToken = false
   const restartExpiredPageToken = async (error: unknown): Promise<boolean> => {
@@ -1135,8 +1172,10 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
     })
     return retry
   }
-  const dispatchMessageIds = async (ids: readonly string[], retrying = false): Promise<void> => {
+  /** Returns `false` when the time budget stopped it before every message settled. */
+  const dispatchMessageIds = async (ids: readonly string[], retrying = false): Promise<boolean> => {
     for (let start = 0; start < ids.length; start += messageFetchConcurrency) {
+      if (lease.pastDeadline()) return false
       lease.assertOwner()
       const batch = ids.slice(start, start + messageFetchConcurrency)
       const fetched = await Promise.allSettled(batch.map(id => retrying
@@ -1153,6 +1192,8 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
         const message = result.value
         let failure: string | undefined
         if (message && (retrying || message.labelIds.includes("INBOX"))) {
+          // The unsettled messages stay pending, so the next sync reads them again.
+          if (lease.pastDeadline()) return false
           lease.assertOwner()
           const dispatched = await sync.dispatch([message])
           // A terminal journal entry deduplicates dispatch without recovering the failed message.
@@ -1162,11 +1203,13 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
         await settle(id, failure, true)
       }
     }
+    return true
   }
   // Only failures from an earlier attempt are retried in this pass.
-  await dispatchMessageIds(progress.retryIds, true)
+  if (!await dispatchMessageIds(progress.retryIds, true)) return await stop()
   while (!progress.done) {
     if (!progress.pageLoaded) {
+      if (lease.pastDeadline()) return await stop()
       lease.assertOwner()
       let ids: string[]
       let nextPageToken: string | undefined
@@ -1217,7 +1260,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
       if (pendingIds.length) await save(loaded, true)
       else progress = loaded
     }
-    await dispatchMessageIds(progress.pendingIds)
+    if (!await dispatchMessageIds(progress.pendingIds)) return await stop()
     const next = { ...progress, pageToken: progress.nextPageToken, nextPageToken: undefined, pageLoaded: false, done: !progress.nextPageToken }
     // The last page without retries goes straight to the cursor write below.
     if (next.done && !next.retryIds.length) progress = next
@@ -1236,12 +1279,20 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
   return resumable ? "resumed" : "advanced"
 }
 
+export interface GmailMailboxSyncResult {
+  /** `false` when the sync used its time budget and work remains for the next sync. */
+  finished: boolean
+}
+
 /**
  * Reads new Inbox messages since the stored history cursor and dispatches them.
  * One process holds the mailbox lock. A notification that arrives during a sync marks it pending,
  * and the lock holder runs once more, so overlapping notifications never read the same history twice.
  */
-export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
+export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMailboxSyncResult> {
+  // One time budget for this call, including the extra syncs for pending notifications.
+  const deadline = Date.now() + (sync.deadlineMs ?? syncDeadlineMs)
+  const pastDeadline = () => Date.now() >= deadline
   const keyPrefix = sync.state.keyPrefix
   const state = mailboxState(sync.state)
   const keys = mailboxKeys(keyPrefix)
@@ -1254,7 +1305,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       known = (await readMailboxRecord(state, keys, sync.mailbox)).record.historyId
       if (known) sync.cursors?.set(cacheKey, known)
     }
-    if (known && !isNewerHistoryId(notification, known)) return
+    if (known && !isNewerHistoryId(notification, known)) return { finished: true }
   }
   let lock = await state.acquireLock(keys.lock, syncLockTtlMs)
   // The lock holder clears the pending mark before it reads history. Only a holder that saw a mark has one to clear.
@@ -1265,10 +1316,13 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     lock = await state.acquireLock(keys.lock, syncLockTtlMs)
     if (!lock) {
       if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
-      return
+      // The holder reads once more for this notification.
+      return { finished: true }
     }
     clearPending = true
   }
+  // Work that waits for the next sync: a checkpoint, newer history, or a pending notification.
+  let unfinished = false
   const failures: unknown[] = []
   let watchFailure: unknown
   for (let first = true; ; first = false) {
@@ -1284,6 +1338,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     const lease: MailboxLease = {
       assertOwner: () => { if (ownershipLost) throw lost() },
       keys,
+      pastDeadline,
       record: {},
       state,
       write: async (next, mutations = []) => {
@@ -1303,6 +1358,8 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     }
     let renewalTask = Promise.resolve()
     const timer = setInterval(() => {
+      // A sync that hangs past its deadline is not renewed, so it loses the lease one TTL later and its late writes fail.
+      if (pastDeadline()) return
       renewalTask = renewalTask.then(async () => {
         if (ownershipLost || !await state.extendLock(heldLock, syncLockTtlMs)) ownershipLost = true
       }).catch(() => { ownershipLost = true })
@@ -1319,8 +1376,10 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       do {
         // A holder that cleared a pending mark reads history for a notification that it has not seen.
         outcome = await syncMailboxOnce(sync, lease, first && !clearPending ? notification : undefined)
-      } while (outcome === "resumed")
-      if (sync.topic && (!lease.record.watchExpiresAt || Date.parse(lease.record.watchExpiresAt) - Date.now() <= watchRenewalMarginMs)) {
+      } while (outcome === "resumed" && !pastDeadline())
+      // A resumed checkpoint can end before the newest history.
+      if (outcome === "stopped" || outcome === "resumed") unfinished = true
+      if (outcome !== "stopped" && sync.topic && (!lease.record.watchExpiresAt || Date.parse(lease.record.watchExpiresAt) - Date.now() <= watchRenewalMarginMs)) {
         try {
           const watch = await startGmailWatch(sync.client, sync.topic)
           await lease.write({ ...lease.record, watchExpiresAt: watch.expiration })
@@ -1345,7 +1404,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
             lease.record = read.record
           }
           const current = lease.record.health
-          await lease.write({ ...lease.record, health: { error: failure, failingSince: current?.failingSince ?? new Date().toISOString(), failures: (current?.failures ?? 0) + 1 } })
+          await lease.write({ ...finishedRecord(lease.record), health: { error: failure, failingSince: current?.failingSince ?? new Date().toISOString(), failures: (current?.failures ?? 0) + 1 } })
         })().catch((error: unknown) => log("health.failed", { error: failureText(error) }))
       }
       clearInterval(timer)
@@ -1353,6 +1412,11 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       await state.releaseLock(heldLock)
     }
     if (await state.get(keys.pending) === null) break
+    if (pastDeadline()) {
+      // The pending notification waits for the next push or poll.
+      unfinished = true
+      break
+    }
     lock = await state.acquireLock(keys.lock, syncLockTtlMs)
     if (!lock) break
     clearPending = true
@@ -1360,6 +1424,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   if (failures.length === 1) throw failures[0]
   if (failures.length > 1) throw new AggregateError(failures, "Gmail mailbox synchronization failed while draining pending notifications.")
   if (watchFailure !== undefined) throw watchFailure
+  return { finished: !unfinished }
 }
 
 async function startGmailWatch(client: GmailClient, topic: string): Promise<{ expiration: string, historyId: string }> {

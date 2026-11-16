@@ -451,7 +451,7 @@ describe("gmail() Channel", () => {
     await expect(verifyGoogleOidcToken("not-a-token", expected)).resolves.toBe("malformed token")
   })
 
-  it.each([false, true])("renews a long mailbox sync and fences its cursor after lease loss: %s", async loseOwnership => {
+  it.each([false, true])("renews a long mailbox sync until its deadline and fences its cursor after lease loss: %s", async loseOwnership => {
     const google = await createGoogle()
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
     const values = new Map<string, unknown>([["mail:mailbox", { historyId: "100" }]])
@@ -495,34 +495,70 @@ describe("gmail() Channel", () => {
       return { failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }
     })
     vi.useFakeTimers()
-    const sync = syncGmailMailbox({
-      bodyLimit: 1000,
-      client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
-      dispatch,
-      notificationHistoryId: "105",
-      state: { keyPrefix: "mail:", state },
-    })
+    const options = { bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch), state: { keyPrefix: "mail:", state } }
+    const sync = syncGmailMailbox({ ...options, dispatch, notificationHistoryId: "105" })
     try {
       await Promise.race([running, sync])
       expect(dispatch).toHaveBeenCalledOnce()
       lost = loseOwnership
-      await vi.advanceTimersByTimeAsync(11 * 60_000)
-      // The lease renews every third of its TTL and stops after the first failed renewal.
-      expect(extendLock).toHaveBeenCalledTimes(loseOwnership ? 1 : 3)
+      await vi.advanceTimersByTimeAsync(4.5 * 60_000)
+      // The 1 minute lease renews every 20 seconds until the 4 minute deadline, then runs out within a minute.
+      if (loseOwnership) expect(extendLock).toHaveBeenCalledOnce()
+      else expect(extendLock.mock.calls.length).toBeGreaterThan(10)
       if (loseOwnership) {
         expect(await state.acquireLock("mail:sync", 600_000)).not.toBeNull()
         values.set("mail:mailbox", { historyId: "200" })
       } else expect(await state.acquireLock("mail:sync", 600_000)).toBeNull()
       release()
       if (loseOwnership) await expect(sync).rejects.toThrow("Lost ownership")
-      else await sync
-      await expect(storedCursor({ get: async <T>(key: string) => values.get(key) as T })).resolves.toBe(loseOwnership ? "200" : "105")
-      expect(dispatch).toHaveBeenCalledTimes(loseOwnership ? 1 : 2)
+      else await expect(sync).resolves.toEqual({ finished: false })
+      // After the deadline, the sync saves m2 for the next sync instead of reading it.
+      await expect(storedCursor({ get: async <T>(key: string) => values.get(key) as T })).resolves.toBe(loseOwnership ? "200" : "100")
+      expect(dispatch).toHaveBeenCalledOnce()
+      if (!loseOwnership) {
+        expect(values.get("mail:mailbox")).toMatchObject({ progress: { pendingIds: ["m2"] } })
+        // The stopped sync released the mailbox, and the next sync continues with m2.
+        const next = vi.fn(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+        await syncGmailMailbox({ ...options, dispatch: next, notificationHistoryId: "106" })
+        expect(next).toHaveBeenCalledOnce()
+        await expect(storedCursor({ get: async <T>(key: string) => values.get(key) as T })).resolves.toBe("105")
+      }
     } finally {
       release()
       await sync.catch(() => undefined)
       vi.useRealTimers()
     }
+  })
+
+  it("stops renewing a stuck sync at its deadline, so the next sync gets the mailbox and status reports it", async () => {
+    vi.useFakeTimers()
+    try {
+      const google = await createGoogle()
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      const state = createCloudflareAgentState({ namespace: createFakeCloudflareStateNamespace() })
+      await state.connect()
+      await state.set("mail:mailbox", { historyId: "100" })
+      const binding = { keyPrefix: "mail:", state }
+      const options = { bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch), state: binding }
+      // A dispatch that never settles, like a request without a timeout.
+      const stuck = vi.fn(() => new Promise<never>(() => {}))
+      void syncGmailMailbox({ ...options, dispatch: stuck, notificationHistoryId: "105" })
+      await vi.waitFor(() => expect(stuck).toHaveBeenCalledOnce())
+      const startedAt = (await state.get<{ syncStartedAt?: string }>("mail:mailbox"))?.syncStartedAt
+      expect(startedAt).toEqual(expect.any(String))
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({
+        error: `A sync started at ${startedAt} and did not finish.`, failingSince: startedAt, status: "failing",
+      })
+      // The lease that the stuck sync renewed last runs out within one TTL (1 minute) after the deadline.
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      await syncGmailMailbox({ ...options, dispatch, notificationHistoryId: "106", throwOnDispatchFailure: true })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("105")
+      await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ failures: 0, status: "ok" })
+    }
+    finally { vi.useRealTimers() }
   })
 
   it("checks current labels before reading bodies, including archived and restored history entries", async () => {
@@ -855,7 +891,7 @@ describe("gmail() Channel", () => {
       const mutateWithLock = state.mutateWithLock.bind(state)
       let first = true
       vi.spyOn(state, "mutateWithLock").mockImplementation(async (lock, mutations) => {
-        if (first) {
+        if (first && JSON.stringify(mutations).includes('"health"')) {
           first = false
           reading()
           await gate
@@ -1247,7 +1283,7 @@ describe("gmail() Channel", () => {
     }
   })
 
-  it("retains overlapping notifications through a dispatch longer than the lease TTL", async () => {
+  it("keeps an overlapping notification pending through a dispatch longer than the deadline", async () => {
     const google = await createGoogle()
     google.history.set("100", { historyId: "105", ids: ["m1"] })
     google.history.set("105", { historyId: "110", ids: ["m2"] })
@@ -1294,9 +1330,14 @@ describe("gmail() Channel", () => {
     try {
       await Promise.race([running, sync])
       await syncGmailMailbox({ ...options, notificationHistoryId: "110" })
-      await vi.advanceTimersByTimeAsync(11 * 60_000)
+      await vi.advanceTimersByTimeAsync(4.5 * 60_000)
       release()
-      await sync
+      await expect(sync).resolves.toEqual({ finished: false })
+      // The sync used its time budget, so the pending notification waits for the next sync.
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(values.get("mail:mailbox")?.value).toMatchObject({ historyId: "105" })
+      expect(values.has("mail:sync-pending")).toBe(true)
+      await syncGmailMailbox({ ...options, notificationHistoryId: "111" })
       expect(dispatch).toHaveBeenCalledTimes(2)
       expect(values.get("mail:mailbox")?.value).toMatchObject({ historyId: "110" })
       expect(values.has("mail:sync-pending")).toBe(false)
@@ -1640,7 +1681,7 @@ describe("gmail() Channel", () => {
     expect(run).toHaveBeenCalledOnce()
     const calls = { notNewer, notNewerInNewProcess, nothingNew, pollNothingNew, oneNewMessage }
     expect(Object.fromEntries(Object.entries(calls).map(([name, list]) => [name, list.length])), JSON.stringify(calls)).toEqual({
-      notNewer: 0, notNewerInNewProcess: 1, nothingNew: 5, pollNothingNew: 5, oneNewMessage: 7,
+      notNewer: 0, notNewerInNewProcess: 1, nothingNew: 6, pollNothingNew: 6, oneNewMessage: 8,
     })
   })
 
