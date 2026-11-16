@@ -127,19 +127,31 @@ describe("hosted Database runtime", () => {
     })
   })
 
-  it("gives sibling Vercel host functions the hosted Database runtime module", async () => {
+  it.each([
+    {
+      name: "a remote libSQL Database",
+      source: [
+        "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        "const notes = sqliteTable('notes', { title: text('title') })",
+        "export default defineDatabase({ connection: { url: 'libsql://primary.example.turso.io' }, name: 'default', schema: { notes } })",
+      ],
+    },
+    {
+      // postgres.js reads the PG* variables of the Vercel Function when the Definition has no URL.
+      name: "a Postgres Database without a URL",
+      source: [
+        "import { pgTable, text } from 'drizzle-orm/pg-core'",
+        "const notes = pgTable('notes', { title: text('title') })",
+        "export default defineDatabase({ dialect: 'postgresql', name: 'default', schema: { notes } })",
+      ],
+    },
+  ])("gives sibling Vercel host functions the hosted Database runtime module for $name", async ({ source }) => {
     const rootDir = await createTempDir("vitehub-db-sibling-runtime-")
     const definition = join(rootDir, "server", "databases", "default.ts")
     await mkdir(dirname(definition), { recursive: true })
     await Promise.all([
       writeFile(join(rootDir, "package.json"), "{}\n"),
-      writeFile(definition, [
-        "import { defineDatabase } from '@vite-hub/database'",
-        "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
-        "const notes = sqliteTable('notes', { title: text('title') })",
-        "export default defineDatabase({ connection: { url: 'libsql://primary.example.turso.io' }, name: 'default', schema: { notes } })",
-        "",
-      ].join("\n")),
+      writeFile(definition, ["import { defineDatabase } from '@vite-hub/database'", ...source, ""].join("\n")),
     ])
     const plugin = hubDatabase()
     const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, plugins: [{ name: "nitro:main" }], root: rootDir }
