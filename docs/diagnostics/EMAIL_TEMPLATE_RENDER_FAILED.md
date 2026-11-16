@@ -1,6 +1,6 @@
 ---
 description: "Fix EMAIL_TEMPLATE_RENDER_FAILED in ViteHub. email.send({ template }) got data that the Markdown template cannot render. Correct the data."
-seo.title: "EMAIL_TEMPLATE_RENDER_FAILED: correct the template data"
+seo.title: "EMAIL_TEMPLATE_RENDER_FAILED: fix the data"
 ---
 
 `email.send({ template, data })` returns `EMAIL_TEMPLATE_RENDER_FAILED`. The template under `server/emails` did not render with `data`, so ViteHub did not send the message.
