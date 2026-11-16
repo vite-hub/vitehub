@@ -1,4 +1,5 @@
 import { defineErrors } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import type { KVOperation } from "./types.ts"
 
@@ -146,7 +147,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
 })
 
 /** Codes that a KV operation throws because the code or the deployment must change. */
-export const kvConfigErrorCodes: ReadonlySet<string> = new Set([
+export const kvConfigErrorCodes: ReadonlySet<InferDiagnosticCodes<typeof kvErrorDiagnostics>> = new Set([
   "KV_DATABASE_UNAVAILABLE",
   "KV_INVALID_BATCH",
   "KV_DENO_KV_UNAVAILABLE",
