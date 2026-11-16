@@ -223,6 +223,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let generation = 0
   let passGeneration = 0
   let destroyed = false
+  let paused = false
   let wantPull = true
   let attempt = 0
   let cancelRetry: (() => void) | undefined
@@ -537,7 +538,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
    */
   function flush(): void {
     flushQueued = false
-    if (!local.length && !removals.length) return
+    if (paused || (!local.length && !removals.length)) return
     // A write made before the stored copy was read gets its account from that copy, not from the next pull, which can
     // come from another account.
     if (!started) {
@@ -614,6 +615,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     for (;;) {
       const at = version
       const stored = await storage.read(id)
+      if (paused) return
       if (at !== version) continue
       // Another tab sent the actions that left the queue without an error: the server applied them.
       const kept = new Set(stored.writes.map(write => write.id))
@@ -771,6 +773,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     for (;;) {
       if (flushQueued) flush()
       await flushed
+      if (paused) return
       const at = version
       const queue = await storage.readQueue(id)
       // Another tab changed the stored copy since this tab read it.
@@ -827,6 +830,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   /** Starts a round. Without `force`, a round waits for the backoff timer. */
   function schedule(force: boolean): Promise<void> {
+    if (paused) return Promise.resolve()
     if (!force && cancelRetry) return Promise.resolve()
     if (force) {
       cancelRetry?.()
@@ -988,6 +992,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
 
   function forget(): void {
     generation++
+    paused = true
+    cancelRetry?.()
+    cancelRetry = undefined
     version++
     rejectPending(new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write."))
     meta = undefined
@@ -1046,6 +1053,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       return enqueue({ id: mutationId, account: meta?.account ?? null, key: mutationId, op: "action", name: action, args: structuredClone(args) })
     }),
     refresh() {
+      paused = false
       wantPull = true
       return schedule(true)
     },

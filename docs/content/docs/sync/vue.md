@@ -211,7 +211,7 @@ import { clearSync } from 'vite-hub/sync/client'
 onSignOut(() => clearSync())
 ```
 
-With another sign-in, call `clearSync()` after the sign-out request ended. Before it, the store can pull again with the old session and bring the rows back:
+With another sign-in, call `clearSync()` after the sign-out request ended. Active stores stay paused after `clearSync()`. After signing in again, call `refresh()` to resume syncing, or create a new store after destroying the old one:
 
 ```ts [app/composables/sign-out.ts] fragment
 import { clearSync } from 'vite-hub/sync/client'
