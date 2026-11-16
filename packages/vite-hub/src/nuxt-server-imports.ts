@@ -30,6 +30,7 @@ export const viteHubServerImports = {
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
+  seo: { "vite-hub/seo": ["defineSitemap"] },
   workflow: { "vite-hub/workflow": ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
   workspace: { "vite-hub/workspace": ["useWorkspace"] },
 } as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
@@ -55,6 +56,7 @@ interface ServerImportEntries {
   "vite-hub/realtime/server": typeof import("./realtime/server.ts")
   "vite-hub/sandbox/task": typeof import("./sandbox/task.ts")
   "vite-hub/schedule": typeof import("./schedule.ts")
+  "vite-hub/seo": typeof import("./seo.ts")
   "vite-hub/workflow": typeof import("./workflow.ts")
   "vite-hub/workspace": typeof import("./workspace.ts")
 }
