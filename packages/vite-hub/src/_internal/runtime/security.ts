@@ -1,4 +1,4 @@
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 import { defineDiagnostics } from "nostics"
 import { limitRequestBody } from "srvx/body-limit"
 
