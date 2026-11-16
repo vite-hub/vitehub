@@ -149,7 +149,11 @@ async function openContext(browser, scheme, viewport) {
   page.on("request", (request) => open.add(request));
   page.on("requestfinished", (request) => open.delete(request));
   page.on("requestfailed", (request) => open.delete(request));
-  return { context, open, page, scheme, viewport };
+  // Errors of the page, to say why the Console did not mount.
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  return { context, errors, open, page, scheme, viewport };
 }
 
 /**
@@ -257,12 +261,14 @@ async function shoot(session, origin, path, folder) {
  * Returns why the page did not settle in 30 seconds.
  */
 async function settle(session, url) {
-  const { open, page, viewport } = session;
+  const { errors, open, page, viewport } = session;
   open.clear();
+  errors.length = 0;
   await page.goto(url);
   // On a cold start, Vite optimizes dependencies and reloads the page, so the requests can stop before the Console
   // mounts. Wait for the Vue app and its router first.
-  await page.waitForFunction(() => document.querySelector("#app")?.__vue_app__?.config.globalProperties.$router, null, { timeout: 120_000 });
+  await page.waitForFunction(() => document.querySelector("#app")?.__vue_app__?.config.globalProperties.$router, null, { timeout: 120_000 })
+    .catch((error) => { throw new Error(`The Console did not mount on ${url}. Page errors:\n${errors.join("\n") || "none"}`, { cause: error }); });
   // The headless pointer starts at 0,0 over the rail, and the rail expands over the page on hover.
   await page.mouse.move(viewport.width - 1, viewport.height - 1);
   const deadline = Date.now() + 30_000;
