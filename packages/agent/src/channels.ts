@@ -21,6 +21,7 @@ import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
+import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import { isResponse } from "./internal/response.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -51,6 +52,7 @@ import type {
   AgentChannelTriggerDefinition,
   AgentDurableChannelTriggerContext,
   AgentChannelDeliveryEffectContext,
+  AgentChannelDeliveryEventInput,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
@@ -3623,13 +3625,30 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
 ): Promise<Response | AgentRunInput> {
   if (!Object.hasOwn(pullRequestTriggers, command.trigger)) return ignored(`pull request trigger "${command.trigger}" no longer exists`)
-  const event = await githubPullRequestTriggerEvent(input, command, app, context)
-  const triggerContext = {
-    ...context,
-    trigger: { ...context.trigger, id: `${context.trigger.channelId}.${command.trigger}` as const, name: command.trigger },
+  // The Channel delivery journal records which trigger ran and how it answered.
+  const delivery = agentChannelDeliveryTracker(context)
+  const record = (event: Omit<AgentChannelDeliveryEventInput, "trigger">) => delivery?.event({ ...event, trigger: command.trigger }).catch(() => undefined)
+  await record({ type: "trigger.started" })
+  try {
+    const event = await githubPullRequestTriggerEvent(input, command, app, context)
+    const triggerContext = {
+      ...context,
+      trigger: { ...context.trigger, id: `${context.trigger.channelId}.${command.trigger}` as const, name: command.trigger },
+    }
+    const result = await pullRequestTriggers[command.trigger]!.invoke(triggerContext, event)
+    if (!isResponse(result)) {
+      await record({ outcome: "input", type: "trigger.completed" })
+      return result.input
+    }
+    const body: unknown = result.headers.get("content-type")?.includes("json") ? await result.clone().json().catch(() => undefined) : undefined
+    const reason = isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
+    await record({ outcome: "response", ...(reason ? { reason } : {}), status: result.status, type: "trigger.completed" })
+    return result
   }
-  const result = await pullRequestTriggers[command.trigger]!.invoke(triggerContext, event)
-  return isResponse(result) ? result : result.input
+  catch (error) {
+    await record({ error: error instanceof Error ? error.message : String(error), type: "trigger.failed" })
+    throw error
+  }
 }
 
 /** The command whose request is the trigger's `prompt`, when it returned one. */

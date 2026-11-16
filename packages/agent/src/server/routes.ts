@@ -770,14 +770,17 @@ async function terminalChannelDeliveryResponse(
 
 /** The `reason` of a `retryLater()` or `rejected()` answer, when the body has one. */
 async function handledResponseReason(response: Response): Promise<string | undefined> {
+  if (!response.headers.get("content-type")?.includes("json")) return undefined
   const body: unknown = await response.clone().json().catch(() => undefined)
   return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
 }
 
 async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
   const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
+  // The reason of an answer such as `ignored(reason)` says why the delivery started no Invocation.
+  const reason = await handledResponseReason(response)
   if (!response.body) {
-    await recordChannelDeliveryEvidence(delivery, { type: terminalType })
+    await recordChannelDeliveryEvidence(delivery, { ...(reason ? { reason } : {}), type: terminalType })
     return response
   }
   const reader = response.body.getReader()
@@ -787,6 +790,7 @@ async function observeHandledChannelDeliveryResponse(response: Response, deliver
     finished = true
     await recordChannelDeliveryEvidence(delivery, {
       ...(error === undefined ? {} : { error: channelDeliveryError(error) }),
+      ...(reason ? { reason } : {}),
       type,
     })
   }
@@ -1673,12 +1677,6 @@ async function deliverQueuedWebhookFailure(
   return true
 }
 
-/** The `reason` of a handled JSON answer such as `retryLater(reason)`. */
-async function handledWebhookResponseReason(response: Response): Promise<string | undefined> {
-  const body: unknown = await response.clone().json().catch(() => undefined)
-  return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
-}
-
 /**
  * The current trigger of a stored delivery, with the Channel State that the webhook route gave it. A queued dispatch
  * item uses the trigger that admitted it.
@@ -1835,6 +1833,7 @@ async function executeQueuedWebhookDelivery(
   let invocationRunId: string | undefined
   let invocationStarted = false
   let handledResponse: Response | undefined
+  let handledReason: string | undefined
   // The Agent of the delivery's task, or the Agent that owns the webhook route.
   let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
   // SAFETY: The queue persists this value from the asserted route contract.
@@ -1956,10 +1955,9 @@ async function executeQueuedWebhookDelivery(
       else {
         invocation = undefined
         handledResponse = resolved.response
+        handledReason = await Promise.race([handledResponseReason(handledResponse), executionTimeout])
         // `retryLater(reason)` and other 5xx answers retry the delivery. The error names the reason.
-        const retryReason = handledResponse.status >= 500
-          ? await Promise.race([handledResponseReason(handledResponse), executionTimeout])
-          : undefined
+        const retryReason = handledResponse.status >= 500 ? handledReason : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
@@ -1999,7 +1997,8 @@ async function executeQueuedWebhookDelivery(
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
-        const retryReason = handledResponse.status >= 500 ? await handledWebhookResponseReason(handledResponse) : undefined
+        handledReason = await handledResponseReason(handledResponse)
+        const retryReason = handledResponse.status >= 500 ? handledReason : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
@@ -2173,6 +2172,7 @@ async function executeQueuedWebhookDelivery(
     if (channelDelivery)
       await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "completed" : undefined, handledResponse && !handledResponse.ok ? "rejected" : "completed", {
         attempt: delivery.attempts + 1,
+        ...(handledReason ? { reason: handledReason } : {}),
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         ...(invocationStarted ? { runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId } : {}),
       })

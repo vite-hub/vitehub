@@ -6,10 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { github, githubPullRequestTrigger, ignored } from "../src/channels.ts"
 import type { GitHubPullRequestTriggerEvent } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
+import { readAgentChannelDeliveries } from "../src/internal/channel-delivery.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 const cleanups: Array<() => Promise<void>> = []
+
+/** The Channel delivery journal events of the delivery with this `x-github-delivery`, without timestamps and IDs. */
+async function journal(state: Awaited<ReturnType<typeof stateFile>>, deliveryId: string) {
+  const deliveries = await readAgentChannelDeliveries(state)
+  const delivery = deliveries.find(item => item.sourceId === deliveryId)
+  return delivery?.events.map(({ at: _at, deliveryId: _deliveryId, id: _id, ...event }) => event) ?? []
+}
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
@@ -58,7 +66,7 @@ function reviewerAgent(invoke: Invoke, options: { debounceMs?: number } = {}) {
   return { agent, calls, run }
 }
 
-function serve(agent: ReturnType<typeof reviewerAgent>["agent"], state: Awaited<ReturnType<typeof stateFile>>) {
+function serve(agent: unknown, state: Awaited<ReturnType<typeof stateFile>>) {
   // SAFETY: The route fixture uses this Agent's declared GitHub webhook.
   const handler = createChannelWebhookRouteHandler(agent as never)
   const routeOptions = { agentName: "reviewer", webhookState: state }
@@ -143,6 +151,11 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     })
     expect(event.payload.review?.id).toBe(55)
     expect(run).not.toHaveBeenCalled()
+    await vi.waitFor(async () => expect(await journal(state, "review-1")).toEqual(expect.arrayContaining([
+      { trigger: "reviewFeedback", type: "trigger.started" },
+      { outcome: "response", reason: "sent to T3", status: 200, trigger: "reviewFeedback", type: "trigger.completed" },
+      expect.objectContaining({ reason: "sent to T3", type: "completed" }),
+    ])))
   })
 
   it("does not run invoke for a delivery that the trigger does not match", async () => {
@@ -151,13 +164,15 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     const { send } = serve(agent, state)
 
     // The PR author's own review, a PR by someone else, and a review state the trigger does not list.
-    await send("own", "pull_request_review", review(56, { actor: "onmax" }))
+    await expect((await send("own", "pull_request_review", review(56, { actor: "onmax" }))).json()).resolves.toMatchObject({ reason: "not_command" })
     await send("other-author", "pull_request_review", review(57, { author: "mona" }))
     await send("dismissed", "pull_request_review", review(58, { state: "dismissed" }))
     await send("match", "issue_comment", comment(59))
 
     await vi.waitFor(() => expect(calls).toHaveBeenCalledOnce())
     expect(calls.mock.calls[0]![0]).toMatchObject({ deliveryId: "match", event: "issue_comment", url: "https://github.test/acme/app/pull/42#issuecomment-59" })
+    expect(await journal(state, "own")).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "not_command", type: "completed" })]))
+    expect((await journal(state, "own")).some(event => event.type.startsWith("trigger."))).toBe(false)
   })
 
   it("runs invoke once for a burst on one pull request with debounceMs", async () => {
@@ -200,6 +215,11 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     await send("review-1", "pull_request_review", review(66))
     await vi.waitFor(() => expect(completed("review-1")).toBe(true), { timeout: 20_000 })
     expect(calls).toHaveBeenCalledTimes(2)
+    await vi.waitFor(async () => expect(await journal(state, "review-1")).toEqual(expect.arrayContaining([
+      { error: "hook unavailable", trigger: "reviewFeedback", type: "trigger.failed" },
+      expect.objectContaining({ type: "retrying" }),
+      expect.objectContaining({ outcome: "response", reason: "sent to T3", type: "trigger.completed" }),
+    ])))
   })
 
   it("keeps a debounced delivery across a restart and runs invoke in the next process", async () => {
@@ -231,5 +251,93 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     expect(prompt).toContain("Work on PR #42 in acme/app")
     expect(prompt).toContain("The pull request head is commit head-sha")
     expect(prompt).toContain("Request: Address the review by christoffer.")
+    await vi.waitFor(async () => expect(await journal(state, "review-1")).toEqual(expect.arrayContaining([
+      { outcome: "input", trigger: "reviewFeedback", type: "trigger.completed" },
+      expect.objectContaining({ type: "invocation.started" }),
+    ])))
+  })
+
+  it("runs invoke for a teammate's approval with Quiver's GitHub Channel", async () => {
+    const state = await stateFile()
+    const events: GitHubPullRequestTriggerEvent[] = []
+    const run = vi.fn(async () => "ok")
+    const feedbackEvents = ["issue_comment", "pull_request_review_comment", "pull_request_review"] as const
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          activity: true,
+          // SAFETY: This fixture supplies the Fetch-compatible mock used for GitHub requests.
+          app: { apiBaseUrl: "https://api.github.test", fetch: (async () => Response.json([])) as typeof fetch, identity: { login: "quiver-bot[bot]" }, token: "app-token" },
+          pullRequest: {
+            workspace: { mount: "portal" },
+            reconcile: {
+              concurrencyLimit: 1,
+              triggers: [
+                {
+                  events: ["pull_request_review"],
+                  filter: { actor: { allow: ["pullfrog[bot]", "chatgpt-codex-connector[bot]"] }, author: { allow: ["onmax", "quiver-bot[bot]"] } },
+                  debounceMs: 60_000,
+                  noFindingsReviews: ["> ✅ No new issues found."],
+                  prompt: "Independently fix and resolve actionable feedback on this pull request",
+                  reviewStates: ["commented", "changes_requested"],
+                },
+                {
+                  events: [...feedbackEvents],
+                  filter: { actor: { allow: ["onmax"] }, author: { allow: ["onmax", "quiver-bot[bot]"] } },
+                  prompt: "Independently fix and resolve actionable feedback on this pull request",
+                  reviewStates: ["commented", "changes_requested"],
+                },
+                { events: [...feedbackEvents], mentions: ["@bot-dev", "@quiver-bot-dev"] },
+              ],
+              events: [],
+            },
+            reply: false,
+          },
+          triggers: {
+            reviewFeedbackToT3: githubPullRequestTrigger({
+              events: ["pull_request_review", "issue_comment"],
+              filter: { author: { allow: ["onmax", "quiver-bot[bot]"] }, actor: { deny: ["onmax"] } },
+              reviewStates: ["commented", "changes_requested", "approved"],
+              debounceMs: 200,
+              invoke(_context, event) {
+                events.push(event)
+                return ignored("sent to T3")
+              },
+            }),
+          },
+          webhooks: { secretToken: false },
+        }),
+      },
+      driver: { run },
+    })
+    const { completed, send } = serve(agent, state)
+    const pr = {
+      base: { ref: "main", repo: { full_name: "quiverdk/portal" } },
+      draft: false,
+      head: { ref: "unknown", repo: { fork: false, full_name: "quiverdk/portal" }, sha: "abc123" },
+      html_url: "https://github.com/quiverdk/portal/pull/1580",
+      labels: [],
+      number: 1580,
+      state: "open",
+      title: "portal#1580",
+      url: "https://api.github.test/repos/quiverdk/portal/pulls/1580",
+      user: { login: "onmax", type: "User" },
+    }
+    await send("approval", "pull_request_review", {
+      action: "submitted",
+      installation: { id: 5 },
+      pull_request: pr,
+      repository: { full_name: "quiverdk/portal", name: "portal", owner: { login: "quiverdk" }, private: true },
+      review: { author_association: "MEMBER", body: "", commit_id: "abc123", html_url: `${pr.html_url}#pullrequestreview-1`, id: 1, node_id: "review", state: "approved", submitted_at: "2026-11-16T09:02:36Z", user: { login: "Christoffersn", type: "User" } },
+      sender: { login: "Christoffersn", type: "User" },
+    })
+    await vi.waitFor(() => expect(completed("approval")).toBe(true), { timeout: 5_000 })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ actor: { login: "Christoffersn" }, pullRequest: { author: "onmax", headSha: "abc123", number: 1580, repository: "quiverdk/portal" }, reviewState: "approved" })
+    expect(run).not.toHaveBeenCalled()
+    await vi.waitFor(async () => expect(await journal(state, "approval")).toEqual(expect.arrayContaining([
+      { outcome: "response", reason: "sent to T3", status: 200, trigger: "reviewFeedbackToT3", type: "trigger.completed" },
+    ])))
   })
 })

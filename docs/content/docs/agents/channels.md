@@ -985,6 +985,8 @@ export default defineAgent({
 
 The trigger needs a webhook queue: a durable State, such as SQLite or libSQL, and the `x-github-delivery` header that GitHub sends. The queue stores the delivery before it answers GitHub, so a restart during `debounceMs` keeps it. A repeated or redelivered `x-github-delivery` does not run `invoke` again. If `invoke` throws or the process stops while it runs, the queue runs it again, up to three attempts. Send `event.deliveryId` as an idempotency key when a repeated call has an effect. Without `x-github-delivery`, such as a call from code, `invoke` runs before the answer.
 
+The Channel delivery record of each delivery shows what the trigger did. `trigger.started` names the `trigger`. `trigger.completed` has `outcome: 'response'` with the `status` and `reason` of the answer, or `outcome: 'input'` when the Agent starts. `trigger.failed` has the `error`. A delivery that no trigger matches ends with a `completed` event whose `reason` says why, such as `not_command` or `filtered`.
+
 ### Pull request Workspace
 
 The Workspace (the Agent's files) gets the PR checkout at `pullRequest.workspace.mount`. Without `workspace`, the mount is `portal`. `workspace: true` and `workspace: {}` mount at the root. `workspace: false` turns it off.
