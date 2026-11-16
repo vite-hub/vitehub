@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 
 import { expect, it } from "vitest"
@@ -6,7 +6,9 @@ import { expect, it } from "vitest"
 import { readDiagnosticCodes } from "../docs/modules/diagnostics/catalog.ts"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-const baselineFile = join(import.meta.dirname, "fixtures/diagnostics-ratchet.json")
+// One baseline file per package, so pull requests that change different packages edit different files.
+// One shared file made concurrent pull requests conflict and made the Babysitter rerun their checks.
+const baselineDir = join(import.meta.dirname, "fixtures/diagnostics-ratchet")
 // Lower the baseline after you remove plain errors or add fixes:
 // VITEHUB_UPDATE_DIAGNOSTICS_BASELINE=1 vp test --config vitest.config.ts test/diagnostics-ratchet.test.ts
 // A lower count never fails, so a PR that removes errors can merge before the baseline changes.
@@ -71,14 +73,44 @@ function changes(current: Record<string, number>, baseline: Record<string, numbe
     .map(key => ({ key, baseline: baseline[key] ?? 0, current: current[key] ?? 0 }))
 }
 
+/** The package folder of `packages/<pkg>/...`. */
+const packageOf = (file: string) => file.split("/")[1]!
+
+/** `baseline` split into one object per package; packages with no entries are left out. */
+function byPackage(baseline: Baseline): Map<string, Baseline> {
+  const packages = new Map<string, Baseline>()
+  const of = (pkg: string) => packages.get(pkg) ?? packages.set(pkg, { rawErrors: {}, codesWithoutFix: [], invariants: {} }).get(pkg)!
+  for (const [file, count] of Object.entries(baseline.rawErrors)) of(packageOf(file)).rawErrors[file] = count
+  for (const [file, count] of Object.entries(baseline.invariants)) of(packageOf(file)).invariants[file] = count
+  for (const code of baseline.codesWithoutFix) of(codePackages.get(code) ?? "unknown").codesWithoutFix.push(code)
+  return packages
+}
+
+function readBaseline(): Baseline {
+  const baseline: Baseline = { rawErrors: {}, codesWithoutFix: [], invariants: {} }
+  for (const name of existsSync(baselineDir) ? readdirSync(baselineDir).filter(name => name.endsWith(".json")) : []) {
+    const part: Baseline = JSON.parse(readFileSync(join(baselineDir, name), "utf8"))
+    Object.assign(baseline.rawErrors, part.rawErrors)
+    Object.assign(baseline.invariants, part.invariants)
+    baseline.codesWithoutFix.push(...part.codesWithoutFix)
+  }
+  return baseline
+}
+
+const codePackages = new Map(readDiagnosticCodes(repoRoot).map(code => [code.code, code.pkg]))
 const current: Baseline = { rawErrors: countRawErrors(), codesWithoutFix: codesWithoutFix(), invariants: countInvariants() }
-if (update) writeFileSync(baselineFile, `${JSON.stringify(current, null, 2)}\n`)
-const baseline: Baseline = JSON.parse(readFileSync(baselineFile, "utf8"))
+if (update) {
+  mkdirSync(baselineDir, { recursive: true })
+  const packages = byPackage(current)
+  for (const name of readdirSync(baselineDir)) if (!packages.has(name.replace(/\.json$/, ""))) rmSync(join(baselineDir, name))
+  for (const [pkg, part] of packages) writeFileSync(join(baselineDir, `${pkg}.json`), `${JSON.stringify(part, null, 2)}\n`)
+}
+const baseline = readBaseline()
 
 it("adds no plain errors to package sources", () => {
   const added = changes(current.rawErrors, baseline.rawErrors).filter(change => change.current > change.baseline)
   expect(added, [
-    "These files throw more plain errors than test/fixtures/diagnostics-ratchet.json allows.",
+    "These files throw more plain errors than test/fixtures/diagnostics-ratchet/<package>.json allows.",
     "Throw a code from the package catalog (src/error-diagnostics.ts) with a `why`, a `fix`, and its docs page.",
     "For a state that only a ViteHub bug can reach, throw `invariantError(what)` or call `invariant(condition, what)` from `@vite-hub/internal/invariant`.",
   ].join(" ")).toEqual([])
@@ -86,11 +118,11 @@ it("adds no plain errors to package sources", () => {
 
 it("adds no invariant without a baseline change", () => {
   const added = changes(current.invariants, baseline.invariants ?? {}).filter(change => change.current > change.baseline)
-  expect(added, "These files raise INTERNAL_INVARIANT_FAILED more often than test/fixtures/diagnostics-ratchet.json lists. Use it only for a state that a developer cannot cause; otherwise throw a code from the package catalog. Then update the baseline with the command at the top of this test.").toEqual([])
+  expect(added, "These files raise INTERNAL_INVARIANT_FAILED more often than test/fixtures/diagnostics-ratchet/<package>.json lists. Use it only for a state that a developer cannot cause; otherwise throw a code from the package catalog. Then update the baseline with the command at the top of this test.").toEqual([])
 })
 
 it("adds no diagnostic codes without a fix", () => {
   const added = current.codesWithoutFix.filter(code => !baseline.codesWithoutFix.includes(code))
-  expect(added, "These diagnostic codes have no `fix` and are not in test/fixtures/diagnostics-ratchet.json. Give each new code a `fix` that tells the reader what to change with `{ why, fix }` in its catalog entry.").toEqual([])
+  expect(added, "These diagnostic codes have no `fix` and are not in test/fixtures/diagnostics-ratchet/<package>.json. Give each new code a `fix` that tells the reader what to change with `{ why, fix }` in its catalog entry.").toEqual([])
 })
 
