@@ -267,9 +267,5 @@ describe("the Nitro middleware", () => {
       expect((await run(inject, html(stream([page.slice(0, 12), page.slice(12)])), event(path))).text, path).toBe(expected)
     }
   })
-
-  it("does nothing where the host calls it without next", async () => {
-    expect(await (await middleware())({})).toBeUndefined()
-  })
 })
 

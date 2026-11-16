@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import type { DeploymentPreset } from "../src/deployment.ts"
+import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
 import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "../src/features.ts"
 
-const presets: DeploymentPreset[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
+const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
 describe("feature catalog", () => {
   it("has one definition per feature id, keyed by its id", () => {
@@ -30,11 +30,6 @@ describe("feature catalog", () => {
         const support = featureSupport(id, preset)
         if (!policy.supported) {
           expect(support.level, `${id} on ${preset}`).not.toBe("native")
-          continue
-        }
-        // Realtime on Node is supported, but the app must select the memory authority.
-        if (support.level === "explicit") {
-          expect(`${id}:${preset}`).toBe("realtime:node")
           continue
         }
         expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
@@ -79,9 +74,9 @@ describe("feature catalog", () => {
     expect(featureIds.filter(id => features[id].enabledByDefault)).toEqual(["env"])
   })
 
-  it("requires the configured preset for development lookups", () => {
-    // @ts-expect-error Development needs a preset, including when JavaScript calls this API.
-    expect(() => featureSupport("workflow", "dev")).toThrow(/deployment preset/)
+  it("requires the configured host for development lookups", () => {
+    // @ts-expect-error Development needs a host, including when JavaScript calls this API.
+    expect(() => featureSupport("workflow", "dev")).toThrow(/configured ViteHub host/)
   })
 
   it("uses process-local Rate Limit memory during Cloudflare development", () => {

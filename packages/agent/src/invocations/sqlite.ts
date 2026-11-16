@@ -5,10 +5,11 @@ import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
 import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
-import { filteredObservationRecord } from "./observation-projection.ts"
+import { observationRecordProjection } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationPruneResult,
@@ -282,14 +283,24 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     }
     return statements
   }
-  // Unary + sorts the selected rows instead of scanning payloads through the position index.
-  const observationRowsStatement = (id: string, observationNames?: string): InStatement => ({
-    args: observationNames === undefined ? [id] : [id, observationNames],
-    sql: `SELECT position, observation FROM ${observationTable}
-      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === undefined
-        ? ""
-        : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === undefined ? "position" : "+position"}`,
-  })
+  // A filter uses the name or sequence index. Unary + then sorts the selected rows instead of scanning payloads through the position index.
+  const observationRowsStatement = (id: string, options: AgentInvocationGetOptions = {}): InStatement => {
+    const conditions: string[] = []
+    const args: (number | string)[] = [id]
+    if (options.observationNames) {
+      conditions.push(" AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))")
+      args.push(JSON.stringify(options.observationNames))
+    }
+    if (options.afterSequence !== undefined) {
+      conditions.push(" AND json_extract(observation, '$.sequence') > ?")
+      args.push(options.afterSequence)
+    }
+    return {
+      args,
+      sql: `SELECT position, observation FROM ${observationTable}
+      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${conditions.join("")} ORDER BY ${conditions.length ? "+position" : "position"}`,
+    }
+  }
   let initialized: Promise<void> | undefined
   /** The database file. Set by initialize() when maxSize is set. */
   let storePath: string | undefined
@@ -748,6 +759,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         ON ${observationTable} (invocation_sequence, position)`)
       await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
         ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
+      // A reader that follows a running Invocation reads only the rows after its last sequence.
+      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_sequence
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.sequence'))`)
       // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
       await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
         AFTER DELETE ON ${table}
@@ -764,14 +778,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   const read: AgentInvocationStore["get"] = async (id, options) => {
     await initialize()
-    const observationNames = options?.observationNames ? JSON.stringify(options.observationNames) : undefined
+    const projection = observationRecordProjection(options)
     // One read transaction keeps the record and its observation rows consistent with a concurrent terminal update.
     const [result, rows] = await client.batch([
-      {
-        args: observationNames === undefined ? [id] : [observationNames, id],
-        sql: `SELECT sequence, ${observationNames === undefined ? "record" : filteredObservationRecord} AS record FROM ${table} WHERE id = ? LIMIT 1`,
-      },
-      observationRowsStatement(id, observationNames),
+      { args: [...projection.args, id], sql: `SELECT sequence, ${projection.sql} AS record FROM ${table} WHERE id = ? LIMIT 1` },
+      observationRowsStatement(id, options),
     ], "read")
     const row = result!.rows[0]
     const record = row ? deserialize(row.record, row.sequence) : undefined

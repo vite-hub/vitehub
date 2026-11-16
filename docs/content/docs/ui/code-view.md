@@ -13,18 +13,18 @@ icon: i-lucide-code
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui`, `@vite-hub/ui/code-view`, or `@vite-hub/ui/file-view`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the components. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { CodeView, FileView } from "@vite-hub/ui";
+import { CodeView, FileView } from "vite-hub/ui";
 ```
 
-Helpers and types, such as `getSingularPatch` and `FileContents`, come from `@vite-hub/ui`.
+Helpers and types, such as `getSingularPatch` and `FileContents`, come from `vite-hub/ui`.
 
 ## Usage
 
 ```ts
-import { CodeView, getSingularPatch, type CodeViewItem } from "@vite-hub/ui";
+import { CodeView, getSingularPatch, type CodeViewItem } from "vite-hub/ui";
 ```
 
 ```vue
@@ -55,7 +55,7 @@ A link such as `?file=server/api/orders.get.ts&line=3-5` must select the file in
 
 ```vue
 <script setup lang="ts">
-import type { SelectedLineRange } from "@vite-hub/ui";
+import type { SelectedLineRange } from "vite-hub/ui";
 
 const props = defineProps<{ files: Record<string, string> }>();
 const route = useRoute();

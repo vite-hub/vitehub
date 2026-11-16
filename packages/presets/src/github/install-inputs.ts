@@ -4,6 +4,7 @@ import { glob, lstat, readdir, readFile, realpath, stat } from "node:fs/promises
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse, parseAllDocuments } from "yaml";
 import { parseSyml } from "@yarnpkg/parsers";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const inputNames = new Set([".npmrc", ".yarnrc.yml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock"]);
@@ -19,21 +20,21 @@ function checkDownloadSource(value: string): void {
   // Yarn's nested protocols can percent-encode their underlying source URL.
   const decoded = unwrapYarnVirtualSource(decodeURIComponent(value));
   if (decoded.includes("\\") && /(?:^|[@:(])https:/i.test(decoded)
-    || /(?:^|[@:(])https:(?!\/\/)/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS URL with forward slashes.");
+    || /(?:^|[@:(])https:(?!\/\/)/i.test(decoded)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_URL_INVALID();
   for (const match of decoded.matchAll(/(?:^|[@:(])([a-z][a-z\d+.-]*):/gi)) {
-    if (!["npm", "workspace", "catalog", "file", "link", "portal", "https"].includes(match[1]!.toLowerCase())) throw new Error("Unsupported dependency source protocol; downloads require a trusted HTTPS registry or forge.");
+    if (!["npm", "workspace", "catalog", "file", "link", "portal", "https"].includes(match[1]!.toLowerCase())) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PROTOCOL_UNSUPPORTED();
   }
   // Git fetchers prepare remote projects before packing them, which can run
   // unvalidated install scripts even when the final install skips builds.
   const source = decoded.match(/(?:^|[@:(])([a-z][a-z\d+.-]*:\/\/.+)/i)?.[1];
-  if (!source && !/(?:^|@)npm:/.test(decoded) && /(?:^|@)(?!\.{1,2}\/)[\w.-]+\/(?!\.{1,2}(?:#|$))[\w.-]+(?:#.*)?$/.test(decoded)) throw new Error("Git dependencies require preparation inside the provider sandbox.");
+  if (!source && !/(?:^|@)npm:/.test(decoded) && /(?:^|@)(?!\.{1,2}\/)[\w.-]+\/(?!\.{1,2}(?:#|$))[\w.-]+(?:#.*)?$/.test(decoded)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_GIT_UNSUPPORTED();
   if (source && !/^file:/i.test(source)) {
     const url = new URL(source.replace(/^git\+/i, ""));
-    if (url.protocol !== "https:" || !downloadHosts.has(url.hostname) || url.port || url.username || url.password) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
+    if (url.protocol !== "https:" || !downloadHosts.has(url.hostname) || url.port || url.username || url.password) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_HOST_UNTRUSTED();
     const githubArchive = /^\/[^/]+\/[^/]+\/archive\/.+\.(?:tar\.gz|zip)$/i.test(url.pathname)
       || /^\/[^/]+\/[^/]+\/releases\/download\/[^/]+\/.+\.(?:tgz|tar\.gz)$/i.test(url.pathname);
-    if (/\.git\/?$/i.test(url.pathname) || url.hostname === "github.com" && !githubArchive) throw new Error("Git dependencies require preparation inside the provider sandbox.");
-  } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
+    if (/\.git\/?$/i.test(url.pathname) || url.hostname === "github.com" && !githubArchive) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_GIT_UNSUPPORTED();
+  } else if (/(?:^|@)git@/i.test(decoded)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_HOST_UNTRUSTED();
 }
 const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links", "block-exotic-subdeps"]);
 const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern", "trust-policy-exclude"]);
@@ -59,14 +60,15 @@ function validateNpmConfig(source: string): void {
     const separator = setting.indexOf("=");
     const key = setting.slice(0, separator).trim();
     const value = setting.slice(separator + 1).trim();
-    if (separator < 1 || !supportedSetting(key, value)) throw new Error(`Unsupported project npm configuration: ${key || setting}. Host-local configuration paths and package-manager extensions are not allowed.`);
+    if (separator < 1 || !supportedSetting(key, value)) throw presetsErrorDiagnostics.PRESETS_NPM_CONFIG_UNSUPPORTED({ key: key || setting });
   }
 }
 
-export class GitHubDependencyConflictError extends Error {}
-
-/** Validate decoded manifests and lockfiles before a package manager can read host paths. */
-export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>): Promise<string> {
+/**
+ * Validate decoded manifests and lockfiles before a package manager can read host paths.
+ * `inputs` receives a SHA-256 of each input file by checkout path.
+ */
+export async function validateGitHubInstallInputs(target: string, prepareLinkedBins?: (paths: readonly string[]) => Promise<void>, inputs?: Record<string, string>): Promise<string> {
   const hash = createHash("sha256");
   const root = await realpath(target);
   const inside = (path: string) => { const part = relative(root, path); return part !== ".." && !part.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(part); };
@@ -82,26 +84,26 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     // Workspace exclusions still contribute crawler roots. File dependencies
     // use literal paths and must keep their leading exclamation marks.
     let decoded = decodeURIComponent(workspace ? value.replace(/^!+/, "") : value);
-    if (decoded.startsWith("//") || /^[a-z]:/i.test(decoded) || decoded.includes("\\") || decoded.startsWith("~")) throw new Error("Host-local dependency paths are not allowed.");
-    if (!inside(resolve(base, decoded))) throw new Error("Host-local dependency paths must stay inside the checkout.");
+    if (decoded.startsWith("//") || /^[a-z]:/i.test(decoded) || decoded.includes("\\") || decoded.startsWith("~")) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATH_HOST_LOCAL();
+    if (!inside(resolve(base, decoded))) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATH_OUTSIDE();
     // Check wildcard prefixes before deeper matching can pass through a symlink.
     const parts = decoded.split("/");
     for (let length = 1; length <= parts.length; length++) {
       const pattern = parts.slice(0, length).join("/");
       if (!/[*?{[]/.test(pattern)) continue;
       for await (const match of glob(pattern, { cwd: base })) {
-        if (!inside(await realpath(resolve(base, match)))) throw new Error("Host-local dependency symlinks must stay inside the checkout.");
+        if (!inside(await realpath(resolve(base, match)))) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_SYMLINK_OUTSIDE();
       }
     }
     // Workspace globs have no realpath; validate the existing prefix as well.
     decoded = decoded.split(/[*?{[]/, 1)[0]!;
     const path = resolve(base, decoded || ".");
-    if (!inside(path)) throw new Error("Host-local dependency paths must stay inside the checkout.");
+    if (!inside(path)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATH_OUTSIDE();
     let current = path;
     for (;;) {
       try {
         const canonical = await realpath(current);
-        if (!inside(canonical)) throw new Error("Host-local dependency symlinks must stay inside the checkout.");
+        if (!inside(canonical)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_SYMLINK_OUTSIDE();
         return canonical;
       } catch (error) {
         if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
@@ -128,7 +130,11 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
   async function selectPatch(value: string, base: string) {
     await checkPath(value, base);
     const path = resolve(base, decodeURIComponent(value));
-    if (!(await stat(path)).isFile()) throw new Error("Dependency patches must be regular files.");
+    const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_MISSING({ path: relative(root, path) });
+      throw error;
+    });
+    if (!info.isFile()) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_NOT_FILE();
     dependencyFiles.add(path);
   }
   async function inspectYarnPatch(value: string, base: string): Promise<boolean> {
@@ -140,19 +146,19 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       if (/^~?builtin<compat\/[a-z\d._/-]+>$/i.test(path)) continue;
       if (!path.startsWith("~/")) {
         await checkPath(encodeURIComponent(path), base);
-        throw new Error("Yarn dependency patches must use project-relative ~/ selectors; parent package filesystems cannot be fingerprinted by the host.");
+        throw presetsErrorDiagnostics.PRESETS_YARN_PATCH_SELECTOR_INVALID();
       }
       await selectPatch(encodeURIComponent(path.slice(2)), root);
     }
     return true;
   }
   async function inspectPnpmPatches(value: unknown, base: string, lockfile: boolean) {
-    if (!isRuntimeRecord(value)) throw new Error("Dependency patches must be a path mapping.");
+    if (!isRuntimeRecord(value)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCHES_INVALID();
     for (const entry of Object.values(value)) {
       // pnpm 12 stores SHA-256 hashes here; workspace settings own the paths.
       if (lockfile && hasRuntimeType(entry, "string") && /^[a-f\d]{64}$/.test(entry)) continue;
       const path = hasRuntimeType(entry, "string") ? entry : isRuntimeRecord(entry) ? entry.path : undefined;
-      if (!hasRuntimeType(path, "string")) throw new Error("Dependency patches must reference checkout files.");
+      if (!hasRuntimeType(path, "string")) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_PATCH_PATH_INVALID();
       await selectPatch(path, base);
     }
   }
@@ -163,7 +169,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       if (field === "workspaces") { await checkPath(value, base, true); return; }
       if ((dependency || sourceFields.has(field)) && await inspectYarnPatch(value, base)) return;
       if (dependency || sourceFields.has(field)) checkDownloadSource(value);
-      if (/^git(?:\+file)?:/i.test(value) && !/^git:\/\//i.test(value)) throw new Error("Host-local Git dependencies are not allowed.");
+      if (/^git(?:\+file)?:/i.test(value) && !/^git:\/\//i.test(value)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_GIT_HOST_LOCAL();
       const local = value.match(/(?:^|@)(file|link|portal):(.+)/i);
       if (local) await selectLocalPackage(local[2]!, base, local[1]!.toLowerCase() === "file");
       else if ((dependency || ["resolved", "tarball", "directory", "workspaces"].includes(field)) && /^(?:\.{1,2}[/\\]|[/\\]|~(?:[^/\\]*[/\\]|$)|[a-z]:[/\\])/i.test(value)) await selectLocalPackage(value, base);
@@ -176,7 +182,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     const npmLink = npmPackageEntry && value.link === true;
     if (npmLink) {
       if (!hasRuntimeType(value.resolved, "string") || /^[a-z][a-z\d+.-]*:/i.test(decodeURIComponent(value.resolved))) {
-        throw new Error("npm workspace links must reference checkout-relative paths.");
+        throw presetsErrorDiagnostics.PRESETS_NPM_WORKSPACE_LINK_INVALID();
       }
       await selectLocalPackage(value.resolved, root, false);
     }
@@ -215,7 +221,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       for await (const match of glob(pattern, { cwd: directory, exclude })) {
         const path = resolve(directory, match);
         const canonical = await realpath(path);
-        if (!inside(canonical)) throw new Error("Host-local dependency symlinks must stay inside the checkout.");
+        if (!inside(canonical)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_SYMLINK_OUTSIDE();
         if (await stat(path).then(info => info.isDirectory(), () => false)) packageRoots.add(canonical);
       }
     }
@@ -228,12 +234,13 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       const path = join(directory, entry.name);
       if (entry.isSymbolicLink()) {
         // A package-manager input must be a regular file, so it cannot change targets.
-        if (inputNames.has(entry.name)) throw new Error("Dependency inputs must not be symbolic links.");
+        if (inputNames.has(entry.name)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_INPUT_SYMLINK();
       } else if (entry.isDirectory()) continue;
       else if (inputNames.has(entry.name)) {
         const source = await readFile(path, "utf8");
-        if (/^<{7} /m.test(source)) throw new GitHubDependencyConflictError(`Resolve dependency conflicts in ${relative(root, path)} and call refreshDependencies before validation.`);
+        if (/^<{7} /m.test(source)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED({ path: relative(root, path) });
         hash.update(relative(root, path)).update("\0").update(source).update("\0");
+        if (inputs) inputs[relative(root, path)] = createHash("sha256").update(source).digest("hex");
         if (entry.name === ".npmrc") { validateNpmConfig(source); continue; }
         // Yarn reads only the validated linker from this file. Other settings
         // are omitted from the host configuration and cannot select executables.
@@ -250,7 +257,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
           // Classic fields have no YAML separators. The native legacy grammar
           // also handles headerless Classic files; modern locks declare metadata.
           data = parseSyml(/^__metadata:/m.test(source) ? source : `# yarn lockfile v1\n${source}`);
-          if (!isRuntimeRecord(data) || Object.values(data).some(value => !isRuntimeRecord(value))) throw new Error("Invalid Yarn lockfile stanza; dependency fields must be structured.");
+          if (!isRuntimeRecord(data) || Object.values(data).some(value => !isRuntimeRecord(value))) throw presetsErrorDiagnostics.PRESETS_YARN_LOCKFILE_INVALID();
         } else data = entry.name.endsWith(".json") ? JSON.parse(source) : parse(source);
         await inspect(data, directory, false, entry.name);
         if (entry.name === "package.json" && !pnpm && isRuntimeRecord(data)) {
@@ -258,7 +265,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
         }
         if (entry.name === "pnpm-workspace.yaml" && isRuntimeRecord(data)) {
           for (const [key, value] of Object.entries(data)) {
-            if (!workspaceFields.has(key) && !supportedSetting(key, value)) throw new Error(`Unsupported project pnpm configuration: ${key}. Host-local configuration paths and package-manager extensions are not allowed.`);
+            if (!workspaceFields.has(key) && !supportedSetting(key, value)) throw presetsErrorDiagnostics.PRESETS_PNPM_CONFIG_UNSUPPORTED({ key });
           }
           if (pnpm) await selectWorkspaces(data.packages ?? ["**"], directory);
         }
@@ -276,12 +283,12 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
     if (!isRuntimeRecord(manifest) || manifest.bin === undefined) continue;
     const targets = hasRuntimeType(manifest.bin, "string") ? [manifest.bin]
       : isRuntimeRecord(manifest.bin) ? Object.values(manifest.bin) : undefined;
-    if (!targets) throw new Error("Linked dependency bin targets must be file paths.");
+    if (!targets) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_INVALID();
     for (const target of targets) {
-      if (!hasRuntimeType(target, "string") || !target) throw new Error("Linked dependency bin targets must be file paths.");
+      if (!hasRuntimeType(target, "string") || !target) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_INVALID();
       const canonical = await checkPath(encodeURIComponent(target), directory);
       const path = resolve(directory, target);
-      if ([path, canonical].some(candidate => relative(root, candidate).split(/[\\/]/).includes(".git"))) throw new Error("Linked dependency bin targets must not read Git metadata.");
+      if ([path, canonical].some(candidate => relative(root, candidate).split(/[\\/]/).includes(".git"))) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_GIT_METADATA();
       linkedBinFiles.add(path);
     }
   }
@@ -296,7 +303,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await collectDependencyFiles(path);
       else if (entry.isFile()) dependencyFiles.add(path);
-      else throw new Error("Local dependency contents must be regular files and directories.");
+      else throw presetsErrorDiagnostics.PRESETS_LOCAL_DEPENDENCY_CONTENTS_INVALID();
     }
   }
   for (const directory of dependencyDirectories) await collectDependencyFiles(directory);
@@ -307,11 +314,20 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       return undefined;
     }) : await stat(path);
     // Package managers skip missing commands; their later appearance changes shims.
-    if (!info) { hash.update("missing-bin\0"); continue; }
-    if (linkedBinFiles.has(path) && !info.isFile()) throw new Error("Linked dependency bin targets must be regular files.");
+    if (!info) {
+      hash.update("missing-bin\0");
+      if (inputs) inputs[relative(root, path)] = "missing";
+      continue;
+    }
+    if (linkedBinFiles.has(path) && !info.isFile()) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_NOT_FILE();
     hash.update(info.mode & 0o111 ? "executable\0" : "regular\0");
-    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    const file = createHash("sha256").update(info.mode & 0o111 ? "executable\0" : "regular\0");
+    for await (const chunk of createReadStream(path)) {
+      hash.update(chunk);
+      file.update(chunk);
+    }
     hash.update("\0");
+    if (inputs) inputs[relative(root, path)] = file.digest("hex");
   }
   return hash.digest("hex");
 }

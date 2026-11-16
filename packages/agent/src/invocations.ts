@@ -15,10 +15,12 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentInvocationReference, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { invocationDiagnostics } from "./invocation-diagnostics.ts"
 import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
+const agentInvocationClaimStateSymbol = Symbol.for("vitehub.agentInvocationClaimState")
 const agentInvocationsBrand: unique symbol = Symbol.for("vitehub.agentInvocations")
 
 const MAX_ANNOTATIONS = 32
@@ -158,6 +160,17 @@ export interface AgentInvocationListOptions {
   updatedSince?: string
 }
 
+/** Read options of `get()`. The record fields stay the same; only `observations` changes. */
+export interface AgentInvocationGetOptions {
+  /**
+   * Returns only observations with a sequence greater than this value. Pass the sequence of the last observation
+   * that you read to read only new observations. `0` returns all observations. It must be a non-negative safe integer.
+   */
+  afterSequence?: number
+  /** Returns only observations with these exact names. An empty list returns no observations. */
+  observationNames?: readonly string[]
+}
+
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
 
 export interface AgentInvocationListResult {
@@ -219,7 +232,7 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
+  get(id: string, options?: AgentInvocationGetOptions): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
@@ -352,7 +365,7 @@ export interface AgentInvocations {
   readonly supportsDelete: boolean
   /** Deletes a terminal record. Rejects when the store does not implement deletion. */
   delete(id: string): Promise<AgentInvocationDeleteOutcome>
-  get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
+  get(id: string, options?: AgentInvocationGetOptions): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): Promise<AgentInvocationSummary | undefined>
@@ -368,6 +381,11 @@ interface AgentInvocationBindOptions {
   agentName?: string
   cancellationDriver?: AgentInvocationCancellationDriver
   deferClaim?: boolean
+  /**
+   * A Workflow attempt of an Agent turn. A record that an earlier attempt left `running` may have started its Driver,
+   * so this attempt does not start the Driver again, even when the earlier claim has expired. See {@link AgentInvocationJournal.driverInterrupted}.
+   */
+  driverAtMostOnce?: boolean
   /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
@@ -392,7 +410,15 @@ interface BoundAgentInvocations extends AgentInvocations {
     options?: AgentInvocationBindOptions,
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
   [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
+  [agentInvocationClaimStateSymbol](id: string): Promise<AgentInvocationClaimState>
 }
+
+/**
+ * `held`: a live run in this or another process holds the journal claim.
+ * `free`: the claim is absent or expired.
+ * `missing`: the journal has no record with this id.
+ */
+type AgentInvocationClaimState = "free" | "held" | "missing"
 
 export const exclusiveAgentInvocation: unique symbol = Symbol("vitehub.exclusiveAgentInvocation")
 /** Marks a queued attempt and whether earlier/later attempts can reuse this Invocation. */
@@ -409,6 +435,7 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
+// Internal invariant: Channel replay and the Workflow dispatch catch this conflict and skip the duplicate run.
 export class AgentInvocationClaimConflict extends Error {
   constructor() {
     super("Invocation already exists or is claimed.")
@@ -423,6 +450,11 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   /** Whether this journal holds the store execution claim, lost it, or could not reach the store. */
   readonly createdNew: boolean
   readonly reusedTerminal: boolean
+  /**
+   * An earlier attempt of this turn reached `running`, so its Driver may have started, even if the record is now `failed`.
+   * An expired claim does not prove that the Driver stopped. Only set when the bind used `driverAtMostOnce`; the Driver must not start.
+   */
+  readonly driverInterrupted: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
   /** The record `id` of this Invocation. */
@@ -1329,6 +1361,20 @@ function assertInvocationId(id: string): void {
   }
 }
 
+// A string from a query string compares as text in SQLite and returns no observations, so reject it before the store reads.
+function assertAfterSequence(afterSequence: unknown): void {
+  if (afterSequence === undefined || (typeof afterSequence === "number" && Number.isSafeInteger(afterSequence) && afterSequence >= 0)) return
+  throw agentDiagnostics.AGENT_R1039({ value: afterSequence })
+}
+
+/** Selects the observations that the read options ask for. Returns undefined when the options select every observation. */
+function observationFilter(options?: AgentInvocationGetOptions): ((observation: TraceEventLogEntry) => boolean) | undefined {
+  const names = options?.observationNames && new Set(options.observationNames)
+  const afterSequence = options?.afterSequence
+  if (!names && afterSequence === undefined) return
+  return observation => (!names || names.has(observation.name)) && (afterSequence === undefined || observation.sequence > afterSequence)
+}
+
 export async function agentInvocationId(runId: string, agentName?: string): Promise<string> {
   assertInvocationId(runId)
   return await boundedIdentity(invocationIdentity(runId, agentName))
@@ -1860,9 +1906,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     get(id, options) {
       const record = records.get(id)
       if (!record) return undefined
-      if (!options?.observationNames) return cloneRecord(record)
-      const names = new Set(options.observationNames)
-      return cloneRecord({ ...record, observations: record.observations.filter(observation => names.has(observation.name)) })
+      const filter = observationFilter(options)
+      if (!filter) return cloneRecord(record)
+      return cloneRecord({ ...record, observations: record.observations.filter(filter) })
     },
     getSummary(id) {
       const record = records.get(id)
@@ -2067,7 +2113,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       throw error
     })
     const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
-    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+    if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store open", ms: STORE_OPEN_TIMEOUT_MS })
   })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
     if (openStore) {
@@ -2085,7 +2131,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
     const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
-      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store operation", ms: storeTimeoutMs })
     }
     return result as T
   }
@@ -2126,6 +2172,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async [recoverInterruptedAgentInvocationsSymbol](recoveryOptions) {
       if (openStore) await openStore()
       return await failInterruptedAgentInvocations(store, recoveryOptions)
+    },
+    async [agentInvocationClaimStateSymbol](id) {
+      if (!await publicStore(() => store.getSummary(id))) return "missing"
+      // The store gives the claim only when it is absent or expired. A live run renews its claim before it expires.
+      const claimId = `probe_${globalThis.crypto.randomUUID()}`
+      const claimTask = Promise.resolve().then(() => store.claim(id, claimId, CLAIM_LEASE_MS))
+      try {
+        if (!await publicStore(() => claimTask)) return "held"
+      }
+      catch (error) {
+        // Timing out does not cancel the store operation. Release a late claim by its unique probe id.
+        void claimTask.then(owned => owned ? publicStore(() => store.release(id, claimId)) : undefined).catch(() => undefined)
+        throw error
+      }
+      await publicStore(() => store.release(id, claimId))
+      return "free"
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
@@ -2175,6 +2237,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatRenewal: Promise<unknown> = Promise.resolve()
       let workflowDispatchAllowed = false
       let createdNew = false
+      let driverInterrupted = false
       let creationTimedOut = false
       let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
       let runningPersisted = false
@@ -2277,6 +2340,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 boundToTerminalRecord = finished
                 workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
                 createdNew = result.created
+                // startedAt survives terminal transitions and error redaction. A failed Workflow
+                // attempt that reached running must not enter the reused-terminal dispatch path.
+                driverInterrupted = bindOptions.driverAtMostOnce === true && !result.created
+                  && (result.record.status === "running" || (result.record.status === "failed" && result.record.startedAt !== undefined))
                 created = true
                 cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
                   || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
@@ -2651,6 +2718,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
+        get driverInterrupted() { return driverInterrupted },
         get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStore(() => store.getSummary(recordId))
@@ -2898,14 +2966,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           return true
         },
         dispatchAllowed() {
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           return !strict || ownsRecord
         },
         driverStarted() {
           // Keep the final ownership check adjacent to the dispatch marker.
           // A renewal can confirm a claim loss after the caller's check but
           // before this boundary is reached; do not start the Driver then.
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           if (finished || finishing || driverDispatched) return true
           driverDispatched = true
           if (!cancellationDriver || cancellationDriver.enforced) return true
@@ -3031,7 +3099,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
         const result = await storeOperation(operation, storeTimeoutMs, true)
-        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "cancellation store operation", ms: storeTimeoutMs })
         return result
       }
       const timestamp = new Date().toISOString()
@@ -3084,9 +3152,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id, options) {
       assertInvocationId(id)
+      assertAfterSequence(options?.afterSequence)
       const record = await publicStore(() => store.get(id, options))
-      if (!record || !options?.observationNames) return record
-      return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
+      // A store may ignore the read options, so filter its result again.
+      const filter = observationFilter(options)
+      if (!record || !filter) return record
+      return { ...record, observations: record.observations.filter(filter) }
     },
     async getByRunId(runId, agentName) {
       const id = await agentInvocationId(runId, agentName)
@@ -3110,7 +3181,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
@@ -3132,7 +3203,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
@@ -3155,7 +3226,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {
@@ -3188,6 +3259,19 @@ export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeCo
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   return await bind.call(invocations, context, options) as AgentInvocationJournal<TRuntimeConfig>
+}
+
+/**
+ * Tells if a live run holds the journal claim of an Invocation. Processes that share one journal use it to tell an
+ * interrupted record from a record that another process runs. The test takes the claim and releases it at once.
+ */
+export async function agentInvocationClaimState(invocations: AgentInvocations, id: string): Promise<AgentInvocationClaimState> {
+  // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  const read = (invocations as Partial<BoundAgentInvocations>)[agentInvocationClaimStateSymbol]
+  if (typeof read !== "function") {
+    throw agentDiagnostics.AGENT_R0627({ message: "[vitehub] defineAgent({ invocations }) requires a definition created by defineAgentInvocations()." })
+  }
+  return await read.call(invocations, id)
 }
 
 /** Fails interrupted invocations in a journal created by defineAgentInvocations(). */

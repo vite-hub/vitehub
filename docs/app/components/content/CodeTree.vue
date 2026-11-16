@@ -8,7 +8,7 @@
 // row above the code.
 //
 // With `feature`, a catalog id such as `kv`, a "Deploy on" row lists the hosts. Picking one rewrites the
-// file with `preset: '<host>'` for that host and marks the changed lines. The other files stay the same,
+// file with `host: '<host>'` for that host and marks the changed lines. The other files stay the same,
 // because the route code does not depend on the host.
 import { features } from "@vite-hub/internal/features";
 import type { FeatureId } from "@vite-hub/internal/features";

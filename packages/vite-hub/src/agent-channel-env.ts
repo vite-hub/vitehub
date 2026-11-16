@@ -33,7 +33,7 @@ export function agentChannelEnvPlugin(): Plugin {
         for (const [channel, fields] of Object.entries(channelEnv)) {
           const group: EnvRuntimeConfigOptions = {}
           for (const [field, { names, required, secret }] of Object.entries(fields)) {
-            group[field] = env({ optional: !required, secret, source: env.source(names, { skipEmpty: true }) })
+            group[field] = env({ optional: !required, secret, source: env.source(names) })
           }
           server[channel] = group
         }

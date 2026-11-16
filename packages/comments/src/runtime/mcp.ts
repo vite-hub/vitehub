@@ -1,4 +1,4 @@
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { commentsErrors } from "../errors.ts"

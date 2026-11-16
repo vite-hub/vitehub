@@ -89,7 +89,7 @@ function projectFiles(host: Host, linked = true): Record<string, string> {
   return {
     ".gitignore": ".vitehub\n",
     "package.json": JSON.stringify({ name: "my-app", type: "module" }),
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ preset: "${host}" })] })\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({ plugins: [vitehub({ host: "${host}" })] })\n`,
     ...(linked ? { ".vitehub/link.json": JSON.stringify(links[host]) } : {}),
   }
 }
@@ -352,6 +352,29 @@ describe("vitehub deployments", () => {
     expect(exitCode).toBe(2)
     expect(json.error.code).toBe("SETUP_DEPLOYMENTS_NOT_LINKED")
     expect(json.rerun).toBe("vitehub link")
+  })
+
+  it("reads the target of --host, and needs it when several hosts are linked without a default", async () => {
+    const target = ({ host: _host, schemaVersion: _version, ...rest }: (typeof links)[Host]) => rest
+    const root = await createProject({
+      ...projectFiles("cloudflare", false),
+      ".vitehub/link.json": JSON.stringify({ schemaVersion: 2, targets: { cloudflare: target(links.cloudflare), vercel: target(links.vercel) } }),
+    })
+    const env = { ...credentials.cloudflare, ...credentials.vercel }
+
+    const ambiguous = await runSetup<{ error: SetupError, missing: SetupMissing[], rerun: string }>(["deployments", "--json"], root, env)
+    expect(ambiguous.exitCode).toBe(2)
+    expect(ambiguous.json.error.code).toBe("SETUP_LINK_HOST_REQUIRED")
+    expect(ambiguous.json.error.fix).toContain("vitehub deployments --host <host>")
+
+    const vercel = await runSetup<SetupDeploymentsOutput>(["deployments", "--host", "vercel", "--json"], root, env, { fetch: hostApi(vercelRoutes).fetch })
+    expect(vercel.exitCode, vercel.stderr).toBe(0)
+    expect(vercel.json).toMatchObject({ host: "vercel", project: { id: PROJECT } })
+
+    const netlify = await runSetup<{ error: SetupError, rerun: string }>(["deployments", "--host", "netlify", "--json"], root, env)
+    expect(netlify.exitCode).toBe(2)
+    expect(netlify.json.error.code).toBe("SETUP_DEPLOYMENTS_NOT_LINKED")
+    expect(netlify.json.rerun).toBe("vitehub link --host netlify")
   })
 
   it("exits with 2 and the credential fix when no credentials resolve", async () => {

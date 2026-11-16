@@ -69,7 +69,7 @@ export default defineConfig({
 // Install: pnpm add vite-hub @vite-hub/schedule nuxt@npm:nuxt-nightly@5x
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { preset: "cloudflare", schedule: true },
+  vitehub: { host: "cloudflare", schedule: true },
 })`,
         },
         definition,

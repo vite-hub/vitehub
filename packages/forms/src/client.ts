@@ -1,19 +1,22 @@
+import { formsClientDiagnostics } from "./client-diagnostics.ts"
+import type { Diagnostic } from "nostics"
+
 /** One validation problem. `path` is empty for a problem of the whole form. */
 export interface FormIssue {
   message: string
   path: (string | number)[]
 }
 
-/** Why a submission failed: the HTTP status, the server message, and, for a 400, the problem of each field. */
-export class FormSubmitError extends Error {
-  override readonly name = "FormSubmitError"
-  readonly status: number
-  readonly issues: FormIssue[]
-  constructor(message: string, status: number, issues: FormIssue[] = []) {
-    super(message)
-    this.status = status
-    this.issues = issues
-  }
+/**
+ * Why a submission failed: `FORMS_SUBMIT_INVALID` for a 400, with the problem of each field in `issues`, or
+ * `FORMS_SUBMIT_FAILED`. `status` is the HTTP status, or 0 when the request got no answer.
+ */
+export type FormSubmitError = Diagnostic & { issues: FormIssue[], status: number }
+
+/** The error of a failed submission, for the HTTP status of the answer. */
+export function formSubmitError(reason: string, status: number, issues: FormIssue[] = []): FormSubmitError {
+  const error = status === 400 ? formsClientDiagnostics.FORMS_SUBMIT_INVALID({ reason }) : formsClientDiagnostics.FORMS_SUBMIT_FAILED({ reason })
+  return Object.assign(error, { issues, status })
 }
 
 /** The part of the page that the sender pointed at: an element and a W3C text quote, as a Comments text anchor. */
@@ -53,24 +56,55 @@ function readIssues(value: unknown): FormIssue[] {
   })
 }
 
+/** The message of each field, by its `name`: `{ email: "Enter a valid email." }`. */
+export type FormFieldErrors = Record<string, string>
+
+/**
+ * The first message of each field of a failed submission, by field name. A nested path joins with dots, such as
+ * `address.city`. Issues of the whole form are left out: read `error.message` for them.
+ */
+export function fieldErrors(error: { issues: readonly FormIssue[] } | undefined): FormFieldErrors {
+  const errors: FormFieldErrors = {}
+  for (const issue of error?.issues ?? []) {
+    const name = issue.path.join(".")
+    if (name && !(name in errors)) errors[name] = issue.message
+  }
+  return errors
+}
+
+/** The body of a submission: JSON keeps its types, and form data is decoded by the server, as a post without JavaScript. */
+function requestBody(values: Record<string, unknown> | FormData, page: string | undefined, anchor: FormAnchor | undefined): { type: string, body: string } {
+  if (!(values instanceof FormData)) {
+    return { type: "application/json", body: JSON.stringify({ ...values, ...(page ? { _page: page } : {}), ...(anchor ? { _anchor: anchor } : {}) }) }
+  }
+  const params = new URLSearchParams()
+  // Forms take text fields. A file input has no place in the stored JSON, so it is not sent.
+  for (const [key, value] of values) if (typeof value === "string") params.append(key, value)
+  if (page) params.set("_page", page)
+  if (anchor) params.set("_anchor", JSON.stringify(anchor))
+  return { type: "application/x-www-form-urlencoded", body: params.toString() }
+}
+
 /**
  * Sends the values of a form to its route. Returns `[undefined, { id }]`, or `[error]` where `error.issues` holds
- * the problem of each field for a 400.
+ * the problem of each field for a 400. Pass `FormData` to send the controls of a `<form>`: the server decodes them
+ * to the types of the schema, as it does for a post without JavaScript.
  */
-export async function submitForm(name: string, values: Record<string, unknown>, options: SubmitFormOptions = {}): Promise<[FormSubmitError, undefined] | [undefined, { id?: string }]> {
+export async function submitForm(name: string, values: Record<string, unknown> | FormData, options: SubmitFormOptions = {}): Promise<[FormSubmitError, undefined] | [undefined, { id?: string }]> {
   const here = (globalThis as { location?: { pathname: string, search: string } }).location
   const page = options.page ?? (here ? `${here.pathname}${here.search}` : undefined)
+  const request = requestBody(values, page, options.anchor)
   let response: Response
   try {
     response = await (options.fetch ?? fetch)(options.url ?? formRoute(name, options.base), {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ ...values, ...(page ? { _page: page } : {}), ...(options.anchor ? { _anchor: options.anchor } : {}) }),
+      headers: { "content-type": request.type, accept: "application/json" },
+      body: request.body,
       ...(options.signal ? { signal: options.signal } : {}),
     })
   }
   catch (error) {
-    return [new FormSubmitError(error instanceof Error ? error.message : "The message could not be sent.", 0), undefined]
+    return [formSubmitError(error instanceof Error ? error.message : "The message could not be sent.", 0), undefined]
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (response.ok) {
@@ -78,5 +112,5 @@ export async function submitForm(name: string, values: Record<string, unknown>, 
     return [undefined, typeof id === "string" ? { id } : {}]
   }
   const message: unknown = body && typeof body === "object" ? Reflect.get(body, "message") : undefined
-  return [new FormSubmitError(typeof message === "string" ? message : `The form answered ${response.status}.`, response.status, readIssues(body)), undefined]
+  return [formSubmitError(typeof message === "string" ? message : `The form answered ${response.status}.`, response.status, readIssues(body)), undefined]
 }

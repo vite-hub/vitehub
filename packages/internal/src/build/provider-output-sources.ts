@@ -5,10 +5,8 @@ import { tmpdir } from "node:os"
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { build } from "esbuild"
-
 import { createImportPath } from "./paths.ts"
-import { maskLiterals, scanModule } from "./scan-module.ts"
+import { maskLiterals, scanModule, walk } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -96,7 +94,48 @@ export async function rebasePublishedProviderSourceLinks(
   await visit(stagedSourcesDir)
 }
 
-/** Copies durable generated sources into deployment artifacts and rewrites their serialized runtime location. */
+/** Lists the existing published source paths that `contents` names, in every form that the rewrite reads. */
+function referencedProviderSourcePaths(contents: string, publishedSourcesDir: string): string[] {
+  const prefixes = [
+    { decode: (path: string) => path, prefix: publishedSourcesDir },
+    { decode: (path: string) => decodeURIComponent(path.split(/[?#]/, 1)[0]!), prefix: pathToFileURL(publishedSourcesDir).href },
+  ]
+  const literals: string[] = []
+  walk(scanModule(contents).program, (node) => {
+    if (node.type === "Literal" && typeof node.value === "string") literals.push(node.value)
+    // Only the first quasi names a known path when code appends a computed suffix.
+    if (node.type === "TemplateLiteral") {
+      const prefix = node.quasis[0]?.value.cooked
+      if (prefix !== null && prefix !== undefined) literals.push(prefix)
+    }
+  })
+  const references = new Set<string>()
+  for (const literal of literals) {
+    for (const { decode, prefix } of prefixes) {
+      for (let index = literal.indexOf(prefix); index !== -1; index = literal.indexOf(prefix, index + prefix.length)) {
+        const suffix = literal.slice(index + prefix.length)
+        if (suffix && !/^[\\/]/.test(suffix)) continue
+        const reference = resolve(publishedSourcesDir, ...decode(suffix).split(/[\\/]+/).filter(Boolean))
+        if (pathContains(publishedSourcesDir, reference) && existsSync(reference)) references.add(reference)
+      }
+    }
+  }
+  return [...references].filter(reference => ![...references].some(parent => parent !== reference && pathContains(parent, reference)))
+}
+
+/** Dotenv files (`.env*`, Wrangler `.dev.vars*`), registry credentials, and Wrangler state hold local secrets. */
+const localSecretFile = /^(?:\.env|\.dev\.vars)(?:\..*)?$|^\.(?:netrc|npmrc|wrangler)$/
+
+/** A retained snapshot and a deployment never receive local secret files, even inside a directory that the code names. */
+function isLocalSecretFile(path: string): boolean {
+  return localSecretFile.test(basename(path))
+}
+
+/**
+ * Copies the durable generated sources that deployment files name into deployment artifacts and rewrites their
+ * serialized runtime location. The deployment files are complete bundles, so a source that they do not name is not
+ * copied: the retained snapshot holds the whole project root, with local files that must not be deployed.
+ */
 export async function publishProviderSourcesToDeploymentOutputs(options: {
   destinations: ProviderOutputSourceDestination[]
   publishedSourcesDir: string
@@ -106,11 +145,17 @@ export async function publishProviderSourcesToDeploymentOutputs(options: {
     options.signal?.throwIfAborted()
     await rm(destination.sourcesDir, { force: true, recursive: true })
     if (!existsSync(options.publishedSourcesDir)) return
-    await mkdir(dirname(destination.sourcesDir), { recursive: true })
-    await cp(options.publishedSourcesDir, destination.sourcesDir, { recursive: true })
-    await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
-    await Promise.all(destination.files.map(async (file) => {
-      const contents = await readFile(file, "utf8")
+    const files = await Promise.all(destination.files.map(async file => ({ contents: await readFile(file, "utf8"), file })))
+    const references = new Set(files.flatMap(({ contents }) => referencedProviderSourcePaths(contents, options.publishedSourcesDir)))
+    for (const reference of references) {
+      const target = resolve(destination.sourcesDir, relative(options.publishedSourcesDir, reference))
+      await mkdir(dirname(target), { recursive: true })
+      await cp(reference, target, { filter: source => !isLocalSecretFile(source), recursive: true })
+    }
+    if (existsSync(destination.sourcesDir)) {
+      await rebasePublishedProviderSourceLinks(destination.sourcesDir, options.publishedSourcesDir, destination.sourcesDir)
+    }
+    await Promise.all(files.map(async ({ contents, file }) => {
       const rewritten = rewriteRetainedProviderSourcePaths(contents, options.publishedSourcesDir, destination.runtimeSourcesDir)
       if (rewritten !== contents) await writeFile(file, rewritten, { encoding: "utf8", signal: options.signal })
     }))
@@ -576,6 +621,8 @@ function traceComputedModuleSources(
 async function traceImportedSources(paths: string[], root: string, configuredRoots: string[]): Promise<Set<string>> {
   const entries = paths.filter(path => traceableSourceExtensions.has(extname(path)))
   if (!entries.length) return new Set()
+  // Load esbuild when a trace runs, so code that only imports these helpers does not load it.
+  const { build } = await import("esbuild")
   const physicalRoot = realpathSync(root)
   const traceBuildVariants = [
     { platform: "node" as const },
@@ -1045,7 +1092,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     const stagedRoot = resolve(stagedContainer, relative(captureRoot, root))
     try {
       const shouldCopySource = (resolvedSource: string): boolean => {
-        if (pathContains(artifactDir, resolvedSource)) return false
+        if (pathContains(artifactDir, resolvedSource) || isLocalSecretFile(resolvedSource)) return false
         if (isTransientSourceDirectory(resolvedSource)
           && !requested.some(path => pathContains(resolvedSource, path) || pathContains(path, resolvedSource))) return false
         if (resolvedSource !== root
@@ -1105,7 +1152,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       for (const source of escapedMaterializedSources) {
         const retainedSource = resolve(stagedContainer, relative(captureRoot, source))
         await mkdir(dirname(retainedSource), { recursive: true })
-        await cp(realpathSync(source), retainedSource, { recursive: statSync(source).isDirectory() })
+        await cp(realpathSync(source), retainedSource, { filter: path => !isLocalSecretFile(path), recursive: statSync(source).isDirectory() })
       }
       for (const source of requestedSymlinks) {
         const retainedSource = resolve(stagedRoot, relative(root, source))

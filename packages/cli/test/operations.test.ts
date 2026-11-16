@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as v from "valibot"
@@ -321,6 +321,17 @@ describe("generated operation commands", () => {
       }
     })
 
+    it.each([
+      ["http://localhost:3000/_vitehub", "http://localhost:3000"],
+      ["https://app.example.com/base/_vitehub/agents/support", "https://app.example.com/base"],
+    ])("rejects the Console URL %s and names the app URL", async (url, app) => {
+      const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+      const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
+      expect(fetch).not.toHaveBeenCalled()
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(`CLI_R0003: --url is the app URL, not the Console URL. Pass --url ${app}.`)
+    })
+
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("signs calls to safe RPC URL %s, and sends no bearer token or cookie", async (url) => {
       const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
@@ -416,6 +427,15 @@ describe("generated operation commands", () => {
     expect(result.stderr).toContain("CLI_R0005: No dev server is running for /app.")
     expect(result.stderr).toContain("Fix: Start `vite dev`")
     expect(result.fetch).not.toHaveBeenCalled()
+  })
+
+  it("names the Nuxt project root, not its app/ Vite root, when no dev server is known", async () => {
+    const root = await project()
+    await mkdir(join(root, "app"))
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    const result = await run(["reports", "list", "acme"], { env: {}, root: join(root, "app") })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(`CLI_R0005: No dev server is running for ${root}.`)
   })
 
   it("calls the dev server that wrote .vitehub/dev-server.json for this project", async () => {

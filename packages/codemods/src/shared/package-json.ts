@@ -2,7 +2,9 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { CodemodError } from "../types.ts"
+import { subset, validRange } from "semver"
+
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { FileEdit } from "../types.ts"
 
@@ -42,6 +44,16 @@ export interface PackageJsonChange {
   remove: readonly string[]
   /** Packages to add at `^version` when no section lists them. */
   add: readonly string[]
+  /**
+   * Packages to add at a range, or to move into it, by name. A listed range that allows a version outside it becomes
+   * that range. A range the codemod cannot read stays as it is.
+   */
+  within?: Readonly<Record<string, string>>
+}
+
+/** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
+function outside(range: string, supported: string): boolean {
+  return validRange(range) !== null && !subset(range, supported, { includePrerelease: true })
 }
 
 /**
@@ -58,14 +70,14 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     manifest = JSON.parse(before)
   }
   catch (error) {
-    throw new CodemodError(`Cannot parse package.json: ${error instanceof Error ? error.message : String(error)}`)
+    throw codemodError(`Cannot parse package.json: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (!isRecord(manifest)) throw new CodemodError("package.json must contain an object.")
+  if (!isRecord(manifest)) throw codemodError("package.json must contain an object.")
   const range = `^${version}`
   let target: (typeof sections)[number] = "dependencies"
   for (const section of sections) {
     const dependencies = manifest[section]
-    if (dependencies !== undefined && !isDependencyMap(dependencies)) throw new CodemodError(`package.json ${section} must map names to version strings.`)
+    if (dependencies !== undefined && !isDependencyMap(dependencies)) throw codemodError(`package.json ${section} must map names to version strings.`)
     if (dependencies && change.remove.some(name => name in dependencies)) {
       target = section
       manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !change.remove.includes(name)))
@@ -78,6 +90,16 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     return isDependencyMap(map) && name in map
   })
   for (const name of change.add) if (!installed(name)) dependencies[name] = range
+  for (const [name, supported] of Object.entries(change.within ?? {})) {
+    if (!installed(name)) {
+      dependencies[name] = supported
+      continue
+    }
+    for (const section of sections) {
+      const map = section === target ? dependencies : manifest[section]
+      if (isDependencyMap(map) && typeof map[name] === "string" && outside(map[name], supported)) map[name] = supported
+    }
+  }
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`

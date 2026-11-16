@@ -9,8 +9,7 @@ icon: i-lucide-bot
 ---
 
 ::product-hero{tagline="Define an AI agent in one file, give it files and tools, and reach it from chat, Slack, or GitHub." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Web chat, HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, Gmail" channel-mode="builtin"}
-  :::agent-demo
-  :::
+  :hero-figure{name="agents"}
 ::
 
 ## Start here

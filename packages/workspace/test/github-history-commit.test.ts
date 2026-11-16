@@ -74,6 +74,15 @@ describe("GitHub history commit", () => {
     expect(collected).toEqual([...ids, baseSha])
   })
 
+  it("rejects draft branch and commit cursors on published history", async () => {
+    fake.commit("main", { "posts/a.md": "published" })
+    const target = history({ refs: aliases })
+    const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    for (const cursor of [`published:after:${aliases.draft}`, `published:after:${draft.id}`, draft.id]) {
+      await expect(target.list({ ref: "published", cursor })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    }
+  })
+
   it("rejects a stale ifHead before it writes", async () => {
     fake.commit("main", { "posts/a.md": "a" })
     const stale = fakeSha("stale")

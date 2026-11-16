@@ -1,0 +1,16 @@
+root-accessors: moved the accessor imports of 3 file(s) to the primitive roots
+Dry run: no files were written.
+
+Files to change (3):
+  server/agents/calories/agent.ts
+  server/api/meals/[id]/photo.get.ts
+  server/collections/meals.ts
+
+Manual follow-ups (0):
+  none
+
+Notes:
+  - `useDatabase(name)` throws `DATABASE_NOT_FOUND` for a name without a Database Definition.
+
+Next steps:
+  - Run your typecheck. The generated types in `.vitehub/types/` type the new imports after `vite dev` or `vitehub types prepare`.

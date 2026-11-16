@@ -110,6 +110,47 @@ async function withEnv<T>(env: Record<string, string>, callback: () => Promise<T
   }
 }
 
+// Sends one Vercel Queue v2beta delivery (binary mode, payload in the body) to a built consumer
+// function in a child process, and returns the markers that the consumer reported back.
+async function deliverVercelQueueMessage(consumerFile: string, topic: string, consumer: string, marker: string): Promise<string[]> {
+  const script = `
+import { createServer } from "node:http"
+import { pathToFileURL } from "node:url"
+const markers = []
+const callback = createServer((req, res) => {
+  let body = ""
+  req.on("data", chunk => body += chunk)
+  req.on("end", () => { markers.push(JSON.parse(body).marker); res.setHeader("content-type", "application/json"); res.end("{}") })
+})
+await new Promise(done => callback.listen(0, "127.0.0.1", done))
+const { default: handler } = await import(pathToFileURL(process.env.CONSUMER_FILE).href)
+const server = createServer(handler)
+await new Promise(done => server.listen(0, "127.0.0.1", done))
+await fetch(\`http://127.0.0.1:\${server.address().port}/\`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "ce-type": "com.vercel.queue.v2beta",
+    "ce-vqsqueuename": process.env.QUEUE_TOPIC,
+    "ce-vqsconsumergroup": process.env.QUEUE_CONSUMER,
+    "ce-vqsmessageid": "0-1",
+    "ce-vqsreceipthandle": "receipt-1",
+    "ce-vqsdeliverycount": "1",
+    "ce-vqsregion": "iad1",
+  },
+  body: JSON.stringify({ callbackUrl: \`http://127.0.0.1:\${callback.address().port}/api/tests/queue\`, email: "ava@example.com", marker: process.env.QUEUE_MARKER }),
+})
+console.log(JSON.stringify(markers))
+process.exit(0)
+`
+  // Acknowledging the message needs a Vercel OIDC token, so the delivery ends with an error after the handler ran.
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, CONSUMER_FILE: consumerFile, QUEUE_CONSUMER: consumer, QUEUE_MARKER: marker, QUEUE_TOPIC: topic, VERCEL_REGION: "iad1" },
+    maxBuffer: execMaxBuffer,
+  })
+  return JSON.parse(stdout.trim().split("\n").at(-1)!)
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -128,7 +169,7 @@ describe("unified vite e2e hosted outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-provision-")
     const env = readLiveSmokeStepEnv("Provision Cloudflare resources")
 
-    expect(env.VITEHUB_HOSTING).toBe("cloudflare")
+    expect(env.VITEHUB_HOST).toBe("cloudflare")
     expect(env.VITEHUB_VITE_MODE).toBe("e2e")
 
     await withEnv(env, async () => {
@@ -157,7 +198,7 @@ describe("unified vite e2e hosted outputs", () => {
         VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
         VITEHUB_D1_DATABASE_ID: "primary-d1-id",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
       maxBuffer: execMaxBuffer,
@@ -234,7 +275,7 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         VITEHUB_CLOUDFLARE_WORKER_NAME: "vitehub-playground-vite",
-        VITEHUB_HOSTING: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
         VITEHUB_VITE_MODE: "e2e",
       },
       maxBuffer: execMaxBuffer,
@@ -264,7 +305,7 @@ describe("unified vite e2e hosted outputs", () => {
       VITEHUB_CLOUDFLARE_WORKFLOW_NAME: `${prefix}-welcome`,
       VITEHUB_D1_ANALYTICS_DATABASE_NAME: `${prefix}-analytics`,
       VITEHUB_D1_DATABASE_NAME: `${prefix}-db`,
-      VITEHUB_HOSTING: "cloudflare",
+      VITEHUB_HOST: "cloudflare",
       VITEHUB_KV_NAMESPACE_NAME: `${prefix}-kv`,
       VITEHUB_QUEUE_NAME_PREFIX: `${prefix}-`,
       VITEHUB_VITE_MODE: "e2e",
@@ -321,7 +362,7 @@ describe("unified vite e2e hosted outputs", () => {
         TURSO_AUTH_TOKEN: "token",
         TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
         TURSO_DATABASE_URL: "libsql://db.example.turso.io",
-        VITEHUB_HOSTING: "vercel",
+        VITEHUB_HOST: "vercel",
         VITEHUB_VITE_MODE: "e2e",
         VITE_SANDBOX_PROJECT_ID: "project-id",
         VITE_SANDBOX_TEAM_ID: "team-id",
@@ -365,6 +406,8 @@ describe("unified vite e2e hosted outputs", () => {
       topic: "topic--77656c636f6d652d656d61696c",
       type: "queue/v2beta",
     })
+    const { consumer, topic } = vercelConsumerConfig.experimentalTriggers[0]
+    expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery"])
   }, 180_000)
 
   it("builds the env and chat playground modes", async () => {
@@ -406,7 +449,7 @@ describe("unified vite e2e hosted outputs", () => {
       cwd: rootDir,
       env: {
         ...process.env,
-        VITEHUB_HOSTING: "netlify",
+        VITEHUB_HOST: "netlify",
         VITEHUB_VITE_MODE: "chat",
       },
       maxBuffer: execMaxBuffer,

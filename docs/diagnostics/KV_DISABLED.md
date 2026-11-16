@@ -9,7 +9,7 @@ A `kv` call, such as `kv.get()`, throws `KV_DISABLED`. The runtime has a KV conf
 
 The `kv` helper reads the generated module `#vitehub/kv/config`. When that module exports `kv: false`, the first operation throws. The module exports `false` when:
 
-- The Vite config sets `kv: false` while `hubKv()` is registered. A top-level `kv` key replaces the options of `hubKv()`.
+- An app that uses `@vite-hub/kv` alone passes `false` to `hubKV()`.
 - A Nuxt app uses the `vite-hub/nuxt` module without `kv`. The module then writes a KV config with `kv: false`, because the Console and Agents bundle the KV operations in every app.
 
 The `kv.*` operations behind the Console KV section and the `vitehub kv` commands also report `KV_DISABLED` when the app has no KV store.
@@ -21,21 +21,21 @@ The `kv.*` operations behind the Console KV section and the `vitehub kv` command
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
    modules: ['vite-hub/nuxt'],
--  vitehub: { preset: 'node' },
-+  vitehub: { preset: 'node', kv: true },
+-  vitehub: { host: 'node' },
++  vitehub: { host: 'node', kv: true },
  })
 ```
 
-`kv: true` turns KV on with the default driver of the preset. Pass an object to select a driver or add named stores.
+`kv: true` turns KV on with the default driver of the host. Pass an object to select a driver or add named stores.
 
 ```diff [vite.config.ts]
  export default defineConfig({
-   plugins: [hubKv()],
--  kv: false,
+-  plugins: [vitehub({ host: 'node' })],
++  plugins: [vitehub({ host: 'node', kv: true })],
  })
 ```
 
-In a Vite app, remove `kv: false`, or replace it with a store config such as `kv: { driver: 'fs-lite' }`. With `vitehub()`, use `vitehub({ preset, kv: true })`.
+In a Vite app, set `kv` in `vitehub()` the same way, or set a store config such as `kv: { driver: 'fs-lite' }`. With `@vite-hub/kv` alone, call `hubKV()` without `false`.
 
 ## Check the fix
 

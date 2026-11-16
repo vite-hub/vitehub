@@ -43,7 +43,7 @@ The Database stores threads. Realtime shows who is on each page, with rooms in t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     database: true,
     realtime: { authority: 'memory' },
   },
@@ -62,7 +62,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -82,7 +82,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),

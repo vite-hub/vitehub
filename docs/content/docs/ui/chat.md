@@ -14,16 +14,16 @@ icon: i-lucide-message-circle-more
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { Chat } from "@vite-hub/ui";
+import { Chat } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { Chat } from "@vite-hub/ui";
+import { Chat } from "vite-hub/ui";
 ```
 
 ```vue
@@ -61,7 +61,7 @@ Pass the values from `useChat()`. The component never calls `sendMessage()`, `st
 ```vue [app/pages/chat.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import type { PromptInputSubmit } from "@vite-hub/ui";
+import type { PromptInputSubmit } from "vite-hub/ui";
 
 const { messages, status, sendMessage, stop } = useChat();
 const input = ref("");

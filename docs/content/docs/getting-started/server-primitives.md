@@ -86,7 +86,7 @@ lists the operations and the constraints each supports.
 
 ## Choose a host
 
-Your host sets the resources and limits behind an API. Pick a preset in
+Your host sets the resources and limits behind an API. Pick a host in
 [Build and deploy](/docs/getting-started/build-and-deploy), then read the
 feature's Hosts page. Check the generated bindings and resource identities
 before you connect production data.

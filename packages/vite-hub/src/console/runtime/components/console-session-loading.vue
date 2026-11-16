@@ -51,7 +51,7 @@ const emit = defineEmits<{
               @click="emit('toggleMaximized')"
             />
           </UTooltip>
-          <UTooltip text="Close details">
+          <UTooltip v-if="props.maximized" text="Close details">
             <UButton
               class="session-inspector__icon-button"
               icon="i-lucide-panel-right-close"

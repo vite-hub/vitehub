@@ -92,7 +92,7 @@ Tell the model when to use the Skill in the Agent Driver Instructions or determi
 2. Clear any `instruction-coverage:skill:<path>` entry in `warnings` with a `::skill{path="<path>"}` block.
 3. Remove the Skill file and check that the run fails before the model runs, with a Workspace path requirement error.
 
-To try this, enable the Workspace with `vitehub({ preset: 'node', agent: true, workspace: true })` (see [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace)). With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
+To try this, enable the Workspace with `vitehub({ host: 'node', agent: true, workspace: true })` (see [Workspace context](/docs/agents/workspace-context#add-a-read-only-workspace)). With the default Local Store, create `.vitehub/workspaces/support/skills/review/SKILL.md` and use this Agent:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'

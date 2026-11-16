@@ -1,6 +1,6 @@
 import type { CommentsDatabase } from "../operations-core/store.ts"
 
-/** The runtime Database registry of `@vite-hub/database/drizzle`, as the generated Nitro plugin passes it. */
+/** The runtime Database registry of `@vite-hub/database/runtime/registry`, as the generated Nitro plugin passes it. */
 export type CommentsDatabaseRegistry = Record<string, { db: CommentsDatabase } | undefined>
 
 /**

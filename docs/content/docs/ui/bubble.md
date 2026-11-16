@@ -15,16 +15,16 @@ icon: i-lucide-message-circle
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/bubble`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from "@vite-hub/ui";
+import { Bubble, BubbleContent, BubbleGroup, BubbleReactions } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { Bubble, BubbleContent, BubbleReactions } from "@vite-hub/ui";
+import { Bubble, BubbleContent, BubbleReactions } from "vite-hub/ui";
 ```
 
 ```vue
@@ -63,7 +63,7 @@ BubbleGroup
 - Reactions on the top or bottom edge, at the start or end.
 - A bubble fits its content, up to 80% of the container width.
 - `as` on `BubbleContent` renders a link or button with hover and focus styles.
-- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
+- Default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
 
 ## Variants
 

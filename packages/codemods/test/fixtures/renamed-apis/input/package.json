@@ -1,0 +1,12 @@
+{
+  "name": "renamed-apis-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "reset:settings": "vitehub kv del settings --yes"
+  },
+  "dependencies": {
+    "vite-hub": "0.0.0"
+  }
+}

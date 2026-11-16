@@ -42,7 +42,7 @@ Start with the app from [Installation](/docs/getting-started/installation). `vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -59,7 +59,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -77,7 +77,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -156,7 +156,7 @@ Vite blocks unknown host names, so add the tunnel domain to `server.allowedHosts
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -177,7 +177,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -196,7 +196,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -235,7 +235,7 @@ A quick tunnel gets a new URL on each start. Run `channels sync` again after a r
 
 ## Deploy the bot
 
-This example deploys the `node` preset to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+This example deploys the `node` host to your own server, behind an HTTPS reverse proxy. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -262,7 +262,7 @@ The webhook route also works off Node:
 - On Cloudflare, Agent State lives in a Durable Object. The Agent must answer in about 28 seconds, because Cloudflare stops background work after 30.
 - On Vercel and Netlify, set `VITEHUB_AGENT_STATE_URL` to a hosted libSQL database, because they reject `file:` URLs.
 
-See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those presets.
+See [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those hosts.
 
 ## Limits
 

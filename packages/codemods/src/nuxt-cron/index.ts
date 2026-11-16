@@ -8,11 +8,11 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
-import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, planPreset, useViteHubModule } from "../shared/config-editor.ts"
+import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, planHost, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, readNuxtConfig, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { CallExpression, File } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -167,20 +167,20 @@ function migrateJob(file: string, target: string, code: string, defaults: Module
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
-  if (!staticOptionsObject(config.root)) throw new CodemodError(`${config.fileName} has options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  if (!staticOptionsObject(config.root)) throw codemodError(`${config.fileName} has options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
   const optionsProperty = findProperty(config.root, "cron")
   const defaults: ModuleOptions = { jobsDir: "cron" }
   const inlineEntry = findModuleEntry(config, moduleName)?.inlineOptions
   for (const node of [optionsProperty?.value, inlineEntry]) {
     if (!node) continue
     const object = staticOptionsObject(node)
-    if (!object) throw new CodemodError(`${config.fileName} sets cron or inline nuxt-cron options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+    if (!object) throw codemodError(`${config.fileName} sets cron or inline nuxt-cron options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
     for (const property of object.properties) {
       if (property.type !== "ObjectProperty") continue
       const key = keyName(property.key, property.computed)
       const value = literalValue(property.value)
       if (key === "jobsDir") {
-        if (typeof value !== "string") throw new CodemodError(`${config.fileName} sets a computed cron jobsDir. Use a string literal, then run the codemod again.`)
+        if (typeof value !== "string") throw codemodError(`${config.fileName} sets a computed cron jobsDir. Use a string literal, then run the codemod again.`)
         defaults.jobsDir = value
       }
       if (key === "timeZone") defaults.timeZone = property.value
@@ -189,18 +189,18 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
   const jobsDirectory = posix.join("server", defaults.jobsDir)
   const files = (await glob(["**/*.{ts,js,mjs}"], { cwd: join(cwd, jobsDirectory) })).sort()
-  if (!files.length) throw new CodemodError(`${jobsDirectory} has no cron jobs, so there is nothing to migrate. Remove ${moduleName} by hand.`)
+  if (!files.length) throw codemodError(`${jobsDirectory} has no cron jobs, so there is nothing to migrate. Remove ${moduleName} by hand.`)
 
-  const preset = planPreset(config).preset
-  if (!preset) throw new CodemodError(`${config.fileName} has no statically known ViteHub preset. Set the effective vitehub.preset or inline module preset to a string literal, then run the codemod again.`)
-  if (preset === "deno") throw new CodemodError('The ViteHub "deno" preset cannot provide Schedule through the Nuxt integration. Keep nuxt-cron or compose an explicit Deno scheduling integration by hand.')
+  const host = planHost(config).host
+  if (!host) throw codemodError(`${config.fileName} has no statically known ViteHub host. Set the effective vitehub.host or inline module host to a string literal, then run the codemod again.`)
+  if (host === "deno") throw codemodError('The ViteHub "deno" host cannot provide Schedule through the Nuxt integration. Keep nuxt-cron or compose an explicit Deno scheduling integration by hand.')
   if (findViteHubOption(config, "schedule")) {
-    throw new CodemodError(`${config.fileName} already sets vitehub.schedule or inline module schedule options. Merge the Schedule options and move the cron jobs by hand.`)
+    throw codemodError(`${config.fileName} already sets vitehub.schedule or inline module schedule options. Merge the Schedule options and move the cron jobs by hand.`)
   }
-  const processDriver = preset === "node"
+  const processDriver = host === "node"
   const kv = findViteHubOption(config, "kv")
   if (processDriver && kv && literalValue(kv.value) === false) {
-    throw new CodemodError(`${config.fileName} disables KV, but the Schedule Process Runtime needs its default KV store. Set the effective vitehub.kv or inline module kv to true or configure a default store, then run the codemod again.`)
+    throw codemodError(`${config.fileName} disables KV, but the Schedule Process Runtime needs its default KV store. Set the effective vitehub.kv or inline module kv to true or configure a default store, then run the codemod again.`)
   }
   const schedulesDirectory = join(cwd, "server/schedules")
   const existingNames = new Set(listSourceFiles(schedulesDirectory).map(file => normalizePathDefinitionName(schedulesDirectory, file)))
@@ -228,7 +228,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     followUps.push(...job.followUps)
     if (job.migrated) migrated++
   }
-  if (!migrated) throw new CodemodError(`No cron job in ${jobsDirectory} could be migrated:\n${followUps.map(entry => `  ${entry.file}${entry.line ? `:${entry.line}` : ""} ${entry.message}`).join("\n")}`)
+  if (!migrated) throw codemodError(`No cron job in ${jobsDirectory} could be migrated:\n${followUps.map(entry => `  ${entry.file}${entry.line ? `:${entry.line}` : ""} ${entry.message}`).join("\n")}`)
   const kept = files.length - migrated
 
   const editor = new ConfigEditor(config)
@@ -243,7 +243,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const scheduleValue = processDriver ? `{ runtime: { driver: ${quoteString("process", style)} } }` : "true"
   // The Process Runtime records Schedule Runs in the default KV store, so it needs KV.
   const addKv = processDriver && !kv
-  const { preset: added, presetNote } = addViteHubOptions(editor, config, {
+  const { host: added, hostNote } = addViteHubOptions(editor, config, {
     options: [
       { key: "schedule", label: "the Schedule options", value: () => scheduleValue },
       ...(addKv ? [{ key: "kv", label: "the KV options", value: () => "true" }] : []),
@@ -255,7 +255,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const configCode = editor.output.toString()
   const lineOf = createLineResolver(configCode)
   const configFollowUps: FollowUp[] = []
-  if (presetNote) configFollowUps.push({ file: config.fileName, line: lineOf(["vitehub", "preset"]), message: presetNote })
+  if (hostNote) configFollowUps.push({ file: config.fileName, line: lineOf(["vitehub", "host"]), message: hostNote })
   if (!findModuleEntry(config, moduleName) && !kept) {
     configFollowUps.push({ file: config.fileName, message: `${config.fileName} adds ${moduleName} in a way the codemod cannot remove, such as a conditional spread. Remove it from modules by hand.` })
   }
@@ -265,14 +265,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const notes = [
     processDriver
       ? "On Node, the Process Runtime runs each Schedule in the server process, as nuxt-cron did. Run one server process or replica: the runtime does not lock across processes."
-      : `On ${preset}, the host runs each Schedule from its own cron, so jobs keep running on serverless hosts. Schedules run in UTC.`,
+      : `On ${host}, the host runs each Schedule from its own cron, so jobs keep running on serverless hosts. Schedules run in UTC.`,
     addKv
       ? "The Process Runtime records Schedule Runs in KV, so the codemod set vitehub.kv to true. On Node that stores them under .vitehub/data/kv. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs."
       : "Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.",
   ]
   if (kept) notes.push(`${moduleName} stays because ${kept} job${kept === 1 ? "" : "s"} could not be moved. Remove it after the follow-ups.`)
   return {
-    summary: `moved ${migrated} cron job${migrated === 1 ? "" : "s"} from ${jobsDirectory} to server/schedules${added ? `, deployment preset "${added}"` : ""}.`,
+    summary: `moved ${migrated} cron job${migrated === 1 ? "" : "s"} from ${jobsDirectory} to server/schedules${added ? `, host "${added}"` : ""}.`,
     edits,
     followUps: [...configFollowUps, ...followUps],
     notes,

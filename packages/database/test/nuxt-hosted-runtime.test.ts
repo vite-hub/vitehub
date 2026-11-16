@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { hubDb } from "../src/nuxt.ts"
+import { hubDatabase } from "../src/nuxt.ts"
 
 describe("Nuxt hosted Database module preparation", () => {
   it.each([
@@ -24,7 +24,7 @@ describe("Nuxt hosted Database module preparation", () => {
       // Cloudflare needs a D1 resource for each Definition. Without one, the Vite build removes the hosted runtime.
       const cloudflare = provider === "cloudflare" ? `cloudflare: { databaseId: "db-id", databaseName: "db" },` : ""
       await writeFile(definition, `export default defineDatabase({ ${name === "default" ? "" : `name: ${JSON.stringify(name)},`} ${cloudflare} schema: {} })\n`)
-      await hubDb({ projectRoot: "service" })(undefined, {
+      await hubDatabase({ projectRoot: "service" })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => void | Promise<void>) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -32,7 +32,7 @@ describe("Nuxt hosted Database module preparation", () => {
       })
       const config = { alias: {} as Record<string, string>, preset }
       for (const hook of hooks) await hook(config)
-      const runtimeFile = config.alias["@vite-hub/database/drizzle"]!
+      const runtimeFile = config.alias["@vite-hub/database/runtime/registry"]!
       expect(runtimeFile).toBe(join(projectRoot, `.vitehub/database/${provider}-runtime.mjs`))
       const runtime = await readFile(runtimeFile, "utf8")
       expect(runtime).toContain("createHostedDrizzleDb(")
@@ -45,11 +45,11 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(schema).toContain("databaseDefinition.schema")
       await expect(readFile(config.alias["#vitehub/database/definition-defaults"]!, "utf8")).resolves.toContain("export default")
 
-      const explicit = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" }, preset }
+      const explicit = { alias: { "@vite-hub/database/runtime/registry": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" }, preset }
       for (const hook of hooks) await hook(explicit)
       // Without a remote libSQL URL, the hosted Definition runtime reaches D1 only.
       expect(explicit.alias).toEqual({
-        "@vite-hub/database/drizzle": "/custom/database.mjs",
+        "@vite-hub/database/runtime/registry": "/custom/database.mjs",
         "#vitehub/database/definition-defaults": "/custom/defaults.mjs",
         "#vitehub/database/definition-runtime": expect.stringMatching(/\/runtime\/d1\.(?:js|ts)$/),
       })

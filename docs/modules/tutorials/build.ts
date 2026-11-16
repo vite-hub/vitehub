@@ -45,6 +45,13 @@ export function frameworkView(markdown: string, framework: Framework): string {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n");
   const out: string[] = [];
   for (let index = 0; index < lines.length; index++) {
+    const panel = /^(:{2,})framework\{name="([^"]+)"\}\s*$/.exec(lines[index]!);
+    if (panel) {
+      for (index++; index < lines.length && lines[index]!.trim() !== panel[1]; index++) {
+        if (panel[2] === framework) out.push(lines[index]!);
+      }
+      continue;
+    }
     const tabs = /^(:{2,})tabs\{[^}]*sync="framework"[^}]*\}\s*$/.exec(lines[index]!);
     if (!tabs) {
       out.push(lines[index]!);

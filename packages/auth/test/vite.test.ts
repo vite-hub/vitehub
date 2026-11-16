@@ -8,10 +8,12 @@ import { afterEach, describe, expect, it } from "vitest"
 import { createServer, mergeConfig, optimizeDeps, resolveConfig } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { AUTH_ABILITIES_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
+import { AUTH_ABILITIES_ID, AUTH_CLIENT_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
+const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-vite-"))
@@ -36,6 +38,10 @@ async function resolvePluginConfig(plugin: ReturnType<typeof hubAuth>, root: str
   await (plugin.configResolved as unknown as (config: { plugins: Array<{ name: string }>; root: string }) => Promise<void>)({ plugins, root })
 }
 
+function resolveAuthModule(plugin: ReturnType<typeof hubAuth>, id: string): string | undefined {
+  return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(id)
+}
+
 function resolveAuthDefinition(plugin: ReturnType<typeof hubAuth>): string | undefined {
   return (plugin.resolveId as { handler: (id: string) => string | undefined }).handler(AUTH_DEFINITION_ID)
 }
@@ -57,7 +63,7 @@ afterEach(async () => {
 })
 
 describe("hubAuth", () => {
-  it("preserves app rules when a non-linked Auth package is dependency-optimized", async () => {
+  it("loads app rules and client options in the browser when a non-linked Auth package is dependency-optimized", async () => {
     const root = await createTempProject()
     await writeAuth(root)
     await mkdir(join(root, "shared"))
@@ -71,17 +77,22 @@ describe("hubAuth", () => {
     for (const dependency of ["vue", "better-auth", "nostics"]) {
       await symlink(await realpath(join(packageRoot, "node_modules", dependency)), join(root, "node_modules", dependency), "dir")
     }
-    const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [hubAuth()], server: { watch: null } })
+    const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [hubAuth()], server: { host: "127.0.0.1", port: 0, watch: null } })
+    await server.listen()
     try {
       const metadata = await optimizeDeps(server.config, true)
       expect(metadata.optimized).not.toHaveProperty("@vite-hub/auth/vue")
       expect(Object.keys(metadata.optimized).some(id => id.includes("better-auth/vue"))).toBe(true)
       const entry = await server.transformRequest("/main.js")
       expect(entry?.code).toContain("/node_modules/@vite-hub/auth/dist/vue.js")
-      const vue = await server.transformRequest("/node_modules/@vite-hub/auth/dist/vue.js")
-      expect(vue?.code).toContain("/@id/__x00__#vitehub/auth/abilities")
-      const rules = await server.transformRequest("\0#vitehub/auth/abilities")
-      expect(rules?.code).toContain("/shared/abilities.ts")
+      const origin = server.resolvedUrls!.local[0]!
+      const vue = await (await fetch(new URL("/node_modules/@vite-hub/auth/dist/vue.js", origin))).text()
+      const virtualImports = [...vue.matchAll(/["'](\/@id\/[^"']+)["']/g)].map(match => match[1]!)
+      expect(virtualImports).toHaveLength(2)
+      const [rules, client] = await Promise.all(virtualImports.map(url => fetch(new URL(url, origin))))
+      expect([rules!.status, client!.status]).toEqual([200, 200])
+      expect(await rules!.text()).toContain("/shared/abilities.ts")
+      expect(await client!.text()).toContain("export default undefined")
       expect((await server.ssrLoadModule(AUTH_ABILITIES_ID)).default["app.rule"](null)).toBe(true)
     }
     finally {
@@ -94,8 +105,8 @@ describe("hubAuth", () => {
     const resolveFilter = (plugin.resolveId as { filter: { id: RegExp } }).filter.id
     const loadFilter = (plugin.load as { filter: { id: RegExp } }).filter.id
 
-    expect([AUTH_ABILITIES_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, "#vitehub/auth/other", "/app/server/auth.ts"].map(id => resolveFilter.test(id))).toEqual([true, true, true, false, false])
-    expect([`\0${AUTH_ABILITIES_ID}`, `\0${AUTH_DEFINITION_ID}`, `\0${AUTH_SERVER_ID}`, AUTH_SERVER_ID, "/app/server/auth.ts"].map(id => loadFilter.test(id))).toEqual([true, true, true, false, false])
+    expect([AUTH_ABILITIES_ID, AUTH_CLIENT_ID, AUTH_DEFINITION_ID, AUTH_SERVER_ID, "#vitehub/auth/other", "/app/server/auth.ts"].map(id => resolveFilter.test(id))).toEqual([true, true, true, true, false, false])
+    expect([RESOLVED_AUTH_ABILITIES_ID, RESOLVED_AUTH_CLIENT_ID, `\0${AUTH_DEFINITION_ID}`, `\0${AUTH_SERVER_ID}`, `\0${AUTH_ABILITIES_ID}`, AUTH_SERVER_ID, "/app/server/auth.ts"].map(id => loadFilter.test(id))).toEqual([true, true, true, true, false, false, false])
   })
 
   it("serves a stable virtual Auth Definition module", async () => {
@@ -125,7 +136,7 @@ describe("hubAuth", () => {
     await resolvePluginConfig(plugin, root)
 
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
-    expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
+    expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
@@ -142,8 +153,8 @@ describe("hubAuth", () => {
     const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler
     const load = (plugin.load as { handler: (id: string) => string | undefined }).handler
 
-    expect(resolveId(AUTH_ABILITIES_ID)).toBe(`\0${AUTH_ABILITIES_ID}`)
-    expect(load(`\0${AUTH_ABILITIES_ID}`)).toBe(`export { default } from ${JSON.stringify(abilities)}\n`)
+    expect(resolveId(AUTH_ABILITIES_ID)).toBe(RESOLVED_AUTH_ABILITIES_ID)
+    expect(load(RESOLVED_AUTH_ABILITIES_ID)).toBe(`export { default } from ${JSON.stringify(abilities)}\n`)
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default; abilities: typeof import(\"../../shared/abilities.js\").default }")
   })
@@ -191,14 +202,14 @@ describe("hubAuth", () => {
     await writeAuth(withoutRules)
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, withoutRules)
-    expect((plugin.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_ABILITIES_ID}`)).toBe("export default {}\n")
+    expect((plugin.load as { handler: (id: string) => string | undefined }).handler(RESOLVED_AUTH_ABILITIES_ID)).toBe("export default {}\n")
 
     const withoutAuth = await createTempProject()
     await mkdir(join(withoutAuth, "shared"), { recursive: true })
     await writeFile(join(withoutAuth, "shared", "abilities.ts"), "export default {}\n")
     const unused = hubAuth()
     await resolvePluginConfig(unused, withoutAuth)
-    expect((unused.load as { handler: (id: string) => string | undefined }).handler(`\0${AUTH_ABILITIES_ID}`)).toBe("export default {}\n")
+    expect((unused.load as { handler: (id: string) => string | undefined }).handler(RESOLVED_AUTH_ABILITIES_ID)).toBe("export default {}\n")
   })
 
   it("writes generated files at the project root when Vite runs from app/", async () => {
@@ -302,6 +313,48 @@ describe("hubAuth", () => {
     expect(diagnosticsFor([join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")])).toEqual([])
   }, 120_000)
 
+  it("serves the app's auth.client.ts as the default client's options and registers its type", async () => {
+    const root = await createTempProject()
+    const appRoot = join(root, "app")
+    await writeFile(join(root, "package.json"), "{}")
+    await writeAuth(root)
+    const client = join(appRoot, "auth.client.ts")
+    await mkdir(appRoot)
+    await writeFile(client, "import { defineAuthClient } from '@vite-hub/auth/vue'\nexport default defineAuthClient({ plugins: [] })\n")
+
+    const plugin = hubAuth()
+    // Nuxt runs Vite from `app/`.
+    await resolvePluginConfig(plugin, appRoot)
+
+    expect(resolveAuthModule(plugin, AUTH_CLIENT_ID)).toBe(client)
+    const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
+    expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default; client: typeof import(\"../../app/auth.client.js\").default }")
+  })
+
+  it("keeps the Vue client out of dependency prebundling when the app has auth.client.ts", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const config = (plugin: ReturnType<typeof hubAuth>) => (plugin.config as (config: { root: string }) => { optimizeDeps?: unknown })({ root })
+
+    await writeFile(join(root, "auth.client.ts"), "export default {}\n")
+    // Vite prebundles without the plugin's resolveId, so `#vitehub/auth/client` would load the empty fallback in dev.
+    // Vite excludes the subpaths of an excluded package, such as `vite-hub/auth/vue`.
+    expect(config(hubAuth()).optimizeDeps).toEqual({ exclude: ["@vite-hub/auth", "vite-hub/auth"], include: ["@vite-hub/auth > better-auth/vue"] })
+  })
+
+  it.each([[{}], [false] as const])("serves no client options without auth.client.ts or with Auth %j", async (options) => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    if (options === false) await writeFile(join(root, "auth.client.ts"), "export default {}\n")
+
+    const plugin = hubAuth(options)
+    await resolvePluginConfig(plugin, root)
+
+    expect(resolveAuthModule(plugin, AUTH_CLIENT_ID)).toBe(RESOLVED_AUTH_CLIENT_ID)
+    expect((plugin.load as { handler: (id: string) => string | undefined }).handler(RESOLVED_AUTH_CLIENT_ID)).toBe("export default undefined\n")
+    await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.not.toContain("client:")
+  })
+
   it("connects the virtual Auth Definition to ViteHub Env when available", async () => {
     const root = await createTempProject()
     await writeAuth(root)
@@ -319,13 +372,15 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
   })
 
-  it("declares #vitehub/auth/server for a tsconfig that cannot resolve it, as a Nuxt 4 app's does", async () => {
+  it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {
     const root = await createTempProject()
     await writeAuth(root)
     await mkdir(join(root, "node_modules/@vite-hub/auth"), { recursive: true })
-    await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./server": { types: "./server.d.ts" } } }))
+    await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./internal/server": { types: "./internal/server.d.ts" }, "./server": { types: "./server.d.ts" } } }))
     await writeFile(join(root, "node_modules/@vite-hub/auth/index.d.ts"), "export declare function defineAuth<T>(options: T): T\n")
-    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "export declare const marker: \"ok\"\ndeclare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\n")
+    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "declare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\n")
+    await mkdir(join(root, "node_modules/@vite-hub/auth/internal"), { recursive: true })
+    await writeFile(join(root, "node_modules/@vite-hub/auth/internal/server.d.ts"), "export declare const marker: \"ok\"\n")
     await mkdir(join(root, ".vitehub/env"), { recursive: true })
     await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
 
@@ -489,6 +544,16 @@ describe("hubAuth", () => {
     await resolvePluginConfig(plugin, root)
     const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
     expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"))')
+  })
+
+  it("passes public routes to the generated access middleware", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { routes: ['/**'], public: ['/', '/api/auth/**'] },"])
+    const plugin = hubAuth()
+
+    await resolvePluginConfig(plugin, root)
+    const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/**"}], () => import("#vitehub/auth/server"), ["/","/api/auth/**"])')
   })
 
   it("uses custom Auth base paths for generated Nitro routes", async () => {

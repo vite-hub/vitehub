@@ -1,9 +1,11 @@
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
+import { findDefaultExportCall, objectProperties, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
+import { isDefinitionSourceFile } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
@@ -35,7 +37,7 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
     if (!existsSync(folder)) continue
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const extension = extensions.find(candidate => entry.name.endsWith(candidate))
-      if (!entry.isFile() || !extension || entry.name.endsWith(".d.ts")) continue
+      if (!entry.isFile() || !extension || !isDefinitionSourceFile(entry.name)) continue
       const name = entry.name.slice(0, -extension.length)
       const file = join(folder, entry.name)
       if (!namePattern.test(name)) {
@@ -48,6 +50,16 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
     }
   }
   return [...found.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+/** The forms that store submissions: each form that does not set `store: false` inline in `defineForm()`. */
+export function storingForms(forms: readonly DiscoveredForm[]): DiscoveredForm[] {
+  return forms.filter((form) => {
+    const options = findDefaultExportCall(scanModule(readFileSync(form.file, "utf8"), form.file), ["defineForm"])?.options
+    // A spread or dynamic key can replace an earlier explicit store value.
+    const store = options && objectProperties(options).findLast(property => property.key === "store" || property.key === undefined)
+    return store?.key !== "store" || !store.value || staticValue(store.value) !== false
+  })
 }
 
 /** Whether the app has a form. `vite-hub` uses it to turn the Database on. */
@@ -68,7 +80,10 @@ export interface FormsImports {
 
 export interface HubFormsOptions {
   imports?: Partial<FormsImports>
-  /** The app has a ViteHub Database: store submissions there. Without it, they stay in memory. */
+  /**
+   * The app has a ViteHub Database: store submissions there. Without it, a development server keeps them in memory, and a
+   * build fails when a form stores submissions.
+   */
   database?: boolean
   /** The app has ViteHub Email: send `notify.email` with it. */
   email?: boolean
@@ -80,14 +95,14 @@ const defaultImports: FormsImports = {
   runtime: "@vite-hub/forms/runtime",
   operations: "@vite-hub/forms/operations",
   database: "@vite-hub/forms/database",
-  databases: "@vite-hub/database/drizzle",
-  email: "@vite-hub/email/server",
+  databases: "@vite-hub/database/runtime/registry",
+  email: "@vite-hub/email",
   auth: "@vite-hub/auth/server",
   standard: "@vite-hub/runtime",
 }
 
 /** The generated `{ fetch }` route of every form. */
-export function renderFormsHandler(forms: readonly DiscoveredForm[], options: HubFormsOptions & { imports: FormsImports }): string {
+export function renderFormsHandler(forms: readonly DiscoveredForm[], options: HubFormsOptions & { imports: FormsImports, memory?: boolean }): string {
   const { imports } = options
   const lines = [
     `import { createFormsHandler } from ${JSON.stringify(imports.runtime)}`,
@@ -100,6 +115,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     "export default createFormsHandler({",
     `  forms: { ${forms.map((form, index) => `${JSON.stringify(form.name)}: form${index}`).join(", ")} },`,
     ...options.database && imports.databases ? ["  databases,"] : [],
+    ...options.memory ? ["  memory: true,"] : [],
     ...options.email && imports.email ? ["  sendEmail: message => email.send(message),"] : [],
     ...options.auth && imports.auth
       ? [
@@ -158,9 +174,17 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
           await rm(directory, { force: true, recursive: true })
           return
         }
+        const dev = env?.command === "serve"
+        if (!options.database && !dev) {
+          const root = projectRoot
+          const storing = storingForms(forms).map(form => relative(root, form.file))
+          if (storing.length) {
+            throw formsDiagnostics.FORMS_B0002({ message: `[vitehub] Forms keeps submissions in the Database, but the app has no Database, so a build would lose them. These forms store submissions: ${storing.join(", ")}. Turn on \`database\` in \`vitehub()\`, or set \`store: false\` with \`notify\` or \`onSubmit\` in each form.` })
+          }
+        }
         await mkdir(directory, { recursive: true })
         const handler = join(directory, "handler.mjs")
-        await writeFile(handler, renderFormsHandler(forms, { ...options, imports }))
+        await writeFile(handler, renderFormsHandler(forms, { ...options, imports, memory: !options.database && dev }))
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.

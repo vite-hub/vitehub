@@ -1,4 +1,4 @@
-resend: moved 3 emails.send() calls to email.send() with the ViteHub Resend driver, deployment preset "cloudflare".
+resend: moved 3 emails.send() calls to email.send() with the ViteHub Resend driver, host "cloudflare".
 Dry run: no files were written.
 
 Files to change (4):

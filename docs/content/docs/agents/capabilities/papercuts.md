@@ -7,7 +7,7 @@ navigation.group: Capabilities
 icon: i-lucide-bandage
 ---
 
-`papercuts()` gives the Agent a `report_papercut` tool for papercuts: small problems that do not stop the work, such as a failed step or missing guidance. The Agent reports one and continues the task.
+`papercuts()` gives the Agent a `report_papercut` tool for papercuts: problems outside the Agent's control that cost it work, such as a missing tool or wrong guidance. The Agent reports one and continues the task. When a report repeats a recent one, ViteHub counts it and tells the Agent the problem is already known.
 
 Your app stores reports through a `report` callback or a `backend`. No Server Primitive is wrapped. `cli: true` also adds a `papercuts report` Capability CLI command.
 
@@ -60,9 +60,56 @@ ViteHub trims the message and rejects it if empty or over 1,000 characters. It t
 Delivery:
 
 - **`report`**: awaited. A rejection fails the tool call.
-- **`backend`**: best effort, up to 3 tries with a delay that starts at 100 ms and doubles. If all fail, the call still succeeds. By default, it skips a message the same run already reported.
+- **`backend`**: best effort, up to 3 tries with a delay that starts at 100 ms and doubles. If all fail, the call still succeeds.
 
 With both set, `report` wins.
+
+### Repeated reports
+
+Agents often report the same problem many times, in different words, in one run and across runs. Before delivery, ViteHub compares the message with the papercuts that the same Agent reported in the last 7 days:
+
+1. It lowercases the message and removes URLs, UUIDs, hashes, numbers, directory prefixes, and common words.
+2. It compares the remaining terms with each known papercut. When at least 40% of the terms are shared (Dice similarity), the report is a repeat.
+3. A repeat increments the count of the known papercut. ViteHub does not call `report` or `backend`, and the tool returns:
+
+```json
+{
+  "id": "papercut_<id of the first report>",
+  "reported": false,
+  "count": 3,
+  "since": "2026-11-05T09:12:44.000Z",
+  "message": "Already known: 3 reports since 2026-11-05. Do not report it again. Continue the task."
+}
+```
+
+A new report returns `{ id, reported: true }`. When delivery of a new report fails, ViteHub forgets it, so the next similar report is delivered.
+
+The default index is in memory, one for each `papercuts()` call, so it resets when the server restarts. To keep counts in your own store, pass a `PapercutIndex` as `dedupe`. To deliver every report, set `dedupe: false`.
+
+```ts
+import type { Papercut } from 'vite-hub/agent/capabilities'
+
+interface PapercutIndex {
+  /** Count the papercut against a recent similar report, or remember it as new with `count: 1`. */
+  record: (papercut: Papercut) => PapercutOccurrence | Promise<PapercutOccurrence>
+  /** Forget a new report that was not delivered. */
+  forget: (id: string) => void | Promise<void>
+  /** Known papercuts, most reported first. */
+  list: () => PapercutOccurrence[] | Promise<PapercutOccurrence[]>
+}
+
+interface PapercutOccurrence {
+  id: string // first report
+  message: string // first report
+  fingerprint: string // sorted normalized terms
+  agent?: string
+  count: number
+  firstReportedAt: string
+  lastReportedAt: string
+}
+```
+
+`createPapercutIndex({ windowMs, similarity, maxEntries })` creates the built-in index with other limits.
 
 ### Report contract
 
@@ -84,7 +131,7 @@ interface Papercut {
 ```
 
 Optional `title`, `description`, `severity`, `category`, `consoleUrl`, `sourceMetadata`, and `reproduction` fields serve custom backends.
-The tool returns only `{ id, reported: true }`. Telemetry records the owning `capability.id`, timing, and result, never the message.
+The tool returns `{ id, reported: true }`, or the repeat result above. Telemetry records the owning `capability.id`, timing, and result, never the message.
 
 ### Durable delivery
 
@@ -93,9 +140,11 @@ The tool returns only `{ id, reported: true }`. Telemetry records the owning `ca
 > [!NOTE]
 > Reports can repeat. De-duplicate by the delivery `uuid`, which is stable across tries.
 
-1. Pass `report: event => reporter.report(event)` to `papercuts()`.
+1. Pass `report: event => reporter.report(event)` and `dedupe: reporter.index` to `papercuts()`.
 2. Call `reporter.start()` when the server starts.
 3. Await `reporter.stop()` when the server shuts down.
+
+`reporter.status()` has `known`, the number of distinct papercuts, and `repeats`, the reports counted instead of delivered. For a digest, read `reporter.index.list()` on your own schedule. Each entry has the first message, its `count`, and when it was first and last reported. ViteHub does not send digests.
 
 ### Tell the Agent when to report
 
@@ -103,7 +152,7 @@ Add a Capability directive to the Driver Instructions so the model knows when to
 
 ```md [server/agents/support/instructions.md]
 ::capability{key="papercuts"}
-Report unexpected failures, stale or missing guidance, and wasted turns when they happen. Continue the user's task after a non-blocking report.
+Report a tool, command, or permission that failed outside your control, and guidance that is missing or wrong. Do not report your own mistakes or expected results. When the result says the problem is already known, do not report it again. Continue the user's task after a report.
 ::
 ```
 
@@ -145,7 +194,7 @@ With `cli: true`, compatible Drivers and the Agent Dev Loop get the `papercuts` 
 | `backend` | `PapercutBackend` | none | Best-effort target, such as `posthogPapercuts()`. Ignored when `report` is set. |
 | `retry.attempts` | `number` | `3` | Backend delivery attempts. |
 | `retry.delayMs` | `number` | `100` | First retry delay in milliseconds, doubled each retry. |
-| `dedupe` | `boolean` | `true` | Skip repeated backend messages in one run. |
+| `dedupe` | `boolean \| PapercutIndex` | `true` | Count repeats of a recent similar report instead of delivering them. `true` uses an in-memory index. |
 | `cli` | `boolean` | `false` | Add the `papercuts report <message>` CLI command. |
 
 ### `posthogPapercuts()` options

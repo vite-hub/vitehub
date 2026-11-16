@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // A block that has only an HTML renderer (annotate, comments, diff, quiz), drawn on the server by the docs parser.
 // `block` is its tag, so a page's styles can tell a diff from a screenshot without looking inside. A block inside a
-// paragraph is `inline`, and draws in a `span`, since a `div` would end the paragraph.
+// paragraph is `inline`, and draws in a `span`, since a `div` would end the paragraph. Both tags are written out, since
+// Vue's server renderer drops `v-html` on `<component :is>`.
 // The parser keeps source children for search. This component renders only `html`, so they do not appear twice.
 const props = defineProps<{ html: string, block?: string, blockProps?: Record<string, unknown>, inline?: boolean }>()
 const root = ref<HTMLElement>()
@@ -21,5 +22,6 @@ watch(() => props.html, runScripts, { flush: "post" })
 </script>
 
 <template>
-  <component :is="inline ? 'span' : 'div'" ref="root" class="comark-html" :data-block="block" v-html="html" />
+  <span v-if="inline" ref="root" class="comark-html" :data-block="block" v-html="html" />
+  <div v-else ref="root" class="comark-html" :data-block="block" v-html="html" />
 </template>

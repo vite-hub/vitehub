@@ -59,7 +59,7 @@ pnpm vitehub agent invocations cancel ainv_0123 --json
 ainv_0123 cancel requested, not enforced by run
 ```
 
-`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Use `--url`, `--server`, or `VITEHUB_DEV_SERVER_URL` when Vite is not on `http://localhost:5173`, and `--timeout` to change the timeout.
+`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--server`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. Use `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
 
 Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the endpoint returns `501`, and the command prints the reason and exits with status 1.
 
@@ -75,7 +75,7 @@ Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the
 
 ### Inspect and cancel on a deployed app
 
-Pass the deployed app URL with `--url` to list, show, follow, or cancel Invocations through its [Console](/docs/development/console). The Console must be on, and `cancel` also needs `invoke: true`, like the Console cancel button. The command does not load the project config, so a local config error cannot stop it.
+Pass the app URL with `--url` to list, show, follow, or cancel Invocations through its [Console](/docs/development/console). The Console must be on, and `cancel` also needs `invoke: true`, like the Console cancel button. The command does not load the project config, so a local config error cannot stop it.
 
 ```bash [Terminal]
 export VITEHUB_CONSOLE_PRIVATE_KEY_CI='<private key>'
@@ -83,11 +83,16 @@ pnpm vitehub agent invocations list --url https://app.example.com --status runni
 pnpm vitehub agent invocations show ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
+pnpm vitehub agent invocations undo ainv_0123 --change chg_… --url https://app.example.com
 ```
+
+`show` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
 
 Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [signs](/docs/development/console#sign-console-requests) it with the key in `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, a private key from `vitehub secret console-key`. The command signs as the key `<NAME>`. Set only one.
 
-A URL means the Console when its host is not `localhost`, or its path contains `/_vitehub`, such as `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs mean the dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
+`--url` is the app URL, as in every `vitehub` command: `https://app.example.com`, or `http://localhost:3000` for a local production build or a dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
+
+Two old forms still work until the next minor version, and print `AGENT_R1053`: a Console URL, such as `http://localhost:3000/_vitehub`, and a localhost URL with no Console, which the command reads as a local invocation endpoint, or as the dev server for `cancel`. Pass the app URL instead, or `--server` for the dev server.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 

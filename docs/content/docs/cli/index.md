@@ -55,6 +55,7 @@ Available namespaces:
   cms         Inspect the CMS roles and their permissions.
   database    Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
+  cache       List, read, and invalidate the entries of Nitro's cache, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
   rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
   env         Server Env inspection workflows.
@@ -63,9 +64,11 @@ Available namespaces:
   schedule    Run Static Schedule Definitions, start Schedules from the CLI, and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
+  durability  Show where each primitive of this Node server keeps its state: shared, on this host, or in this process.
   types       Generate ViteHub TypeScript declarations.
   i18n        Show translation coverage, and move translations to and from PO files.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -80,11 +83,14 @@ Available namespaces:
 | `vitehub remove` | Available | ViteHub CLI | Turn off features: edit the `vitehub()` options, delete unchanged starter Definitions, and uninstall packages that nothing else uses. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
-| `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
-| `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
-| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret and pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
-| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
+| `vitehub link` | Available | ViteHub CLI | Link the project to a project on a host in `.vitehub/link.json`. Each host is one target, and linking another host keeps the others. Does not load the project config. |
+| `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`, or only one host target with `--host`. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Create the missing host resources, build the app for the default host target, or the one of `--host`, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Loads the project config only after the deploy question, to read the Provision Steps. |
+| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. `--host` picks a target. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
+| `vitehub login` | Available | ViteHub CLI | Sign in to a ViteHub Console with the device flow and save an API key for this machine. `--console` names a self-hosted Console. Does not load the project config. |
+| `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
+| `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
@@ -111,14 +117,24 @@ Available namespaces:
 | `vitehub content delete` | Available | Content Package | Delete one draft after confirmation, pinned to its digest. The next publish deletes it from the site. |
 | `vitehub content restore` | Available | Content Package | Save the version of a document from `--revision` as its draft, pinned to the draft digest that it read. Publishes nothing. |
 | `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
+| `vitehub content previews` | Available | Content Package | Print pull request preview links as a Markdown comment, or create or update the comment with `comment --pr <n> --post`. See [Pull request previews](/docs/content/cli#pull-request-previews). |
 | `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
 | `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
+| `vitehub content head` | Available | Content Package | Show the commit that each `github()` Source serves, the rejected commit, the last webhook delivery, and what holds the head back. |
+| `vitehub content advance` | Available | Content Package | Move the head of a `github()` Source to the latest commit of its branch when every document parses and `content check` finds no error. Exits 1 when the head is held back. |
+| `vitehub content pin` | Available | Content Package | Serve one commit of a `github()` Source until `unpin`, for example to roll back. |
+| `vitehub content unpin` | Available | Content Package | Remove the pin of a `github()` Source and move to the latest valid commit. |
+| `vitehub content check` | Available | Content Package | Check frontmatter, links, titles, and descriptions of Content documents. With `--dir`, check a folder without an app. Exits 1 on errors. |
 | `vitehub cms roles` | Available | CMS Package | List each CMS role with the Content and Comments actions it allows. See [Roles and access](/docs/cms/access). |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub env diff` | Available | ViteHub CLI | Compare the env names of the last build with the variables of the linked host. Exits with `1` when a required name is missing. Does not load the project config. |
+| `vitehub env push` | Available | ViteHub CLI | Set the host variables of the build's env names from the shell and `.env.<stage>`, with the host CLI. Does not load the project config. |
+| `vitehub env pull` | Available | ViteHub CLI | With `--from console`, write the env values of a stage from a self-hosted Console to `.env.<stage>`, with mode `600`. Does not load the project config. |
+| `vitehub env status` | Available | Env Package | Ask a running app, such as a deployment, for the status of its Server Env, without values. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
@@ -128,13 +144,18 @@ Available namespaces:
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
+| `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
+| `vitehub migrate` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with every upgrade codemod of `@vite-hub/codemods` that applies. Usage: `vitehub migrate [dir] [--dry-run]`. `dir` defaults to the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv delete` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub cache list` | Available | ViteHub Framework | List the entries of Nitro's cache with group, name, size, and expiry. |
+| `vitehub cache get` | Available | ViteHub Framework | Print one cache entry and its value. |
+| `vitehub cache delete` | Available | ViteHub Framework | Invalidate one cache entry, or the entries under a prefix. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
@@ -154,6 +175,7 @@ Available namespaces:
 | `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
+| `vitehub durability list` | Available | ViteHub Framework | Show where each primitive of a Node server keeps its state (`shared`, `host`, or `process`), and the instance count. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vitehub agent usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |

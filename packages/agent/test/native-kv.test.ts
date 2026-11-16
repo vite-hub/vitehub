@@ -11,7 +11,7 @@ function storage() {
     kv: {
       get: async (key: string) => [null, values.get(key)],
       set: async (key: string, value: unknown) => { values.set(key, value); return [null] },
-      del: async (key: string) => { values.delete(key); return [null] },
+      delete: async (key: string) => { values.delete(key); return [null] },
     },
   }
   return { values, module }
@@ -22,7 +22,7 @@ it.each(["replacement", "removal"])("updates connector storage after KV %s, incl
   const { slack } = await import("../src/channels.ts")
   const first = storage()
   const second = storage()
-  // SAFETY: The connector uses only get, set and del from the KV module.
+  // SAFETY: The connector uses only get, set and delete from the KV module.
   installAgentKV(first.module as never)
   let sent = 0
   const postMessage = vi.fn(async () => ({ id: String(++sent) }))

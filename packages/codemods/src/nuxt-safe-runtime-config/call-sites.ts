@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
@@ -14,7 +15,7 @@ import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { EnvField } from "./fields.ts"
 
-const serverImport = "#vitehub/env/server"
+const serverImport = "vite-hub/env"
 const publicImport = "#vitehub/env/public"
 
 export interface CallSiteInput {
@@ -346,7 +347,7 @@ class BlockRewriter {
     const context = this.state.context
     const callLine = this.lineOf(call)
     if (context === "shared") {
-      this.follow(callLine, "useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from #vitehub/env/server in server code and usePublicEnv() from #vitehub/env/public elsewhere.")
+      this.follow(callLine, "useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from vite-hub/env in server code and usePublicEnv() from #vitehub/env/public elsewhere.")
       return undefined
     }
     const parent = ancestors.at(-1)
@@ -438,7 +439,7 @@ class BlockRewriter {
   /** Start of the expression that holds the config object in a read such as `config.public.x`. */
   private objectStart(read: Read): number {
     const first = read.members[0]
-    if (!first || (first.type !== "MemberExpression" && first.type !== "OptionalMemberExpression")) throw new TypeError("Expected a member read")
+    if (!first || (first.type !== "MemberExpression" && first.type !== "OptionalMemberExpression")) throw invariantError("the call-site scan collects only member reads, so the first member of a read is a member expression")
     return start(first.object)
   }
 
@@ -585,7 +586,7 @@ class BlockRewriter {
     }
     const label = target.kind === "field" ? pathLabel(target.field) : segments.join(".")
     const replacement = target.kind === "field" && target.field.section === "server" || target.kind === "server-group"
-      ? "useServerEnv() from #vitehub/env/server"
+      ? "useServerEnv() from vite-hub/env"
       : "usePublicEnv() from #vitehub/env/public"
     this.follow(lineNumber, `useRuntimeConfig() reads ${label}, which moved to Env and is no longer in runtimeConfig. Read it with ${replacement}.`)
   }

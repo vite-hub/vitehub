@@ -7,7 +7,7 @@
 
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
-Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
+Applications that install the `vite-hub` framework distribution can use `vite-hub/email` and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
 
 ## Requirements
 
@@ -48,7 +48,7 @@ Set `RESEND_API_KEY` in the server runtime environment. Keep provider credential
 Server code can now use the configured Runtime Helper:
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 
 const [error, sent] = await email.send({
   from: "hello@example.com",
@@ -58,6 +58,8 @@ const [error, sent] = await email.send({
 })
 if (error) throw error
 ```
+
+A message needs `text`, `html`, or both. ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
 
 `send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
@@ -70,7 +72,7 @@ The official [`email()` Agent Capability](https://vitehub.dev/docs/email/agent-c
 `renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, and fragments before Comark renders the HTML body.
 
 ```ts
-import { email } from "@vite-hub/email/server"
+import { email } from "@vite-hub/email"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
@@ -173,7 +175,7 @@ pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
 Application code can select its generated outbox identity through the public server export:
 
 ```ts
-import { emailOutboxRuntimeId } from "@vite-hub/email/server"
+import { emailOutboxRuntimeId } from "@vite-hub/email"
 import { listEmailOutbox, getEmailOutboxMessage, clearEmailOutbox } from "@vite-hub/email/runtime/console"
 
 const captured = listEmailOutbox(emailOutboxRuntimeId)

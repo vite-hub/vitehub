@@ -61,24 +61,53 @@ describe.each(Object.entries(factories))("%s KV clear", (_name, createStorage) =
   })
 })
 
-it("propagates a prefix enumeration failure without deleting keys", async () => {
-  const error = new Error("listing failed")
-  const driver = memoryDriver()
-  driver.getKeys = () => { throw error }
-  const removeItem = vi.spyOn(driver, "removeItem")
-  const storage = createKVStorage(driver)
-
-  await expect(storage.clear("users")).rejects.toBe(error)
-  expect(removeItem).not.toHaveBeenCalled()
-})
-
-it("propagates a prefix deletion failure", async () => {
+it("propagates a driver clear failure", async () => {
   const error = new Error("deletion failed")
   const driver = memoryDriver()
   const storage = createKVStorage(driver)
   await storage.setItem("users/alice", "alice")
-  driver.removeItem = () => { throw error }
+  driver.clear = () => { throw error }
 
   await expect(storage.clear("users")).rejects.toBe(error)
   await expect(storage.getItem("users/alice")).resolves.toBe("alice")
+})
+
+describe("a driver without clear()", () => {
+  function createDriver() {
+    const driver = memoryDriver()
+    delete driver.clear
+    return driver
+  }
+
+  it("removes only keys under the base", async () => {
+    const storage = createKVStorage(createDriver())
+    for (let index = 0; index < 250; index++) await storage.setItem(`users:${index}`, "value")
+    await storage.setItem("users-other:alice", "other")
+
+    await storage.clear("users")
+
+    await expect(storage.getKeys()).resolves.toEqual(["users-other:alice"])
+  })
+
+  it("propagates a prefix enumeration failure without deleting keys", async () => {
+    const error = new Error("listing failed")
+    const driver = createDriver()
+    driver.getKeys = () => { throw error }
+    const removeItem = vi.spyOn(driver, "removeItem")
+    const storage = createKVStorage(driver)
+
+    await expect(storage.clear("users")).rejects.toBe(error)
+    expect(removeItem).not.toHaveBeenCalled()
+  })
+
+  it("propagates a prefix deletion failure", async () => {
+    const error = new Error("deletion failed")
+    const driver = createDriver()
+    const storage = createKVStorage(driver)
+    await storage.setItem("users/alice", "alice")
+    driver.removeItem = () => { throw error }
+
+    await expect(storage.clear("users")).rejects.toBe(error)
+    await expect(storage.getItem("users/alice")).resolves.toBe("alice")
+  })
 })

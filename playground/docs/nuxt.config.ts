@@ -3,7 +3,7 @@ export default defineNuxtConfig({
     // Listed here so Nuxt installs its module dependencies, such as @nuxt/icon. A module that another module installs
     // with installModule() does not get them.
     "@nuxt/ui",
-    ["vite-hub/nuxt", { preset: "node", agent: true, connections: true, database: true, workflow: false, console: { auth: false } }],
+    ["vite-hub/nuxt", { host: "node", agent: true, connections: true, database: true, workflow: false, console: { auth: false } }],
     "@vite-hub/docs/nuxt",
   ],
   docs: {

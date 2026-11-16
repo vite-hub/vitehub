@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { resolveDurabilityModule } from "@vite-hub/internal/durability"
+import { sqliteUrlInput } from "@vite-hub/runtime/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -11,6 +13,8 @@ import { requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { Plugin } from "vite"
+import type { AgentInvocationsDurabilityInput } from "@vite-hub/agent/durability"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
 
@@ -38,19 +42,23 @@ export interface AgentInvocationsRenderOptions {
   libsql?: boolean
   /** The ViteHub project root of the default journal. Without it, the plugin installs no default journal. */
   projectRoot?: string
+  /** The `file:` Agent State URL that the default journal goes next to. See `agentJournalStateUrl()`. */
+  stateUrl?: string
 }
 
 export interface AgentInvocationsPluginOptions {
   /** Load the Database store, so `invocations: "database"` works in Agent Definitions. */
   database: boolean
   default?: AgentInvocationsDefault
-  /** The deployment preset. A production build for a host without a persistent filesystem warns about the local file. */
-  preset?: string
+  /** The deployment host. A production build for a host without a persistent filesystem warns about the local file. */
+  host?: string
   /** The D1 binding of the default Database Definition on Cloudflare. A production build stores the default journal there. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
+  /** The `file:` Agent State URL that the default journal goes next to. See `agentJournalStateUrl()`. */
+  stateUrl?: string
 }
 
-const presetsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
+const hostsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
 
 /**
  * Validates `agent.invocations.retention` before code generation. Only a local SQLite journal supports maxSize.
@@ -73,8 +81,8 @@ export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy 
 }
 
 /** A Worker cannot open a local file, so a Cloudflare production build rejects a `file:` journal URL instead of keeping records in memory. */
-export function assertAgentInvocationsUrl(preset: string | undefined, databaseUrl: string | undefined): void {
-  if (preset !== "cloudflare" || !databaseUrl || !/^file:/i.test(databaseUrl.trim())) return
+export function assertAgentInvocationsUrl(host: string | undefined, databaseUrl: string | undefined): void {
+  if (host !== "cloudflare" || !databaseUrl || !/^file:/i.test(databaseUrl.trim())) return
   throw viteHubErrorDiagnostics.VITE_HUB_B0021({ message: "[vitehub] agent.invocations.databaseUrl is a local file, which a Cloudflare Worker cannot open. Remove it to use the D1 binding of the default Database, or set a remote libSQL URL." })
 }
 
@@ -83,8 +91,8 @@ export function assertAgentInvocationsUrl(preset: string | undefined, databaseUr
  * A Cloudflare production build stores it in D1 or Worker memory unless `databaseUrl` selects libSQL. Development
  * keeps the local file. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` on such a Worker then throws `AGENT_R1036`.
  */
-export function defaultJournalNeedsLibsql(options: { build: boolean, databaseUrl?: string, preset?: string }): boolean {
-  return !options.build || options.preset !== "cloudflare" || Boolean(options.databaseUrl?.trim())
+export function defaultJournalNeedsLibsql(options: { build: boolean, databaseUrl?: string, host?: string }): boolean {
+  return !options.build || options.host !== "cloudflare" || Boolean(options.databaseUrl?.trim())
 }
 
 /** Render the Nitro plugin that installs the Database store loader and the app-wide journal before Agents run. */
@@ -94,6 +102,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
         `projectRoot: ${JSON.stringify(options.projectRoot)}`,
         ...(options.d1Binding ? [`d1: { binding: ${JSON.stringify(options.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }`] : []),
         ...(options.libsql === false ? [] : [`libsql: () => import(${JSON.stringify(agentInvocationsLibsqlModule)})`]),
+        ...(options.stateUrl ? [`stateUrl: ${JSON.stringify(options.stateUrl)}`] : []),
       ]
     : []
   const settings = [
@@ -125,16 +134,33 @@ export async function writeAgentInvocationsNitroPlugin(options: AgentInvocations
   return plugin
 }
 
+/** The journal store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
+function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined): AgentInvocationsDurabilityInput | undefined {
+  if (setting === false) return
+  if (setting === "memory" || (typeof setting === "object" && setting.store === "memory")) return { store: "memory" }
+  if (setting === "database") return { store: "database" }
+  if (typeof setting === "object" && setting.store === "database") return { store: "database", ...(setting.database ? { database: setting.database } : {}) }
+  if (d1Binding) return { store: "d1" }
+  const databaseUrl = typeof setting === "object" && "databaseUrl" in setting && typeof setting.databaseUrl === "string" ? setting.databaseUrl : undefined
+  return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : {}) }
+}
+
 /**
  * Register a generated Nitro plugin that installs the Agent Invocation journal before other plugins.
  * Without an `agent.invocations` store, it installs the default journal, with the Console on or off.
  */
-export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOptions): Plugin {
+export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOptions): Plugin & { vitehub: DurabilityPluginMetadata } {
   let d1Binding: string | undefined
   let libsql = true
   let localFileWarning: string | undefined
   return {
     name: "vite-hub/agent-invocations",
+    vitehub: {
+      durability: () => {
+        const input = journalDurabilityInput(options.default, d1Binding)
+        return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
+      },
+    },
     async config(config, environment) {
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
       const viteConfig = config as typeof config & { [VITEHUB_AGENT_JOURNAL_D1]?: { binding?: string }, [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }
@@ -150,10 +176,10 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
-        libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, preset: options.preset })
-        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
-        localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
-          ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
+        libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, host: options.host })
+        if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.host, setting?.databaseUrl)
+        localFileWarning = environment?.command === "build" && !setting?.databaseUrl && hostsWithoutPersistentFiles.has(options.host ?? "")
+          ? `[vitehub] Agent Invocation journal: the ${options.host} host has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
           : undefined
       }
       else {
@@ -161,7 +187,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
         libsql = true
         localFileWarning = undefined
       }
-      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot })
+      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
       // The Console plugin reads the app-wide journal while it loads, so this plugin loads first.
       kit.addPlugin(plugin, "start")

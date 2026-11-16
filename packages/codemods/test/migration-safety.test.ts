@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { runInNewContext } from "node:vm"
 
-import { env, resolveServerEnv, SecretEnv } from "@vite-hub/env"
+import { env, SecretEnv } from "@vite-hub/env"
+import { resolveServerEnv } from "@vite-hub/env/server"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { end, parseProgram, start } from "@vite-hub/internal/ast"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -266,7 +267,7 @@ describe("module list safety", () => {
   })
 })
 
-describe("deployment preset safety", () => {
+describe("host safety", () => {
   it.each(["process.env.NITRO_PRESET", "deploymentPreset", "selectPreset()"])("rejects nitro.preset: %s without writing files", async (preset) => {
     const files = {
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: ${preset} } })`,
@@ -280,18 +281,18 @@ describe("deployment preset safety", () => {
   })
 
   it.each([
-    "modules: ['nuxt-safe-runtime-config'], vitehub: { preset: 'cloudflare' }",
-    "modules: ['nuxt-safe-runtime-config', ['vite-hub/nuxt', { preset: 'cloudflare' }]]",
-  ])("keeps an explicit ViteHub preset with a dynamic Nitro preset: %s", async (options) => {
+    "modules: ['nuxt-safe-runtime-config'], vitehub: { host: 'cloudflare' }",
+    "modules: ['nuxt-safe-runtime-config', ['vite-hub/nuxt', { host: 'cloudflare' }]]",
+  ])("keeps an explicit ViteHub host with a dynamic Nitro preset: %s", async (options) => {
     const cwd = await app({
       "nuxt.config.ts": `export default defineNuxtConfig({ ${options}, safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: process.env.NITRO_PRESET } })`,
       ".env.example": "NUXT_PUBLIC_TITLE=site\n",
     })
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
     const edited = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
-    expect(edited).toContain("preset: 'cloudflare'")
+    expect(edited).toContain("host: 'cloudflare'")
     expect(edited).toContain("preset: process.env.NITRO_PRESET")
-    expect(edited).not.toContain("preset: 'node'")
+    expect(edited).not.toContain("host: 'node'")
   })
 })
 
@@ -367,15 +368,15 @@ describe("schema migration safety", () => {
     expect(edited.code).not.toContain("runtimeConfig")
   })
 
-  it.each(["string", "number", "boolean"])("migrates || fallbacks for %s to an Env source that skips empty values", async (type) => {
+  it.each(["string", "number", "boolean"])("migrates || fallbacks for %s to an Env source that treats empty values as unset", async (type) => {
     const fallback = type === "string" ? "'fallback'" : type === "number" ? "7" : "true"
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { value: process.env.SOURCE || ${fallback} } })` })
     const config = await readNuxtConfig(cwd)
     const plan = planFromJsonSchema({ jsonSchema: { type: "object", required: ["value"], properties: { value: { type } } }, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
     expect(plan.unmigrated).toEqual([])
-    expect(plan.fields[0]).toMatchObject({ skipEmpty: true, extraVariables: ["SOURCE"] })
+    expect(plan.fields[0]).toMatchObject({ extraVariables: ["SOURCE"] })
     const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set(["value"]) })
-    expect(edited.code).toContain("source: env.source(['NUXT_VALUE', 'SOURCE'], { skipEmpty: true })")
+    expect(edited.code).toContain("source: env.source(['NUXT_VALUE', 'SOURCE'])")
     const exported = parseProgram(edited.code).program.body.find(node => node.type === "ExportDefaultDeclaration")
     if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
     const migrated: { vitehub: { env: { server: EnvRuntimeConfigOptions } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })

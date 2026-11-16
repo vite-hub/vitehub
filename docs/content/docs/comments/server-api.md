@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options). |
+| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options) and [Use without ViteHub](/docs/comments#use-without-vitehub). |
 | `defineComments` from `vite-hub/comments` | Define Comments in `server/comments.ts`. Export the result as `comments`. |
 | `Comments`, `CommentThread`, `CommentMessage`, `CommentAnchor`, `CommentUser`, `CommentSubject`, `CommentsErrorCode` from `vite-hub/comments` | Types for the runtime, threads, messages, anchors, people, subjects, and error codes, shared with the browser client and comment operations. |
 | `defineCommentSubject` from `vite-hub/comments` | Your own subject kind, with its numbering scope. See [Comments in your own UI](/docs/comments/configure#comments-in-your-own-ui). |
@@ -18,9 +18,9 @@ icon: i-lucide-code-2
 | `normalizeCommentPage` from `vite-hub/comments` | The page key that Comments stores for a path. |
 | `installComments` from `vite-hub/comments/server` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it on the first Comments call. |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
 
-Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
+`@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
 
 ## `comments()` options
 
@@ -36,7 +36,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 | --- | --- | --- |
 | `authorize({ user, actor?, action, thread?, subject? })` | GitHub users who can push to the repository, and users of other sign-ins, may do everything. Guests only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
 | `identify({ event })` | On pages, the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github). Through the Console, the CLI, and MCP, the Console caller. | Return the request's user, with a string `id`, or `null`. `identify` and `authorize` then decide on every surface, instead of Console access. See [Use your own login](/docs/comments/configure#use-your-own-login). |
-| `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
+| `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. Any other value fails the build with `COMMENTS_B0004`. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `subjects` | `page` and `content` | More subject kinds, from `defineCommentSubject({ kind, scope, emptyBody?, link? })`. |
 | `people` | ViteHub Auth users, else authors of earlier comments | `{ search(query, limit), byIds(ids) }`: where `@` finds people. See [Mention people](/docs/comments/configure#mention-people). |
 | `canMention({ user, person, thread?, subject? })` | `person` may read the thread | Return `true` when `user` may mention `person` there. |
@@ -184,7 +184,7 @@ interface CommentsGitHubAccess {
 
 ### Anchors
 
-An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `@vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
+An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
 
 ```ts
 type CommentAnchor =
@@ -346,7 +346,7 @@ When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
 
-`connectRealtimeRoom(definition, documentId, options?)` from `@vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
+`connectRealtimeRoom(definition, documentId, options?)` from `vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 
 ## Generated output
 

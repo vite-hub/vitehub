@@ -12,16 +12,17 @@ export interface DeliverChannelOptions {
 type EmailAddress = string | { email: string, name?: string }
 type EmailAddressList = EmailAddress | readonly EmailAddress[]
 
-export interface TestEmailMessage {
+type EmailBody =
+  | { text: string, html?: string }
+  | { html: string, text?: string }
+
+export type TestEmailMessage = EmailBody & {
   from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
   bcc?: EmailAddressList
   replyTo?: EmailAddressList
   subject: string
-  preheader?: string
-  text?: string
-  html?: string
   headers?: Record<string, string>
   attachments?: readonly {
     filename: string
@@ -34,31 +35,7 @@ export interface TestEmailMessage {
   idempotencyKey?: string
   scheduledAt?: string | Date
   unsubscribe?: { url?: string, mailto?: string, oneClick?: boolean }
-  template?: { id?: string, alias?: string, variables?: Record<string, unknown>, locale?: string }
-  tracking?: { opens?: boolean, clicks?: boolean, unsubscribes?: boolean }
-  sandbox?: boolean
   metadata?: Record<string, string>
-  personalizations?: readonly {
-    to: EmailAddressList
-    cc?: EmailAddressList
-    bcc?: EmailAddressList
-    subject?: string
-    variables?: Record<string, unknown>
-    sendAt?: Date | string
-    customArgs?: Record<string, string>
-  }[]
-  amp?: string
-  dsn?: { notify?: readonly ("SUCCESS" | "FAILURE" | "DELAY" | "NEVER")[], ret?: "FULL" | "HDRS", envid?: string, orcpt?: string }
-  raw?: string | Uint8Array
-  react?: unknown
-  jsx?: unknown
-  mjml?: string
-  handlebars?: string
-  handlebarsVars?: Record<string, unknown>
-  liquid?: string
-  liquidVars?: Record<string, unknown>
-  locale?: string
-  stream?: string
 }
 
 export interface TestScheduleContext {

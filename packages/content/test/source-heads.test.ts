@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { format } from "node:util"
 import { memory, readArtifact } from "comark-content"
 import sqlite from "comark-content/database/sqlite-node"
 import sqlQuery from "comark-content/plugins/sql-query"
@@ -58,7 +59,7 @@ afterEach(async () => {
 
 /** One Content runtime, as one server instance would create it. */
 function server(options: Parameters<typeof defineContent>[0] = {}) {
-  const content = defineContent({ sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false, ...options })
+  const content = defineContent({ access: "public", sources: { docs: contentSource(github({ repo: "acme/docs", ref: "main" }), { url: "/:id" }) }, logger: false, ...options })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -72,9 +73,9 @@ function downloads() {
   return fake.requests.filter(request => /\/tarball\/|\/tar\.gz\//.test(request.path)).length
 }
 
-/** The warnings with a diagnostic code. */
+/** The warnings with a diagnostic code, as the console prints them, with the cause after the message. */
 function warned(code: string) {
-  return warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes(code))
+  return warn.mock.calls.map(args => format(...args)).filter(message => message.includes(code))
 }
 
 describe("content.sources", () => {
@@ -350,6 +351,10 @@ describe("content.sources", () => {
     vi.advanceTimersByTime(5_500)
     expect(await title(content, "/guide")).toBe("Guide")
     expect(warned("CONTENT_R0022")).toEqual([expect.stringContaining("KV is down")])
+    // The log passes the KV error to the console as the cause, so its stack is printed too.
+    const [, , cause] = warn.mock.calls.find(([, message]) => String(message).includes("CONTENT_R0022")) ?? []
+    expect(cause).toBeInstanceOf(Error)
+    expect(cause).toMatchObject({ message: "KV is down" })
     // Without the fallback to the served commit, the read would load the latest commit of the branch.
     expect(fake.head("main")).not.toBe(first)
   })
@@ -482,7 +487,7 @@ describe("commit cache", () => {
     expect(await title(content, "/intro")).toBe("Intro")
     expect(downloads()).toBe(1)
     const head = await content.sources.head("docs")
-    expect(head.cache).toEqual({ key: expect.stringMatching(new RegExp(`^content:[0-9a-f]{16}:${first}:docs$`)), hits: { memory: expect.any(Number), kv: 0 }, misses: 1 })
+    expect(head.cache).toEqual({ key: expect.stringMatching(new RegExp(`^content:[0-9a-f]{16}:${first}:docs$`)), hits: { memory: expect.any(Number), build: 0, kv: 0 }, misses: 1 })
     const [, stored] = await kv.get(head.cache.key!)
     expect(stored).toMatchObject({ name: "docs", data: expect.any(String) })
 
@@ -563,10 +568,10 @@ describe("commit cache", () => {
   it("keeps the Source prefix and schema in the cached commit", async () => {
     fake.commit("main", { "guide.md": page("Guide") })
     const docs = () => contentSource(github({ repo: "acme/docs", ref: "main" }), { prefix: "/docs" })
-    const content = defineContent({ sources: { docs: docs() }, logger: false })
+    const content = defineContent({ access: "public", sources: { docs: docs() }, logger: false })
     cleanup.push(() => content.dispose())
     expect((await content.get("/docs/guide"))?.data.title).toBe("Guide")
-    const cold = defineContent({ sources: { docs: docs() }, logger: false })
+    const cold = defineContent({ access: "public", sources: { docs: docs() }, logger: false })
     cleanup.push(() => cold.dispose())
     expect((await cold.get("/docs/guide"))?.data.title).toBe("Guide")
     expect((await cold.sources.head("docs")).cache).toMatchObject({ hits: { kv: 1 }, misses: 0 })

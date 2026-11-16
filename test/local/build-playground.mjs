@@ -31,7 +31,7 @@ export function buildPlayground(provider, { mode = "e2e" } = {}) {
   if (!(provider in PLACEHOLDERS)) {
     throw new Error(`[vitehub] Unknown provider "${provider}". Expected cloudflare | vercel.`)
   }
-  const env = { ...PLACEHOLDERS[provider], ...process.env, VITEHUB_HOSTING: provider, VITEHUB_VITE_MODE: mode }
+  const env = { ...PLACEHOLDERS[provider], ...process.env, VITEHUB_HOST: provider, VITEHUB_VITE_MODE: mode }
   const result = spawnSync("vp", ["build"], { cwd: resolve(repoRoot, "playground/vite"), env, stdio: "inherit" })
   if (result.status !== 0) {
     throw new Error(`[vitehub] playground build failed for provider "${provider}" (exit ${result.status}).`)

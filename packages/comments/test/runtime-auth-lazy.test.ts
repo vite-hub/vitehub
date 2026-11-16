@@ -12,6 +12,10 @@ vi.mock("@vite-hub/auth/server", () => {
   }
 })
 
+vi.mock("@vite-hub/auth/internal/server", () => ({
+  createAuthForRequest: () => { throw new Error("GitHub sign-in is not configured in this test.") },
+}))
+
 it("loads ViteHub Auth on the first Comments request that needs a user, not at startup", async () => {
   // The generated Comments plugin and route import these modules when the server starts.
   const [runtime, { commentsAuthSession, commentsAuthUsers }] = await Promise.all([import("../src/runtime/index.ts"), import("../src/runtime/auth.ts")])

@@ -67,7 +67,7 @@ Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, T
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: { channels: { simulate: true } } },
+  vitehub: { host: 'node', agent: { channels: { simulate: true } } },
 })
 ```
 :::
@@ -79,7 +79,7 @@ import { vitehub } from 'vite-hub'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } }), nitro()],
 })
 ```
 :::
@@ -90,7 +90,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: { channels: { simulate: true } } })],
+  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } })],
 })
 ```
 :::
@@ -264,7 +264,13 @@ import { defineChannel, webhook } from 'vite-hub/channels'
 import { ticketEvent } from './events'
 
 export default defineChannel({
-  adapter: webhook({ kind: 'tickets', path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] }),
+  adapter: webhook({
+    kind: 'tickets',
+    path: '/api/tickets/webhook',
+    aliases: ['/webhooks/tickets'],
+    signature: 'bearer',
+    secret: () => process.env.TICKETS_WEBHOOK_SECRET,
+  }),
   on: {
     webhook: defineChannelTrigger({
       input: ticketEvent,
@@ -297,6 +303,9 @@ export default defineChannel({
     path: '/api/airtable/webhook',
     durableState: true,
     stateScope: 'webhook:support:airtable:airtable:',
+    header: 'x-airtable-content-mac',
+    secret: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
   }),
   on: { /* ... */ },
 })
@@ -307,12 +316,26 @@ export default defineChannel({
 
 ### Verify a webhook signature
 
-Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHeader`, `secretToken`, and `signature` on a webhook registration of `channelAdapter()`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+Set `signature` and `secret` on the `webhook()` adapter, and `header` when the provider uses another header. On a webhook registration of `channelAdapter()`, set `secretHeader`, `secretToken`, and `signature`. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+Every webhook registration of `channelAdapter()` that ViteHub verifies must set `secretToken`, `secretHeader`, or `signature`, or set `secretToken: false` to accept unsigned requests. This covers the Channel's `webhooks` with `messages: false` and the `webhooks` of each trigger. `channelAdapter()` throws `AGENT_R1044` when a registration sets none of them, and the route answers `401` to such a registration. A chat Channel's Chat SDK adapter verifies its own message webhooks.
+
+`webhook()` needs both `signature` and `secret`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. To accept requests that anyone can send, set `secret: false` and no `signature`:
+
+```ts [server/channels/public-events.ts]
+import { defineChannel, webhook } from 'vite-hub/channels'
+
+export default defineChannel({
+  // Anyone who knows the URL can send events.
+  adapter: webhook({ secret: false }),
+  on: { /* ... */ },
+})
+```
 
 | `signature` | The header carries |
 | --- | --- |
-| Not set | The `secretToken` value itself. |
-| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
+| `'token'` on `webhook()`, not set on a registration | The secret itself, compared in constant time. Set `header`, such as `'x-gitlab-token'`. |
+| `'bearer'` | `Bearer <secret>`. The header defaults to `'authorization'`. |
 | `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
 | `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
 | `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
@@ -320,7 +343,7 @@ Set `signature`, `secret`, and `header` on the `webhook()` adapter, or `secretHe
 
 `github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` for a base64 key. An invalid base64 key fails verification.
 
-`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When `secretToken` gives no secret, the webhook answers `500` naming the Channel, so a missing secret never leaves the route open. Return `false` from `secretToken` to turn verification off.
+`bearer` compares the token in constant time, with a case-insensitive scheme. A missing header or wrong token answers `401`. When the secret function gives no secret, the webhook does not run the trigger: `bearer` answers `500` naming the Channel, and the other signatures answer `401`. A missing secret never leaves the route open. Return `false` from the secret function to turn verification off for that request.
 
 `secret` also accepts a Server Env secret (read from the server environment). ViteHub calls `unseal()` when it verifies the request:
 
@@ -332,7 +355,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -352,7 +375,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -371,7 +394,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -385,7 +408,7 @@ export default defineConfig({
 
 ```ts [server/channels/prefect.ts]
 import { defineChannel, webhook } from 'vite-hub/channels'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineChannel({
   adapter: webhook({
@@ -424,8 +447,9 @@ With durable webhook State (State that survives restarts, such as SQLite, libSQL
 - The stored request is removed when admission ends. If the process stops first, or admission ends in a 5xx, the next process replays it through the route at startup.
 - Replays check the signature again. A timestamped signature such as `stripe-sha256` is checked against the first arrival, so late replays still pass.
 - A request gets at most 3 admissions.
+- A second delivery of a request that is still being admitted gets `202` once the first delivery's copy is stored. If that copy is not stored within `ackTimeoutMs` of arrival, it gets a `503` with `retry-after`.
 
-The request is stored at `<scope>inbox:<id>`, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+The request is stored at `<scope>inbox:<id>` for one day, where the ID is the delivery header, such as `x-github-delivery`, or the SHA-256 of the body. Replay finds it through an hourly index list at `<scope>inbox-index:<hour>`, which holds only IDs and expires a day after its last entry. On shutdown, the queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
 ```ts [server/agents/support.ts] fragment
 webhooks: {
@@ -565,10 +589,11 @@ import { applyLabels, listEmails } from '../lib/mailbox'
 
 const email = v.object({ id: v.string(), subject: v.string() })
 
-// Keep history Collections out of server/collections. That directory is a public read model.
+// `route: false` keeps this history Collection server-only.
 const inbox = defineCollection(async ({ cursor, limit, query }) => {
   return await listEmails({ after: cursor, folder: query.folder, limit })
 }, {
+  route: false,
   cursor: message => message.id,
   cursorSchema: v.string(),
   querySchema: v.object({ folder: v.optional(v.picklist(['archive', 'inbox']), 'inbox') }),
@@ -615,7 +640,7 @@ Or call `replayChannel()` from trusted server code:
 
 ```ts [server/api/backfill.post.ts] fragment
 import { replayChannel } from 'vite-hub/agent/server'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import labeller from '../agents/labeller'
 
 export default defineEventHandler(async (event) => {
@@ -638,7 +663,7 @@ With the Console on, the Vite dev loop uses the Console's Invocation journal (th
 
 An authenticated replay uses the saved item, so it needs no provider signature. Live webhooks still verify signatures, and replayed input still passes the trigger schema.
 
-`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end.
+`replayChannel()` validates `query` with the Collection's schema and reads pages until `limit` or the end. It returns `processed`, `skipped`, and `failed` counts, one entry per item, and `nextCursor`, which you pass as `cursor` to continue, `null` at the end. A `completed` item has the Agent's answer in `output`, such as the result of a [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) question. `vitehub channels replay` does not get `output`, because it can quote the message.
 
 ### How replay avoids duplicate runs
 
@@ -863,6 +888,45 @@ export default defineAgent({
 - Queued reconciliation reloads the PR head, comments, and files before the Driver starts.
 - Eligibility is decided on acceptance and kept while the delivery waits.
 
+### When the branch moves or the pull request closes
+
+`concurrencyLimit: 1` stops two Agent runs from writing one branch, but a person can still push to it. ViteHub watches `pull_request` events for this even when `reconcile.events` leaves them out, such as `events: []`. `pullRequest.reconcile.headMoves` sets what happens after a push by an account that is not a bot:
+
+| Run state | `headMoves: 'notify'` (default) | `headMoves: 'cancel'` |
+| --- | --- | --- |
+| Queued | Starts on the new head. Its prompt names the commit and the person who pushed it, and tells the Agent to check that the request still applies before it edits or pushes. | Is dropped and does not start. |
+| Running | Continues. | Is cancelled. |
+
+```ts fragment
+reconcile: {
+  concurrencyLimit: 1,
+  events: [],
+  headMoves: 'cancel',
+  mentions: ['@agent'],
+}
+```
+
+A `closed` event, including a merge, always drops the queued runs of the pull request and cancels its running runs. `reopened` lets new runs start again.
+
+- Pushes from bot accounts, such as the Agent's own GitHub App, are ignored, the same as for `synchronize` runs.
+- A cancelled run is final. The queue does not retry it, and the Invocation shows as cancelled.
+- Cancellation reaches runs in the server process that receives the webhook. With one server process, that is every run. With more than one, a run on another process continues until it ends.
+- Queued runs need the Channel State of a durable webhook State, such as SQLite or libSQL, to see a push that came while they waited.
+- A run that is already running gets no notice with `notify`. Use `cancel` when a person and the Agent often push to the same branch.
+
+### Hosted CI
+
+`pullRequest.ci` tells the run what to do with hosted CI after it pushes:
+
+- `'report'` (default): the Agent runs the project's local checks before it pushes, then reports the hosted checks that are still pending and finishes. The run does not wait for CI.
+- `'wait'`: the Agent waits for hosted CI after it pushes and fixes failures until all checks pass. The run stays open, and its tokens and time are spent, until CI finishes. Use it only when the Agent must see green checks before it finishes, and set a [deadline](#deadline) that covers your CI time.
+
+```ts [server/agents/reviewer.ts] fragment
+github({ app: true, pullRequest: { ci: 'wait', reconcile: { mentions: ['@agent'] } } })
+```
+
+Reconcile does not start a run on a failed check. To fix CI failures, ask the Agent in a comment, or let a workflow post a comment on failure that `reconcile.comments` accepts. Mention triggers skip bot comments.
+
 ### Deadline
 
 Persisted inline webhook runs time out after 15 minutes by default. Set `messages.timeout` in milliseconds, such as `30 * 60_000`. A timeout on the persisted input wins. Values must be positive, finite, and at most `2_147_483_647`, or the default applies. Replayed or rehydrated input can change the deadline after setup, minus setup time already spent, but setup keeps the first deadline. The deadline includes Workspace preparation, and expiry cancels the Invocation.
@@ -871,9 +935,63 @@ Persisted inline webhook runs time out after 15 minutes by default. Set `message
 
 Review bots often post on every push, even with no findings. List those body prefixes in a trigger's `noFindingsReviews`, such as `['> ✅ No new issues found.']`, and matching `commented` reviews do not match the trigger. Set `debounceMs` to delay delivery: a later delivery from the same trigger and PR replaces a queued one, so a burst starts one Invocation. Other triggers' deliveries, such as mention commands, are never replaced, and running deliveries never stop.
 
+### Run code on pull request comments and reviews
+
+A `reconcile.triggers` entry always starts the Agent. To run your own code instead, such as a notification to another service, put a `githubPullRequestTrigger()` in the Channel's `triggers`. Its `invoke` gets the matched delivery and answers like every [Channel trigger](/docs/agents/triggers): `ignored(reason)` finishes without an Invocation, and `{ input }` starts the Agent on the pull request.
+
+```ts [server/agents/reviewer.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { github, githubPullRequestTrigger, ignored } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: true,
+      pullRequest: { reconcile: { events: [], mentions: ['@agent'] }, reply: false },
+      triggers: {
+        reviewFeedback: githubPullRequestTrigger({
+          events: ['pull_request_review', 'issue_comment'],
+          filter: { author: { allow: ['mona'] }, actor: { deny: ['mona', 'dependabot[bot]'] } },
+          reviewStates: ['commented', 'changes_requested', 'approved'],
+          debounceMs: 3 * 60_000,
+          async invoke(context, event) {
+            const response = await fetch('https://hooks.example.com/review-feedback', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'idempotency-key': event.deliveryId ?? '' },
+              body: JSON.stringify({
+                repository: event.pullRequest.repository,
+                number: event.pullRequest.number,
+                head: event.pullRequest.headSha,
+                reviewer: event.actor.login,
+                state: event.reviewState ?? 'commented',
+              }),
+            })
+            if (!response.ok) throw new Error(`Review hook answered ${response.status}`)
+            return ignored('notified')
+          },
+        }),
+      },
+    }),
+  },
+  driver: codexDriver({ permissions: 'allow-all' }),
+  workspace: { mode: 'write' },
+})
+```
+
+- `events`, `filter`, `reviewStates`, `mentions`, `noFindingsReviews`, and `debounceMs` match deliveries the same way as a `reconcile.triggers` entry. `reconcile.triggers` entries are tried first, then the Channel's pull request triggers in order. The first match wins.
+- `event` has the event name, `deliveryId`, `actor`, `body`, `url` of the comment or review, `reviewState`, the `pullRequest` (`repository`, `number`, `url`, `title`, `author`, `headSha`, `headRef`, `baseRef`), and the GitHub `payload`. A comment delivery has no head commit, so ViteHub reads `headSha` from GitHub before `invoke` runs.
+- `invoke` runs in the webhook queue of the pull request, after `debounceMs`. It does not mount the checkout and starts no Invocation unless it returns `{ input }`. Then the Agent runs as a reconcile run, with `input.prompt` as the request and `input.context` next to the pull request context.
+- Deliveries of one pull request share the queue slots of `reconcile.concurrencyLimit`, so `invoke` waits while an Agent run of the same pull request uses the slot.
+
+The trigger needs a webhook queue: a durable State, such as SQLite or libSQL, and the `x-github-delivery` header that GitHub sends. The queue stores the delivery before it answers GitHub, so a restart during `debounceMs` keeps it. A repeated or redelivered `x-github-delivery` does not run `invoke` again. If `invoke` throws or the process stops while it runs, the queue runs it again, up to three attempts. Send `event.deliveryId` as an idempotency key when a repeated call has an effect. Without `x-github-delivery`, such as a call from code, `invoke` runs before the answer.
+
+The Channel delivery record of each delivery shows what the trigger did. `trigger.started` names the `trigger`. `trigger.completed` has `outcome: 'response'` with the `status` and `reason` of the answer, or `outcome: 'input'` when the Agent starts. `trigger.failed` has the `error`. A delivery that no trigger matches ends with a `completed` event whose `reason` says why, such as `not_command` or `filtered`.
+
 ### Pull request Workspace
 
 The Workspace (the Agent's files) gets the PR checkout at `pullRequest.workspace.mount`. Without `workspace`, the mount is `portal`. `workspace: true` and `workspace: {}` mount at the root. `workspace: false` turns it off.
+
+With the Workspace, the Channel also adds the `vitehub-resolving-merge-conflicts` Skill at `.agents/skills/vitehub-resolving-merge-conflicts/SKILL.md`, and the prompt tells the Agent to use it for merge and rebase conflicts. Without the Workspace, the prompt gives the same steps in one line.
 
 The checkout uses the exact head SHA, so the PR loads before the Invocation starts. If that fails, the delivery fails with `AGENT_R0370` and the GitHub error, such as a connection reset, 401, or 404. With `workspace: false`, PR details are best effort: a failure leaves them out and sets `pullRequest.metadata.unavailable`.
 
@@ -887,7 +1005,7 @@ A GitHub Source is a repository declared as Workspace files. One with the same r
 
 A github() Channel with `app` gives its Agent forge access (GitHub repository access) for the PR checkout, the [`git()`](/docs/agents/capabilities/git) and `forge()` Capabilities, and provider Drivers, which get `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
 
-Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional `VITEHUB_GITHUB_INSTALLATION_ID`), else `VITEHUB_GITHUB_TOKEN`. Without a fixed installation, the App finds the repository's.
+Each repository gets one token: `app.token` if set, else an App installation token from the `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, optional [installations](/docs/forge/configure#installations)), else `VITEHUB_GITHUB_TOKEN`. The installation of the webhook delivery or `app.installationId` comes first.
 
 Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in [`@vite-hub/forge`](/docs/forge/server-api#public-imports), in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in arguments. They reach only the PR base and head repositories. A run without a PR, such as Teams or chat, gets credentials for the Agent's reachable GitHub Workspace Sources so it can clone them, and none without Sources. An Agent with two github() Channels that set `app` gets no forge access.
 
@@ -916,7 +1034,7 @@ export default defineAgent({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 :::
@@ -929,7 +1047,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
     nitro(),
   ],
 })
@@ -943,7 +1061,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
   ],
 })
 ```

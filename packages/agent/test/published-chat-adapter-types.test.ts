@@ -113,13 +113,13 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
           provider: apiKey({ origins: ["https://service.example"] }),
           access: { "agent:owner": { read: true } },
         }) },
-        store: createDatabaseConnectionStore({ db: drizzle({ client: db }), encryptionKey: new Uint8Array(32).fill(3) }),
+        store: createDatabaseConnectionStore({ db: drizzle({ client: db }), encryptionKeys: [new Uint8Array(32).fill(3)] }),
         fetch: async (_input, init) => {
           assert.equal(new Headers(init.headers).get("authorization"), "Bearer packed-secret");
           return new Response("ok");
         },
       });
-      await runtime.setKey({ name: "service", key: "packed-secret" });
+      await runtime.setKey({ actor: "user:owner", name: "service", key: "packed-secret" });
       for (const name of ["owner", "other"]) {
         const agent = defineAgent({ name, runtime: false, driver: { async run(context) {
           const access = agentEnvAccess(context.agentIdentity);

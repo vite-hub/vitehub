@@ -1,4 +1,4 @@
-export { disposeKVStores, kv } from "./runtime/storage.ts"
+export { disposeKVStores, getKVStoreDriver, kv } from "./runtime/storage.ts"
 export type {
   CloudflareKVStoreConfig,
   DatabaseKVStoreConfig,
@@ -9,15 +9,21 @@ export type {
   KVDriver,
   KVDriverAtomicOperations,
   KVDriversWith,
+  KVEntry,
   KVErrorCode,
   KVGetOptions,
   KVGetType,
   KVGetTypeMap,
   KVListOptions,
   KVListPage,
+  KVLock,
+  KVLockAcquisition,
+  KVLockErrorCode,
+  KVLockOptions,
+  KVLockRunResult,
   KVOptions,
   KVOperation,
-  KVSetIfAbsentOptions,
+  KVSetOptions,
   KVStorage,
   KVStoreConfig,
   KVStoreOptions,

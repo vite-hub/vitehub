@@ -135,6 +135,17 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it.each(kinds)("tells %s PR runs how to treat hosted CI", async kind => {
+    transport(kind)
+    const report = await harness(kind)
+    expect((await report.send(await request(kind, payload(kind), "report"))).status).toBe(200)
+    expect(report.inputs[0]?.prompt).toContain("- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.")
+    const wait = await harness(kind, { pullRequest: { ci: "wait", reconcile: { mentions: ["@review-bot"] } } })
+    expect((await wait.send(await request(kind, payload(kind), "wait"))).status).toBe(200)
+    expect(wait.inputs[0]?.prompt).toContain("- After you push, wait for hosted CI. Fix failures until all checks pass.")
+    expect(wait.inputs[0]?.prompt).not.toContain("Do not wait for hosted CI")
+  })
+
   it("uses the Gitea delivery header for Forgejo deduplication", async () => {
     transport("forgejo")
     const { run, send } = await harness("forgejo")
@@ -155,7 +166,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     vi.stubEnv(`${kind.toUpperCase()}_WEBHOOK_SECRET`, "")
     vi.stubEnv(`VITEHUB_${kind.toUpperCase()}_WEBHOOK_SECRET`, "")
     const { send } = await harness(kind, { webhookSecret: undefined })
-    await expect(send(await request(kind, payload(kind)))).rejects.toMatchObject({ code: "AGENT_R0946", message: expect.stringContaining(`${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET`) })
+    await expect(send(await request(kind, payload(kind)))).rejects.toMatchObject({ code: "AGENT_FORGE_WEBHOOK_SECRET_MISSING", message: expect.stringContaining(`${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET`) })
   })
 
   it.each(kinds)("does not run %s issue comments or unmatched mentions", async kind => {
@@ -455,7 +466,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     fixture.calls.splice(0)
     await effects.review(context({ body: "Please look", event: "COMMENT" }))
     expect(fixture.calls.filter(call => call.method === "POST").map(call => call.url)).toEqual([`${api.gitlab}${notes("gitlab")}`])
-    await expect(effects.review(context({ body: "Fix it", event: "REQUEST_CHANGES" }))).rejects.toMatchObject({ code: "AGENT_R0946" })
+    await expect(effects.review(context({ body: "Fix it", event: "REQUEST_CHANGES" }))).rejects.toMatchObject({ code: "AGENT_FORGE_REVIEW_UNSUPPORTED" })
   })
 
   it("keeps the GitHub default when reading existing pull request context", () => {

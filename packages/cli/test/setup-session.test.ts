@@ -23,7 +23,7 @@ function fakeRunner(): { calls: { command: string, args: readonly string[], cwd:
 }
 
 async function project(): Promise<string> {
-  return await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ preset: \"node\" }") })
+  return await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ host: \"node\" }") })
 }
 
 describe("createSetupSession", () => {
@@ -31,7 +31,7 @@ describe("createSetupSession", () => {
     const configFile = `${framework}.config.ts`
     const root = await createProject({
       "package.json": pnpmManifest,
-      [configFile]: framework === "vite" ? viteConfig('{ preset: "node" }') : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "node" }]] })\n',
+      [configFile]: framework === "vite" ? viteConfig('{ host: "node" }') : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { host: "node" }]] })\n',
     })
     const added = await runSetup(["add", "schedule", "--name", "nightly", "--option", "schedule.runtime.driver=process", "--yes", "--json"], root, {}, { spawn: fakePackageManager(root).spawn })
     expect(added.exitCode, added.stdout).toBe(0)
@@ -54,8 +54,8 @@ describe("createSetupSession", () => {
   it.each(["vite", "nuxt"])("preserves a %s config saved during uninstall", async (framework) => {
     const configFile = `${framework}.config.ts`
     const before = framework === "vite"
-      ? viteConfig('{ preset: "node", realtime: true }')
-      : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "node", realtime: true }]] })\n'
+      ? viteConfig('{ host: "node", realtime: true }')
+      : 'export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { host: "node", realtime: true }]] })\n'
     const edited = `${before}\n// Saved while uninstall runs.\n`
     const root = await createProject({
       "package.json": JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", dependencies: { "@vite-hub/realtime": "1.0.0" } }),
@@ -77,7 +77,7 @@ describe("createSetupSession", () => {
   })
 
   it("keeps the restart-triggering config when uninstall fails", async () => {
-    const before = viteConfig('{ preset: "node", realtime: true }')
+    const before = viteConfig('{ host: "node", realtime: true }')
     const root = await createProject({
       "package.json": JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", dependencies: { "@vite-hub/realtime": "1.0.0" } }),
       "vite.config.ts": before,
@@ -126,7 +126,7 @@ describe("createSetupSession", () => {
     const root = await project()
     const session = createSetupSession({ env: {}, root, run: fakeRunner().run })
     const planned = await session.plan({ action: "add", features: ["kv"] })
-    const edited = viteConfig("{ preset: \"node\", queue: true }")
+    const edited = viteConfig("{ host: \"node\", queue: true }")
     await writeFile(join(root, "vite.config.ts"), edited)
 
     const stale = await session.apply(planned.body.planId)
@@ -150,7 +150,7 @@ describe("createSetupSession", () => {
   })
 
   it("runs the package manager with an argument array in the project root and streams its output", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ preset: \"node\" }") })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ host: \"node\" }") })
     const runner = fakeRunner()
     const output: string[] = []
     const session = createSetupSession({ env: {}, root, run: runner.run })
@@ -164,7 +164,7 @@ describe("createSetupSession", () => {
   })
 
   it("plans and applies remove", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ preset: \"node\", kv: true }") })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ host: \"node\", kv: true }") })
     const session = createSetupSession({ env: {}, root, run: fakeRunner().run })
     const planned = await session.plan({ action: "remove", features: ["kv"] })
     const cli = await runSetup<Record<string, unknown>>(["remove", "kv", "--dry-run", "--json"], root)
@@ -177,7 +177,7 @@ describe("createSetupSession", () => {
   })
 
   it("answers the input that a feature needs, as the CLI does", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ preset: \"vercel\" }") })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ host: \"vercel\" }") })
     const session = createSetupSession({ env: {}, root, run: fakeRunner().run })
     const result = await session.plan({ action: "add", features: ["email"] })
     expect(result.exitCode).toBe(2)

@@ -60,7 +60,7 @@ describe("pure vite-hub facades", () => {
     const pairs: Array<[string, () => Promise<object>, () => Promise<object>]> = [
       ["vite-hub/agent", () => import("../src/agent.ts"), () => import("@vite-hub/agent")],
       ["vite-hub/agent/capabilities", () => import("../src/agent/capabilities.ts"), () => import("@vite-hub/agent/capabilities")],
-      ["vite-hub/runtime/h3", () => import("../src/runtime/h3.ts"), () => import("@vite-hub/runtime/h3")],
+      ["vite-hub/runtime", () => import("../src/runtime.ts"), () => import("@vite-hub/runtime")],
       ["vite-hub/source", () => import("../src/source.ts"), () => import("@vite-hub/source")],
       ["vite-hub/source/drizzle", () => import("../src/source/drizzle.ts"), () => import("@vite-hub/source/drizzle")],
       ["vite-hub/source/server", () => import("../src/source/server.ts"), () => import("@vite-hub/source/server")],

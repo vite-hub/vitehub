@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { createDocsManifest } from "../src/manifest.ts"
 import { docsRedirectProblems, docsRedirects } from "../src/redirects.ts"
 
-const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
+const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 
 describe("docsRedirects", () => {
   it("reads exact redirects, as a string or as an object, including external targets", () => {
@@ -75,8 +75,8 @@ describe("docsRedirectProblems", () => {
     ])
   })
 
-  it("checks targets inside sections on a site whose docs base is /", () => {
-    const root = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content/docs"), base: "/" })
+  it("checks targets inside sections on a site whose docs base is /", async () => {
+    const root = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content/docs"), base: "/" })
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/kv/removed" }])).toHaveLength(1)
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/playground" }])).toEqual([])
   })

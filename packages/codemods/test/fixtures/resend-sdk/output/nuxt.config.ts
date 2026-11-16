@@ -6,7 +6,7 @@ export default defineNuxtConfig({
     resendApiKey: process.env.MAIL_KEY,
   },
   vitehub: {
-    preset: "node",
+    host: "node",
     email: {
       driver: "resend",
       options: { apiKey: env({ secret: true, source: env.source(["RESEND_API_KEY", "NUXT_RESEND_API_KEY", "MAIL_KEY"]) }) },

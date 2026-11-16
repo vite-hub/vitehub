@@ -16,11 +16,14 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
   getAndDeleteItem?<T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
+  getMany<T = unknown>(keys: readonly string[], options?: unknown): Promise<(T | null)[]>
   incrementItem?(key: string, ttl: number): Promise<number>
   listKeys(options: KVListOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>
+  setMany(entries: readonly { key: string, value: unknown }[], options?: unknown): Promise<void>
   setIfAbsentItem?<T = unknown>(key: string, value: T, ttl?: number): Promise<boolean>
 }
 
@@ -40,18 +43,28 @@ function isPrimitive(value: unknown) {
 }
 
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
-function serializeValue(value: unknown, operation = "setIfAbsent"): string {
+function serializeValue(value: unknown, operation: "deleteIfEquals" | "setIfAbsent" = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
-  if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.del() to remove a key.`)
+  if (value === undefined) throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "missing" })
   if (isPrimitive(value)) return String(value)
-  if (Array.isArray(value)) return JSON.stringify(value)
+  if (Array.isArray(value)) return serializeJSONValue(value, operation)
   if (value && typeof value === "object") {
     const prototype: unknown = Object.getPrototypeOf(value)
-    if (prototype === null || prototype === Object.prototype) return JSON.stringify(value)
+    if (prototype === null || prototype === Object.prototype) return serializeJSONValue(value, operation)
     const toJSON: unknown = Reflect.get(value, "toJSON")
     if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
   }
-  throw new TypeError("KV cannot serialize this value.")
+  throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
+}
+
+function serializeJSONValue(value: unknown, operation: "deleteIfEquals" | "setIfAbsent"): string {
+  try {
+    const serialized = JSON.stringify(value)
+    if (serialized !== undefined) return serialized
+  } catch {
+    throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
+  }
+  throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
 }
 
 /** The line that `vite dev` prints when a store uses real data. Only `vite dev` resolves a store with `remote: true`. */

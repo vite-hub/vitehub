@@ -23,19 +23,19 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { preset: 'node', agent: true, connections: true, database: true }],
-    '@vite-hub/docs/nuxt',
+    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
+    'vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
 })
 ```
 
-For Cloudflare Workers, use `preset: 'cloudflare'` instead of `'node'`.
+For Cloudflare Workers, use `host: 'cloudflare'` instead of `'node'`.
 
 Add the Agent. It answers from the pages in `content/`:
 
 ```ts [server/agents/docs/agent.ts]
-import { docsAssistant } from '@vite-hub/docs/assistant'
+import { docsAssistant } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({ extends: docsAssistant, workspace: {} })
@@ -106,7 +106,7 @@ Each request sends the open page's path. The server accepts only a plain path, s
 ## Customize
 
 ```ts [server/agents/docs.ts]
-import { docsAssistant, docsRateLimit } from '@vite-hub/docs/assistant'
+import { docsAssistant, docsRateLimit } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 import { openai } from 'vite-hub/gateways'
 import { glob } from 'vite-hub/workspace'

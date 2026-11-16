@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink } from 'node:fs/promises'
+import { invariant } from '@vite-hub/internal/invariant'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
@@ -101,7 +103,7 @@ async function resolveSandboxTaskViteContext(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
   const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
-  const hosting = normalizeHosting(resolveHostPreset({ hosting: userConfig.preset, nitro })) || undefined
+  const hosting = normalizeHosting(resolveHostPreset({ nitro })) || undefined
   const config = options === false
     ? false
     : hasDefinitions
@@ -187,16 +189,18 @@ function createSandboxTaskRuntimeFacadeContents(
   file: string,
   runtimeConfig: AgentSandboxTaskConfig | false,
   registryFile: string,
-  providerLoaderFile?: string,
+  development: boolean,
+  providerLoaderImport?: string,
 ) {
   return [
     `import sandboxTaskRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    ...(providerLoaderFile
-      ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(createImportPath(file, providerLoaderFile))}`]
+    ...(providerLoaderImport
+      ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(providerLoaderImport)}`]
       : []),
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
+    `setSandboxTaskRuntimeDevelopment(${development})`,
     'setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)',
     '',
     'export default sandboxTaskRegistry',
@@ -229,10 +233,30 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
   return aliases
 }
 
+// A file outside the runtime generations keeps one real path for the whole dev session. Replace it in one step,
+// because the active generation imports it.
+async function writeStableSandboxTaskRuntimeFile(
+  file: string,
+  contents: string,
+  lease: SandboxTaskRuntimeGenerationLease,
+) {
+  if (await readFile(file, 'utf8').catch(() => undefined) === contents)
+    return
+  const staged = `${file}.${randomUUID()}.tmp`
+  await writeFile(staged, contents, 'utf8')
+  try {
+    await lease.assertOwned()
+    await rename(staged, file)
+  }
+  finally {
+    await rm(staged, { force: true })
+  }
+}
+
 async function writeSandboxTaskArtifacts(
   rootDir: string,
   plan: FeatureRuntimePlan,
-  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  createFacadeContents: (file: string, registryFile: string, providerLoaderImport?: string) => string,
   platform = process.platform,
 ) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox-task')
@@ -248,7 +272,7 @@ async function writeSandboxTaskArtifacts(
 
 async function writeSandboxTaskArtifactsLocked(
   plan: FeatureRuntimePlan,
-  createFacadeContents: (file: string, registryFile: string, providerLoaderFile?: string) => string,
+  createFacadeContents: (file: string, registryFile: string, providerLoaderImport?: string) => string,
   generatedDir: string,
   platform: NodeJS.Platform,
   lease: SandboxTaskRuntimeGenerationLease,
@@ -270,29 +294,37 @@ async function writeSandboxTaskArtifactsLocked(
   try {
     for (const artifact of plan.artifacts || []) {
       const stableDst = resolve(generatedDir, artifact.filename)
-      const relativePath = stableDst.slice(runtimeDir.length + 1)
-      const dst = resolve(generationDir, relativePath)
+      const dst = stableDst.startsWith(`${runtimeDir}/`)
+        ? resolve(generationDir, stableDst.slice(runtimeDir.length + 1))
+        : stableDst
       const contents = artifact.contents ?? await artifact.getContents?.(emitted, { dst, stableDst })
-      if (typeof contents !== 'string')
-        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0043({ message: `[vitehub] Sandbox generated artifact "${artifact.key}" did not return contents.` })
+      invariant(typeof contents === 'string', `the Sandbox Task plan artifact "${artifact.key}" returns string contents`)
 
       emitted.set(artifact.key, { ...artifact, contents, dst, stableDst })
     }
 
     if (typeTemplate)
       await writeFileIfChanged(resolve(generationDir, typeTemplate.filename.replace(/^runtime\//, '')), typeTemplate.contents)
-    for (const artifact of emitted.values())
-      await writeFileIfChanged(artifact.dst, artifact.contents)
+    for (const artifact of emitted.values()) {
+      if (artifact.dst === artifact.stableDst)
+        await writeStableSandboxTaskRuntimeFile(artifact.dst, artifact.contents, lease)
+      else
+        await writeFileIfChanged(artifact.dst, artifact.contents)
+    }
     const generationFacadeFile = resolve(generationDir, 'sandbox-task.mjs')
     const activeFacadeFile = resolveSandboxTaskRuntimeFacadeImportBase(runtimeDir, generationFacadeFile, platform)
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
-    if (!registryArtifact)
-      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0044({ message: '[vitehub] Sandbox runtime plan did not emit a registry artifact.' })
+    invariant(registryArtifact, 'the Sandbox Task feature adds the registry artifact and its alias to the plan')
     const providerLoaderArtifact = emitted.get('sandbox-task-provider-loader')
+    // The facade loads from the generation folder or through the `runtime` link. An absolute path reaches the
+    // provider loader from both. On Windows the facade is a copy in the `runtime` folder.
+    const providerLoaderImport = providerLoaderArtifact && (platform === 'win32'
+      ? createImportPath(activeFacadeFile, providerLoaderArtifact.dst)
+      : providerLoaderArtifact.dst)
     await writeFileIfChanged(
       generationFacadeFile,
       markSandboxTaskRuntimeGeneration(
-        createFacadeContents(activeFacadeFile, registryArtifact.dst, providerLoaderArtifact?.dst),
+        createFacadeContents(activeFacadeFile, registryArtifact.dst, providerLoaderImport),
         generationDir,
       ),
     )
@@ -471,11 +503,12 @@ export async function prepareSandboxTaskRuntime(options: {
   const emitted = await writeSandboxTaskArtifacts(
     rootDir,
     plan,
-    (file, registryFile, providerLoaderFile) => createSandboxTaskRuntimeFacadeContents(
+    (file, registryFile, providerLoaderImport) => createSandboxTaskRuntimeFacadeContents(
       file,
       context.runtimeConfig.sandboxTask,
       registryFile,
-      providerLoaderFile,
+      context.command === 'serve',
+      providerLoaderImport,
     ),
     options.platform,
   )

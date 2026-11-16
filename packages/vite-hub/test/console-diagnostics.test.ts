@@ -36,6 +36,7 @@ const codes = [
   "CONSOLE_SIGNATURE_STALE",
   "CONSOLE_TICKET_INVALID",
   "CONSOLE_TICKET_MISMATCH",
+  "CONSOLE_TICKET_NO_PERSON",
   "CONSOLE_TICKET_STORE_MISSING",
   "CONSOLE_UNAVAILABLE",
 ] as const satisfies readonly ConsoleDiagnosticCode[]
@@ -95,6 +96,8 @@ describe("Console diagnostic catalog", () => {
   it("rejects unknown codes", () => {
     expect(isConsoleDiagnosticCode("CONNECTION_FORBIDDEN")).toBe(false)
     expect(isConsoleDiagnosticCode(undefined)).toBe(false)
+    // The registry's own `is` guard is not a code.
+    expect(isConsoleDiagnosticCode("is")).toBe(false)
   })
 })
 

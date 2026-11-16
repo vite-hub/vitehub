@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { kvInferredStoreNotice, normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
+import { kvInferredStoreNotice, kvRedisEnvWarning, normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
 import { configureCloudflareKV } from "../src/integrations/cloudflare.ts"
 
 describe("normalizeKVOptions", () => {
@@ -47,6 +47,19 @@ describe("normalizeKVOptions", () => {
     expect(normalizeKVOptions({ driver: "redis", base: "app/kv" }, { env: {} })?.store).toMatchObject({ base: "app:kv" })
   })
 
+  it("gives every Upstash store its own prefix, and never an empty one", () => {
+    expect(normalizeKVOptions({ stores: {
+      default: { driver: "upstash" },
+      cache: { driver: "upstash", base: " " },
+      sessions: { driver: "upstash", base: "app/sessions" },
+    } }, { env: {} })?.stores).toMatchObject({
+      cache: { base: "vitehub:kv:cache" },
+      default: { base: "vitehub:kv:default" },
+      sessions: { base: "app:sessions" },
+    })
+    expect(normalizeKVOptions(undefined, { env: {}, hosting: "vercel" })?.store).toMatchObject({ base: "vitehub:kv:default" })
+  })
+
   it("resolves explicit redis and database stores, with a runtime URL and a namespace per store", () => {
     expect(normalizeKVOptions({ stores: {
       default: { driver: "redis" },
@@ -86,6 +99,41 @@ describe("kvInferredStoreNotice", () => {
 
   it("says nothing for an explicit store", () => {
     expect(kvInferredStoreNotice("default", { base: "vitehub:kv:default", driver: "redis", url: "env:REDIS_URL" })).toBeUndefined()
+  })
+})
+
+describe("kvRedisEnvWarning", () => {
+  const redisEnv = { REDIS_URL: "redis://localhost:6379" }
+
+  it("names REDIS_URL and the fix when a Node build infers fs-lite or the Database", () => {
+    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "node-server" })).toBe(
+      "[vitehub] The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses fs-lite in .vitehub/data/kv. To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.",
+    )
+    expect(kvRedisEnvWarning({}, { env: redisEnv, hosting: "", postgresDatabase: true })).toContain("uses the table vitehub_kv of the Database \"default\"")
+  })
+
+  it("gives the KV_URL fix for a TLS KV_URL", () => {
+    const warning = kvRedisEnvWarning(undefined, { env: { KV_URL: "rediss://default:secret@example.com:6380" }, hosting: "node-server" })
+    expect(warning).toContain("`kv: { driver: \"redis\", url: \"env:KV_URL\" }`")
+    expect(warning).not.toContain("secret")
+    expect(kvRedisEnvWarning(undefined, { env: { KV_URL: "redis://localhost:6379" }, hosting: "node-server" })).toBeUndefined()
+  })
+
+  it("says that Upstash fails on Vercel when the build has only REDIS_URL", () => {
+    const warning = kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "vercel" })
+    expect(warning).toContain("KV on Vercel uses Upstash, and the build has no `KV_REST_API_URL` and `KV_REST_API_TOKEN`")
+    expect(warning).toContain("`kv: { driver: \"redis\" }`")
+    expect(kvRedisEnvWarning(undefined, { env: { ...redisEnv, KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://example.upstash.io" }, hosting: "vercel" })).toBeUndefined()
+  })
+
+  it("stays quiet for an explicit driver, Cloudflare, Deno, dev, and builds without a Redis URL", () => {
+    expect(kvRedisEnvWarning({ driver: "fs-lite" }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvWarning({ stores: { default: { driver: "database" } } }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvWarning(false, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "cloudflare-module" })).toBeUndefined()
+    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "deno-deploy" })).toBeUndefined()
+    expect(kvRedisEnvWarning(undefined, { dev: true, env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvWarning(undefined, { env: {}, hosting: "node-server" })).toBeUndefined()
   })
 })
 
@@ -172,6 +220,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -188,6 +237,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "node-server",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -201,6 +251,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",
@@ -221,6 +272,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "explicit-token",
         url: "https://explicit-upstash.example.com",
@@ -239,6 +291,7 @@ describe("normalizeKVOptions existing behavior", () => {
       hosting: "vercel",
     })).toEqual({
       store: {
+        base: "vitehub:kv:default",
         driver: "upstash",
         token: "********",
         url: "********",

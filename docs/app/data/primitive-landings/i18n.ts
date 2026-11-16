@@ -46,7 +46,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ preset: "node", i18n: { locales: ["en", "es"] } }),
+    vitehub({ host: "node", i18n: { locales: ["en", "es"] } }),
   ],
 })`,
         },
@@ -74,7 +74,7 @@ createApp(App).use(await createI18n()).mount("#app")`,
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node", i18n: { locales: ["en", "es"] } }]],
+  modules: [[viteHubNuxt, { host: "node", i18n: { locales: ["en", "es"] } }]],
 })`,
         },
         page,

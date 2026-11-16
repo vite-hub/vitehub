@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader } from "@vite-hub/ui/code-block";
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
 import { useConsoleToast } from "../client/toast";
@@ -61,7 +61,7 @@ const tabs = Object.entries(snippets).map(([value, item]) => ({ label: item.labe
 }
 
 .vitehub-account-snippet__header[data-slot="code-block-header"] {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   padding-block: 0;
   padding-inline-start: 0.25rem;
 }

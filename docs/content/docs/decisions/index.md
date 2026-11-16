@@ -9,59 +9,61 @@ icon: i-lucide-list-checks
 ---
 
 ::product-hero{tagline="Turn what people type into choices from your options, for filters, search, and command palettes."}
-  :::code-tree
-  ```ts [server/utils/forecast-choices.ts] fragment
-  import { defineChoices, toOptions } from 'vite-hub/decisions'
-  import { typesafe } from 'vite-hub/gateways'
+  :hero-figure{name="decisions"}
+::
 
-  // Bridge in: your data becomes options
-  export const forecast = defineChoices({
-    gateway: typesafe(), // reads TYPESAFE_API_KEY
-    groups: {
-      supplier: {
-        label: 'Supplier',
-        options: toOptions(suppliers, {
-          value: s => s.id,
-          label: s => s.name,
-        }),
-      },
+::code-tree
+```ts [server/utils/forecast-choices.ts] fragment
+import { defineChoices, toOptions } from 'vite-hub/decisions'
+import { typesafe } from 'vite-hub/gateways'
+
+// Bridge in: your data becomes options
+export const forecast = defineChoices({
+  gateway: typesafe(), // reads TYPESAFE_API_KEY
+  groups: {
+    supplier: {
+      label: 'Supplier',
+      options: toOptions(suppliers, {
+        value: s => s.id,
+        label: s => s.name,
+      }),
     },
-  })
-  ```
+  },
+})
+```
 
-  ```ts [server/api/choices.post.ts]
-  import { createError, defineEventHandler, readValidatedBody } from 'h3'
-  import * as v from 'valibot'
-  import { forecast } from '../utils/forecast-choices'
+```ts [server/api/choices.post.ts]
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
+import { forecast } from '../utils/forecast-choices'
 
-  // The route is yours. Add auth and limits here.
-  export default defineEventHandler(async (event) => {
-    const { text } = await readValidatedBody(event, v.parser(v.object({ text: v.string() })))
-    const [error, selection] = await forecast.resolve(text)
-    if (error) throw createError({ statusCode: 422, message: error.message })
-    return selection
-  })
-  ```
+// The route is yours. Add auth and limits here.
+export default defineEventHandler(async (event) => {
+  const { text } = await readValidatedBody(event, v.parser(v.object({ text: v.string() })))
+  const [error, selection] = await forecast.resolve(text)
+  if (error) throw createError({ statusCode: 422, message: error.message })
+  return selection
+})
+```
 
-  ```vue [FilterBar.vue]
-  <script setup lang="ts">
-  import { useChoices } from 'vite-hub/decisions/vue'
-  import type { forecast } from '~~/server/utils/forecast-choices'
+```vue [FilterBar.vue]
+<script setup lang="ts">
+import { useChoices } from 'vite-hub/decisions/vue'
+import type { forecast } from '~~/server/utils/forecast-choices'
 
-  const filters = useFilters() // your state
-  const ai = useChoices<typeof forecast>({
-    resolve: (text, { signal }) =>
-      $fetch('/api/choices', { method: 'POST', body: { text }, signal }),
-    // Bridge out: the selection becomes your state
-    onSelect: selection => filters.setSuppliers(selection.supplier),
-  })
-  </script>
+const filters = useFilters() // your state
+const ai = useChoices<typeof forecast>({
+  resolve: (text, { signal }) =>
+    $fetch('/api/choices', { method: 'POST', body: { text }, signal }),
+  // Bridge out: the selection becomes your state
+  onSelect: selection => filters.setSuppliers(selection.supplier),
+})
+</script>
 
-  <template>
-    <input v-model="ai.text.value" @keydown.enter="ai.submit()">
-  </template>
-  ```
-  :::
+<template>
+  <input v-model="ai.text.value" @keydown.enter="ai.submit()">
+</template>
+```
 ::
 
 ::product-features

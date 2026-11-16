@@ -19,4 +19,4 @@ Source has no provider config. Each loader, such as `glob()` or `github()`, read
 | `mcpResources()` | MCP server | An MCP client, or an `http` or `sse` transport the server can reach. |
 | `defineSource()` | Any origin | What your loader uses. |
 
-Collections and Content need generated routes. `vitehub()` and the Nuxt module add `hubSource()` for every preset. Direct reads and the in-process registry do not need Vite.
+Collections and Content need generated routes. `vitehub()` and the Nuxt module add `hubSource()` for every host. Direct reads and the in-process registry do not need Vite.

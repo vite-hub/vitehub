@@ -289,7 +289,7 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
   })
 
   it("uses document-level policy for singleton write and publish access", async () => {
-    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read")
+    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read-draft")
     const actions = createContentConsoleActions({ default: content })
     await expect(actions.collections(editor)).resolves.toContainEqual(expect.objectContaining({
       name: "settings",

@@ -1,4 +1,4 @@
-import { installRequestStandardContext } from "@vite-hub/runtime"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -176,12 +176,10 @@ describe("createCommentsGitHubLogin", () => {
     await expect(loginForBase.user(request(`${base}/api/_vitehub/comments/session`))).resolves.toBeNull()
   })
 
-  it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("rejects a short %s before starting GitHub sign-in", async (name) => {
+  it("rejects a short VITEHUB_SECRET before starting GitHub sign-in", async () => {
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "client-id")
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_SECRET", "client-secret")
-    vi.stubEnv("VITEHUB_SECRET", "")
-    vi.stubEnv("NUXT_APP_SECRET", "")
-    vi.stubEnv(name, "a".repeat(31))
+    vi.stubEnv("VITEHUB_SECRET", "a".repeat(31))
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
     await expect(login.handle(request("/api/_vitehub/comments/auth/github"), "/auth/github")).rejects.toThrow("VITEHUB_SECRET must be at least 32 characters")
   })

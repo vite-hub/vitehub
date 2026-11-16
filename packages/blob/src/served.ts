@@ -8,6 +8,9 @@ export interface ServedBlobRoute {
   publicBaseUrl?: string
 }
 
+/** The route of `blob.serve: true`. */
+export const DEFAULT_BLOB_SERVE_ROUTE = "/api/_vitehub/blob"
+
 let served: ServedBlobRoute | undefined
 
 /** Set by the Blob runtime when it loads the generated Blob config. `undefined` when `blob.serve` is off. */

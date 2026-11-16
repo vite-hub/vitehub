@@ -1,7 +1,7 @@
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
-import { console } from "../../server.ts"
+import { agentConsole } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessInvoker, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError } from "./request.ts"
@@ -49,7 +49,7 @@ export async function replayConsoleChannel(
   const runtime = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
     ...(invoker ? { invoker } : {}),
-    capabilities: { ...await getConsoleAgentCapabilities(), console },
+    capabilities: { ...await getConsoleAgentCapabilities(), console: agentConsole },
     memo: memo(),
     ...(context.request ? { request: context.request } : {}),
     runtime: "unknown" as const,
@@ -62,6 +62,6 @@ export async function replayConsoleChannel(
   const message = Reflect.get(Object(body), "message")
   const code = Reflect.get(Object(body), "code")
   const error = consoleRequestError(response.status, typeof message === "string" ? message : "Channel replay failed.")
-  // Agent failures keep their code, such as AGENT_R0931 for a Channel without history.
+  // Agent failures keep their code, such as AGENT_CHANNEL_HISTORY_MISSING for a Channel without history.
   throw typeof code === "string" ? Object.assign(error, { consoleCode: code }) : error
 }

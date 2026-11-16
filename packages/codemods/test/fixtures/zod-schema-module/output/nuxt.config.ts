@@ -7,12 +7,12 @@ export default defineNuxtConfig({
     preset: 'vercel',
   },
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     env: {
       public: {
         siteName: env({ default: 'Acme', mode: 'build', source: env.source('NUXT_PUBLIC_SITE_NAME') }),
         posthogHost: env({ default: 'https://eu.posthog.com', mode: 'build', source: env.source('NUXT_PUBLIC_POSTHOG_HOST') }),
-        posthogSampleRate: env.number({ default: 0.1, mode: 'build', required: false, source: env.source('NUXT_PUBLIC_POSTHOG_SAMPLE_RATE') }),
+        posthogSampleRate: env.number({ default: 0.1, mode: 'build', source: env.source('NUXT_PUBLIC_POSTHOG_SAMPLE_RATE') }),
       },
       server: {
         sessionPassword: env({ secret: true, source: env.source('NUXT_SESSION_PASSWORD') }),
@@ -22,7 +22,7 @@ export default defineNuxtConfig({
         webhook: {
           signingSecret: env({ default: '', secret: true, source: env.source('NUXT_WEBHOOK_SIGNING_SECRET') }),
         },
-        redirectUrl: env({ required: false, source: env.source('NUXT_REDIRECT_URL') }),
+        redirectUrl: env({ optional: true, source: env.source('NUXT_REDIRECT_URL') }),
       },
     },
   },

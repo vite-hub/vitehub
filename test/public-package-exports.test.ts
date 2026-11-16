@@ -158,7 +158,7 @@ describe("public package export contracts", () => {
 
   it("classifies the Logs Evlog boundary for isolated consumers", () => {
     for (const [specifier, declarations, runtime] of [
-      ["vite-hub/logs", ["evlog"], ["evlog"]],
+      ["vite-hub/logs", ["evlog"], []],
       ["vite-hub/logs/memory", ["evlog"], []],
       ["vite-hub/logs/source", [], []],
       ["vite-hub/logs/host", [], []],
@@ -179,9 +179,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/task/vite", "vite"],
-      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
-      ["@vite-hub/workflow/openworkflow", "openworkflow"],
-      ["vite-hub/workflow/openworkflow", "openworkflow"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])
@@ -244,14 +241,27 @@ describe("public package export contracts", () => {
     expect(hostDeclarations).not.toMatch(/interface Timer extends NodeJS\.Timer/)
   })
 
-  it("keeps Blob declarations independent from H3 host declarations", () => {
+  it("keeps Cloudflare Worker declarations out of the vite-hub install", () => {
+    const manifest = readPackageManifest("vite-hub")
+    expect(manifest.dependencies?.["@cloudflare/workers-types"], "vite-hub should not install @cloudflare/workers-types").toBeUndefined()
+    // `cloudflare-types.d.ts` only needs the global Worker declarations, which every 4.x and 5.x release has. npm stops
+    // with ERESOLVE when the app already installs a version that the optional peer range does not accept.
+    expect(manifest.peerDependencies?.["@cloudflare/workers-types"]).toBe(">=4")
+    expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
+  })
+
+  it("declares H3 for Blob serve authorization callbacks", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
-    expect(source).not.toMatch(/from ["']h3["']/)
+    // Generated authorized serve routes are H3 handlers, so callbacks can use the app's H3 helpers.
+    // Keep the declaration dependency available even for consumers without a Nitro installation.
+    expect(readPackageManifest("blob").dependencies?.h3).toBeDefined()
+    expect(source).toContain("export type BlobServeAuthorize = AccessAuthorize<H3Event>")
+    expect(source).toContain("export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>")
   })
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
     const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
-    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
+    expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry, options: RealtimeHandlerOptions = \{\}\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 

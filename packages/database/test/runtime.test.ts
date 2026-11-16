@@ -180,9 +180,18 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
-  it("loads the published drizzle subpath without a Vite virtual module", async () => {
+  it("returns no Postgres URL for SQLite or D1 without resolving their connections", async () => {
+    const { getPostgresConnectionUrl } = await import("../src/index.ts")
+    expect(getPostgresConnectionUrl()).toBeUndefined()
+    expect(getPostgresConnectionUrl("analytics")).toBeUndefined()
+  })
+
+  it("loads the published root accessors without a Vite virtual module", async () => {
     const script = [
-      'const { databases, db, schema } = await import("@vite-hub/database/drizzle")',
+      'const { db, schema, useDatabase } = await import("@vite-hub/database")',
+      'const { databases } = await import("@vite-hub/database/runtime/registry")',
+      'try { useDatabase("default"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
+      'try { useDatabase("missing"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
       'if (JSON.stringify(schema) !== "{}") throw new Error("expected empty schema fallback")',
       'if (JSON.stringify(databases.default.schema) !== "{}") throw new Error("expected empty default database schema")',
       'try {',
@@ -202,9 +211,9 @@ describe("drizzle runtime", () => {
     runtimeDatabaseEntriesFactory = () => ({})
     vi.resetModules()
 
-    const { databases, db } = await import("../src/runtime/drizzle-runtime.ts")
+    const { getRuntimeDatabases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = getRuntimeDatabases()
 
-    expect(db).toBe(databases.default.db)
     expect(databases.default.schema).toEqual({})
     expect(() => databases.default.db.run).toThrow(expect.objectContaining({ code: "DATABASE_DISABLED" }))
   })
@@ -214,7 +223,7 @@ describe("drizzle runtime", () => {
     runtimeDatabaseEntriesFactory = () => ({ analytics })
     vi.resetModules()
 
-    const { databases, useDatabase } = await import("../src/drizzle.ts")
+    const { databases, useDatabase } = await import("../src/runtime/registry.ts")
 
     expect((useDatabase as (name?: string) => unknown)()).toBe(databases.analytics)
     expect(() => (useDatabase as (name?: string) => unknown)("default")).toThrow(expect.objectContaining({
@@ -228,7 +237,7 @@ describe("drizzle runtime", () => {
     runtimeDatabaseEntriesFactory = () => ({ reports: analytics, analytics })
     vi.resetModules()
 
-    const { useDatabase } = await import("../src/drizzle.ts")
+    const { useDatabase } = await import("../src/runtime/registry.ts")
 
     expect(() => (useDatabase as (name?: string) => unknown)()).toThrow(expect.objectContaining({
       code: "DATABASE_NAME_REQUIRED",
@@ -241,7 +250,7 @@ describe("drizzle runtime", () => {
     runtimeDatabaseEntriesFactory = () => ({})
     vi.resetModules()
 
-    const { useDatabase } = await import("../src/drizzle.ts")
+    const { useDatabase } = await import("../src/runtime/registry.ts")
 
     expect(() => (useDatabase as (name?: string) => unknown)()).toThrow(expect.objectContaining({
       code: "DATABASE_NOT_FOUND",
@@ -256,9 +265,8 @@ describe("drizzle runtime", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
 
-    const { databases, db, useDatabase } = await import("../src/drizzle.ts")
+    const { databases, useDatabase } = await import("../src/runtime/registry.ts")
 
-    expect(db).toBe(databases.default.db)
     expect((useDatabase as (name?: string) => unknown)("analytics")).toBe(databases.analytics)
     expect((useDatabase as (name?: string) => unknown)()).toBe(databases.default)
     expect(() => (useDatabase as (name?: string) => unknown)("toString")).toThrow(expect.objectContaining({
@@ -292,7 +300,7 @@ describe("drizzle runtime", () => {
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
     runtimeState.analyticsDbPath = `file:${join(tempDir, "analytics.sqlite")}`
 
-    const { agentDb } = await import("../src/drizzle.ts")
+    const { agentDb } = await import("../src/runtime/registry.ts")
 
     await agentDb.exec("create table notes (id integer primary key, title text not null)")
     await agentDb.exec("insert into notes (id, title) values (1, 'agent note')")
@@ -336,7 +344,7 @@ describe("drizzle runtime", () => {
     const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
     vi.stubGlobal("fetch", fetchMock)
 
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
     await expect(databases.analytics.db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
 
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -352,7 +360,7 @@ describe("drizzle runtime", () => {
     const binding = createFakeD1Binding()
     setActiveCloudflareEnv({ DB_ANALYTICS: binding })
 
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
 
     expect((databases.analytics.db as { $client?: unknown }).$client).toBe(binding)
   })
@@ -363,7 +371,7 @@ describe("drizzle runtime", () => {
     const binding = createFakeD1Binding()
     setActiveCloudflareEnv({ DB_ANALYTICS: binding })
 
-    const { useDatabaseBinding } = await import("../src/drizzle.ts")
+    const { useDatabaseBinding } = await import("../src/index.ts")
     const lookup = useDatabaseBinding as (name: string) => unknown
 
     expect(lookup("analytics")).toBe(binding)
@@ -375,20 +383,22 @@ describe("drizzle runtime", () => {
   })
 
   it("throws when a named database has neither an active binding nor a fallback URL", async () => {
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
 
     expect(() => databases.analytics.db.run).toThrow("The database \"analytics\" has no connection. It needs a Cloudflare D1 binding or `connection.url`.")
   })
 })
 
 describe("database definition runtime", () => {
-  it("returns a local database from defineDatabase", async () => {
+  it("opens a local database for a Definition", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-definition-"))
     const { defineDatabase } = await import("../src/definition.ts")
-    const database = defineDatabase({
+    const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
+    const definition = defineDatabase({
       connection: { url: `file:${join(tempDir, "definition.sqlite")}` },
       schema: defaultSchema,
     })
+    const database = createDefinitionRuntime(definition)
 
     await database.run(sql`
       create table notes (
@@ -398,9 +408,8 @@ describe("database definition runtime", () => {
     `)
     await database.insert(defaultSchema.notes).values({ title: "definition note" })
 
-    expect(database.name).toBe("default")
-    expect(database.schema).toBe(defaultSchema)
-    expect((database as unknown as { dialect: unknown }).dialect).not.toBe("sqlite")
+    expect(definition.name).toBe("default")
+    expect(definition.schema).toBe(defaultSchema)
     expect(await database.select().from(defaultSchema.notes)).toEqual([{ id: 1, title: "definition note" }])
   })
 
@@ -503,8 +512,8 @@ describe("database definition runtime", () => {
       format: "esm",
       platform: "neutral",
       stdin: {
-        contents: 'import { defineDatabase } from "@vite-hub/database"; export const database = defineDatabase({ schema: {} })',
-        resolveDir: import.meta.dirname,
+        contents: 'import { defineDatabase } from "@vite-hub/database"; import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"; export const database = createDefinitionRuntime(defineDatabase({ schema: {} }))',
+        resolveDir: join(import.meta.dirname, ".."),
         sourcefile: "hosted-database-definition.ts",
       },
       write: false,
