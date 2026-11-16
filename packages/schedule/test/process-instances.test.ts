@@ -260,6 +260,43 @@ describe("Process Runtime on more than one process", () => {
     if (runs) expect(await scheduleRunStore.getRun(runId)).toEqual(expect.objectContaining({ attemptCount: 2, status: "succeeded" }))
   })
 
+  it("keeps the failover of a crashed process after one lease store error", async () => {
+    const memory = createMemoryLeaseStore()
+    let failNextAcquire = false
+    const leases: typeof memory = {
+      ...memory,
+      async acquire(key, options) {
+        if (!failNextAcquire) return memory.acquire(key, options)
+        failNextAcquire = false
+        throw new Error("The lease store is not available.")
+      },
+    }
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = minute("2026-11-09T08:00:00.000Z")
+    const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
+    await memory.acquire(`vitehub:schedule/schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
+    await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
+    const handler = vi.fn()
+    const time = clock("2026-11-09T08:00:10.000Z")
+
+    await install(await startProcess(), {
+      catchUpMs: 0,
+      leases,
+      now: time.now,
+      onError: vi.fn(),
+      registry: { daily: async () => defineSchedule({ cron: "0 8 * * *", handler }) },
+      scheduleRunStore,
+    })
+    await sleep(50)
+    failNextAcquire = true
+    time.advance(60_000)
+    await sleep(500)
+
+    expect(failNextAcquire).toBe(false)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
   it.each([false, true])("runs an unfinished occurrence once when every process restarts after its minute (build timings: %s)", async (buildTimings) => {
     const leases = createMemoryLeaseStore()
     const scheduleRunStore = createMemoryScheduleRunStore()

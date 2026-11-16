@@ -254,7 +254,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           else held.delete(runId)
         }
         catch (error) {
-          held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          // Keep the retry window of an earlier held result, so one lease store error does not drop a failover.
+          held.set(runId, { ...held.get(runId), scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
           throw error
         }
       })()
