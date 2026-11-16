@@ -447,7 +447,7 @@ The CLI reads one `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` variable, and `<NAME>` is
 Each signed request has two headers:
 
 - `x-vitehub-signature: key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>`
-- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console.
+- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. The ViteHub MCP of the Console adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores fields that it does not know, so a newer Console can still call an older app.
 
 The signature is Ed25519 over these lines, joined with a line feed:
 
