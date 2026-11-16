@@ -29,7 +29,7 @@ import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { docsFilesModule } from "./files.ts"
+import { docsDevFilesModule, docsFilesModule } from "./files.ts"
 import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
@@ -252,7 +252,6 @@ interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
-  serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   handlers?: Array<{ route: string, method?: string, handler: string }>
   virtual?: Record<string, string | (() => string | Promise<string>)>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
@@ -394,14 +393,15 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
-     * build folder after the modules load, so it runs before the build.
+     * build folder after the modules load, so it runs before the build. It returns the paths of the copies.
      */
-    async function writeAgentSources(snapshot = read) {
+    async function writeAgentSources(snapshot = read): Promise<string[]> {
       writeSources(snapshot.files)
       rmSync(agentDir, { force: true, recursive: true })
       mkdirSync(agentDir, { recursive: true })
       const rawMarkdown = options.rawMarkdown
-      if (!rawMarkdown) return
+      if (!rawMarkdown) return []
+      const written: string[] = []
       for (const page of docsManifestPages(snapshot.manifest)) {
         const source = readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
         const rewritten = await rawMarkdown(source, page)
@@ -409,9 +409,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         const target = join(agentDir, docsContentSource(page), page.file)
         mkdirSync(dirname(target), { recursive: true })
         writeFileSync(target, rewritten)
+        written.push(target)
       }
+      return written
     }
-    nuxt.hook("build:before", writeAgentSources)
+    // Development lists these files in `#docs/files` when it generates the module, so the watcher compares them.
+    let agentCopies: string[] = []
+    nuxt.hook("build:before", async () => { agentCopies = await writeAgentSources() })
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
@@ -575,6 +579,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
+      let viteServer: { watcher: { emit: (event: "change", file: string) => unknown } } | undefined
+      nuxt.hook("vite:serverCreated", (server) => { viteServer = server })
       const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
       const watchers = contentDirsToWatch.map(contentDir => {
         let watchDir = contentDir
@@ -593,11 +599,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
               try {
                 const next = await readDocsContent(manifestOptions)
                 const changed = JSON.stringify(next.manifest) !== JSON.stringify(manifest)
-                await writeAgentSources(next)
+                const copies = await writeAgentSources(next)
+                // `#docs/files` imports each file through Vite, and lists the agent copies when it is generated. Nuxt's
+                // watcher skips the build folder, so Vite learns about changed copies only from here.
+                const copiesChanged = copies.join("\n") !== agentCopies.join("\n")
+                agentCopies = copies
+                for (const file of copies) viteServer?.watcher.emit("change", file)
                 read = next
                 manifest = next.manifest
                 // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
-                if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+                if ((changed || copiesChanged) && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
               }
               catch (error) {
                 // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
@@ -820,16 +831,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
-      // Pack production files into one module to stay below Cloudflare's module limit. Development reads server assets.
+      // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
+      // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
-      if (nuxt.options.dev) {
-        nitro.serverAssets = [...nitro.serverAssets ?? [], ...stores.map(store => ({ baseName: store.name, dir: store.dir, pattern: "**/*.md" }))]
-        nitro.virtual = { ...nitro.virtual, "#docs/files": "export default null\n" }
-      }
-      else {
-        const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
-        nitro.virtual = { ...nitro.virtual, "#docs/files": () => docsFilesModule(stores, order()) }
-      }
+      const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
+      nitro.virtual = { ...nitro.virtual, "#docs/files": nuxt.options.dev ? () => docsDevFilesModule(stores) : () => docsFilesModule(stores, order()) }
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.

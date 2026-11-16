@@ -11,7 +11,7 @@ import { promisify } from "node:util"
 import { invariant } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -190,6 +190,10 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     },
     /** Every repository that the App's installations can access. */
     repositories: (signal?: AbortSignal): Promise<GitHubAppRepository[]> => client.repositories(signal),
+    /** Failed App webhook deliveries since `since` that no later attempt delivered, oldest first. */
+    failedDeliveries: (since: number, signal?: AbortSignal): Promise<GitHubAppDelivery[]> => client.failedDeliveries(since, signal),
+    /** Sends one App webhook delivery again. */
+    redeliver: (id: string, signal?: AbortSignal): Promise<void> => client.redeliver(id, signal),
     /** The App bot's login and noreply email, used as the commit author. */
     async identity(): Promise<{ appId: number, login: string, email: string }> {
       identity ??= (async () => {

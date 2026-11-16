@@ -1,0 +1,9 @@
+{
+  "rawErrors": {
+    "packages/runtime/src/execution-budget.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/runtime/src/internal/runtime-type.ts": 1
+  }
+}

@@ -46,16 +46,20 @@ export async function consoleToolAnswer(response: Response): Promise<unknown> {
  * Run one operation of a team's app through the forward, signed with the key of the link for the person, as the `mcp`
  * surface. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with
  * `mcp: false`, keeps its MCP checks such as `ifDigest` on Content saves, and refuses a destructive call until
- * `confirmed` is the `confirm: true` of the Agent.
+ * `confirmed` is the `confirm: true` of the Agent. With `readOnly`, the app runs only operations that read, so an MCP
+ * client can run them without asking the person.
  */
-export async function projectOperation(caller: McpToolCaller | undefined, id: string, operation: string, input: unknown, confirmed = false): Promise<unknown> {
+export async function projectOperation(caller: McpToolCaller | undefined, id: string, operation: string, input: unknown, options: { confirmed?: boolean, readOnly?: boolean } = {}): Promise<unknown> {
   const member = await mcpTeamCaller(caller)
-  const result = await callProjectOperation(member, id, operation, input, { confirmed, surface: "mcp" })
+  const result = await callProjectOperation(member, id, operation, input, { surface: "mcp", ...options })
   if (!result) throw await consoleToolError(projectNotFound())
   if (result.ok) return result.value ?? null
   const { code, fix, message } = result.error
   if (code === "INTERNAL_R0026") {
     throw new HTTPError({ message: `${operation} deletes or publishes data, so the app asks for confirmation. Tell the person what it changes, then call run_operation again with confirm: true.`, status: 409 })
+  }
+  if (options.readOnly && code === "CONSOLE_ACCESS_DENIED" && message.endsWith("this caller may only read.")) {
+    throw new HTTPError({ message: `${operation} changes data, and read_operation runs only operations that read. Call run_operation.`, status: 403 })
   }
   // The app already hides its server errors, so its message is safe to show. A 4xx keeps the text for the Agent.
   throw new HTTPError({ message: `The app answered ${result.status}${code ? ` ${code}` : ""}: ${message}${fix ? ` Fix: ${fix}` : ""}`, status: 400 })

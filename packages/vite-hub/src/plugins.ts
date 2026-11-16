@@ -27,7 +27,7 @@ import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDep
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
@@ -1245,7 +1245,7 @@ function normalizePublicUrl(value: string): string {
   // to reject credential syntax such as `https://@host` as well.
   const authority = value.trim().match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1]
   if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password || authority?.includes("@")) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: `[vitehub] publicUrl must be an http(s) origin without a path, received ${JSON.stringify(value)}.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_PUBLIC_URL_INVALID({ value: JSON.stringify(value) })
   }
   return url.origin
 }
@@ -1370,8 +1370,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && plan.host !== "netlify"))
-  // The packages of these features are optional peers. One error lists every package that the app must add.
-  assertFeaturePackages(([
+  // The packages of these features are optional peers. One error lists every package that the app must add, also the
+  // SDKs that the host or a provider adds, such as `@vercel/functions` for Workflow on Vercel.
+  const enabledFeatures = ([
     ["agent", options.agent || telemetry],
     ["auth", options.auth],
     ["blob", blobEnabled],
@@ -1396,7 +1397,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Agents run on Workflow outside Netlify unless the app sets `workflow: false`.
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
-  ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature))
+  ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
+  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options))
   const { blobVite, browserVite, channelsVite, connectionsVite, emailVite, kvVite, markdownTemplateVite, queueVite, rateLimitVite, sandboxTaskVite, workflowVite } = ownerModules
   const configuredBlob = blobEnabled ? hostBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
@@ -1652,7 +1654,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
     const { auth: mcpAuth = true, ...mcpOptions } = mcpConfig
     if (mcpAuth && !options.auth) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] The MCP server needs Auth, so that only signed-in MCP clients call its tools. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } to let anyone call every tool." })
+      throw viteHubErrorDiagnostics.VITE_HUB_MCP_AUTH_MISSING()
     }
     plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
       ...mcpOptions,
