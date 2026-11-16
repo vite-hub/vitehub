@@ -131,6 +131,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions = 
 /**
  * Forgets every Sync row and queued write in this browser, in every tab. Call it on sign-out, so the next person on
  * the device does not see them. Writes that wait reject with `SYNC_SCOPE_CHANGED`.
+ * Active stores stay paused until an explicit `refresh()` after the identity transition.
  * @experimental
  */
 async function clearSync(): Promise<void> {
@@ -138,7 +139,6 @@ async function clearSync(): Promise<void> {
   for (const { store } of shared.values()) store.forget()
   await Promise.all([memoryStorage?.clear(), indexedDBStorage?.clear()])
   postClear()
-  for (const { store } of shared.values()) void store.refresh()
 }
 
 export { clearSync, createSync, SyncError }

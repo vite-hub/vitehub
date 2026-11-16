@@ -111,6 +111,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
   let generation = 0
   let passGeneration = 0
   let destroyed = false
+  let paused = false
   let wantPull = true
   let attempt = 0
   let cancelRetry: (() => void) | undefined
@@ -198,7 +199,12 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
     version++
     publish()
     const at = generation
-    storage.write(id, { add: [write], ...(replaces ? { remove: [replaces.seq] } : {}) }).then(([seq]) => {
+    loading.then(() => {
+      if (at !== generation) throw cancelled
+      // Startup writes belong to the cached account, even before its metadata was read.
+      write.scope ??= meta?.scope.id ?? null
+      return storage.write(id, { add: [write], ...(replaces ? { remove: [replaces.seq] } : {}) })
+    }).then(([seq]) => {
       if (at !== generation) return
       local = local.filter(item => item !== write)
       if (!writes.some(item => item.id === write.id)) writes = [...writes, { ...write, seq: seq! }]
@@ -241,7 +247,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
     for (;;) {
       const at = version
       const stored = await storage.read(id)
-      if (destroyed) return
+      if (destroyed || paused) return
       if (at !== version) continue
       meta = stored.meta
       confirmed = new Map(stored.rows)
@@ -323,8 +329,12 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
     recover()
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
-    await commit({ ...pulled, remove: settled.remove, update: [...settled.update, ...pulled.update ?? []] })
-    if (answer.body.pull.more) wantPull = true
+    await commit({ ...pulled, remove: answer.body.pull.more ? [] : settled.remove, update: [...settled.update, ...pulled.update ?? []] })
+    if (answer.body.pull.more) {
+      // Keep the optimistic overlay and pending handles until the confirmed map catches up.
+      if (!(await pull())) return false
+      if (meta?.scope.id === scopeMeta.scope.id) await commit({ remove: settled.remove })
+    }
     return true
   }
 
@@ -332,7 +342,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
   async function pass(): Promise<void> {
     passGeneration = generation
     for (;;) {
-      if (destroyed) return
+      if (destroyed || paused) return
       const at = version
       const queue = await storage.readQueue(id)
       // Another tab changed the stored copy since this tab read it.
@@ -378,7 +388,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
 
   /** Starts a round. Without `force`, a round waits for the backoff timer. */
   function schedule(force: boolean): Promise<void> {
-    if (destroyed) return Promise.resolve()
+    if (destroyed || paused) return Promise.resolve()
     if (!force && cancelRetry) return Promise.resolve()
     if (force) {
       cancelRetry?.()
@@ -417,6 +427,9 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
 
   function forget(): void {
     generation++
+    paused = true
+    cancelRetry?.()
+    cancelRetry = undefined
     version++
     rejectPending(new SyncError("SYNC_SCOPE_CHANGED", "The Sync data was cleared before the server confirmed this write."))
     meta = undefined
@@ -454,6 +467,7 @@ function createSyncStore<TRow>(name: string, options: SyncStoreOptions): SyncSto
       return enqueue({ id: randomUUID(), scope: meta?.scope.id ?? null, key, op: "delete" })
     },
     refresh() {
+      paused = false
       wantPull = true
       return schedule(true)
     },

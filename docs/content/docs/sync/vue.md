@@ -105,6 +105,8 @@ export async function signOutEverywhere() {
 }
 ```
 
+Cleared stores stay paused through the identity transition. After signing in again, call `refresh()` on an active store to resume syncing, or create a new store after destroying the old one.
+
 If you forget it, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
 
 ## Without Vue

@@ -47,6 +47,24 @@ describe("createSync in the browser", () => {
     expect(() => one.insert({ title: "Late" })).toThrow("destroyed")
   })
 
+  it("stays cleared while online sign-out is still pending", async () => {
+    const server = createFakeSyncServer()
+    server.write({ id: "a", ownerId: "ada", title: "Private" })
+    const store = open(server.fetch)
+    await store.refresh()
+    await clearSync()
+    window.dispatchEvent(new Event("focus"))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.getState().rows).toEqual([])
+    server.user = null
+    await store.refresh()
+    expect(store.getState().rows).toEqual([])
+    store.destroy()
+    const reopened = open(server.fetch)
+    await reopened.refresh()
+    expect(reopened.getState().rows).toEqual([])
+  })
+
   it("forgets every row and queued write on clearSync()", async () => {
     const server = createFakeSyncServer()
     server.write({ id: "a", ownerId: "ada", title: "Milk" })
