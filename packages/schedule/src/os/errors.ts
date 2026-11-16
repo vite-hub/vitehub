@@ -75,7 +75,7 @@ export const osScheduleErrors: ErrorCatalog<OsScheduleErrorCodes> = /*#__PURE__*
     },
     SCHEDULE_OS_TIME_ZONE_UNSUPPORTED: {
       why: ({ platform, timeZone, machineTimeZone }: TimeZoneUnsupported) => `${platformNames[platform]} runs timers in the machine time zone "${machineTimeZone}", and the cron gives other runs there than in "${timeZone}".`,
-      fix: "Set the Schedule `timeZone` to the machine time zone, or use a cron that gives the same runs in both zones, such as an hourly cron when the zones differ by whole hours. systemd on Linux runs a cron in any time zone.",
+      fix: "Pass `timeZone: \"local\"` to run the cron in the machine time zone, or set `timeZone` to the zone that the cron is for. A Schedule without `timeZone` runs in UTC. A cron that gives the same runs in both zones also works, such as an hourly cron when the zones differ by whole hours. systemd on Linux runs a cron in any time zone.",
       data: (data: TimeZoneUnsupported) => data,
     },
   },

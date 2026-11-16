@@ -41,7 +41,8 @@ function calendarList(values: readonly number[], size: number, format: (value: n
  * of the month with a restricted weekday, so that case takes two lines.
  */
 export function systemdCalendars(fields: CronFields, timeZone: string): string[] {
-  const time = `${calendarList(fields.hours, 24)}:${calendarList(fields.minutes, 60)}:00 ${timeZone}`
+  // Without a zone, systemd uses the machine time zone of the moment.
+  const time = `${calendarList(fields.hours, 24)}:${calendarList(fields.minutes, 60)}:00${timeZone === "local" ? "" : ` ${timeZone}`}`
   const months = calendarList(fields.months, 12)
   // systemd weeks start on Monday, and its weekday ranges cannot wrap past Sunday.
   const weekdays = calendarList(fields.weekdays.map(weekday => weekday || 7).sort((left, right) => left - right), 7, weekday => weekdayNames[weekday % 7]!)
