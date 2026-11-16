@@ -133,6 +133,13 @@ describe("handleUpload maxFiles", () => {
     expect(ok(await storage.list()).blobs).toEqual([])
   })
 
+  it("counts the files of a non-ASCII formKey before it reads the extra file", async () => {
+    const { read, request } = streamedForm(["a.txt", "b.txt", "c.txt"].map(name => ({ content: name, field: "fichiers-é", name })))
+
+    await expect(storage.handleUpload(new H3Event(request), { formKey: "fichiers-é", maxFiles: 2 })).rejects.toMatchObject({ statusCode: 400 })
+    expect(read).toEqual(["a.txt", "b.txt"])
+  })
+
   it("stores up to maxFiles files and counts only the files of formKey", async () => {
     const { request } = streamedForm([
       { content: "one", name: "a.txt" },

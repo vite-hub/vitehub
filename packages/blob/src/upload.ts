@@ -100,7 +100,7 @@ async function readBody(request: Request): Promise<Request> {
 const maxPartHeaderBytes = 16 * 1024
 const multipartBoundary = /;\s*boundary=(?:"([^"]+)"|([^\s;]+))/i
 
-/** True when a part header block is a file of form field `formKey`, as `FormData` reads it. */
+/** True when a part header block is a file of form field `formKey`, as `FormData` reads it. `formKey` is in Latin-1, like `headers`. */
 function isFilePart(headers: string, formKey: string): boolean {
   const disposition = /^content-disposition:(.*)$/im.exec(headers)?.[1]
   if (!disposition) return false
@@ -121,6 +121,8 @@ async function readFilesUpTo(request: Request, formKey: string, maxFiles: number
   const declared = declaredLength(request)
   if (limit !== undefined && declared !== undefined && declared > limit) throw payloadTooLarge(declared, limit)
   const delimiter = `\r\n--${match[1] ?? match[2]}`
+  // Browsers send the field name in UTF-8, and the headers are read as Latin-1.
+  const fieldName = String.fromCharCode(...new TextEncoder().encode(formKey))
   // Latin-1 keeps one character per byte, so the delimiter search works on binary file content.
   const decoder = new TextDecoder("latin1")
   const reader = request.body.getReader()
@@ -165,7 +167,7 @@ async function readFilesUpTo(request: Request, formKey: string, maxFiles: number
         }
         break
       }
-      if (isFilePart(pending.slice(0, end), formKey) && ++files > maxFiles) {
+      if (isFilePart(pending.slice(0, end), fieldName) && ++files > maxFiles) {
         reader.releaseLock()
         throw tooManyFiles(formKey, maxFiles)
       }
