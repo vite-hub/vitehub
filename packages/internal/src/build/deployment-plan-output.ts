@@ -82,6 +82,11 @@ export function mergeDeploymentEnv(entries: readonly DeploymentEnvEntry[]): Depl
 interface FinalizeDeploymentPlanOutputOptions {
   /** The Server Env and primitive names to record. Omit it when the app has no Env plugin and no primitive names. */
   env?: readonly DeploymentEnvEntry[]
+  /**
+   * Vite's resolved `envDir`: an absolute folder, or `false` when Vite loads no env file. The manifest keeps it relative
+   * to its own folder, so `vitehub env push` and `vitehub deploy` read the env files that the app reads.
+   */
+  envDir?: string | false
   identity?: {
     name: string
     source: string
@@ -183,6 +188,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
     runtime: options.plan.runtime,
     services: options.services ?? options.plan.services,
     ...(options.env ? { env: options.env.map(deploymentEnvEntry).filter(entry => entry.names.length || entry.prefix) } : {}),
+    ...(options.envDir === undefined ? {} : { envDir: options.envDir === false ? false : relative(output.root, options.envDir).replaceAll("\\", "/") || "." }),
   }
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
