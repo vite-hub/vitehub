@@ -65,6 +65,8 @@ export interface Device {
   claim: (key: string, value: unknown, maxAge: number, since: number, account: string | null) => boolean
   /** Resolves when `open()` read the disk, or at once when the device is open or `open()` was never called. */
   whenOpen: () => Promise<void>
+  /** `true` while `open()` reads the disk. */
+  loading: () => boolean
   subscribe: (listener: (event: DeviceEvent) => void) => () => void
   /** Resolves when every change that the device started is on the disk or failed. */
   settled: () => Promise<void>
@@ -440,6 +442,8 @@ export function createDevice(options: DeviceOptions): Device {
     if (since !== epoch || (opening && !opened)) return false
     const naming = account !== named
     if (naming) {
+      // Before `open()`, the disk copies of another account must not load into memory for this naming.
+      requested = account
       name(account)
       // The naming raised the epoch once. A change that its event started, such as a read that named another account at
       // once, came after it and decides.
@@ -514,6 +518,7 @@ export function createDevice(options: DeviceOptions): Device {
     whenOpen: async () => {
       if (opening) await opening
     },
+    loading: () => opening !== undefined && !opened,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
