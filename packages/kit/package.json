@@ -44,9 +44,9 @@
       "default": "./dist/tags-input.js"
     },
     "./package.json": "./package.json",
+    "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
     "./styles/default.css": "./dist/styles/default.css",
     "./styles/tailwind.css": "./dist/styles/tailwind.css",
-    "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
     "./styles/tokens.css": "./dist/styles/tokens.css"
   },
   "scripts": {
