@@ -489,7 +489,7 @@ describe("signOut() of useUserSession()", () => {
     await signOut({ redirectTo: "/goodbye", fetchOptions: { headers: { "x-reason": "menu" } } })
 
     // The session store follows Better Auth's session atom before the call runs.
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { fetchOptions: { headers: { "x-reason": "menu" } } }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { fetchOptions: { headers: { "x-reason": "menu" } }, disableRedirect: true }]])
     expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
@@ -500,7 +500,7 @@ describe("signOut() of useUserSession()", () => {
 
     await signOut(undefined, { onSuccess })
 
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", {}, { onSuccess }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true }, { onSuccess }]])
   })
 
   it("waits for the onSignOut() listeners after the server ended the session, and before the next page opens", async () => {
@@ -534,21 +534,57 @@ describe("signOut() of useUserSession()", () => {
     expect(pageLoads).not.toHaveBeenCalled()
   })
 
+  // The provider's sign-out page, as the server answers it with `disableRedirect: true`.
+  const logout = "https://idp.example.com/logout?id_token_hint=token"
+
   it.each([
-    ["{ data, error }", { data: { success: true, url: "https://idp.example.com/logout", redirect: true }, error: null }],
-    ["fetchOptions.throw", { success: true, url: "https://idp.example.com/logout", redirect: true }],
-  ])("lets Better Auth open the provider's sign-out page (%s)", async (_name, result) => {
+    ["{ data, error }", { data: { success: true, url: logout, redirect: false }, error: null }, { data: { success: true, url: logout, redirect: true }, error: null }],
+    ["fetchOptions.throw", { success: true, url: logout, redirect: false }, { success: true, url: logout, redirect: true }],
+  ])("opens the provider's sign-out page after the onSignOut() listeners (%s)", async (_name, answer, returned) => {
     signedIn()
+    const steps: string[] = []
+    vi.stubGlobal("location", { assign: (url: string) => void steps.push(`open ${url}`) })
     const handler = vi.fn()
     setSignOutHandler(handler)
-    betterAuth.signOutResult = result
+    const stop = onSignOut(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    betterAuth.signOutResult = answer
     const session = useUserSession(createAuthClient())
     await vi.waitFor(() => expect(session.loggedIn.value).toBe(true))
 
-    await session.signOut({ redirectTo: "/goodbye" })
+    const result = await session.signOut({ redirectTo: "/goodbye" })
+    stop()
 
+    // Without `disableRedirect`, Better Auth opens the page inside its `signOut()`, before the listeners run.
+    expect(betterAuth.calls.at(-1)).toEqual(["signOut", { disableRedirect: true }])
+    expect(steps).toEqual(["listener done", `open ${logout}`])
+    expect(result).toEqual(returned)
     expect(session.user.value).toBeNull()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it.each(["javascript:alert(1)", "data:text/html,bye", "myapp://logout", "/logout"])("does not open a provider sign-out page that is not http(s): %s", async (url) => {
+    signedIn()
+    const answer = { data: { success: true, url, redirect: false }, error: null }
+    betterAuth.signOutResult = answer
+    const { signOut } = useUserSession(createAuthClient())
+
+    await expect(signOut({ redirectTo: "/goodbye" })).resolves.toEqual(answer)
+
+    expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
+  })
+
+  it("returns the provider's sign-out page with disableRedirect, and opens redirectTo", async () => {
+    signedIn()
+    const answer = { data: { success: true, url: logout, redirect: false }, error: null }
+    betterAuth.signOutResult = answer
+    const { signOut } = useUserSession(createAuthClient())
+
+    await expect(signOut({ redirectTo: "/goodbye", disableRedirect: true })).resolves.toEqual(answer)
+
+    expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
   it("leaves the shared session store alone on the server", async () => {
