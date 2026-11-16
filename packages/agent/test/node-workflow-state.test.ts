@@ -50,6 +50,8 @@ process.exit(0)
         name: "resolve-external-packages",
         setup(build) {
           // Resolve from each source owner before moving the bundle outside the workspace.
+          // Workspace exports can resolve to TypeScript; compile those into the bundle
+          // because the fresh Node process cannot execute non-erasable TS syntax.
           build.onResolve({ filter: /^[^./]/ }, async (args) => {
             if (args.pluginData?.resolved) return
             const resolved = await build.resolve(args.path, {
@@ -57,7 +59,7 @@ process.exit(0)
               kind: args.kind,
               pluginData: { resolved: true },
             })
-            return { ...resolved, external: true }
+            return { ...resolved, external: !/\.[cm]?tsx?$/.test(resolved.path) }
           })
         },
       }],
