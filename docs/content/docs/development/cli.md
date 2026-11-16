@@ -132,7 +132,7 @@ Available namespaces:
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
 | `vitehub env diff` | Available | ViteHub CLI | Compare the env names of the last build with the variables of the linked host. Exits with `1` when a required name is missing. Does not load the project config. |
 | `vitehub env push` | Available | ViteHub CLI | Set the host variables of the build's env names from the shell and `.env.<stage>`, with the host CLI. Does not load the project config. |
-| `vitehub env pull --from console` | Available | ViteHub CLI | Write the env values of a stage from a self-hosted Console to `.env.<stage>`, with mode `600`. Does not load the project config. |
+| `vitehub env pull` | Available | ViteHub CLI | With `--from console`, write the env values of a stage from a self-hosted Console to `.env.<stage>`, with mode `600`. Does not load the project config. |
 | `vitehub env status` | Available | Env Package | Ask a running app, such as a deployment, for the status of its Server Env, without values. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
