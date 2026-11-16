@@ -45,6 +45,7 @@ function isPrimitive(value: unknown) {
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
 function serializeValue(value: unknown, operation = "setIfAbsent"): string {
   // set() removes a key for `undefined`; a conditional write cannot mean that.
+  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
   if (value === undefined) throw new TypeError(`kv.${operation}() needs a value. Use kv.delete() to remove a key.`)
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
@@ -54,6 +55,7 @@ function serializeValue(value: unknown, operation = "setIfAbsent"): string {
     const toJSON: unknown = Reflect.get(value, "toJSON")
     if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
   }
+  // Internal invariant: kvResult() returns it as KV_OPERATION_FAILED with this error as the cause.
   throw new TypeError("KV cannot serialize this value.")
 }
 

@@ -18,7 +18,9 @@ import {
   CommentThread,
   CommentToolbar,
   PromptInput,
+  createCommentVisibility,
   useComments,
+  type CommentsState,
 } from "../src/index.ts";
 
 function deferred<T>() {
@@ -1685,5 +1687,124 @@ describe("drawing an area", () => {
     await overlay.trigger("pointerup", { button: 0, clientX: 210, clientY: 135, pointerType: "mouse" });
     await flushPromises();
     expect(wrapper.find("[data-slot=comment-layer-area-size]").exists()).toBe(false);
+  });
+});
+
+describe("visibility", () => {
+  afterEach(() => vi.useRealTimers());
+
+  // A layer on a state whose comments are hidden, as the eye of Drop or of the pill leaves it.
+  async function hiddenLayer(threads: CommentThreadModel[]) {
+    const { client } = setup(threads);
+    let state!: CommentsState;
+    const Host = defineComponent({
+      setup() {
+        state = useComments({ client, subject: pricing, visibility: "hidden" });
+        return () => h(CommentLayer, { comments: state });
+      },
+    });
+    const wrapper = mount(Host, { attachTo: document.body, global });
+    mounted.push(wrapper);
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+    // After the load, so only the flash and the pop-out wait on the clock.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    return { client, state, wrapper };
+  }
+  // The open thread is an item of its own, with no pin.
+  const pins = (wrapper: Page) => wrapper.findAll("[data-slot=comment-layer-item]:not([data-draft])").filter((item) => item.find("[data-slot=comment-pin]").exists()).map((item) => ({
+    label: item.get("[data-slot=comment-pin]").attributes("aria-label"),
+    leaving: item.attributes("data-leaving") === "true",
+  }));
+
+  it("shows a comment just sent for 2.5 seconds, then pops it out, and keeps the others hidden", async () => {
+    const { client, state, wrapper } = await hiddenLayer([thread(1)]);
+    expect(pins(wrapper)).toEqual([]);
+
+    await drop(wrapper);
+    expect(wrapper.find("[data-slot=comment-pin][data-draft=true]").exists()).toBe(true);
+    await textarea(wrapper).setValue("New one");
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    // Not vi.waitFor: with fake timers it moves the clock.
+    await flushPromises();
+    expect(client.threads).toHaveLength(2);
+    const sent = client.threads.find((entry) => entry.id !== "thread-1")!;
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: false }]);
+    expect(state.visibility.value).toBe("hidden");
+
+    vi.advanceTimersByTime(2499);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: false }]);
+    vi.advanceTimersByTime(1);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: true }]);
+    expect(wrapper.get("[data-leaving=true]").attributes()).toHaveProperty("inert");
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([]);
+    expect(state.visibility.value).toBe("hidden");
+  });
+
+  it("shows only the open thread, such as one opened from the list, and pops it out when it closes", async () => {
+    const { state, wrapper } = await hiddenLayer([thread(1), thread(2)]);
+    state.open("thread-2");
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining("Comment 2"), leaving: false }]);
+    expect([...state.shown.value]).toEqual(["thread-2"]);
+
+    state.close();
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining("Comment 2"), leaving: true }]);
+    vi.advanceTimersByTime(180);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([]);
+    expect(state.visibility.value).toBe("hidden");
+  });
+
+  it("shows a thread replied to for a moment after it closes, and every thread again when all show", async () => {
+    const { state, wrapper } = await hiddenLayer([thread(1), thread(2)]);
+    state.open("thread-1");
+    await state.reply("thread-1", "A reply");
+    state.close();
+    await flushPromises();
+    expect([...state.shown.value]).toEqual(["thread-1"]);
+    vi.advanceTimersByTime(2500);
+    await flushPromises();
+    expect([...state.shown.value]).toEqual([]);
+    expect([...state.leaving.value]).toEqual(["thread-1"]);
+
+    state.visibility.value = "all";
+    await flushPromises();
+    expect(pins(wrapper).map((pin) => pin.leaving)).toEqual([false, false]);
+    expect(state.isShown("thread-2")).toBe(true);
+  });
+
+  it("gives the same list from the plain helper, for marks drawn elsewhere", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const visibility = createCommentVisibility({ visibility: "hidden" });
+    const changes = vi.fn();
+    visibility.subscribe(changes);
+    visibility.open("open");
+    visibility.flash("sent");
+    expect(visibility.only).toEqual(["open", "sent"]);
+    expect(visibility.isShown("other")).toBe(false);
+    vi.advanceTimersByTime(2000);
+    // A second flash starts the time again.
+    visibility.flash("sent");
+    vi.advanceTimersByTime(2000);
+    expect(visibility.only).toEqual(["open", "sent"]);
+    vi.advanceTimersByTime(500);
+    expect(visibility.only).toEqual(["open"]);
+    expect(visibility.leaving).toEqual(["sent"]);
+    vi.advanceTimersByTime(180);
+    expect(visibility.leaving).toEqual([]);
+    expect(changes).toHaveBeenCalled();
+
+    visibility.set("all");
+    expect(visibility.only).toEqual([]);
+    expect(visibility.isShown("other")).toBe(true);
+    visibility.flash("ignored");
+    expect(visibility.only).toEqual([]);
+    visibility.stop();
   });
 });

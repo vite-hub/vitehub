@@ -28,6 +28,7 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
   const historyTag = continuationTag([...history].join("\u0000"))
   const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, historyCount: history.size, historyTag }))
   const token = `vhc1:${nonce}:${payload}:${continuationTag(payload)}`
+  // Internal invariant: provider cursors stay far below 128 KiB, and kvResult() returns it as KV_OPERATION_FAILED.
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
   return token
 }

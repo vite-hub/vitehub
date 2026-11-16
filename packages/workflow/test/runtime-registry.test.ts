@@ -25,7 +25,7 @@ describe("Workflow registry entries", () => {
     const run = await workflow.start()
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
     await vi.waitFor(async () => {
-      await expect(workflow.getRun(run.id)).resolves.toMatchObject({ result: expect.any(Response), status: "completed" })
+      await expect(workflow.getRun(run.id)).resolves.toMatchObject({ result: "inline", status: "completed" })
     })
   })
 

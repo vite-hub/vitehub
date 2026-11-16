@@ -41,6 +41,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./formisch": {
+      "types": "./dist/formisch.d.ts",
+      "import": "./dist/formisch.js",
+      "default": "./dist/formisch.js"
+    },
     "./guard": {
       "types": "./dist/guard.d.ts",
       "import": "./dist/guard.js",

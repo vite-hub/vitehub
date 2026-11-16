@@ -17,6 +17,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Check that the cache driver supports the requested storage operation. Vercel Runtime Cache cannot list keys.",
     },
+    VITE_HUB_AGENT_OPTION_MISSING: {
+      ...dynamicError,
+      fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
+    },
     VITE_HUB_R0120: dynamicError,
     VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0124: dynamicError,
@@ -266,6 +270,96 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_B0024: {
       ...dynamicError,
       fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
+    },
+    VITE_HUB_CONSOLE_ACCESS_HANDLER_INVALID: {
+      why: "[vitehub] withConsoleAccess() requires a handler function.",
+      fix: "Pass the route handler function as the first argument of `withConsoleAccess(handler, { section })`.",
+    },
+    VITE_HUB_CONSOLE_ACCESS_SCOPE_INVALID: {
+      why: "[vitehub] withConsoleAccess() requires { section } or { anySection: true }.",
+      fix: "Pass `{ section: \"<section id>\" }` or `{ anySection: true }` as the second argument of `withConsoleAccess(handler, scope)`.",
+    },
+    VITE_HUB_CONSOLE_ATTACHMENT_CLEANUP_QUARANTINED: {
+      why: "Attachment cleanup ownership is quarantined",
+      fix: "Repair the record under `_vitehub/console/quarantine/` in the Blob store as the Console guide says, then delete the quarantine object. Stored images stay unavailable until no quarantine record is left.",
+    },
+    VITE_HUB_CONSOLE_AUTHORIZE_FILE_MISSING: {
+      why: ({ file }: { file: string }) => `[vitehub] console.authorize file does not exist: ${file}`,
+      fix: "Create the file that the message names, or set `vitehub({ console: { authorize } })` to the path of an existing server file, relative to the project root.",
+    },
+    VITE_HUB_CONSOLE_AUTHORIZE_NOT_FUNCTION: {
+      why: ({ site }: { site: "define" | "file" }) => site === "define" ? "[vitehub] defineConsoleAuthorize() requires a function." : "[vitehub] console.authorize must default-export a function.",
+      fix: "Default-export `defineConsoleAuthorize(async (context) => ...)` from the `console.authorize` file, and pass it a function.",
+    },
+    VITE_HUB_CONSOLE_AUTHORIZE_PATH_INVALID: {
+      why: "[vitehub] console.authorize must be a path to a server file.",
+      fix: "Set `vitehub({ console: { authorize: \"./server/console-authorize.ts\" } })` to a non-empty path string.",
+    },
+    VITE_HUB_CONSOLE_AUTH_PLUGIN_MISSING: {
+      why: "This page needs a Better Auth plugin that the app has not enabled.",
+      fix: "Open an Auth page that the Console lists, or add the Better Auth plugin of this page to the auth configuration of the app and deploy again.",
+    },
+    VITE_HUB_CONSOLE_INVOCATION_FILES_LIMIT: {
+      why: "Use at most ten images.",
+      fix: "Attach at most ten images to one message. Send the other images in a second message.",
+    },
+    VITE_HUB_CONSOLE_JSON_INVALID: {
+      why: ({ subject }: { subject: "The payload" | "This value" }) => `${subject} is not valid JSON.`,
+      fix: "Correct the JSON in the editor. Put strings and keys in double quotes, and remove a comma after the last item of an object or array.",
+    },
+    VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE: {
+      why: ({ reason }: { reason: "repeated-cursor" | "too-many-pages" }) => reason === "repeated-cursor"
+        ? "The server returned a repeated pagination cursor. It could not finish the list."
+        : "The server returned more than 1,000 pages. It could not finish the list.",
+      fix: "Check the pagination of the MCP server: each page must return a new `nextCursor`, and a list must end within 1,000 pages.",
+    },
+    VITE_HUB_CONSOLE_NUMBER_REQUIRED: {
+      why: "Enter a number.",
+      fix: "Enter a number in the field before you save it.",
+    },
+    VITE_HUB_LOGS_FILTER_UNSUPPORTED: {
+      why: ({ filter }: { filter: "level" | "service" | "text" }) => `The source does not support ${filter} filters.`,
+      fix: "Remove the filter that the message names from the Logs query. The log source accepts only the filters in its `info.filters`.",
+    },
+    VITE_HUB_LOGS_MAX_ENTRIES_INVALID: {
+      why: "logs.maxEntries must be an integer from 1 to 10000.",
+      fix: "Set `maxEntries` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 1 to 10000.",
+    },
+    VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID: {
+      why: "logs.maxEntryBytes must be an integer from 256 to 262144.",
+      fix: "Set `maxEntryBytes` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 256 to 262144.",
+    },
+    VITE_HUB_LOGS_SOURCE_MISSING: {
+      why: "[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: \"./server/logs.ts\" } }. The local buffer is per process and has no durable history.",
+      fix: "Set `vitehub({ observability: { logs: { source: \"./server/logs.ts\" } } })` to a server file that default-exports a `LogSource`, or remove `observability.logs` from the production build.",
+    },
+    VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
+      why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
+      fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
+    },
+    VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
+      why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",
+      fix: "Pass `--drain-timeout` or set `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS` to a whole number of milliseconds from 0 to 2147483647.",
+    },
+    VITE_HUB_SANDBOX_CLI_DRIVER_INVALID: {
+      why: "[vitehub] --driver must be codex or claude-code.",
+      fix: "Pass `--driver codex` or `--driver claude-code` to `vitehub sandbox check`, or omit it to use codex.",
+    },
+    VITE_HUB_SANDBOX_CLI_OPTION_MISSING: {
+      why: ({ option }: { option: string }) => `[vitehub] ${option} is required.`,
+      fix: "Pass the option that the message names to the `vitehub sandbox` command, or set the environment variable that the message names. Run the command with `--help` to see every option.",
+    },
+    VITE_HUB_SANDBOX_CLI_PORT_INVALID: {
+      why: "[vitehub] --port must be between 1 and 65535.",
+      fix: "Pass `--port`, or set `CRABBOX_STATIC_PORT` or `SSH_PORT`, to a whole number from 1 to 65535.",
+    },
+    VITE_HUB_SANDBOX_CLI_TIMEOUT_INVALID: {
+      why: "[vitehub] --timeout must be a positive number of milliseconds.",
+      fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
+    },
+    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+      ...dynamicError,
+      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
   },
 })
