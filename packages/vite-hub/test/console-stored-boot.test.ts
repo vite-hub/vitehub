@@ -12,7 +12,7 @@ vi.mock("../../device/src/indexeddb.ts", () => ({
   openIndexedDB: () => browser.disk.open(),
   browserChannel: () => browser.tabs.channel(),
 }))
-const signOut = vi.fn(async () => ({ error: null }))
+const signOut = vi.fn(async (): Promise<{ error: { message: string, status: number } | null }> => ({ error: null }))
 vi.mock("better-auth/client", () => ({ createAuthClient: () => ({ signOut }) }))
 vi.mock("better-auth/client/plugins", () => ({ organizationClient: () => ({}) }))
 vi.mock("@better-auth/passkey/client", () => ({ passkeyClient: () => ({}) }))
