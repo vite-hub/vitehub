@@ -8,6 +8,7 @@ import { reloadConsoleAccount, showConsoleAccountPage, signOutConsole, useConsol
 import { consoleDocsItem } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The user menu of an `account` Console, the last row of the sidebar: the account, the teams, the pages of the team,
@@ -100,7 +101,7 @@ async function create(): Promise<void> {
     <ConsoleSidebarItem :label="label">
       <template #icon><UAvatar :src="account?.user.image ?? undefined" :alt="label" :text="initials" size="2xs" /></template>
       <template #trailing>
-        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+        <Icon name="i-lucide-chevrons-up-down" class="vitehub-sidebar__fade size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
       </template>
     </ConsoleSidebarItem>
   </UDropdownMenu>

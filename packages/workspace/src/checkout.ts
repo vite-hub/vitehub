@@ -3,6 +3,7 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { Diagnostic } from "nostics"
 
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -46,7 +47,7 @@ function remoteFailure(result: { code?: string, fix?: string, message: string })
 
 /** The code, message, and fix that the checkout commands print for a failure. */
 export function checkoutFailure(error: unknown): { code: string, fix?: string, message: string } {
-  const failure = error instanceof Diagnostic ? error : workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_FAILED({ message: error instanceof Error ? error.message : String(error) })
+  const failure = isRuntimeDiagnostic(error) ? error : workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_FAILED({ message: error instanceof Error ? error.message : String(error) })
   return { code: failure.code, message: failure.message, ...(failure.fix ? { fix: failure.fix } : {}) }
 }
 

@@ -25,6 +25,7 @@ const singleFramework: Record<string, string> = {
   "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
   "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
+  "device/browser-api.md nuxt.config.ts": "The section is about the client plugin of the Nuxt module. A Vite app calls openDevice() itself.",
   "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",
   "auth/protect-pages.md nuxt.config.ts": "The page guard reads the meta of Nuxt pages, so the page is about Nuxt apps only.",
   "reference/doctor-rules.md vite.config.ts": "Each example shows the config that one Doctor rule reports.",
@@ -41,7 +42,7 @@ const singleFramework: Record<string, string> = {
   "comments/configure.md vite.config.ts": "These Database strings belong to comments() used alone.",
   "comments/get-started.md vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
   "comments/get-started.md node/vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
-  "comments/index.md vite.config.ts": "The landing shows Comments alone, without a ViteHub app.",
+  "comments/index.md vite.config.ts": "Use without ViteHub shows comments() alone, without a ViteHub app.",
   "frameworks-hosts/cloudflare.md vite.config.ts": "The rate-limit example composes hubRateLimit() and nitro() without vitehub().",
   "web-container/get-started.md vite.config.ts": "hubWebContainer() is a Vite plugin for the page that boots a container, not a ViteHub app option.",
 }

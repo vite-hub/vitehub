@@ -19,7 +19,7 @@
             </template>
             <template #body>
               <p role="status" class="vitehub-console-opening">
-                <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
                 Opening Console…
               </p>
             </template>
@@ -38,6 +38,7 @@ import { isConsoleSectionId } from "../sections";
 import ConsoleFrame from "../components/console-frame.vue";
 import ConsoleProjectGate from "../components/console-project-gate.vue";
 import ConsoleSidebarTrigger from "../components/console-sidebar-trigger.vue";
+import Icon from "../components/console-icon.vue";
 import { useConsoleProjects } from "./project-session";
 import { subscribeConsoleNavigation } from "./sections";
 

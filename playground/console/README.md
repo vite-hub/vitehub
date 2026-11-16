@@ -41,16 +41,24 @@ The check uses installed Playwright Chromium, the real Console components, and i
 
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
+`icons.html` draws every icon name of the Console sources with Nuxt UI's `UIcon` and with the Console `Icon` (`console-icon.vue`). `packages/vite-hub/test/console-icon.browser.mjs` uses the same server and checks that both give the same SVG and the same box:
+
+```bash
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-icon.browser.mjs
+```
+
 To prove that a change does not move pixels, such as a token rename, capture every Console route on the base and on your branch, and compare the captures:
 
 ```bash
-pnpm exec vp run --cache -t @vite-hub/auth#build
+pnpm exec vp run --cache -t @vite-hub/auth#build   # and the same for @vite-hub/kit#build and @vite-hub/ui#build, one task per run
 node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/base   # on the base commit
 node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/head   # on your branch
 node packages/vite-hub/test/console-pixels.browser.mjs compare .cache/console-pixels/base .cache/console-pixels/head
 ```
 
 `capture` reads the routes from the Console router, so a new route is captured without a change to the script. It starts this playground on port 4381 (`--port` changes it), opens each route in light and dark at 1280px and 390px, and stops the playground at the end. The browser and the playground share a fixed clock, so relative times do not change between captures. A route with a required parameter takes its value from a page that opens it, such as `/agents` opening its first session. `manifest.json` lists each shot and each route that has no shot of its own. `compare` prints the share of changed pixels per shot, writes red diff images next to the head folder, and exits with 1 when a shot is missing or changes more than `--threshold` percent (default 0.01). The Console code loads from source. `@vite-hub/ui/theme.css` loads from `packages/ui/dist`, so run `pnpm exec vp run -t @vite-hub/ui#build` on each side when the change is in that file. A shot shows each page as it opens. Panels, menus, and states that need a click are not captured.
+
+CI runs the same check on a pull request that changes `packages/vite-hub/src/console/`, this playground, `packages/kit/src/styles/`, `packages/ui/theme.css`, or the oracle. The `console pixels` job captures the base branch and the pull request in one job and compares them. When a shot changes, it fails and uploads the `console-pixels` artifact with both captures and the diff images. When the pull request changes pixels on purpose, add the `console-pixels:expected` label, run the job again, and explain each changed shot in the pull request.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/_vitehub/api/`, and it also matches the paths under it:
@@ -76,3 +84,15 @@ The MCP client section answers from `mcp-client-fixture.ts`, which keeps its con
 Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Impersonate is on: start it from a non-admin user, and the playground root returns to the Console, where the Auth section shows the banner and **Stop impersonating**. Admins and the banned user show Better Auth's refusal. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
 
 Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.
+
+## Move a part to ui-sdk
+
+The Console moves from Nuxt UI to ui-sdk one part or one page at a time. `client/styles.css` already loads `@vite-hub/kit/styles/default.scoped.css`, the kit style family under `:where(.ui-sdk)`, so its rules style only the elements inside an element with the `ui-sdk` class. A page PR moves a part in three steps:
+
+1. Wrap the part in a scope root: put `class="ui-sdk"` on its own element, or on a `<div>` around it. The root holds the part and nothing else from Nuxt UI.
+2. Swap the tags inside the root: `@ui-sdk/vue` parts for `<U*>` components, and the kit's CSS-only parts (`data-slot="vh-badge"`, `vh-empty`, `vh-skeleton`, ...) for UBadge, UEmpty, and USkeleton. See the README of `@vite-hub/kit`. Keep the Tailwind classes: the kit Tailwind bridge keeps `text-muted`, `bg-elevated`, and the other semantic utilities.
+3. Run the oracle on the base and on your branch, as described above. `capture` fails a shot when a scope root holds a Nuxt UI component, and names the component. Explain every changed shot in the PR, with before and after images.
+
+The Console theme supplies the kit foreground, input, overlay, and popup tokens as well as the shared palette. Check a scoped solid button, input, and popup with the actual Console imports: `pnpm --dir packages/ui exec node --test test/browser/console-scope.browser.mjs`. This check needs Playwright Chromium.
+
+A scope root holds no Nuxt UI component: inside it, the kit rules on `[data-slot]` apply, and 8 slot names, such as `button` and `label`, are the same in Nuxt UI and ui-sdk. A Nuxt UI component around a root, such as a card with a root in its slot, is fine. Nuxt UI menus and dialogs teleport to `<body>`, outside every root. `client/styles.css` declares the layer order `theme, base, ui-sdk, components, utilities` before its imports, so Tailwind utility classes win over the kit rules.

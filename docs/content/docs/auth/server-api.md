@@ -69,7 +69,15 @@ const { loggedIn, user, signOut } = useUserSession()
 - Nuxt opens `redirectTo` with `navigateTo()`. A plain Vue app loads it with `location.assign()`.
 - Without `redirectTo`, in Nuxt, a page with `definePageMeta({ auth: 'user' })` sends the visitor to its login page, as the page guard does. Other pages stay open.
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
-- When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
+- When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, but only an `http:` or `https:` page. Better Auth's `callbackURL` option sets the page after that. With `disableRedirect: true`, `signOut()` returns that page in `data.url` and opens `redirectTo`.
+
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you.
+
+```ts [src/main.ts] fragment
+import { onSignOut } from 'vite-hub/auth/vue'
+
+onSignOut(() => localStorage.removeItem('drafts'))
+```
 
 ### Client plugins
 

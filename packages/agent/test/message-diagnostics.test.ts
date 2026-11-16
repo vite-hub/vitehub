@@ -1,4 +1,4 @@
-import { Diagnostic } from "nostics"
+import { Diagnostic, type InferDiagnosticCodes } from "nostics"
 import { expect, it } from "vitest"
 
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts"
@@ -9,7 +9,7 @@ it("reuses message diagnostic handles and keeps their input-error classification
   const cause = new Error("Original failure")
   const sources = ["messages.ts:1:1"]
   expect(Object.keys(messageDiagnostics)).toHaveLength(23)
-  for (const code of Object.keys(messageDiagnostics) as Array<keyof typeof messageDiagnostics>) {
+  for (const code of Object.keys(messageDiagnostics) as Array<InferDiagnosticCodes<typeof messageDiagnostics>>) {
     expect(agentDiagnostics[code]).toBe(messageDiagnostics[code])
     const error = agentDiagnostics[code]({ message: "Invalid message", cause, sources })
     expect(error).toBeInstanceOf(Diagnostic)
@@ -30,4 +30,11 @@ it("reuses message diagnostic handles and keeps their input-error classification
     expect(error).toMatchObject({ code: "AGENT_R0647" })
     expect(isAgentTypeDiagnostic(error)).toBe(true)
   }
+})
+
+it("checks errors of both Agent registries with agentDiagnostics.is", () => {
+  expect(agentDiagnostics.is(messageDiagnostics.AGENT_R0647({ message: "m" }))).toBe(true)
+  expect(agentDiagnostics.is(agentDiagnostics.AGENT_R0618({ message: "m" }))).toBe(true)
+  expect(agentDiagnostics.is(new Error("m"))).toBe(false)
+  expect(Object.keys(agentDiagnostics)).not.toContain("is")
 })

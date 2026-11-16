@@ -688,7 +688,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
       const { nuxt, runIconHook } = createNuxt()
-      await viteHubNuxtModule({ console: false, env: false, host: "node" }, nuxt)
+      await viteHubNuxtModule({ console: false, device: false, env: false, host: "node" }, nuxt)
       expect(nuxt.options.plugins).toEqual([])
       expect([...runIconHook()]).toEqual([])
     }
@@ -724,7 +724,7 @@ describe("ViteHub Nuxt integration", () => {
 
   it("skips the styled runtime when Nuxt UI is installed but its module is not enabled", async () => {
     const { componentsExtendHooks, nuxt, runIconHook, runModulesDoneHook } = createNuxt()
-    await viteHubNuxtModule({ console: false, env: false, host: "node" }, nuxt)
+    await viteHubNuxtModule({ console: false, device: false, env: false, host: "node" }, nuxt)
     runModulesDoneHook()
     expect(nuxt.options.plugins).toEqual([])
     expect([...runIconHook()]).toEqual([])
@@ -1272,6 +1272,24 @@ describe("ViteHub Nuxt integration", () => {
     const stub = (nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]!
     const { default: upstashDriver } = await import(pathToFileURL(stub).href) as { default: () => never }
     expect(() => upstashDriver()).toThrow(expect.objectContaining({ code: "VITE_HUB_R0001" }))
+  })
+
+  it("gives the disabled KV config when Comments is on and KV is unset", async () => {
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    // Without a github() Source, Vite drops the KV plugin of the Content KV variant, so the module must not keep it.
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/kv/vite",
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ comments: true, console: { auth: false }, host: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
+    const kvAlias = (nitroConfig.alias as Record<string, string>)["#vitehub/kv/config"]
+    expect(kvAlias).toBeTypeOf("string")
+    expect(await readFile(kvAlias!, "utf8")).toContain("export const kv = false")
   })
 
   it("installs the disabled KV config in development too, and keeps the app's own config and alias", async () => {
@@ -4355,6 +4373,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/decisions/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
+      { from: "vite-hub/device/vue", name: "useStoredData" },
+      { from: "vite-hub/device/vue", name: "useStoredFetch" },
+      { from: "vite-hub/device", name: "setDeviceAccount" },
+      { from: "vite-hub/device", name: "clearDevice" },
+      { from: "vite-hub/device", name: "inspectDevice" },
       { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
@@ -4588,6 +4611,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/decisions/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
+      { from: "vite-hub/device/vue", name: "useStoredData" },
+      { from: "vite-hub/device/vue", name: "useStoredFetch" },
+      { from: "vite-hub/device", name: "setDeviceAccount" },
+      { from: "vite-hub/device", name: "clearDevice" },
+      { from: "vite-hub/device", name: "inspectDevice" },
     ])
   })
 
@@ -4622,10 +4650,145 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/decisions/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
+      { from: "vite-hub/device/vue", name: "useStoredData" },
+      { from: "vite-hub/device/vue", name: "useStoredFetch" },
+      { from: "vite-hub/device", name: "setDeviceAccount" },
+      { from: "vite-hub/device", name: "clearDevice" },
+      { from: "vite-hub/device", name: "inspectDevice" },
       { from: "vite-hub/blob/vue", name: "useMultipartUpload" },
       { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
-    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }])
+    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }, { from: "vite-hub/device/vue", name: "useStoredData" }, { from: "vite-hub/device/vue", name: "useStoredFetch" }, { from: "vite-hub/device", name: "setDeviceAccount" }, { from: "vite-hub/device", name: "clearDevice" }, { from: "vite-hub/device", name: "inspectDevice" }])
+  })
+
+  describe("Device", () => {
+    /** Runs the module in a fresh root, and returns the Nuxt plugins and the source of the device plugin. */
+    async function setup(options: Parameters<typeof viteHubNuxtModule>[0]) {
+      const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-device-"))
+      onTestFinished(() => rm(root, { recursive: true, force: true }))
+      const { nuxt } = createNuxt()
+      nuxt.options.rootDir = root
+      await viteHubNuxtModule({ host: "node", ...options }, nuxt)
+      const src = resolve(root, ".vitehub/device/nuxt-plugin.mjs")
+      // SAFETY: The module initializes Nuxt's imports collection.
+      const imports = (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
+      return { imports, plugins: nuxt.options.plugins, src }
+    }
+
+    /** Runs the generated plugin with fake Nuxt, Device, and Auth modules, as the browser runs it. */
+    async function runPlugin(src: string, nuxtApp: { payload: { serverRendered?: boolean } }) {
+      const { computed, ref } = await import("vue")
+      const calls: string[] = []
+      const resolveHook = { current: undefined as (() => unknown) | undefined }
+      const signOut = { listener: undefined as (() => unknown) | undefined }
+      const state = ref<{ pending: boolean, error: Error | null, user: { id: string } | null }>({ pending: true, error: null, user: null })
+      vi.doMock("#imports", async () => ({ defineNuxtPlugin: <T>(plugin: T) => plugin, watch: (await import("vue")).watch }))
+      vi.doMock("vite-hub/device", () => ({
+        openDevice: async (options?: { version?: string }) => void calls.push(`open ${JSON.stringify(options ?? {})}`),
+        setDeviceAccount: async (account: string | null) => {
+          calls.push(`account ${account}`)
+          return [undefined, undefined]
+        },
+      }))
+      vi.doMock("vite-hub/auth/vue", () => ({
+        onSignOut: (listener: () => unknown) => {
+          signOut.listener = listener
+          return () => undefined
+        },
+        useUserSession: () => ({
+          ready: computed(() => !state.value.pending),
+          error: computed(() => state.value.error),
+          user: computed(() => state.value.user),
+        }),
+      }))
+      // A copy inside this package resolves `vite-hub/device` and `vite-hub/auth/vue` to the files that the mocks replace.
+      const copy = await mkdtemp(resolve(import.meta.dirname, ".device-plugin-"))
+      try {
+        await writeFile(resolve(copy, "plugin.mjs"), await readFile(src, "utf8"))
+        // SAFETY: the generated plugin is the object that `defineNuxtPlugin()` got, which the fake returns as is.
+        const { default: plugin } = await import(pathToFileURL(resolve(copy, "plugin.mjs")).href) as { default: { name: string, dependsOn?: string[], setup: (app: unknown) => Promise<void> } }
+        const app = { ...nuxtApp, hooks: { hookOnce: (name: string, hook: () => unknown) => void (name === "app:suspense:resolve" && (resolveHook.current = hook)) } }
+        await plugin.setup(app)
+        return { plugin, calls, state, resolveHook, signOut }
+      }
+      finally {
+        await rm(copy, { recursive: true, force: true })
+        vi.doUnmock("#imports")
+        vi.doUnmock("vite-hub/device")
+        vi.doUnmock("vite-hub/auth/vue")
+      }
+    }
+
+    it("auto-imports the stored reads and opens the device in a client plugin, after hydration when the server rendered the page", async () => {
+      const { imports, plugins, src } = await setup({})
+      expect(imports).toEqual(expect.arrayContaining([
+        { from: "vite-hub/device/vue", name: "useStoredData" },
+        { from: "vite-hub/device/vue", name: "useStoredFetch" },
+        { from: "vite-hub/device", name: "setDeviceAccount" },
+        { from: "vite-hub/device", name: "clearDevice" },
+        { from: "vite-hub/device", name: "inspectDevice" },
+      ]))
+      // The plugin owns `openDevice()`.
+      expect(imports).not.toContainEqual(expect.objectContaining({ name: "openDevice" }))
+      expect(plugins).toEqual([{ src, mode: "client" }])
+
+      const rendered = await runPlugin(src, { payload: { serverRendered: true } })
+      expect(rendered.plugin).toMatchObject({ name: "vitehub:device" })
+      expect(rendered.plugin.dependsOn).toBeUndefined()
+      expect(rendered.calls).toEqual([])
+      rendered.resolveHook.current?.()
+      expect(rendered.calls).toEqual(["open {}"])
+
+      const spa = await runPlugin(src, { payload: {} })
+      expect(spa.calls).toEqual(["open {}"])
+      expect(spa.resolveHook.current).toBeUndefined()
+    })
+
+    it("names the account of ViteHub Auth when its session is ready, and waits for the copies to go on sign-out", async () => {
+      const { src } = await setup({ auth: true })
+      const { plugin, calls, state, signOut } = await runPlugin(src, { payload: {} })
+      expect(plugin.dependsOn).toEqual(["vitehub:auth"])
+      // While the session loads, the device opens and names nobody.
+      expect(calls).toEqual(["open {}"])
+      state.value = { pending: false, error: null, user: { id: "ada" } }
+      // The watch is sync, so the naming comes before any component sees the session.
+      expect(calls).toEqual(["open {}", "account ada"])
+      // A session read that failed names nobody, so an offline reload keeps the copies.
+      state.value = { pending: false, error: new Error("Failed to fetch"), user: null }
+      expect(calls).toEqual(["open {}", "account ada"])
+      state.value = { pending: false, error: null, user: null }
+      expect(calls).toEqual(["open {}", "account ada", "account null"])
+      state.value = { pending: false, error: null, user: { id: "grace" } }
+      // `signOut()` awaits the listener before it opens the next page.
+      await signOut.listener?.()
+      expect(calls).toEqual(["open {}", "account ada", "account null", "account grace", "account null"])
+    })
+
+    it("opens the device with its version, and leaves the account to the app with account: false", async () => {
+      const { src } = await setup({ auth: true, device: { version: "2", account: false } })
+      const { plugin, calls, state, signOut } = await runPlugin(src, { payload: {} })
+      expect(plugin.dependsOn).toBeUndefined()
+      state.value = { pending: false, error: null, user: { id: "ada" } }
+      expect(calls).toEqual(["open {\"version\":\"2\"}"])
+      expect(signOut.listener).toBeUndefined()
+    })
+
+    it("adds nothing with device: false or without @vite-hub/device", async () => {
+      const off = await setup({ device: false })
+      expect(off.plugins).toEqual([])
+      expect(off.imports).not.toContainEqual(expect.objectContaining({ from: "vite-hub/device/vue" }))
+
+      const installed = vi.mocked(isPackageInstalled).getMockImplementation()!
+      vi.mocked(isPackageInstalled).mockImplementation(name => name !== "@vite-hub/device" && installed(name))
+      try {
+        const missing = await setup({})
+        expect(missing.plugins).toEqual([])
+        expect(missing.imports).not.toContainEqual(expect.objectContaining({ from: "vite-hub/device" }))
+      }
+      finally {
+        vi.mocked(isPackageInstalled).mockImplementation(installed)
+      }
+    })
   })
 
   it("rejects a configured Nuxt composable that would bind a different useChat", async () => {
@@ -4712,7 +4875,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       imports: { imports: Array<{ from: string; name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(8)
+    expect(options.imports.imports).toHaveLength(13)
     expect(options.imports.imports).toContainEqual({ from: "vite-hub/auth/vue", name: "useAbility" })
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({})

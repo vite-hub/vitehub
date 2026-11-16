@@ -58,6 +58,7 @@ let sessionSeedResolver: ((read: boolean) => unknown) | undefined
 let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
 let defaultBasePath: string | undefined
 let requestFetchResolver: (() => RequestFetch | undefined) | undefined
+const signOutListeners = new Set<() => unknown>()
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
@@ -712,7 +713,8 @@ export interface UserSession<Client extends AuthClientLike = typeof authClient> 
   session: ComputedRef<ClientSession<Client>["session"] | null>
   signIn: Client["signIn"]
   /**
-   * Signs out with Better Auth, sets the session to `null` at once, then opens `redirectTo`. Returns Better Auth's
+   * Signs out with Better Auth, sets the session to `null` at once, waits for the `onSignOut()` listeners, then opens
+   * the provider's sign-out page, such as for OpenID Connect logout, or else `redirectTo`. Returns Better Auth's
    * result. When the sign-out fails, the session and the page stay. Better Auth gets `fetchOptions`, as its own
    * `signOut()` does.
    */
@@ -763,10 +765,24 @@ function createUserSession<Client extends AuthClientLike>(client: Client, store:
   }
 }
 
-async function signOut(client: AuthClientLike, store: SessionStore, options: { redirectTo?: string } = {}, fetchOptions: unknown[] = []): Promise<unknown> {
+/**
+ * Calls `listener` in the browser after each `signOut()` of `useUserSession()`, once the server ended the session and
+ * before the next page opens. `signOut()` waits for it. Use it to forget data of the person, such as `clearSync()`.
+ * Returns a function that stops it.
+ */
+export function onSignOut(listener: () => unknown): () => void {
+  signOutListeners.add(listener)
+  return () => {
+    signOutListeners.delete(listener)
+  }
+}
+
+async function signOut(client: AuthClientLike, store: SessionStore, options: { redirectTo?: string, disableRedirect?: boolean } = {}, fetchOptions: unknown[] = []): Promise<unknown> {
   const { redirectTo, ...betterAuthOptions } = options
+  // A provider sign-out, such as OpenID Connect logout, answers with the provider's sign-out page. Better Auth would
+  // load it inside its own `signOut()`, before the listeners below run, so it only returns the page here.
   // SAFETY: every Better Auth client has `signOut()`, which answers with a promise.
-  const result = await (client.signOut as (...args: unknown[]) => Promise<unknown>)(betterAuthOptions, ...fetchOptions)
+  const result = await (client.signOut as (...args: unknown[]) => Promise<unknown>)({ ...betterAuthOptions, disableRedirect: true }, ...fetchOptions)
   // Better Auth returns `{ data, error }`, and only the data with `fetchOptions.throw`, which throws on an error.
   const answer = typeof result === "object" && result !== null && "data" in result && "error" in result ? result : { data: result, error: null }
   if (answer.error) return result
@@ -775,14 +791,23 @@ async function signOut(client: AuthClientLike, store: SessionStore, options: { r
   // atom starts that read from `null`, so the read cannot show the user again. Every component shares the store, so
   // they all show the sign-out at once.
   store.clear(await loadAuthClient(client as VueAuthClient<{}>))
-  // A provider sign-out, such as OpenID Connect logout, answers `{ url, redirect: true }`, and Better Auth then
-  // loads the provider's page. Another navigation now would cancel it.
+  await Promise.all([...signOutListeners].map(listener => listener()))
+  // The package types have no DOM, so `location` comes from `globalThis`.
+  const location = (globalThis as { location?: { assign(url: string): void } }).location
   const data: unknown = answer.data
-  if (typeof data === "object" && data !== null && Reflect.get(data, "redirect") === true && typeof Reflect.get(data, "url") === "string") return result
-  // Nuxt opens the next page with `navigateTo()`. Plain Vue knows no router, so it loads `redirectTo`. The package
-  // types have no DOM, so `location` comes from `globalThis`.
+  if (!options.disableRedirect && typeof data === "object" && data !== null) {
+    const providerPage: unknown = Reflect.get(data, "url")
+    // The provider's configuration sets the URL, so only a web page opens.
+    if (typeof providerPage === "string" && /^https?:\/\//i.test(providerPage)) {
+      location?.assign(providerPage)
+      // The answer says what Better Auth says without `disableRedirect`: the page opens.
+      Reflect.set(data, "redirect", true)
+      return result
+    }
+  }
+  // Nuxt opens the next page with `navigateTo()`. Plain Vue knows no router, so it loads `redirectTo`.
   if (signOutHandler) await signOutHandler(redirectTo)
-  else if (redirectTo) (globalThis as { location?: { assign(url: string): void } }).location?.assign(redirectTo)
+  else if (redirectTo) location?.assign(redirectTo)
   return result
 }
 

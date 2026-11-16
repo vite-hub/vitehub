@@ -11,6 +11,7 @@ import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
 import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
+import Icon from "./console-icon.vue";
 import {
   consoleUsageCacheHitRate,
   consoleUsageMetricValue,
@@ -522,7 +523,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </div>
           <ConsoleState v-if="error" compact :error="error" title="Could not load usage" :retry="load" />
           <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
-            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             Some usage is unavailable. Recorded totals include only the evidence received.
           </p>
           <!-- The skeleton has the height of the numbers, so they do not push the page down when they arrive. -->
@@ -679,7 +680,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                       </td>
                       <td class="px-3 py-2.5 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
                       <td class="px-3 py-2.5 align-top text-muted"><time :datetime="session.at" :title="formatDateTime(session.at)">{{ formatTimestamp(session.at) }}</time></td>
-                      <td class="px-3 py-2.5 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
+                      <td class="px-3 py-2.5 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><Icon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
                       <td class="px-3 py-2.5 text-right align-top tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
                       <td v-if="costSupported" class="px-3 py-2.5 text-right align-top font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
                     </tr>
@@ -703,7 +704,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <p class="mt-0.5 mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
 
               <p v-if="statusError" class="flex items-start gap-2 p-3 text-sm" role="status">
-                <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                <Icon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                 {{ statusError }}
               </p>
               <div v-else class="grid gap-x-8 lg:grid-cols-2">

@@ -28,8 +28,8 @@ declare module "#docs/agent" {
   export default agent
 }
 
-/** The docs Markdown files packed into one module in a production build, or null in development. */
+/** The docs Markdown files: packed into one module in a production build, loaded one by one in development. */
 declare module "#docs/files" {
-  const files: import("../../files.ts").DocsPackedFiles | null
+  const files: import("../../files.ts").DocsFiles
   export default files
 }

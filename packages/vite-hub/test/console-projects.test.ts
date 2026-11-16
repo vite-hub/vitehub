@@ -385,7 +385,7 @@ describe("account Console", () => {
     expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
   })
 
-  describe.each(["home", "team", "team-settings", "settings"] as const)("while %s is selected", (page) => {
+  describe.each(["home", "team", "team-settings", "env", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)

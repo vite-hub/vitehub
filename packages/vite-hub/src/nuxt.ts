@@ -184,7 +184,7 @@ type NuxtLike = {
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
-    plugins?: Array<string | { src: string }>
+    plugins?: Array<string | { src: string, mode?: "client" | "server" | "all" }>
     routeRules?: Record<string, {
       headers?: Record<string, string>
       [key: string]: unknown
@@ -445,6 +445,41 @@ function configuredProjectRoots(options: ViteHubOptions, rootDir: string, viteRo
       return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
     })
     .map(([name, value]) => resolve(name === "database" ? rootDir : viteRoot, value.projectRoot))
+}
+
+/**
+ * Adds the client plugin that opens `@vite-hub/device`. On a page that the server rendered, it opens the device after
+ * hydration, so the first render matches the server HTML. Without server HTML, it opens the device before the app
+ * mounts, so the first render shows the stored copies. With Auth, it names the account of `useUserSession()`, and
+ * `signOut()` waits until the copies are gone. The plugin goes to `.vitehub/device/`, because Nuxt clears its build
+ * directory after modules run.
+ */
+async function addDevicePlugin(nuxt: NuxtLike, projectRoot: string, options: { version: string | undefined, auth: boolean }): Promise<void> {
+  const src = join(projectRoot, ".vitehub/device/nuxt-plugin.mjs")
+  const open = `openDevice(${options.version === undefined ? "" : JSON.stringify({ version: options.version })})`
+  // The session read, and the copies that go before `signOut()` opens the next page.
+  const account = `
+    const report = ([error]) => error && console.warn(error)
+    const session = useUserSession()
+    // A session read that failed names nobody, so an offline reload keeps the copies.
+    watch(() => session.ready.value && !session.error.value ? session.user.value?.id ?? null : undefined, (account) => {
+      if (account !== undefined) setDeviceAccount(account).then(report)
+    }, { immediate: true, flush: "sync" })
+    onSignOut(() => setDeviceAccount(null).then(report))`
+  await writeFileIfChanged(src, `import { defineNuxtPlugin, watch } from "#imports"
+import { openDevice, setDeviceAccount } from "vite-hub/device"
+${options.auth ? `import { onSignOut, useUserSession } from "vite-hub/auth/vue"\n` : ""}
+export default defineNuxtPlugin({
+  name: "vitehub:device",${options.auth ? `\n  dependsOn: ["vitehub:auth"],` : ""}
+  async setup(nuxtApp) {${options.auth ? account : ""}
+    // Hydration must render what the server rendered, so the device opens after it.
+    if (nuxtApp.payload.serverRendered) nuxtApp.hooks.hookOnce("app:suspense:resolve", () => void ${open})
+    else await ${open}
+  },
+})
+`)
+  const plugins = (nuxt.options.plugins ??= [])
+  if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
 
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
@@ -1533,6 +1568,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (isPackageInstalled("@vite-hub/forms")) {
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
     if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
+  }
+  if (options.device !== false && isPackageInstalled("@vite-hub/device")) {
+    // `openDevice()` belongs to the plugin, so it is not auto-imported.
+    addVueImports(nuxt, "vite-hub/device/vue", ["useStoredData", "useStoredFetch"])
+    addVueImports(nuxt, "vite-hub/device", ["setDeviceAccount", "clearDevice", "inspectDevice"])
+    await addDevicePlugin(nuxt, projectRoot, { version: options.device?.version, auth: Boolean(effectiveAuth) && options.device?.account !== false })
   }
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })

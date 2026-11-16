@@ -11,6 +11,11 @@ export const deviceErrors = /*#__PURE__*/ defineErrors({
       why: ({ version, open }: { version: string, open: string }) => `\`openDevice()\` was called with the version ${JSON.stringify(version)}, and the device is already open with the version ${JSON.stringify(open)}.`,
       fix: "Call `openDevice()` once, before `app.mount()`, with one `version` for the build.",
     },
+    // The `error` of a `useStoredFetch()` read whose answer is not 2xx.
+    DEVICE_FETCH_FAILED: {
+      why: ({ url, status }: { url: string, status: number }) => `GET ${url} answered ${status}. \`useStoredFetch()\` keeps what the read shows, and the device does not store the answer.`,
+      fix: "Check that the route answers 2xx with JSON for this request. For a 401, sign the person in again. For another error, read the server log of the route.",
+    },
     // Thrown by `setDeviceAccount()`.
     DEVICE_INVALID_ACCOUNT: {
       why: ({ account }: { account: string }) => `\`setDeviceAccount()\` got ${account}. It takes the id of the signed-in account, or \`null\` after a sign-out.`,
