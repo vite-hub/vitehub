@@ -1,12 +1,12 @@
 ---
 title: Device browser API
-description: Open the device, name its account, inspect stored copies, and useStoredData() with options, status values, and rules for tabs and server rendering.
+description: Open the device, name its account, inspect stored copies, useStoredData() and useStoredFetch() with options and status values, the Nuxt module, and rules for tabs and server rendering.
 navigation.title: Browser API
 navigation.order: 4
 icon: i-lucide-code
 ---
 
-`vite-hub/device` has the functions of the device. `vite-hub/device/vue` has `useStoredData()`. Both run in the browser. On the server, they store nothing.
+`vite-hub/device` has the functions of the device. `vite-hub/device/vue` has `useStoredData()` and `useStoredFetch()`. Both run in the browser. On the server, they store nothing. In Nuxt, the [ViteHub module](#nuxt) opens the device and auto-imports them.
 
 ## `openDevice()`
 
@@ -25,11 +25,11 @@ createApp(App).mount('#app')
 | --- | --- | --- |
 | `version` | `''` | The version of the stored data. When the stored copies have another version, the device deletes them. |
 
-`openDevice()` never fails. When the browser has no working IndexedDB, or IndexedDB takes more than 1 second, the page keeps its copies in memory. Call it once: a second call with another version throws `DEVICE_ALREADY_OPEN`.
+`openDevice()` never fails. When the browser has no working IndexedDB, or IndexedDB takes more than 1 second, the page keeps its copies in memory. Call it once: a second call with another version throws `DEVICE_ALREADY_OPEN`. In Nuxt, the module calls it, and `vitehub: { device: { version } }` sets its version.
 
 ## `setDeviceAccount()`
 
-Names the signed-in account. When a read says who is signed in, give it the `account` option of [`useStoredData()`](#usestoreddata) instead. Call `setDeviceAccount()` when your app learns the account another way, such as from the HTML or an auth client, and with `null` after a sign-out:
+Names the signed-in account. With ViteHub Auth in Nuxt, the [module](#nuxt) calls it for you. When a read says who is signed in, give it the `account` option of [`useStoredData()`](#usestoreddata) or [`useStoredFetch()`](#usestoredfetch) instead. Call `setDeviceAccount()` when your app learns the account another way, such as from the HTML or an auth client, and with `null` after a sign-out:
 
 ```ts [src/session.ts]
 import { setDeviceAccount } from 'vite-hub/device'
@@ -77,10 +77,17 @@ const props = defineProps<{ id: string }>()
 
 const { data: project, status, error, refresh, storedAt } = useStoredData(
   () => `project:${props.id}`,
-  ({ signal }) => fetch(`/api/projects/${props.id}`, { signal }).then(response => response.json() as Promise<{ name: string }>),
+  async ({ signal }) => {
+    const response = await fetch(`/api/projects/${props.id}`, { signal })
+    // An error answer must throw, or the device stores it as the project.
+    if (!response.ok) throw new Error(`The project answered ${response.status}.`)
+    return await response.json() as { name: string }
+  },
 )
 </script>
 ```
+
+A loader that does not throw on an error answer returns the error body as data, and the device stores it. For a GET of JSON, [`useStoredFetch()`](#usestoredfetch) checks the status for you.
 
 | Argument | Does |
 | --- | --- |
@@ -105,8 +112,60 @@ Reads of one key share one state and one loader call, also in different componen
 
 After another account or a sign-out in a page that named an account, after `clearDevice()`, and after any change of the disk by another tab, also for the same account, every read shows its default and calls its loader again, also a read whose loader answered. The answer of a loader call that started before the change does not show and does not go to the device. When a page names its first account, a read that shows a stored copy of another account goes back to the default, every other read keeps what it shows, and each read calls its loader again. The read with `account` whose answer named the account keeps it, and does not call its loader again for that naming.
 
+## `useStoredFetch()`
+
+A GET request for JSON with `useStoredData()`. The URL is the key of the stored copy.
+
+```vue [src/components/TeamProjects.vue]
+<script setup lang="ts">
+import { useStoredFetch } from 'vite-hub/device/vue'
+
+const props = defineProps<{ team: string }>()
+
+const { data: projects, error } = useStoredFetch<{ id: string, name: string }[]>('/api/projects', {
+  query: () => ({ team: props.team, archived: false }),
+  default: () => [],
+})
+</script>
+```
+
+| Argument | Does |
+| --- | --- |
+| `url` | The URL to fetch. A string, a ref, or a getter. A path, such as `/api/projects`, or a URL on another origin. |
+| `query` | Joins the query of the URL. A `null` or `undefined` value is left out. An object, a ref, or a getter. |
+
+It takes the options of `useStoredData()`: `default`, `maxAge`, and `account`. It returns the same fields. The type argument names the JSON, such as `useStoredFetch<Project[]>()`, and with it, the `default` has the same type.
+
+- **The key.** The path and the query, sorted by name, such as `/api/projects?archived=false&team=t1`. A URL on another origin keeps its origin in the key. The hash goes. A new URL or query is a new read, which aborts the request of the previous one.
+- **The request.** `fetch(key, { signal, headers: { accept: 'application/json' } })`. The cookies of the page go with a request on the same origin, as with any `fetch()`.
+- **Errors.** An answer that is not 2xx goes to `error` as `DEVICE_FETCH_FAILED`, with the status in its `why`. The device never stores it, and the stored copy stays in `data`. A read with `account` names nothing from it, so an error body such as `{ user: null }` does not delete the copies.
+- **Not in `useStoredFetch()`.** Other methods, a body, a `transform`, and a `baseURL`. Use `useStoredData()` with your own loader.
+
+## Nuxt
+
+When the app installs `@vite-hub/device`, the `vite-hub/nuxt` module adds a client plugin and auto-imports `useStoredData()`, `useStoredFetch()`, `setDeviceAccount()`, `clearDevice()`, and `inspectDevice()`. The plugin calls `openDevice()`, so it is not auto-imported.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { device: { version: '2' } },
+})
+```
+
+| Option | Default | Does |
+| --- | --- | --- |
+| `device` | on | `false` turns off the plugin and the auto-imports. |
+| `device.version` | none | The `version` of `openDevice()`. Without it, a deploy keeps the copies. Change it when an answer changes shape. |
+| `device.account` | on with Auth | `false`: the plugin does not name the account, and your app calls `setDeviceAccount()`. |
+
+The plugin does this in the browser:
+
+- **A page that the server rendered.** It calls `openDevice()` when hydration ends, so the first render matches the server HTML. The reads render the default and `idle`, as on the server, start their loaders when they mount, and show the stored copies when the device opens.
+- **No server HTML**, such as with `ssr: false`. It awaits `openDevice()` before the app mounts, so the first render shows the stored copies.
+- **With ViteHub Auth.** It watches `useUserSession()`. When the session is read, it calls `setDeviceAccount()` with the user id, or `null` without a user. A session read that failed names nobody, so a reload without a network keeps the copies. On `signOut()`, it calls `setDeviceAccount(null)`, and `signOut()` waits until the copies are gone before it opens the next page.
+
 ## Server rendering
 
 On the server, `useStoredData()` reads no storage and calls no loader. `data` is the default and `status` is `idle`. The functions of `vite-hub/device` store nothing on the server, so no account or copy stays in server memory between requests.
 
-In an app that the server renders, the first render in the browser must match the server. So call `openDevice()` after the app mounts, not before. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
+In an app that the server renders, the first render in the browser must match the server. So call `openDevice()` after the app mounts, not before. In Nuxt, the module does it when hydration ends. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.

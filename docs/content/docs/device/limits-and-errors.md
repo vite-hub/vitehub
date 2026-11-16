@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## What a stored copy is not
 
 - **Not confidential.** IndexedDB is not encrypted for your app. Anyone who can use the browser profile, browser extensions, and malware on the computer can read the copies. Do not store secrets, tokens, or data that must not stay on the device.
-- **Not private on a shared computer.** When the next person opens the app, the first render shows the copies of the last account. They go away when your app calls `setDeviceAccount()` with the new account. Call `setDeviceAccount(null)` on a sign-out, so the copies go at that time.
+- **Not private on a shared computer.** When the next person opens the app, the first render shows the copies of the last account. They go away when your app calls `setDeviceAccount()` with the new account. Call `setDeviceAccount(null)` on a sign-out, so the copies go at that time. With ViteHub Auth in Nuxt, the module does both.
 - **Not access.** A stored copy only changes what the screen shows first. Your server still checks every request, and the loader asks it each time.
 
 ## Limits
@@ -29,11 +29,12 @@ icon: i-lucide-circle-alert
 - **Values between tabs.** `clearDevice()` and a change of account reach every tab. A new answer does not: each tab asks its own loader.
 - **Refresh on focus or online.** A read calls its loader when it starts and when you call `refresh()`.
 - **Writes.** There is no outbox and no optimistic write. A stored read only keeps what the server answered.
-- **Nuxt auto-import.** Import `useStoredData()` from `vite-hub/device/vue`.
+- **Other requests in `useStoredFetch()`.** It sends a GET for JSON only. Use `useStoredData()` with your own loader for another method, a body, or a `transform`.
+- **Server reads in Nuxt.** The server renders the default. The stored copy shows when hydration ends.
 - **Encryption and more than one account.**
 
 ## Errors
 
-`setDeviceAccount()` and `clearDevice()` return `[error, undefined]`. Wrong input throws. The device prints the other codes once in the browser console, and the read goes on.
+`setDeviceAccount()` and `clearDevice()` return `[error, undefined]`. Wrong input throws. A `useStoredFetch()` answer that is not 2xx goes to `error` as `DEVICE_FETCH_FAILED`. The device prints the other codes once in the browser console, and the read goes on.
 
 See the [Device diagnostics](/docs/device/diagnostics) for each code, why it happens, and how to fix it.

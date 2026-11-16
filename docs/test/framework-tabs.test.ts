@@ -25,6 +25,7 @@ const singleFramework: Record<string, string> = {
   "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
   "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
+  "device/browser-api.md nuxt.config.ts": "The section is about the client plugin of the Nuxt module. A Vite app calls openDevice() itself.",
   "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",
   "auth/protect-pages.md nuxt.config.ts": "The page guard reads the meta of Nuxt pages, so the page is about Nuxt apps only.",
   "reference/doctor-rules.md vite.config.ts": "Each example shows the config that one Doctor rule reports.",

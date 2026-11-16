@@ -10,9 +10,19 @@ pnpm add @vite-hub/device
 
 It has no dependency on Sync or Auth, and it needs no server code.
 
+## Nuxt
+
+With `vite-hub/nuxt` in `modules`, the ViteHub module finds the package and does the setup:
+
+- A client plugin opens the device. On a page that the server rendered, it opens it when hydration ends, so the first render matches the server HTML. Without server HTML, such as with `ssr: false`, it opens it before the app mounts.
+- With ViteHub Auth, the plugin names the account of `useUserSession()`, and `signOut()` waits until the copies are gone.
+- `useStoredData`, `useStoredFetch`, `setDeviceAccount`, `clearDevice`, and `inspectDevice` are auto-imported.
+
+`vitehub: { device: { version: '2' } }` sets the version of `openDevice()`. `device: { account: false }` leaves the account to the app. `device: false` turns it off.
+
 ## Use
 
-Open the device before the app mounts, so the first render reads the stored copies:
+In a Vue app with Vite, open the device before the app mounts, so the first render reads the stored copies:
 
 ```ts
 // src/main.ts
@@ -24,28 +34,26 @@ await openDevice({ version: '1' })
 createApp(App).mount('#app')
 ```
 
-Read the session with `useStoredData()` and give it `account`, so each answer names who is signed in and is stored under that account. The device stores the answers of other reads only when their loader calls start after the naming:
+Without ViteHub Auth in Nuxt, read the session with `useStoredFetch()` and give it `account`, so each answer names who is signed in and is stored under that account. The device stores the answers of other reads only when their loader calls start after the naming:
 
 ```ts
 // src/composables/useSession.ts
-import { useStoredData } from '@vite-hub/device/vue'
+import { useStoredFetch } from '@vite-hub/device/vue'
 
-export const useSession = () => useStoredData('session', () =>
-  fetch('/api/session').then(response => response.json() as Promise<{ user: { id: string } | null }>), {
+export const useSession = () => useStoredFetch<{ user: { id: string } | null }>('/api/session', {
   account: session => session.user?.id ?? null,
 })
 ```
 
 When the app knows the account another way, such as from the HTML or an auth client, call `setDeviceAccount(id)` instead, before `mount()` if it can, so each read calls its loader once.
 
-Read server data with `useStoredData()`. It has the shape of Nuxt `useAsyncData()`:
+Read JSON from a route with `useStoredFetch()`. It has the shape of Nuxt `useFetch()`, for GET only, and the URL is the key of the stored copy:
 
 ```vue
 <script setup lang="ts">
-import { useStoredData } from '@vite-hub/device/vue'
+import { useStoredFetch } from '@vite-hub/device/vue'
 
-const { data: projects, status, storedAt } = useStoredData('projects', ({ signal }) =>
-  fetch('/api/projects', { signal }).then(response => response.json() as Promise<{ id: string, name: string }[]>), { default: () => [] })
+const { data: projects, status, storedAt } = useStoredFetch<{ id: string, name: string }[]>('/api/projects', { default: () => [] })
 </script>
 
 <template>
@@ -57,7 +65,20 @@ const { data: projects, status, storedAt } = useStoredData('projects', ({ signal
 </template>
 ```
 
-On a reload, `projects` has the stored copy in the first render, `status` is `pending`, and `storedAt` is the time of the copy. When the loader answers, `projects` has the answer, `status` is `success`, and `storedAt` is `undefined`. When the loader fails, the stored copy stays and `error` has the failure.
+On a reload, `projects` has the stored copy in the first render, `status` is `pending`, and `storedAt` is the time of the copy. When the server answers, `projects` has the answer, `status` is `success`, and `storedAt` is `undefined`. When the request fails, or answers with a status that is not 2xx, the stored copy stays and `error` has the failure. The device never stores an error answer.
+
+For anything else, such as a POST or a client SDK, use `useStoredData(key, loader)`. It has the shape of Nuxt `useAsyncData()`. The loader must throw on an error answer, or the device stores the error body:
+
+```ts
+// src/composables/useProject.ts
+import { useStoredData } from '@vite-hub/device/vue'
+
+export const useProject = (id: string) => useStoredData(`project:${id}`, async ({ signal }) => {
+  const response = await fetch(`/api/projects/${id}`, { signal })
+  if (!response.ok) throw new Error(`The project answered ${response.status}.`)
+  return await response.json() as { id: string, name: string }
+})
+```
 
 ## API
 
@@ -68,6 +89,7 @@ On a reload, `projects` has the stored copy in the first render, `status` is `pe
 | `clearDevice()` | Deletes every copy in this tab and in every other tab of the app. The account stays. Returns `[error, undefined]`. |
 | `inspectDevice()` | `{ account, persisted, storage, entries: [{ key, storedAt, bytes }] }`. `storage` is `indexeddb` or `memory`. |
 | `useStoredData(key, loader, options?)` | From `@vite-hub/device/vue`. Options: `default`, `maxAge`, and `account` for the read that says who is signed in. Returns `{ data, status, error, refresh, storedAt }`. The key can be a string, a ref, or a getter. Reads of one key share one state and one loader call. `refresh()` aborts the older call, and so does the unmount of the last component of a read. |
+| `useStoredFetch(url, options?)` | From `@vite-hub/device/vue`. `useStoredData()` with a GET request for JSON. The key is the path and the query sorted by name, such as `/api/projects?team=t1`, with the origin only for another origin. Options: the options of `useStoredData()`, and `query`, where a `null` or `undefined` value is left out. A status that is not 2xx goes to `error` as `DEVICE_FETCH_FAILED` and is never stored. |
 
 | Option | Default | Does |
 | --- | --- | --- |
@@ -81,7 +103,7 @@ On a reload, `projects` has the stored copy in the first render, `status` is `pe
 - **Naming starts the reads again.** When the page names its account, each read that runs calls its loader again, and the answer on the screen stays until the new one. A stored copy of another account goes back to the default at once.
 - **Old answers never show.** After another account, a sign-out, or `clearDevice()`, in this tab or in another tab, every read shows its default and calls its loader again, also a read whose loader answered. The read with `account` keeps the answer that named the account, and does not call its loader again for that naming. The answer of a loader call that started before the change does not show and does not go to the disk.
 - **Plain data.** The device keeps the answer as JSON. Return objects, arrays, strings, numbers, booleans, and null from the loader.
-- **Server rendering.** On the server, `useStoredData()` reads no storage and calls no loader: `data` is the default and `status` is `idle`. In an app that the server renders, call `openDevice()` after the app mounts. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
+- **Server rendering.** On the server, `useStoredData()` and `useStoredFetch()` read no storage and call no loader: `data` is the default and `status` is `idle`. In an app that the server renders, call `openDevice()` after the app mounts. The Nuxt plugin does it when hydration ends. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
 - **Tabs.** `clearDevice()` and a change of account reach every tab through a BroadcastChannel. The values of a read do not move between tabs: each tab asks its own loader. Each start-over of the disk gets a new generation, and a write applies only when the disk still has the generation of the tab. A new generation from another tab, also for the same account, is a reset in this tab: every read shows its default and calls its loader again. So a tab that missed a message, such as a suspended tab, cannot fill the disk again. Its write fails, and the tab drops what it had.
 
 ## Limits
@@ -95,4 +117,4 @@ On a reload, `projects` has the stored copy in the first render, `status` is `pe
 
 ## Errors
 
-`setDeviceAccount()` and `clearDevice()` return `DEVICE_STORAGE_FAILED`. Wrong input throws `DEVICE_INVALID_ACCOUNT`, `DEVICE_INVALID_KEY`, `DEVICE_INVALID_MAX_AGE`, or `DEVICE_ALREADY_OPEN`. The device prints `DEVICE_NOT_OPEN`, `DEVICE_VALUE_NOT_JSON`, `DEVICE_VALUE_TOO_LARGE`, and `DEVICE_STORAGE_FAILED` in the browser console when it cannot keep a copy. Each code has a page at `https://vitehub.dev/docs/device/diagnostics/<code>`.
+`setDeviceAccount()` and `clearDevice()` return `DEVICE_STORAGE_FAILED`. `useStoredFetch()` puts `DEVICE_FETCH_FAILED` in `error` for an answer that is not 2xx. Wrong input throws `DEVICE_INVALID_ACCOUNT`, `DEVICE_INVALID_KEY`, `DEVICE_INVALID_MAX_AGE`, or `DEVICE_ALREADY_OPEN`. The device prints `DEVICE_NOT_OPEN`, `DEVICE_VALUE_NOT_JSON`, `DEVICE_VALUE_TOO_LARGE`, and `DEVICE_STORAGE_FAILED` in the browser console when it cannot keep a copy. Each code has a page at `https://vitehub.dev/docs/device/diagnostics/<code>`.
