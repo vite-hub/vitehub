@@ -143,6 +143,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   let connectedDocumentId: string | undefined
   let workspaceChangeTimer: ReturnType<typeof setTimeout> | undefined
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
+  let canConnect = !getCurrentInstance()
 
   function destroyDocument(keepDocument = false, preserveRefresh = false) {
     for (const controller of requestControllers) {
@@ -241,6 +242,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const room = id.split("/").map(encodeURIComponent).join("/")
     const version = options.editor?.version
     const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, {
+      connect: canConnect,
       disableBc: true,
       params: { clientId: String(nextDocument.clientID), ...version === undefined ? {} : { editor: version } },
     })
@@ -290,7 +292,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     connectedDocumentId = id
     document.value = nextDocument
     provider.value = nextProvider
-    status.value = "connecting"
+    if (canConnect) status.value = "connecting"
   }
 
   function reset(id: string, reason: RealtimeResetReason, epoch: string) {
@@ -413,14 +415,19 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return await requestResult("refresh", isRefreshResult)
   }
 
-  const start = () => watch([() => toValue(documentId), enabled], ([id, active]) => {
+  watch([() => toValue(documentId), enabled], ([id, active]) => {
     destroyDocument()
     if (!active || !id || typeof window === "undefined") return
     connect(id)
   }, { immediate: true })
-  // In a component, connect after mount so the first client render matches the server's `disconnected`.
-  if (getCurrentInstance()) onMounted(start)
-  else start()
+  // Prepare editor extensions in setup, but keep the first render disconnected.
+  if (!canConnect) onMounted(() => {
+    canConnect = true
+    const current = provider.value
+    if (!current) return
+    status.value = "connecting"
+    current.connect()
+  })
 
   watch(enabled, (active) => {
     const current = workspaceProvider.value

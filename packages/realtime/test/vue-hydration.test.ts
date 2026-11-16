@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
-import { createSSRApp, defineComponent, h, nextTick, ref } from "vue"
+import { Editor } from "@tiptap/core"
+import { createApp, createSSRApp, defineComponent, h, nextTick, onMounted, onScopeDispose, ref } from "vue"
 import { renderToString } from "vue/server-renderer"
+import { Awareness } from "y-protocols/awareness"
+import type { Doc } from "yjs"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { useRealtimeTiptap } from "../src/vue.ts"
@@ -13,9 +16,9 @@ const providers = vi.hoisted(() => [] as Array<{ statusHandler?: (event: { statu
 
 vi.mock("y-websocket", () => ({
   WebsocketProvider: class {
-    awareness = { getStates: () => new Map(), off: vi.fn(), on: vi.fn(), setLocalState: vi.fn(), setLocalStateField: vi.fn() }
+    awareness: Awareness
     connect = vi.fn()
-    destroy = vi.fn()
+    destroy = vi.fn(() => this.awareness.destroy())
     disconnect = vi.fn()
     messageHandlers = []
     on = vi.fn((event: string, handler: (event: { status: string }) => void) => {
@@ -25,7 +28,10 @@ vi.mock("y-websocket", () => ({
     statusHandler?: (event: { status: string }) => void
     ws = { OPEN: 1, readyState: 1, send: vi.fn() }
     wsconnected = false
-    constructor(_server: string, _room: string, public doc: { destroy: () => void }) { providers.push(this) }
+    constructor(_server: string, _room: string, public doc: Doc) {
+      this.awareness = new Awareness(doc)
+      providers.push(this)
+    }
   },
 }))
 
@@ -63,4 +69,26 @@ it("hydrates the status that the server rendered, then connects after mount", as
   expect(container.textContent).toBe("Realtime: connected")
   app.unmount()
   vi.unstubAllGlobals()
+})
+
+it("constructs an editor from extensions captured during component setup", () => {
+  let editor: Editor | undefined
+  const App = defineComponent({
+    setup() {
+      const realtime = useRealtimeTiptap("docs", "guides/a.md")
+      const options = { extensions: realtime.extensions.value }
+      expect(realtime.status.value).toBe("disconnected")
+      onMounted(() => { editor = new Editor(options) })
+      onScopeDispose(() => editor?.destroy())
+      return () => h("div")
+    },
+  })
+  const app = createApp(App)
+  try {
+    app.mount(document.createElement("div"))
+    expect(editor?.schema.topNodeType.name).toBe("doc")
+  }
+  finally {
+    app.unmount()
+  }
 })
