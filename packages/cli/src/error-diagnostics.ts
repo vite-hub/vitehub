@@ -17,6 +17,22 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run `vitehub login`, or set VITEHUB_CONSOLE_TOKEN to an API key from Account settings in the Console.",
       why: ({ console }: { console?: unknown }) => `There is no valid API key for ${String(console)}. The key is missing, expired, or revoked.`,
     },
+    CLI_ENV_FILE_EXISTS: {
+      fix: ({ file }: { file?: unknown }) => `Pass --yes to replace ${String(file)}, or move it first.`,
+      why: ({ file }: { file?: unknown }) => `${String(file)} exists. \`vitehub env pull\` does not replace a file without --yes.`,
+    },
+    CLI_ENV_FILE_NOT_IGNORED: {
+      fix: ({ file, tracked }: { file?: unknown, tracked?: unknown }) => tracked
+        ? `Run \`git rm --cached ${String(file)}\` and add \`.env.*\` to .gitignore, then pull again.`
+        : `Run \`echo '.env.*' >> .gitignore\`, then pull again.`,
+      why: ({ file, tracked }: { file?: unknown, tracked?: unknown }) => tracked
+        ? `git tracks ${String(file)}, so the values would be committed.`
+        : `${String(file)} is not in .gitignore, so the values could be committed.`,
+    },
+    CLI_ENV_PULL_FAILED: {
+      fix: "Check that the Console stores env values, that the key opens the project, and that you are an owner or admin of the team.",
+      why: ({ code, message }: { code?: unknown, message?: unknown }) => `The Console refused the pull (${String(code)}). ${String(message)}`,
+    },
     /** A host API answered with a shape that the CLI cannot read. */
     CLI_HOST_RESPONSE_INVALID: {
       fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
