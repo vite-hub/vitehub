@@ -22,12 +22,14 @@ import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 interface ViteHubCliSpawnResult {
   exitCode: number | null
   signal?: NodeJS.Signals | null
+  stdout?: string
 }
 
 interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
+  stdin?: "ignore" | "inherit"
   stdout?: "inherit" | "pipe" | "stderr"
 }
 
@@ -181,7 +183,7 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
-  return new Promise<{ exitCode: number | null, signal: NodeJS.Signals | null }>((resolveResult, reject) => {
+  return new Promise<ViteHubCliSpawnResult>((resolveResult, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
@@ -189,13 +191,16 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
       // runs without one, so a space in the executable path does not split the command.
       shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
-        "inherit",
+        options.stdin || "inherit",
         options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
         options.stderr || "inherit",
       ],
     })
+    const stdout: Buffer[] = []
+    child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk))
+    child.stderr?.resume()
     child.on("error", reject)
-    child.on("close", (exitCode, signal) => resolveResult({ exitCode, signal }))
+    child.on("close", (exitCode, signal) => resolveResult({ exitCode, signal, ...(child.stdout ? { stdout: Buffer.concat(stdout).toString("utf8") } : {}) }))
   })
 }
 
