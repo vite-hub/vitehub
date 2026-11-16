@@ -209,7 +209,7 @@ describe("Console env values", () => {
     expect(await (await call(owner, "POST", `/api/projects/${other.id}/env/staging/reveal`, {})).json()).toEqual({ stage: "staging", values: { DATABASE_URL: "libsql://db" } })
     // The old key alone no longer opens them.
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", envKey)
-    expect((await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).status).toBeGreaterThanOrEqual(500)
+    await expect(call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).rejects.toThrow("No configured encryption key")
   })
 
   it("refuses bad stages and names", async () => {

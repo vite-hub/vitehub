@@ -12,7 +12,7 @@ function setup() {
   const client = createClient({ url: ":memory:" });
   cleanup.push(() => client.close());
   const db = drizzle({ client });
-  const store = (namespace: string) => createDatabaseEnvStore({ db, encryptionKey: new Uint8Array(32).fill(4), namespace });
+  const store = (namespace: string) => createDatabaseEnvStore({ db, encryptionKeys: [new Uint8Array(32).fill(4)], namespace });
   return { db, store };
 }
 
