@@ -100,6 +100,14 @@ describe("root-accessors edge cases", () => {
     expect(run.result.followUps.map(item => `${item.file}:${item.line}`)).toEqual(["server/agent.ts:1", "server/agent.ts:2"])
   })
 
+  it("writes the vite-hub root that the docs use when the app depends on vite-hub", async () => {
+    const { after } = await migrate({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/database": "0.1.0", "vite-hub": "0.1.0" } }),
+      "server/api/notes.ts": "import { db } from '@vite-hub/database/drizzle'\nimport { email } from '@vite-hub/email/server'\nexport { db, email }\n",
+    })
+    expect(after["server/api/notes.ts"]).toBe("import { db } from 'vite-hub/database'\nimport { email } from 'vite-hub/email'\nexport { db, email }\n")
+  })
+
   it("keeps the schedule registry import when runSchedule() options are not a literal", async () => {
     const { after, run } = await migrate({
       "server/api/run.ts": "import registry from '#vitehub/schedule/registry'\nimport { runSchedule } from 'vite-hub/schedule/runtime'\nconst options = { registry }\nexport default () => runSchedule('a', options)\n",

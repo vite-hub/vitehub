@@ -6,6 +6,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { resolveWorkflowStartAt } from "./delay.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
@@ -183,6 +184,7 @@ async function startWorkflowRun<TPayload>(
   const config = getActiveWorkflowConfig()
 
   const id = options.id || randomId("wrun")
+  const startAt = resolveWorkflowStartAt(options.delay)
   const definition = await loadRequiredWorkflowDefinition(name)
   if (config.provider === "vercel" && definition.options?.native && options.id) {
     throw createWorkflowError({
@@ -200,6 +202,7 @@ async function startWorkflowRun<TPayload>(
     name,
     options,
     payload,
+    startAt,
   })
 }
 
@@ -221,7 +224,7 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
   const definition = await loadRequiredWorkflowDefinition(name)
   const test = getViteHubTestMode()
   if (test) {
-    if (config.provider === "cloudflare" || (config.provider === "vercel" && !definition.options?.native)) {
+    if (config.provider === "vercel" && !definition.options?.native) {
       throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.provider } })
     }
     return getWorkflowTestRun(test, config.provider, name, id, true)

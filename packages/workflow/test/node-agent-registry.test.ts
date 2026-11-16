@@ -68,12 +68,13 @@ it.each(["build", "serve"] as const)("puts discovered Agent Workflows in the Nod
   const plugin = hubWorkflow({}, { hosting: "node-server" })
   const hook = plugin.config
   if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-  const plugins = [{ name: "@vite-hub/agent/vite", vitehub: { agent: { workflowModules: modules } } }]
+  const plugins = [{ name: "@vite-hub/agent/vite", vitehub: { agent: { workflowModules: modules, transformWorkflowRegistry: (code: string) => "// Agent runtime setup installed\n" + code } } }]
   await (hook.handler as unknown as ConfigHook)({ plugins, root: projectRoot }, { command, mode: command === "build" ? "production" : "development" })
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins, root: projectRoot })
 
   const registryFile = join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs")
   const { default: registry } = await import(/* @vite-ignore */ `${pathToFileURL(registryFile).href}?t=${command}`) as { default: WorkflowDefinitionRegistry }
+  expect(await readFile(registryFile, "utf8")).toContain("// Agent runtime setup installed")
   // The turn and its recovery run are both OpenWorkflow runs, so a worker must know both definitions.
   expect(Object.keys(registry).sort(), await readFile(registryFile, "utf8")).toEqual(["helper", "vitehub-agent-invocation-recovery-helper"])
 
@@ -97,7 +98,7 @@ it("keeps Agent Workflows out of the registry of a Workflow provider that does n
   const plugin = hubWorkflow({}, { hosting: "deno-server" })
   const hook = plugin.config
   if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
-  const plugins = [{ name: "@vite-hub/agent/vite", vitehub: { agent: { workflowModules: modules } } }]
+  const plugins = [{ name: "@vite-hub/agent/vite", vitehub: { agent: { workflowModules: modules, transformWorkflowRegistry: (code: string) => "// Agent runtime setup installed\n" + code } } }]
   await (hook.handler as unknown as ConfigHook)({ plugins, root: projectRoot }, { command: "serve", mode: "development" })
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins, root: projectRoot })
 

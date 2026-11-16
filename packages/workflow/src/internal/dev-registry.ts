@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { workflowRuntimeModule } from "./runtime-modules.ts"
 import { dirname, relative, resolve } from "node:path"
 
+import { createImportPath } from "@vite-hub/internal/build/paths"
+
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createWorkflowRegistryContents, installedAgentWorkflowModules, withAgentInvocationRecoveryDefinitions } from "./vite-build.ts"
 
@@ -68,6 +70,41 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
 }
 
 /**
+ * On Vercel, Nitro's server function runs the routes, so its startup plugin installs the Workflow registry of the
+ * Vercel build. `waitUntil` keeps the function alive while an inline run works after the response.
+ */
+export function createWorkflowVercelNitroPluginModule(pluginFile: string, vercel: WorkflowVercelNitroRegistry, workflow: ResolvedWorkflowOptions): string {
+  return [
+    "import { definePlugin } from \"nitro\"",
+    "import { waitUntil } from \"@vercel/functions\"",
+    `import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
+    ...(vercel.native
+      ? [
+          `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(workflowRuntimeModule("vercel-vite"))}`,
+          "import * as workflowApi from \"workflow/api\"",
+          "import * as workflowRuntime from \"workflow/runtime\"",
+        ]
+      : []),
+    `import registry from ${JSON.stringify(createImportPath(pluginFile, vercel.registryFile))}`,
+    "",
+    "export default definePlugin(() => {",
+    ...(vercel.native ? ["  setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)"] : []),
+    `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
+    "  setWorkflowRuntimeRegistry(registry)",
+    "  enterWorkflowRuntimeEvent({ waitUntil })",
+    "})",
+    "",
+  ].join("\n")
+}
+
+/** The Workflow registry that a Nitro build for Vercel installs instead of the development registry. */
+export interface WorkflowVercelNitroRegistry {
+  /** True when a definition has a `native` entry. The plugin then gives the Workflow DevKit modules to the runtime. */
+  native: boolean
+  registryFile: string
+}
+
+/**
  * `vite dev` stays local: without `remote: true` or configured storage, OpenWorkflow uses the local SQLite file, not
  * the Postgres of `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL`. A dev server must not run the runs of a shared database
  * with local code.
@@ -91,6 +128,8 @@ export interface WorkflowDevRegistryFilesOptions {
   /** The module that exports `getPostgresConnectionUrl()`, when the app has a Postgres Default Database. */
   databaseImport?: string
   definitions: DiscoveredWorkflowDefinition[]
+  /** Install generated Agent State and Capability loaders before workers start. */
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
   /** True in `vite dev`: the plugin turns on the run history. */
   dev?: boolean
   importBase?: string
@@ -99,6 +138,8 @@ export interface WorkflowDevRegistryFilesOptions {
   pluginPath?: string
   /** Undefined reserves an inert bootstrap until the final build configuration is known. */
   workflow: false | ResolvedWorkflowOptions | undefined
+  /** A Nitro build for Vercel installs this registry. */
+  vercel?: WorkflowVercelNitroRegistry
 }
 
 export interface WorkflowDevRegistryFiles {
@@ -118,15 +159,19 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   await mkdir(directory, { recursive: true })
   const registry = resolve(directory, devRegistryFile)
   const plugin = resolve(directory, devPluginFile)
+  let registryContents = createWorkflowRegistryContents(registry, options.definitions, {
+    agent: options.definitions.some(definition => definition.source === "agent-workflow")
+      ? options.agentModules ?? await installedAgentWorkflowModules(options.projectRoot)
+      : undefined,
+    // As in a provider build: the Agent loads this Workflow entry, else the one that it resolves.
+    workflow: options.importBase,
+  })
+  if (options.transformRegistry) registryContents = await options.transformRegistry(registryContents, registry)
   const files: Array<[string, string]> = [
-    [registry, createWorkflowRegistryContents(registry, options.definitions, {
-      agent: options.definitions.some(definition => definition.source === "agent-workflow")
-        ? options.agentModules ?? await installedAgentWorkflowModules(options.projectRoot)
-        : undefined,
-      // As in a provider build: the Agent loads this Workflow entry, else the one that it resolves.
-      workflow: options.importBase,
-    })],
-    [plugin, createWorkflowDevPluginModule(options.workflow, options.dev, options.databaseImport)],
+    [registry, registryContents],
+    [plugin, options.vercel && options.workflow
+      ? createWorkflowVercelNitroPluginModule(plugin, options.vercel, options.workflow)
+      : createWorkflowDevPluginModule(options.workflow, options.dev, options.databaseImport)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [

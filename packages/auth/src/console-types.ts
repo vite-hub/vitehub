@@ -209,6 +209,11 @@ export interface AuthConsoleHostUserInput {
   image?: string;
   /** Roles to add to the comma-separated `user.role` of `admin()`. */
   roles: readonly string[];
+  /**
+   * Roles that the host owns. An existing user loses those of them that `roles` does not name, so a host can take a
+   * role back. Other roles of the user stay.
+   */
+  owned?: readonly string[];
 }
 /** A live session of a user that holds a host role, with the user's roles. */
 export interface AuthConsoleHostSession extends AuthConsoleSession {

@@ -703,13 +703,18 @@ export interface GmailModifyInput {
   removeLabels?: readonly string[]
 }
 
+const gmailModifyLabelLimit = 100
+
 export async function modifyGmailMessage(client: GmailClient, id: string, input: GmailModifyInput, declared: Record<string, GmailLabelSettings>): Promise<void> {
   const [addLabelIds, removeLabelIds] = await Promise.all([
     gmailLabelIds(client, input.addLabels || [], declared),
     gmailLabelIds(client, input.removeLabels || [], declared),
   ])
-  if (!addLabelIds.length && !removeLabelIds.length) return
-  await client({ body: { addLabelIds, removeLabelIds }, method: "POST", path: `messages/${encodeURIComponent(id)}/modify` })
+  // Gmail accepts at most 100 label IDs in each list of one modify request.
+  for (let start = 0; start < Math.max(addLabelIds.length, removeLabelIds.length); start += gmailModifyLabelLimit) {
+    const body = { addLabelIds: addLabelIds.slice(start, start + gmailModifyLabelLimit), removeLabelIds: removeLabelIds.slice(start, start + gmailModifyLabelLimit) }
+    await client({ body, method: "POST", path: `messages/${encodeURIComponent(id)}/modify` })
+  }
 }
 
 export async function trashGmailMessage(client: GmailClient, id: string): Promise<void> {

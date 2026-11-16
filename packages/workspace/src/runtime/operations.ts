@@ -25,6 +25,7 @@ import type {
 const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
 
 /** A history read failure with its HTTP status. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class WorkspaceOperationError extends Error {
   readonly details?: Record<string, unknown>
   readonly fix?: string

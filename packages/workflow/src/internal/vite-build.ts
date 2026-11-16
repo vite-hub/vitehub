@@ -23,6 +23,7 @@ import type { Plugin } from "esbuild"
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
+import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
@@ -128,6 +129,7 @@ const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspa
 const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vitest)(?:\/.*)?$/
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
+  applySwcTransform: typeof import("@workflow/builders").applySwcTransform
   createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
@@ -201,6 +203,30 @@ export async function createVercelWorkflowTransformPlugin(rootDir: string): Prom
         return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
       }),
     }),
+  }
+}
+
+/** Transforms one module of a server bundle. It returns `undefined` for a module without Workflow code. */
+export type VercelWorkflowModuleTransform = (code: string, id: string) => Promise<{ code: string } | undefined>
+
+/**
+ * The Workflow DevKit transform for Nitro's server bundle on Vercel. It gives each `"use workflow"` function the
+ * `workflowId` that `start()` needs. The IDs are paths relative to `rootDir`, as in the native Workflow build, so the
+ * server starts the Workflows that the native functions hold. It uses the `step` mode, as Workflow DevKit's own Nitro
+ * integration does, so the normal handler can still call a step function.
+ */
+export async function createVercelWorkflowModuleTransform(rootDir: string): Promise<VercelWorkflowModuleTransform | undefined> {
+  const builders = await loadVercelWorkflowBuilders()
+  if (!builders) return undefined
+  const root = rootDir.replace(/\\/g, "/").replace(/\/$/, "")
+  return async (code, id) => {
+    const file = id.replace(/\\/g, "/")
+    if (!builders.shouldTransformFile(file, builders.detectWorkflowPatterns(code))) return undefined
+    const path = relative(root, file).replace(/\\/g, "/")
+    // Workflow DevKit drops `..` segments for a file outside the project root.
+    const filename = path.split("/").filter(segment => segment !== "..").join("/")
+    const result = await builders.applySwcTransform(filename, code, "step", file, root)
+    return { code: result.code }
   }
 }
 
@@ -507,7 +533,8 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
   const outputConfigFile = resolve(rootDir, ".vercel", "output", "config.json")
-  const viteHubConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config")
+  // Nitro writes its Vercel config after the native Workflow functions, so a Nitro build has none yet.
+  const viteHubConfig = existsSync(outputConfigFile) ? parseJsonRecord(await readFile(outputConfigFile, "utf8"), "ViteHub Vercel output config") : {}
   const workflowRoot = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow")
   const previousOwnership = previousState?.ownership
   const previousFiles = previousState?.files ?? {}
@@ -666,6 +693,11 @@ interface GenerateProviderOutputsOptions {
   rootDir: string
   serverDirs?: string[]
   serverFunctionName?: string
+  /**
+   * Nitro's server function runs the routes on Vercel, and its startup plugin installs the Workflow registry. So no
+   * Workflow server function is written. The native Workflow functions are still written.
+   */
+  nitroServer?: boolean
   sourceRootDir?: string
   includeUserAppEntry?: boolean | string
   workflow: WorkflowOptions | undefined
@@ -928,6 +960,9 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
   return `${getCloudflareWorkflowClassName(definition.name)}Native`
 }
 
+/** `@workflow/core` keeps the `sleep()` implementation of the Workflow VM on `globalThis` under this registered symbol. */
+export const vercelWorkflowSleepSymbol = "WORKFLOW_SLEEP"
+
 function createVercelNativeWorkflowContents(
   definition: DiscoveredWorkflowDefinition,
 ): string {
@@ -943,7 +978,11 @@ function createVercelNativeWorkflowContents(
     workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
     return name
   })
-  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
+  // Workflow DevKit `start()` has no delay, so a delayed run sleeps until its start time before the first step. Every
+  // host bundles this file through the registry, so it does not import `workflow`: it calls the function that
+  // Workflow DevKit `sleep()` itself calls inside the Workflow VM.
+  const startAt = `context[${JSON.stringify(workflowStartAtKey)}]`
+  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  if (typeof ${startAt} === "number") await globalThis[Symbol.for(${JSON.stringify(vercelWorkflowSleepSymbol)})](new Date(${startAt}))\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
@@ -972,7 +1011,7 @@ function renderWorkflowRegistryEntry(
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = vercelNativeFiles[definition.name]
   const nativeImport = nativeExport && vercelNativeFile
-    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
+    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}\n    native[${JSON.stringify(generatedNativeEntryKey)}] = true`
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
@@ -1571,7 +1610,8 @@ async function generateProviderOutputsWithinLock(
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
   const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
-  const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const vercelWorkflow = Boolean(vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel")
+  const workflowTransformPlugin = vercelWorkflow && !options.nitroServer
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined
   let commitGeneratedArtifacts = async (): Promise<void> => {}
@@ -1659,7 +1699,7 @@ async function generateProviderOutputsWithinLock(
         ...options.providerRuntimeImportAliases?.cloudflare,
       })
     : undefined
-  const vercelOutput = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
+  const vercelOutput = vercelWorkflow && !options.nitroServer
     ? createVercelOutput(options.rootDir, artifacts, workflowTransformPlugin, options.importBase, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.vercel,
@@ -1677,7 +1717,7 @@ async function generateProviderOutputsWithinLock(
       ...options.providerImportAliases,
       ...options.providerRuntimeImportAliases?.vercel,
     }).map(([alias, target]) => [alias, publishedSource(target)]))
-    if (vercelOutput && hasVercelNativeWorkflowEntry(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles)) {
+    if (vercelWorkflow && hasVercelNativeWorkflowEntry(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles)) {
       assertNoExternalCanonicalWorkflowOutput(previousNativeOutput)
     }
     const deploymentOutput: ProviderDeploymentOutputOptions = {
@@ -1712,7 +1752,7 @@ async function generateProviderOutputsWithinLock(
             signal,
           })
         }
-        if (vercelOutput) {
+        if (vercelWorkflow) {
           await buildVercelNativeWorkflowOutput(options.rootDir, nativeDefinitions, nativeAliases, artifacts.vercelNativeFiles, previousNativeOutput, options.bundleDefines)
         }
         else {

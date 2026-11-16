@@ -2617,7 +2617,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // SAFETY: workerCapabilities preserves validated base capability definitions and appends the broker capability.
                 capabilities: workerCapabilities as never,
                 driver: {
-                  ...workerDriver,
+                  ...(placementLease?.sandbox ? withoutCapacity(workerDriver) : workerDriver),
                   output: { ...workerDriver.output, schema: passResultSchema },
                   // Match the preset: unattended passes cannot escalate native
                   // permissions. Repair tools remain authorized by the host.
@@ -2741,7 +2741,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   modelDispatched = true;
                   dispatching = true;
                   // A Sandbox pass has no launch callback, so it counts from here, including its wait for a worker slot.
-                  if (workerSettings.sandbox) startExecuting();
+                  // A placed pass runs on another host and uses no memory here.
+                  if (workerSettings.sandbox && !placementLease?.sandbox) startExecuting();
                   const [error, result] = await runAgent(
                     agent,
                     {
@@ -3008,4 +3009,14 @@ function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAg
   ) {
     throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
   }
+}
+
+/**
+ * A placed Sandbox pass runs on another host and holds none of this host's memory, so it skips the
+ * worker queue that admits passes by local memory. `placement.remoteActive()` counts it toward concurrency.
+ */
+function withoutCapacity<T extends { capacity?: unknown }>(driver: T): T {
+  const { capacity: _capacity, ...rest } = driver;
+  // SAFETY: `capacity` is optional on every Driver, so the Driver without it is still a T.
+  return rest as T;
 }

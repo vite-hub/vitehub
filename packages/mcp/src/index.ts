@@ -1,8 +1,8 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
-import type { McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+import type { McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
-export type { McpContentBlock, McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+export type { McpContentBlock, McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 
 declare global {
   namespace ViteHub {
@@ -53,6 +53,11 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
   input?: TInput
   annotations?: McpToolAnnotations
   /**
+   * What `tools/list` shows in the `_meta` of the tool. With MCP Apps, `{ ui: { resourceUri: "ui://…" } }` names the
+   * resource whose HTML the client shows for the result.
+   */
+  _meta?: McpMeta
+  /**
    * Also serve the tool at `mcp.publicRoute`, where anyone may call it without sign-in. There, `caller` is `undefined`.
    * Set it only with `mcp.publicRoute`. Without one, the server fails with `MCP_R0001`.
    */
@@ -60,7 +65,7 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
   /**
    * Runs the call. A string becomes one text block. Another value becomes JSON text, and an object is also the
    * `structuredContent`. An object with a `content` array of blocks, such as `{ content: [{ type: "image", ... }] }`, is
-   * sent as the MCP tool result.
+   * sent as the MCP tool result, with its `structuredContent`, `isError`, and `_meta`.
    */
   handler: (
     input: TInput extends McpToolInput ? StandardSchemaV1.InferOutput<TInput> : Record<string, never>,
@@ -213,8 +218,13 @@ interface McpResourceFields {
   /** A short name for people, such as "Changelog". */
   title?: string
   description?: string
-  /** The MIME type of the contents, such as `text/markdown`. */
+  /** The MIME type of the contents, such as `text/markdown`, or `text/html;profile=mcp-app` for the HTML of an MCP App. */
   mimeType?: string
+  /**
+   * The `_meta` of the resource in `resources/list` and of the contents that a string or `Uint8Array` handler returns,
+   * such as `{ ui: { csp, prefersBorder } }` of MCP Apps.
+   */
+  _meta?: McpMeta
   /** Also serve the resource at `mcp.publicRoute`, where `caller` is `undefined`. */
   public?: boolean
   /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
