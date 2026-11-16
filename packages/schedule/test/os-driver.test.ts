@@ -471,6 +471,7 @@ describe("launchd driver", () => {
     const { installOsSchedule } = createOsSchedules(launchd().host)
     const [zoneError] = await installOsSchedule("skync", { cron: "0 9 * * *" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_TIME_ZONE_UNSUPPORTED.is(zoneError) && zoneError.data).toEqual({ platform: "darwin", timeZone: "UTC", machineTimeZone: "Europe/Madrid" })
+    expect(zoneError?.fix).toContain("`timeZone: \"local\"`")
     const [cronError] = await installOsSchedule("skync", { cron: "0-58 0-22 * * *", timeZone: "Europe/Madrid" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_CRON_UNSUPPORTED.is(cronError)).toBe(true)
   })
@@ -583,6 +584,30 @@ describe("Task Scheduler driver", () => {
   it("rejects a weekday list in some months", async () => {
     const [error] = await createOsSchedules(taskScheduler().host).installOsSchedule("skync", { cron: "0 9 * 1-6 1" }, { command: windowsCommand })
     expect(osScheduleErrors.SCHEDULE_OS_CRON_UNSUPPORTED.is(error) && error.data.platform).toBe("win32")
+  })
+})
+
+describe("timeZone: \"local\"", () => {
+  const local = { cron: "0 9 * * *", timeZone: "local" }
+
+  it("runs the cron in the machine time zone on macOS", async () => {
+    const machine = launchd()
+    const [error] = await createOsSchedules(machine.host).installOsSchedule("skync", local, { command })
+    expect(error).toBeUndefined()
+    expect(machine.files.get("/Users/maxi/Library/LaunchAgents/skync.plist")).toContain("<key>Hour</key>\n\t\t\t<integer>9</integer>")
+  })
+
+  it("runs the cron in the machine time zone on Windows", async () => {
+    const machine = taskScheduler({ machineTimeZone: "America/New_York" })
+    const [error] = await createOsSchedules(machine.host).installOsSchedule("skync", local, { command: ["C:\\node.exe"] })
+    expect(error).toBeUndefined()
+    expect(machine.scripts.at(-1)).toContain("Register-ScheduledTask")
+  })
+
+  it("leaves the zone out of OnCalendar=, so systemd uses the machine time zone", async () => {
+    const machine = systemd()
+    await createOsSchedules(machine.host).installOsSchedule("skync", local, { command })
+    expect(machine.files.get("/home/maxi/.config/systemd/user/skync.timer")).toContain("OnCalendar=*-*-* 09:00:00\n")
   })
 })
 

@@ -47,6 +47,7 @@ export interface OsTimerSpec {
   cron: string
   /** The cron in `timeZone`. */
   fields: CronFields
+  /** An IANA time zone, or `"local"` for the machine time zone. */
   timeZone: string
   command: readonly string[]
   env: Record<string, string>
