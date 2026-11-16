@@ -1,5 +1,6 @@
 export { defineWorkflow } from "./definition.ts"
 export {
+  NonRetryableError,
   type WorkflowErrorCode,
   type WorkflowErrorDetails,
   type WorkflowOperationName,

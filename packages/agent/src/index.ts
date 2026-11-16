@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
@@ -3519,7 +3520,7 @@ function resolveOwnedAgentWorkspaceDefinition(
 }
 
 function ownedAgentWorkspaceKey(agent: unknown): object {
-  if (!isRuntimeObject(agent)) throw agentDiagnostics.AGENT_R0432({ message: "[vitehub] Owned Agent Workspace state requires an object owner." })
+  invariant(isRuntimeObject(agent), "every caller checks that the Workspace owner is an object first")
   return agent
 }
 
@@ -5566,7 +5567,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
 }
 
 function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
-  if (!isRuntimeObject(result)) throw agentDiagnostics.AGENT_R0433({ message: "[vitehub] Preserving Agent result properties requires an object result." })
+  invariant(isRuntimeObject(result), "every caller passes an object result that has stream properties")
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -6641,7 +6642,7 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0436({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = await runFinishActivity(
             deliveryActivity,
@@ -6703,7 +6704,7 @@ async function finishAgentInvocation<
           },
         )
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0437({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           await runFinishActivity(
             deliveryActivity,
             async () => {

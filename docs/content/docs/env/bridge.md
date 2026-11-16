@@ -30,7 +30,7 @@ The SQLite adapter needs `drizzle-orm`. If you use the owner package, install `@
 
 ### Configure
 
-Write a factory that builds the bridge from your database, encryption key, and session reader, in your app code.
+Write a factory that builds the bridge from your database, encryption keys, and session reader, in your app code.
 
 ```ts [server/env/create-credentials.ts]
 import { createEnvAuthenticator, createEnvBridge } from 'vite-hub/env/bridge'
@@ -40,13 +40,13 @@ import type { EnvDatabase } from 'vite-hub/env/database'
 
 export function createCredentials(options: {
   db: EnvDatabase
-  encryptionKey: Uint8Array
+  encryptionKeys: readonly Uint8Array[]
   getSession(input: { headers: Headers }): Promise<EnvHumanSession | null>
   isAdmin(session: EnvHumanSession): boolean | Promise<boolean>
 }) {
   const store = createDatabaseEnvStore({
     db: options.db,
-    encryptionKey: options.encryptionKey,
+    encryptionKeys: options.encryptionKeys,
     namespace: 'application',
     previews: true,
   })
@@ -202,11 +202,11 @@ Types such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `E
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `db` | `EnvDatabase` | Required | A SQLite Drizzle instance, or a compatible ViteHub Database. |
-| `encryptionKey` | `Uint8Array` | Required | A 32-byte key. Other lengths fail with `ENV_BRIDGE_INVALID`. |
+| `encryptionKeys` | `readonly Uint8Array[]` | Required | The keyring: the current 32-byte key first, then previous keys that still decrypt older values. An empty list or another key length fails with `ENV_BRIDGE_INVALID`. |
 | `namespace` | `string` | `'default'` | Keeps the credentials of several bridges apart in one database. |
 | `previews` | `boolean` | `false` | Stores a masked preview for token-shaped values. |
 
-The store also returns `revisionCondition(key, revision)`, a SQL condition that updates related records only while that secret revision is current. A `null` revision means the secret must not exist.
+The store also returns `revisionCondition(key, revision)`, a SQL condition that updates related records only while that secret revision is current. A `null` revision means the secret must not exist. `rotate()` re-encrypts each value that a previous key sealed with the current key and returns `{ rotated, skipped }`. Revisions stay the same. To rotate, pass `[newKey, oldKey]`, call `await store.rotate()`, then pass `[newKey]`.
 
 ## Providers
 
