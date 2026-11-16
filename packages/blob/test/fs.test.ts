@@ -137,8 +137,8 @@ describe("fs blob driver", () => {
     const driver = createDriver({ base, driver: "fs" })
     await driver.put("notes/one.txt", "one")
 
-    await expect(driver.list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
-    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
+    await expect(driver.list({ cursor, folded: true })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
   })
 
   it.each([false, true])("rejects malformed cursors before traversing a missing base (folded: %s)", async (folded) => {
@@ -146,8 +146,8 @@ describe("fs blob driver", () => {
     tempDirs.push(base)
     const driver = createDriver({ base: join(base, "missing"), driver: "fs" })
 
-    await expect(driver.list({ cursor: "MB", folded })).rejects.toThrow("Invalid Blob cursor.")
-    await expect(driver.list({ cursor: "", folded })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor: "MB", folded })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
+    await expect(driver.list({ cursor: "", folded })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
     await expect(driver.list({ folded })).resolves.toEqual({ blobs: [], hasMore: false })
   })
 

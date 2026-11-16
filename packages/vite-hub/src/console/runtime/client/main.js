@@ -70,6 +70,7 @@ if (account) {
         // A page with its own data starts that load too, so the first paint after the frame is the whole page.
         ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue")), import("./account").then(module => module.earlyConsoleTeam.start(), () => undefined)] : []),
         ...(/^\/team-settings\/?$/.test(window.location.pathname) ? [view("teamSettings", () => import("../components/console-account-team-settings.vue"))] : []),
+        ...(/^\/env\/?$/.test(window.location.pathname) ? [view("env", () => import("../components/console-account-env.vue"))] : []),
         ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue")), import("./account").then(module => module.earlyConsoleSignInState.start(), () => undefined)] : []),
       ]
     : boot === "sign-in" || boot === "invite"
