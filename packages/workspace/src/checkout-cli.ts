@@ -1,6 +1,7 @@
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 
-import { formatWorkspaceStatus, pullWorkspaces, pushWorkspaces, resolveWorkspaceConflicts, WorkspaceCheckoutError, workspaceLockFile, workspaceStatus } from "./checkout.ts"
+import { checkoutFailure, formatWorkspaceStatus, pullWorkspaces, pushWorkspaces, resolveWorkspaceConflicts, workspaceLockFile, workspaceStatus } from "./checkout.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { WorkspaceCheckoutCall, WorkspacePullResult, WorkspacePushResult } from "./checkout.ts"
 
@@ -40,12 +41,12 @@ function parse(args: readonly string[], allowed: ReadonlySet<string>): Parsed {
       continue
     }
     const [name, inline] = arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined]
-    if (!allowed.has(name)) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `Unknown flag --${name}.`)
+    if (!allowed.has(name)) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_USAGE({ flag: name, problem: "flag" })
     const values = parsed.flags.get(name) ?? []
     if (valueFlags.has(name)) {
       // The next flag is not a value: `push --message --dry-run` must not push. Write `--message=--text` for such a value.
       const value = inline ?? args[++index]
-      if (value === undefined || (inline === undefined && value.startsWith("--"))) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `--${name} needs a value.`)
+      if (value === undefined || (inline === undefined && value.startsWith("--"))) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_USAGE({ flag: name, problem: "value" })
       values.push(value)
     }
     else values.push("")
@@ -63,7 +64,7 @@ function caller(context: WorkspaceCheckoutCliContext, parsed: Parsed): Workspace
   return async (operation, input, remote) => {
     const url = one(parsed, "url") ?? remote
     if (url !== remote) {
-      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `This checkout uses ${remote ? `remote "${remote}"` : "the project dev server"}, not "${url}".`, "Remove its vitehub.lock entry and pull into a new folder to change the remote.")
+      throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_OPTIONS({ actual: String(url), expected: remote ? `remote "${remote}"` : "the project dev server", key: "remote" })
     }
     return await callOperationFromCli({
       env: context.env,
@@ -129,7 +130,7 @@ async function run(command: keyof typeof usage, args: readonly string[], context
   let parsed: Parsed
   try {
     parsed = parse(args, commandFlags[command])
-    if (command !== "resolve" && parsed.positional.length > 1) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `${command} accepts at most one Workspace name.`)
+    if (command !== "resolve" && parsed.positional.length > 1) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_USAGE({ command, problem: "names" })
   }
   catch (error) {
     context.stderr.write(`${(error as Error).message}\nUsage: ${usage[command]}\n`)
@@ -172,7 +173,7 @@ async function run(command: keyof typeof usage, args: readonly string[], context
     return 0
   }
   catch (error) {
-    const failure = error instanceof WorkspaceCheckoutError ? error : new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_FAILED", error instanceof Error ? error.message : String(error))
+    const failure = checkoutFailure(error)
     if (json) context.stdout.write(`${JSON.stringify({ code: failure.code, message: failure.message, ...(failure.fix ? { fix: failure.fix } : {}) }, null, 2)}\n`)
     else context.stderr.write(`${failure.code}: ${failure.message}\n${failure.fix ? `${failure.fix}\n` : ""}`)
     return 1
