@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
@@ -111,11 +112,11 @@ function createPapercutId(): string {
 
 function normalizePapercutMessage(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
+    throw agentDiagnostics.AGENT_PAPERCUT_MESSAGE_MISSING()
   }
   const message = value.trim()
   if (message.length > maxMessageLength) {
-    throw new TypeError(`[vitehub] report_papercut message must be at most ${maxMessageLength} characters.`)
+    throw agentDiagnostics.AGENT_PAPERCUT_MESSAGE_TOO_LONG({ max: maxMessageLength })
   }
   return message
 }
@@ -153,7 +154,7 @@ async function submitPapercut<
 ): Promise<PapercutSubmission> {
   const papercut = createPapercut(context, normalizePapercutMessage(value), source)
   const report = options.report || options.backend?.report
-  if (!report) throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
+  if (!report) throw agentDiagnostics.AGENT_PAPERCUTS_BACKEND_MISSING()
   const occurrence = await index?.record(papercut)
   if (occurrence && occurrence.count > 1) return { papercut, known: occurrence }
   if (options.report) {
@@ -191,7 +192,7 @@ function papercutResult(submission: PapercutSubmission): PapercutResult {
 
 /** PostHog issue-board backend. Delivery is fire-and-forget and never fails an invocation. */
 export function posthogPapercuts(options: PosthogPapercutsOptions): PapercutBackend {
-  if (!options?.apiKey) throw new TypeError("[vitehub] posthogPapercuts() requires an apiKey.")
+  if (!options?.apiKey) throw agentDiagnostics.AGENT_POSTHOG_PAPERCUTS_API_KEY_MISSING()
   const send = options.fetch || globalThis.fetch
   return {
     async report({ papercut }) {
@@ -206,7 +207,7 @@ export function posthogPapercuts(options: PosthogPapercutsOptions): PapercutBack
           properties: { ...papercut, $process_person_profile: false },
         }),
       })
-      if (!response.ok) throw new Error(`[vitehub] PostHog papercut delivery failed (${response.status}).`)
+      if (!response.ok) throw agentDiagnostics.AGENT_POSTHOG_PAPERCUT_DELIVERY_FAILED({ status: response.status })
     },
   }
 }
@@ -250,14 +251,14 @@ export function papercuts<
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   if (!options || (typeof options.report !== "function" && typeof options.backend?.report !== "function")) {
-    throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
+    throw agentDiagnostics.AGENT_PAPERCUTS_BACKEND_MISSING()
   }
   if (options.cli !== undefined && typeof options.cli !== "boolean") {
-    throw new TypeError("[vitehub] papercuts({ cli }) must be a boolean.")
+    throw agentDiagnostics.AGENT_PAPERCUTS_CLI_INVALID()
   }
   const dedupe = options.dedupe ?? true
   if (typeof dedupe !== "boolean" && (typeof dedupe?.record !== "function" || typeof dedupe.forget !== "function" || typeof dedupe.list !== "function")) {
-    throw new TypeError("[vitehub] papercuts({ dedupe }) must be a boolean or a papercut index.")
+    throw agentDiagnostics.AGENT_PAPERCUTS_DEDUPE_INVALID()
   }
   const index = dedupe === true ? createPapercutIndex() : dedupe || undefined
 

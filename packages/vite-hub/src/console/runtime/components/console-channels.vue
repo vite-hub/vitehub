@@ -14,6 +14,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
@@ -468,7 +469,7 @@ onBeforeUnmount(() => {
                 <template #actions>
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">
                     <li v-for="(attachment, index) in message.attachments" :key="index" class="flex items-center gap-1 text-muted">
-                      <UIcon name="i-lucide-paperclip" class="size-3" />
+                      <Icon name="i-lucide-paperclip" class="size-3" />
                       <a v-if="attachment.url && isSafeExternalUrl(attachment.url)" :href="attachment.url" target="_blank" rel="noreferrer noopener" class="underline">{{ attachment.name || attachment.type || "attachment" }}</a>
                       <span v-else>{{ attachment.name || attachment.type || "attachment" }}</span>
                     </li>
