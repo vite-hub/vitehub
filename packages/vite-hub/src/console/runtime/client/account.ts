@@ -4,7 +4,6 @@
  * private key for each project, and signs the calls of the page that it forwards to `/p/<project>/_vitehub/...`.
  */
 import { passkeyClient } from "@better-auth/passkey/client"
-import { setDeviceAccount } from "@vite-hub/device"
 import { createAuthClient } from "better-auth/client"
 import { organizationClient } from "better-auth/client/plugins"
 
@@ -117,11 +116,10 @@ export async function linkConsoleGitHub(callbackURL: string): Promise<void> {
   if (error) throw failure(error, "GitHub did not start.")
 }
 
-/** Sign out, and delete the answers that this device keeps for the account, in every tab. */
-export async function signOutConsoleAccount(): Promise<void> {
+/** End the session of the Console server. `signOutConsole()` also deletes the stored answers and loads the page again. */
+export async function endConsoleSession(): Promise<void> {
   const { error } = await auth().signOut()
   if (error) throw failure(error, "Sign out failed.")
-  await setDeviceAccount(null)
 }
 
 export async function switchConsoleTeam(teamId: string): Promise<void> {

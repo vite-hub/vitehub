@@ -61,7 +61,7 @@ const teamItems = computed<DropdownMenuItem[]>(() => [
   })),
   { icon: "i-lucide-plus", label: "Create team", onSelect: () => { creating.value = true; } },
 ]);
-const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsole() }];
+const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsole().catch(error => toast.show({ title: error instanceof Error ? error.message : "Try again." })) }];
 
 const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [[...appearanceItems.value, consoleDocsItem]];

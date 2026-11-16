@@ -384,6 +384,73 @@ describe("account Console with stored reads", () => {
     expect(page.navigate).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps following the account after a failed sign-out", async () => {
+    const app = server()
+    const page = await firstVisit(app)
+    signOut.mockImplementationOnce(async () => ({ error: { message: "Sign out failed.", status: 500 } }))
+    await expect(page.session.signOutConsole()).rejects.toThrow()
+    // Another tab signs out.
+    app.answers.account = undefined
+    const { createDevice } = await import("../../device/src/device.ts")
+    const other = createDevice({ openStorage: () => browser.disk.open(), channel: browser.tabs.channel() })
+    await other.open({ version: "console-1" })
+    await other.setAccount(null)
+    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+  })
+
+  it("does not open the stored app again on a retry after a refusal of this visit", async () => {
+    const app = server()
+    await firstVisit(app)
+    app.answers.projectStatus = 403
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    const projects = page.session.useConsoleProjects()
+    expect(projects.gate.value.kind).toBe("problem")
+    app.answers.hold = true
+    void page.session.openConsoleProject()
+    expect(projects.gate.value).toEqual({ kind: "opening" })
+    app.answers.projectStatus = 200
+    app.release()
+    await vi.waitFor(() => expect(projects.gate.value).toEqual({ kind: "ready" }))
+  })
+
+  it("keeps an account page that the person opened when a later project.get answers", async () => {
+    const app = server()
+    app.answers.projectStatus = 403
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    const projects = page.session.useConsoleProjects()
+    expect(projects.gate.value.kind).toBe("problem")
+    page.session.showConsoleAccountPage("settings")
+    expect(projects.gate.value).toEqual({ kind: "home", page: "settings" })
+    app.answers.projectStatus = 200
+    const { createDevice } = await import("../../device/src/device.ts")
+    const other = createDevice({ openStorage: () => browser.disk.open(), channel: browser.tabs.channel() })
+    await other.open({ version: "console-1" })
+    await other.clear()
+    await vi.waitFor(() => expect(app.sent.filter(call => call.startsWith("project.get")).length).toBeGreaterThan(1))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(projects.gate.value).toEqual({ kind: "home", page: "settings" })
+  })
+
+  it("applies the answer of a retry once", async () => {
+    const app = server()
+    app.answers.navigation = false
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath)
+    app.answers.projectStatus = 403
+    await page.session.openConsoleProject()
+    app.answers.projectStatus = 200
+    const lists = app.sent.filter(call => call.startsWith("sections.list")).length
+    await page.session.openConsoleProject()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(app.sent.filter(call => call.startsWith("sections.list")).length).toBe(lists + 1)
+  })
+
   it("waits for the account on a page without a session cookie, and for a link to an app that the stored account lacks", async () => {
     const app = server()
     await firstVisit(app)

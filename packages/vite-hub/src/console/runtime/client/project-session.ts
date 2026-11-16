@@ -1,4 +1,4 @@
-import { clearDevice, openDevice } from "@vite-hub/device"
+import { clearDevice, openDevice, setDeviceAccount } from "@vite-hub/device"
 import { ref, shallowRef, watch } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
@@ -92,6 +92,8 @@ let earlyProbe: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | u
 let projectRead: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
 /** The page loads again: the first reload wins, so a sign-out and a read that starts over do not navigate twice. */
 let reloading = false
+/** The project reads whose answer an `openConsoleProject()` call waits for. That call applies it, not `followProject()`. */
+const awaited = new Set<ConsoleStoredRead<ConsoleProjectProbe>>()
 /** The account read of an `account` Console. It lives as long as the page, and each answer names the device account. */
 let accountRead: ConsoleStoredRead<ConsoleAccount | undefined> | undefined
 /**
@@ -241,26 +243,28 @@ export async function openConsoleProject(): Promise<void> {
   const early = earlyProbe
   earlyProbe = undefined
   if (early && early.id !== current.id) early.read.stop()
-  let read: Pick<ConsoleStoredRead<ConsoleProjectProbe>, "answer" | "stored">
-  if (projects.mode === "embedded") {
-    const answer = probeConsoleProject({ ...consoleProjectTarget(current), origin: "" })
-    read = { stored: undefined, answer: () => answer }
-  }
-  else if (projectRead?.id === current.id) {
-    // A retry of the open app asks again.
-    read = projectRead.read
-    void projectRead.read.read.refresh()
-  }
+  let probe: ConsoleProjectProbe
+  if (projects.mode === "embedded") probe = await probeConsoleProject({ ...consoleProjectTarget(current), origin: "" })
   else {
-    projectRead?.read.stop()
-    const next = early?.id === current.id ? early.read : readProject(current.id)
-    projectRead = { id: current.id, read: next }
-    read = next
-    followProject(next, current)
+    let read = projectRead?.id === current.id ? projectRead.read : undefined
+    // A retry of the open app asks again, and the answer of this visit decides: the stored one opened the app only once.
+    if (read) void read.read.refresh()
+    else {
+      projectRead?.read.stop()
+      read = early?.id === current.id ? early.read : readProject(current.id)
+      projectRead = { id: current.id, read }
+      followProject(read, current)
+      // Only an answer that opened the project counts. A stored refusal waits for the project.
+      if (openedFromDevice && read.stored?.kind === "ready") open(read.stored.info)
+    }
+    awaited.add(read)
+    try {
+      probe = await read.answer()
+    }
+    finally {
+      awaited.delete(read)
+    }
   }
-  // Only an answer that opened the project counts. A stored refusal waits for the project.
-  if (openedFromDevice && read.stored?.kind === "ready") open(read.stored.info)
-  const probe = await read.answer()
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
   applyProbe(probe, current)
@@ -272,18 +276,15 @@ export async function openConsoleProject(): Promise<void> {
  */
 function followProject(read: ConsoleStoredRead<ConsoleProjectProbe>, current: ConsoleLinkedProject): void {
   const projects = useState()
-  // An early read can have answered already.
-  let first = read.read.status.value !== "success"
+  // `sync`, so the watcher runs while an `openConsoleProject()` call still waits for the same answer and applies it.
   watch(read.read.status, (status) => {
-    if (status !== "success") return
-    // `openConsoleProject()` applies the first answer.
-    if (first) {
-      first = false
-      return
-    }
-    if (projects !== state || projectRead?.read !== read || projects.current.value !== current || !read.read.data.value) return
+    if (status !== "success" || awaited.has(read) || !read.read.data.value) return
+    if (projects !== state || projectRead?.read !== read || projects.current.value !== current) return
+    // An account page that the person opened, such as Settings, stays. The next open of the app reads the answer.
+    const gate = projects.gate.value.kind
+    if (gate === "home" || gate === "account" || gate === "empty") return
     applyProbe(read.read.data.value, current)
-  })
+  }, { flush: "sync" })
 }
 
 /** Open the project with its `project.get` answer, or set the gate that says what it needs. */
@@ -656,10 +657,12 @@ export function reloadConsoleAccount(): void {
 
 /** Sign out of the Console, delete the stored answers in every tab, and load the Console again. */
 export async function signOutConsole(): Promise<void> {
+  const { endConsoleSession } = await import("./account")
+  // A failed sign-out throws here, and the page keeps following its account.
+  await endConsoleSession()
   // The reads of the page must not start over and load the page on their own when the device forgets the account.
   stopConsoleReads()
-  const { signOutConsoleAccount } = await import("./account")
-  await signOutConsoleAccount()
+  await setDeviceAccount(null)
   reloadConsoleAccount()
 }
 
