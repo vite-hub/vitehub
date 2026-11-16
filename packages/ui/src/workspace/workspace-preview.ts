@@ -187,13 +187,15 @@ export const WorkspacePreview = defineComponent({
     const step = (direction: "back" | "forward") => port.value?.postMessage(direction);
     expose({ reload });
 
-    const picked = ref<WorkspacePreviewDevice>(props.device ?? storedDevice());
+    const picked = ref<WorkspacePreviewDevice>(props.device ?? "desktop");
     // DeviceFrame takes any size: a drag on its edge changes it, and the switch sets it back to a device.
     const size = ref<DeviceFrameSize>(sizeOf(picked.value));
     function show(device: WorkspacePreviewDevice) {
       picked.value = device;
       size.value = sizeOf(device);
     }
+    // Read after mount, so the first client render matches the server, which cannot read storage.
+    onMounted(() => { if (!props.device) show(storedDevice()); });
     watch(() => props.device, (device) => { if (device && device !== picked.value) show(device); });
     function pick(device: WorkspacePreviewDevice) {
       show(device);

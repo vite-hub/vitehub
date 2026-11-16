@@ -1274,6 +1274,24 @@ describe("ViteHub Nuxt integration", () => {
     expect(() => upstashDriver()).toThrow(expect.objectContaining({ code: "VITE_HUB_R0001" }))
   })
 
+  it("gives the disabled KV config when Comments is on and KV is unset", async () => {
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    // Without a github() Source, Vite drops the KV plugin of the Content KV variant, so the module must not keep it.
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/kv/vite",
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ comments: true, console: { auth: false }, host: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
+    const kvAlias = (nitroConfig.alias as Record<string, string>)["#vitehub/kv/config"]
+    expect(kvAlias).toBeTypeOf("string")
+    expect(await readFile(kvAlias!, "utf8")).toContain("export const kv = false")
+  })
+
   it("installs the disabled KV config in development too, and keeps the app's own config and alias", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt(true)
     const nitroConfig: Record<string, unknown> = {

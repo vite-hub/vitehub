@@ -81,6 +81,20 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Use one awareness client for each editor tab.",
     },
 
+    // Room write errors. The server rejects the write of a peer with them, and reports a failed room save.
+    REALTIME_ROOM_WRITE_CONFLICT: {
+      why: "Realtime room record compare-and-set failed.",
+      fix: "Connect again. Another Realtime instance changed the room at the same time. If it keeps failing, check that every instance uses the same Realtime bus.",
+    },
+    REALTIME_WRITE_REJECTED: {
+      why: ({ problem, readOnly }: { problem: "missing-state" | "read-only" | "status", readOnly?: string }) => problem === "missing-state"
+        ? "Realtime update depends on state this room does not have."
+        : problem === "status"
+          ? "Realtime document status is written by the server."
+          : readOnly ?? "This realtime connection is read-only.",
+      fix: "Write only through a writable connection, and do not change the `status` map, which the server writes. A client that misses room state connects again to sync it.",
+    },
+
     // Adapter errors. A document adapter throws `RealtimeDocumentConflict`, and the room re-seeds.
     REALTIME_DOCUMENT_CONFLICT: {
       why: ({ problem }: { problem?: string }) => problem ?? "The stored document changed since the realtime room loaded it.",
