@@ -28,7 +28,8 @@ const groups = computed(() => {
   // Pages in the panel of the current page, or outside every panel: the section sidebar links each panel once.
   const panel = section && !props.section && page.value ? docsPanelOf(section, page.value.page) : null
   const grouped = new Map<string, NonNullable<typeof section>["pages"]>()
-  for (const candidate of section ? docsPanelPages(section, panel) : []) {
+  const pages = !section ? [] : panel ? docsPanelPages(section, panel) : section.pages.filter(candidate => candidate.panel || !docsPanelOf(section, candidate))
+  for (const candidate of pages) {
     const label = candidate.group?.trim() ?? ""
     if (candidate.navigation === false || candidate.path === page.value?.page.path || exclude.has(label)) continue
     if (props.group !== undefined && label !== props.group) continue

@@ -29,7 +29,7 @@ import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-n
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
 import { docsFilesModule } from "./files.ts"
-import { docsAppManifestSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
+import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
@@ -479,7 +479,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
     // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
     addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
-    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    // Each panel's pages get their own module, which the app loads when a reader opens the panel. Development keeps
+    // them in the manifest, since a content change there can add a panel after the templates exist.
+    const app = () => docsAppManifest(manifest, { panels: !nuxt.options.dev })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(app().manifest), write: true }).dst
+    const panelFiles = app().panels.map((panel, index) => ({
+      path: panel.path,
+      file: addTemplate({ filename: `docs/panels/${index}.mjs`, getContents: () => docsAppPanelSource(app().panels.find(candidate => candidate.path === panel.path) ?? { ...panel, pages: [] }), write: true }).dst,
+    }))
+    nuxt.options.alias["#docs/panels"] = addTemplate({
+      filename: "docs/panels.mjs",
+      write: true,
+      getContents: () => `export default {\n${panelFiles.map(({ path, file }) => `  ${JSON.stringify(path)}: () => import(${JSON.stringify(file)}),\n`).join("")}}\n`,
+    }).dst
+    // Nuxt prefetches every dynamic import when the browser is idle. A reader opens one panel at most, so the others
+    // would download for nothing.
+    nuxt.hook("build:manifest", (chunks) => {
+      for (const [key, chunk] of Object.entries(chunks)) if (/docs[/\\]panels[/\\]\d+\.mjs$/.test(decodeURIComponent(key))) chunk.prefetch = false
+    })
+    addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")

@@ -33,14 +33,16 @@ async function createTempDir(prefix: string) {
 }
 
 describe("listSourceFiles", () => {
-  it("returns source files sorted, skipping .d.ts and ignored dirs", async () => {
+  it("returns source files sorted, skipping .d.ts, test and spec files, and ignored dirs", async () => {
     const root = await createTempDir("vitehub-internal-list-")
     await mkdir(join(root, "node_modules"), { recursive: true })
     await mkdir(join(root, "nested"), { recursive: true })
     await writeFile(join(root, "b.ts"), "", "utf8")
     await writeFile(join(root, "a.ts"), "", "utf8")
     await writeFile(join(root, "types.d.ts"), "", "utf8")
+    await writeFile(join(root, "a.test.ts"), "", "utf8")
     await writeFile(join(root, "nested", "c.mjs"), "", "utf8")
+    await writeFile(join(root, "nested", "c.spec.mjs"), "", "utf8")
     await writeFile(join(root, "node_modules", "ignored.ts"), "", "utf8")
 
     const files = listSourceFiles(root).map(file => file.replace(`${root}/`, ""))

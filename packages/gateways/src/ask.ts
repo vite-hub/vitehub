@@ -1,3 +1,4 @@
+import { gatewayDiagnostics } from "./diagnostics.ts"
 
 /** A JSON value that TypeSafe Jev can read. */
 export type AskJson = string | number | boolean | null | AskJson[] | { [key: string]: AskJson }
@@ -127,8 +128,8 @@ function chance(instructions: AskEntry, criteria?: AskChanceCriteria): AskChance
 
 function askIf(instructions: string, options: { threshold?: number } = {}): AskIfQuestion {
   const threshold = options.threshold ?? 0.5
-  if (!Number.isFinite(threshold)) throw new TypeError("ask.if threshold must be a finite number")
-  if (threshold < 0 || threshold > 1) throw new TypeError("ask.if threshold must be between 0 and 1")
+  if (!Number.isFinite(threshold)) throw gatewayDiagnostics.GATEWAYS_ASK_THRESHOLD_INVALID({ problem: "finite" })
+  if (threshold < 0 || threshold > 1) throw gatewayDiagnostics.GATEWAYS_ASK_THRESHOLD_INVALID({ problem: "range" })
   return { instructions, threshold, type: "if" }
 }
 
@@ -140,10 +141,10 @@ function each<T, Q extends AskQuestion>(
   for (const item of items) {
     const key = options.key(item)
     if (typeof key !== "string" || !key.trim()) {
-      throw new TypeError("ask.each keys must be non-empty strings")
+      throw gatewayDiagnostics.GATEWAYS_ASK_EACH_KEY_INVALID()
     }
     if (Object.hasOwn(questions, key)) {
-      throw new TypeError(`ask.each produced duplicate key ${JSON.stringify(key)}`)
+      throw gatewayDiagnostics.GATEWAYS_ASK_EACH_KEY_DUPLICATE({ key: JSON.stringify(key) })
     }
     questions[key] = options.question(item)
   }

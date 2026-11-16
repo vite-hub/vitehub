@@ -14,7 +14,7 @@ async function dispatch(run) {
     headers: { "content-type": "application/json" },
     method: "POST",
   }).then((response) => {
-    if (!response?.ok || !response?.result?.messageId) {
+    if (!response?.ok || response?.result?.status !== "queued") {
       throw new Error(`Unexpected direct queue response: ${JSON.stringify(response)}`)
     }
   })

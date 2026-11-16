@@ -180,6 +180,12 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
+  it("returns no Postgres URL for SQLite or D1 without resolving their connections", async () => {
+    const { getPostgresConnectionUrl } = await import("../src/index.ts")
+    expect(getPostgresConnectionUrl()).toBeUndefined()
+    expect(getPostgresConnectionUrl("analytics")).toBeUndefined()
+  })
+
   it("loads the published root accessors without a Vite virtual module", async () => {
     const script = [
       'const { db, schema, useDatabase } = await import("@vite-hub/database")',

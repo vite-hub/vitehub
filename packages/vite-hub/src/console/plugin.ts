@@ -7,6 +7,7 @@ import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { createConsoleInvocationsIdentity } from "./internal.ts"
+import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
@@ -113,7 +114,7 @@ export interface ConsoleNitroPluginOptions {
 }
 
 /** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
-export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=1"
+export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
 
 function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
   if (!pageTool) return "export default function viteHubConsolePlugin() {}"
@@ -187,7 +188,7 @@ function renderConsoleNitroPlugin(
   const agentModules = agentsEnabled ? agents.map((agent, index) => ({ binding: `vitehubConsoleAgent${index}`, module: pathToFileURL(agent.handler).href })) : []
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
-    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async () => (await import("#vitehub/env/server")).inspectServerEnv())`] : []),
+    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv())`] : []),
     `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
@@ -197,7 +198,7 @@ function renderConsoleNitroPlugin(
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
@@ -214,6 +215,8 @@ function renderConsoleNitroPlugin(
     "  }",
     "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
+    // A production build records its time and commit for `project.get`. A development server has no build to name.
+    ...(development ? [] : [`installConsoleBuild(${JSON.stringify(consoleBuildOf(projectRoot))})`]),
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]

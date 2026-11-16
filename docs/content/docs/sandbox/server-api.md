@@ -44,4 +44,4 @@ export default defineEventHandler(async () => {
 
 Payloads, context, and results are JSON. Nested `Blob` and `Uint8Array` values travel as files in the Sandbox, so you do not convert them to base64. Node.js `Buffer` values stay `Buffer`.
 
-Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt has the `SANDBOX_TASK_TIMEOUT` code.
+Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt has the `SANDBOX_TASK_TIMEOUT` code. Outside `vite dev`, the body leaves out the stack and process output. See [Error responses](/docs/sandbox/limits-and-errors#error-responses).

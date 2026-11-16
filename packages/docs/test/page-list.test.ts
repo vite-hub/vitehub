@@ -56,7 +56,7 @@ async function render(current: Section, options: { page?: Section["pages"][numbe
     props: ["name"],
     setup: props => () => vue.h("span", { "data-icon": props.name }),
   }))
-  return renderToString(app)
+  return await renderToString(app)
 }
 
 describe("PageList", () => {
@@ -82,6 +82,15 @@ describe("PageList", () => {
     expect(html).not.toContain("/docs/kv/api")
     expect(html).not.toContain("data-icon")
     // The group heading is already the page's own heading.
+    expect(html).not.toContain("Runtime errors")
+  })
+  it("lists a panel's Overview but not the pages inside the panel", async () => {
+    const html = await render({ ...section, pages: [
+      { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },
+      { ...page, id: "diagnostics/kv_invalid_ttl", path: "/docs/kv/diagnostics/kv_invalid_ttl", group: "Runtime errors" },
+    ] })
+    expect(html).toContain('href="/docs/kv/diagnostics"')
+    expect(html).not.toContain("kv_invalid_ttl")
     expect(html).not.toContain("Runtime errors")
   })
 })

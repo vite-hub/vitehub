@@ -9,6 +9,7 @@ import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/worksp
 
 import * as v from "valibot"
 
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { loadAgent } from "../index.ts"
 import { agentInvocationsDevGuard, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { isAgentInvocations } from "../invocations.ts"
@@ -52,8 +53,6 @@ async function registeredInvocationJournals(): Promise<AgentInvocations[]> {
   return [...journals]
 }
 
-class InvocationJournalAmbiguityError extends Error {}
-
 async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant, journals: readonly AgentInvocations[], id: string): Promise<AgentInvocationCancelResult> {
   assertViteHubDevRequestGrant(grant, request)
   const matches: AgentInvocations[] = []
@@ -65,7 +64,7 @@ async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant,
     catch (error) { failure ??= error }
   }
   if (matches.length > 1) {
-    throw new InvocationJournalAmbiguityError("The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).")
+    throw agentDiagnostics.AGENT_INVOCATION_ID_AMBIGUOUS()
   }
   if (failure) throw failure
   if (matches[0]) return await matches[0].cancel(id)
@@ -100,6 +99,6 @@ export async function handleAgentInvocationsDevRequest(input: Request | ViteHubC
     return Response.json(await cancelInJournals(request, grant, journals, body.id))
   }
   catch (error) {
-    return failure(`Agent Invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`, error instanceof InvocationJournalAmbiguityError ? 409 : 500)
+    return failure(`Agent Invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error && Reflect.get(error, "code") === "AGENT_INVOCATION_ID_AMBIGUOUS" ? 409 : 500)
   }
 }

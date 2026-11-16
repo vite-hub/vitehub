@@ -417,13 +417,13 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     id: "go-to",
     items: [
       {
-        icon: "i-lucide-layout-grid",
+        icon: "i-lucide-gauge",
         kbds: [...consoleOverviewShortcut],
         keywords: ["home", "sections", "start"],
         label: "Overview",
         onSelect: () => selectPage("vitehub-console"),
       },
-      // Sections follow the rail order.
+      // Sections follow the sidebar order.
       ...groupConsoleSections(sections.value.map(id => ({ id }))).flat().flatMap(({ id: section }) => {
         const details = resolveConsoleSectionDetails(installedNavigation.value, section)
         const shortcut = consoleSectionShortcut(section)
