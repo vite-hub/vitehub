@@ -996,6 +996,10 @@ lets a running host receive verified webhook deliveries for its Agent.
 
 A `launch` resolver can return `prepare({ abortSignal })` with its command. ViteHub awaits this host callback before provider inspection or launch, outside the provider's status-probe deadline. Use it to wait for a transport such as a starting SSH sidecar. Honor `abortSignal` to stop I/O when the caller cancels. Existing command-only launchers need no callback.
 
+### Leftover provider processes
+
+A provider that runs on the host without a Sandbox can start commands that leave its process group, for example with `setsid` or a double fork. Every process of the invocation starts with the `VITEHUB_PROVIDER_PASS` environment variable. On Linux, when the invocation ends, ViteHub stops every process of the same user that still has this invocation's value. A command that clears its environment is not found. A Sandbox stops its own processes when it closes.
+
 ### Provider exit evidence
 
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.

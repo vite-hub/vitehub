@@ -103,7 +103,7 @@ Spawned `vercel` processes stream `stdout` and `stderr` while they run. Consume 
 
 Spawned `cloudflare` processes stream `stdout` and `stderr` through `streamProcessLogs()` with the same 1 MiB per-channel limit and `SANDBOX_R0159` error. A custom `getSandbox` stub without `streamProcessLogs()` returns each channel's full output after the process exits. The built-in Durable Object starts each spawned command in its own process group with bash job control, and `child.kill()`, a `timeout`, or an aborted `signal` signals that whole group, so child processes stop too.
 
-For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation.
+For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation. Every trusted-host command starts with the `VITEHUB_SANDBOX_SESSION` environment variable. On Linux, closing the session also stops the processes that have it and left their process group, for example with `setsid`.
 
 A `timeout` or an aborted `signal` stops only that command, on every runtime. The Sandbox and its other processes keep running. `exec()` rejects with the abort reason. For `spawn()`, the runtime kills the process and `wait()` rejects with the abort reason.
 
@@ -349,7 +349,7 @@ The launch command includes a cancellable `prepare` callback. Agent Drivers awai
 
 The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#commands).
 
-This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
+This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. When a command ends, the server stops its process group. On Linux it also stops the processes that the command started outside that group, for example with `setsid`. It finds them by the `VITEHUB_SSH_COMMAND` environment variable. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
 
 ## Sandbox Tasks
 
