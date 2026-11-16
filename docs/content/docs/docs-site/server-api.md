@@ -50,6 +50,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `markdownPages` | `boolean` | `true` | A Markdown copy of each app page that is not a docs page, converted from its HTML, at its URL plus `.md` and for `Accept: text/markdown`. See [Agent resources](/docs/docs-site/configure#agent-resources). |
 | `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`: `{ comarkUi, examples, plugins }`. The page route, search, and Console drafts parse with it. See [Configure the parser](/docs/docs-site/configure#configure-the-parser). |
 
 The module also configures the modules it installs: `llms` from `site`, and `agentDiscovery` with the page routes and MCP server card. Your own `llms` and `agentDiscovery` options win.
