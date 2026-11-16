@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -193,6 +193,41 @@ describe("vitehub deploy checks Server Env", () => {
     expect(result.json.error?.code).toBe("SETUP_ENV_FILE_TRACKED")
     expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["env", "ls"]])
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
+  })
+
+  it("refuses a secret that expands from a tracked file, or comes from a file that git does not ignore, before any host write", async () => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env": `BASE=${canary}\n`, ".env.production": "API_KEY=$BASE\n" } })
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+    git("init", "-q")
+    git("add", "-f", ".env")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const expanded = await deploy([], root, hosts.env)
+    expect(expanded.exitCode).toBe(3)
+    expect(expanded.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED", fix: expect.stringContaining("git rm --cached .env") })
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+
+    git("rm", "-q", "--cached", ".env")
+    await writeFile(join(root, ".gitignore"), ".output\n.vitehub\n")
+    const unignored = await deploy([], root, hosts.env)
+    expect(unignored.exitCode).toBe(3)
+    expect(unignored.json.error?.code).toBe("SETUP_ENV_FILE_NOT_IGNORED")
+    expect(await hosts.state()).toMatchObject({ deploys: 0 })
+    expectNoLeak(await hosts.calls(), expanded.stdout + expanded.stderr + unignored.stdout + unignored.stderr, [canary])
+  })
+
+  it("uploads the values of the envDir that the build recorded", async () => {
+    const root = await project("cloudflare", [apiKey], {
+      files: {
+        ".env.production": "API_KEY=from-the-root\n",
+        "config/.env.production": `API_KEY=${canary}\n`,
+        ".output/deployment.json": JSON.stringify({ env: [apiKey], envDir: "../config", host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+      },
+    })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await deploy([], root, hosts.env)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).find(call => call.argv[0] === "deploy")?.secretsFile?.values).toEqual({ API_KEY: canary })
+    expect(result.stderr).toContain("Setting API_KEY on cloudflare with the new version from config/.env.production.")
   })
 
   it("generates a missing VITEHUB_SECRET with --yes, uploads it, and prints only that it was set", async () => {

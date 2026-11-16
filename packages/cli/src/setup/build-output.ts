@@ -30,6 +30,11 @@ export interface BuildOutput {
   identityName?: string
   /** The host variable names that the app reads, from `env` of `deployment.json`. Empty when the build lists none. */
   env: DeploymentEnvEntry[]
+  /**
+   * The folder of the stage env files that the app loads: Vite's resolved `envDir`, from `deployment.json`. It is
+   * `false` when the app loads no env file, and the project root for a build that does not record it.
+   */
+  envDir: string | false
 }
 
 function stringList(value: unknown): string[] {
@@ -70,5 +75,7 @@ export async function readBuildOutput(root: string, host: DeployHost): Promise<B
   if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
   const env = isRecord(manifest) && Array.isArray(manifest.env) ? manifest.env.flatMap(readEnvEntry) : []
-  return { env, outputDir, ...(identityName ? { identityName } : {}) }
+  const recordedEnvDir = isRecord(manifest) ? manifest.envDir : undefined
+  const envDir = recordedEnvDir === false ? false : typeof recordedEnvDir === "string" ? join(outputDir, recordedEnvDir) : root
+  return { env, envDir, outputDir, ...(identityName ? { identityName } : {}) }
 }

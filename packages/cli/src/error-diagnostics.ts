@@ -233,9 +233,17 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    SETUP_ENV_FILE_NOT_IGNORED: {
+      fix: ({ file }: { file?: unknown, names?: unknown }) => `Add \`.env*\` or \`${String(file)}\` to .gitignore. Or set the values in the shell for this command.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `The secret ${String(names)} reads ${String(file)}, which git does not ignore, so a commit can add it. \`vitehub env push\` pushes a secret only from a file that git ignores.`,
+    },
     SETUP_ENV_FILE_TRACKED: {
       fix: ({ file }: { file?: unknown, names?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add \`.env*\` to .gitignore, and rotate the values that git has seen. Or set the values in the shell for this command.`,
-      why: ({ file, names }: { file?: unknown, names?: unknown }) => `${String(file)} is tracked by git and holds the secret ${String(names)}. \`vitehub env push\` does not push a secret that is in git.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `The secret ${String(names)} reads ${String(file)}, which git tracks, directly or through \`$NAME\` expansion or a symlink. \`vitehub env push\` does not push a secret that is in git.`,
+    },
+    SETUP_ENV_GIT_FAILED: {
+      fix: "Fix the git repository so that `git ls-files` and `git check-ignore` work, then run the command again. Or set the values in the shell for this command.",
+      why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `Git could not tell whether it tracks or ignores ${String(file)}, which holds a secret: ${String(reason)}. Nothing was pushed.`,
     },
     SETUP_ENV_NAME_UNKNOWN: {
       fix: "Pass names that `vitehub env diff` lists, or build again after you declare the name.",
