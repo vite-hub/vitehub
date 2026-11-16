@@ -382,6 +382,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     }
     writeSources(read.files)
+    /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
+    const readPage = (page: DocsPage): string => readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
@@ -394,7 +396,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const rawMarkdown = options.rawMarkdown
       if (!rawMarkdown) return
       for (const page of docsManifestPages(snapshot.manifest)) {
-        const source = readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
+        const source = readPage(page)
         const rewritten = await rawMarkdown(source, page)
         if (rewritten === source) continue
         const target = join(agentDir, docsContentSource(page), page.file)
@@ -640,9 +642,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     })
     nuxt.options.css.unshift(docsCss.dst)
 
-    // @nuxt/icon bundles only the icons it finds in the app, so add the shell's icons and the configured ones.
+    // @nuxt/icon bundles only the icons it finds in the app, so add the shell's icons, the configured ones, and the ones
+    // that pages name, such as `icon="i-lucide-lock"` on a block. The browser loads an icon outside the bundle from the
+    // `/api/_nuxt_icon` endpoint, so the icon is blank until that request ends.
     Reflect.apply(nuxt.hook, nuxt, ["icon:clientBundleIcons", (icons: Set<string>) => {
       const names = [
+        ...docsManifestPages(manifest).flatMap(page => readPage(page).match(markdownIconName) ?? []),
         ...shellIcons,
         ...Object.values(vitehubTheme.icons),
         config.icons.page,
@@ -876,6 +881,9 @@ const shellIcons = [
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",
   "i-vscode-icons-file-type-vue", "i-vscode-icons-file-type-yaml",
 ]
+
+/** An icon name in Markdown, such as `i-lucide-sun`. A name that is no icon is dropped when @nuxt/icon cannot resolve it. */
+const markdownIconName = /(?<![\w-])i-[a-z0-9]+(?:-[a-z0-9]+)+/g
 
 /**
  * `i-lucide-sun` as @nuxt/icon bundles it: `lucide:sun`. Collection names with one hyphen end in `-icons`, such as

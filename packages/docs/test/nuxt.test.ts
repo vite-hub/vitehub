@@ -286,6 +286,21 @@ describe("docs Nuxt setup", () => {
     expect(readdirSync(stylesDir)).toEqual([file])
   })
 
+  it("bundles the icons that pages name, so no page loads one from the icon endpoint", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    writeFileSync(join(app.dir, "docs/guide/index.md"), [
+      "---", "title: Guide", "---", "",
+      ":::product-feature-item{title=\"Locks\" icon=\"i-lucide-lock\"}", ":::", "",
+      "Runs on :icon{name=\"i-simple-icons-nodedotjs\"} Node, not on multi-step-ui or i-.", "",
+    ].join("\n"))
+    await setupDocs({ dir: app.dir })
+    const icons = new Set<string>()
+    await callHook("icon:clientBundleIcons", icons)
+    expect(icons).toContain("lucide:lock")
+    expect(icons).toContain("simple-icons:nodedotjs")
+    expect([...icons].filter(icon => icon.startsWith("step"))).toEqual([])
+  })
+
   it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
     const options = await setupDocs({})
     expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
