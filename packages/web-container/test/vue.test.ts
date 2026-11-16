@@ -3,7 +3,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import type { WebContainerStatus } from "../src/index.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
+import { createSSRApp, defineComponent, h, nextTick } from "vue";
+import { renderToString } from "vue/server-renderer";
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
 // A fake container: the tests control when each process exits.
@@ -462,5 +463,29 @@ describe("useWebContainer", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(workspace.logs.value.join("")).toBe("$ dev\n");
     wrapper.unmount();
+  });
+
+  it("hydrates the online state that the server rendered, then shows that the browser is offline", async () => {
+    const App = defineComponent({
+      setup() {
+        const workspace = useWebContainer({ files: {}, immediate: false });
+        return () => h("p", workspace.online.value ? "Online" : "Offline");
+      },
+    });
+    const html = await renderToString(createSSRApp(App));
+    expect(html).toBe("<p>Online</p>");
+    // SAFETY: happy-dom provides these globals; this package compiles without the DOM library.
+    const dom = globalThis as unknown as { document: { body: { innerHTML: string, textContent: string | null } }, navigator: { onLine: boolean } };
+    vi.spyOn(dom.navigator, "onLine", "get").mockReturnValue(false);
+    dom.document.body.innerHTML = `<div id="app">${html}</div>`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = createSSRApp(App);
+    app.mount("#app");
+    expect(warn.mock.calls.flat().map(String).filter(line => /hydration/i.test(line))).toEqual([]);
+    await nextTick();
+    expect(dom.document.body.textContent).toBe("Offline");
+    app.unmount();
+    dom.document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 });

@@ -42,6 +42,7 @@ jobs:
       - docs-demo
       - docs-demo-deploy
       - console
+      - console-pixels
       - console-deploy
       - verify-providers
     if: ${{ always() }}
@@ -759,6 +760,97 @@ jobs:
           include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
+
+  # The Console pixel oracle on a pull request that can move Console pixels: the Console source and playground, the kit
+  # styles, or @vite-hub/ui/theme.css. It captures the base branch and the pull request in the same job, so both sides
+  # have the same Chromium and fonts, and it fails when a shot changes. A pull request that changes pixels on purpose
+  # gets the console-pixels:expected label: the job then passes and still uploads the shots and the diff images.
+  console-pixels:
+    name: console pixels
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Only a pull request has a base to compare with."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch the Console, its styles, or the oracle."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/vite-hub/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      # The playground loads the Console from source, and the packages it imports, such as Auth, the kit styles, and
+      # theme.css, from dist. One `vp run` takes one task.
+      - name: Capture the pull request
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node packages/vite-hub/test/console-pixels.browser.mjs capture "$RUNNER_TEMP/console-pixels/head"
+      # The base runs the oracle of the pull request, so a change to the oracle applies to both sides.
+      - name: Capture the base
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          oracle=packages/vite-hub/test/console-pixels.browser.mjs
+          cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
+          install=false
+          git diff --quiet HEAD "$BASE_REF" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_REF"
+          cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
+          if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
+      - name: Compare
+        id: compare
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if node packages/vite-hub/test/console-pixels.browser.mjs compare "$RUNNER_TEMP/console-pixels/base" "$RUNNER_TEMP/console-pixels/head"; then
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Reruns retain the original event payload, so read the current labels.
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'any(.labels[]; .name == "console-pixels:expected")')"
+          if [ "$expected" = "true" ]; then
+            echo "::warning::Console pixels changed, and the console-pixels:expected label accepts it. Explain each changed shot in the pull request."
+            exit 0
+          fi
+          echo "::error::Console pixels changed. Download the console-pixels artifact. If the change is on purpose, add the console-pixels:expected label and run the job again."
+          exit 1
+      - name: Upload the shots
+        if: ${{ always() && (steps.compare.outputs.changed == 'true' || (steps.changed.outputs.run == 'true' && failure())) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-pixels
+          path: ${{ runner.temp }}/console-pixels
+          retention-days: 7
+          if-no-files-found: ignore
 
   # console.vitehub.dev deploys from the verified build on every push to main, like the docs site. The Production
   # environment holds the Cloudflare token, which must allow Workers, D1, and custom domains on the vitehub.dev zone.

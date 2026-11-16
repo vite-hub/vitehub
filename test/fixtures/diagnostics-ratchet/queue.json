@@ -1,0 +1,7 @@
+{
+  "rawErrors": {},
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/queue/src/providers/postgres.ts": 1
+  }
+}

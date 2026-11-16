@@ -5,6 +5,7 @@ import { useDatabase } from "vite-hub/database"
 
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
 
+import { consoleErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import { forwardProjectRequest } from "../../src/forward.ts"
 import { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 import { consoleApiKeyOf, createConsoleApiKey, defaultApiKeyDays, maxApiKeyDays, verifyConsoleApiKey } from "../../src/api-keys.ts"
@@ -208,9 +209,16 @@ export async function unlinkProject(caller: ConsoleTeamCaller, id: string): Prom
 /** The answer of one operation call to a project: the value, or the failure and the HTTP status. */
 export type ProjectOperationResult =
   | { ok: true, status: number, value: unknown }
-  | { ok: false, status: number, error: { code?: string, message: string, fix?: string } }
+  | { ok: false, status: number, error: ProjectOperationFailure }
 
-function failureOf(value: unknown, status: number): { code?: string, message: string, fix?: string } {
+/** Why a project refused a call: the diagnostic code, the message, and the fix when the project sent them. */
+export interface ProjectOperationFailure {
+  code?: string
+  message: string
+  fix?: string
+}
+
+function failureOf(value: unknown, status: number): ProjectOperationFailure {
   const field = (name: string) => {
     const found: unknown = value instanceof Object ? Reflect.get(value, name) : undefined
     return typeof found === "string" && found ? found : undefined
@@ -236,7 +244,26 @@ export async function callProjectOperation(caller: ConsoleTeamCaller, id: string
   const { body, response } = outcome.answer
   if (outcome.ok) return { ok: true, status: response.status, value: outcome.value }
   // Host middleware, such as the signature check, answers with the diagnostic body and no birpc reply.
-  return { error: failureOf(outcome.error ?? body, response.status), ok: false, status: response.status }
+  const error = failureOf(outcome.error ?? body, response.status)
+  if (response.status === 401 && error.code === "CONSOLE_SIGNATURE_INVALID" && (options.surface || options.readOnly)) {
+    const outdated = await outdatedApp(caller, id)
+    if (outdated) return { error: outdated, ok: false, status: response.status }
+  }
+  return { error, ok: false, status: response.status }
+}
+
+/**
+ * Why an app refused the signed caller of an MCP call, when the reason is its vite-hub version. An app before the
+ * forward-compatible caller check refuses the fields that it does not know, such as `surface` and `readOnly`, as a
+ * malformed header. The Console then asks `project.get` with the fields of a Console page call, which every linked app
+ * takes, and names the version of the app.
+ */
+async function outdatedApp(caller: ConsoleTeamCaller, id: string): Promise<ProjectOperationFailure | undefined> {
+  const project = await callProjectOperation(caller, id, "project.get", {})
+  const version: unknown = project?.ok && project.value instanceof Object ? Reflect.get(project.value, "vitehub") : undefined
+  if (typeof version !== "string") return undefined
+  const { code, fix, why } = consoleErrorDiagnostics.CONSOLE_APP_VITEHUB_OUTDATED({ version })
+  return { code, fix, message: why }
 }
 
 /**

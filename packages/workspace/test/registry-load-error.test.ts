@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { Diagnostic } from "nostics"
 import { afterEach, expect, it } from "vitest"
 
 import { createWorkspaceRegistryContents } from "../src/build/discovery.ts"
@@ -62,6 +63,15 @@ it("gives a failure of the eager generated registry its code and fix in the dura
 
 it("keeps a coded error of the Definition module unchanged", async () => {
   const coded = workspaceErrorDiagnostics.WORKSPACE_R0016({ message: "[vitehub] defineWorkspace() expects an object." })
+  setWorkspaceRegistry({ content: async () => { throw coded } })
+
+  await expect(resolveRegisteredWorkspaceDefinition("content")).rejects.toBe(coded)
+})
+
+it("keeps a coded error from another copy of Nostics unchanged", async () => {
+  // A Definition module can throw the diagnostic of another package, which may bundle its own copy of Nostics.
+  const coded = Object.assign(new Error("The Agent is busy."), { code: "AGENT_BUSY", name: "AGENT_BUSY", why: "The Agent is busy.", toJSON: () => ({}) })
+  expect(coded).not.toBeInstanceOf(Diagnostic)
   setWorkspaceRegistry({ content: async () => { throw coded } })
 
   await expect(resolveRegisteredWorkspaceDefinition("content")).rejects.toBe(coded)

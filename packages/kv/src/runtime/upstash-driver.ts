@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { normalizeKey } from "unstorage"
 import createDriver from "unstorage/drivers/upstash"
 
@@ -16,8 +17,7 @@ interface UpstashClient {
 
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
-  // Internal invariant: resolveUpstashStore() always gets a non-empty prefix to keep clear() inside this store.
-  if (!base) throw new TypeError("An Upstash KV store needs a non-empty `base`.")
+  invariant(base, "resolveUpstashStore() gives an Upstash KV store a non-empty `base`, which keeps clear() inside the store")
   // Let unstorage decode reads so typed text reads and GETDEL preserve the stored text, including "null".
   // unstorage prefixes the keys of its own methods with `base`. The methods below prefix theirs.
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.

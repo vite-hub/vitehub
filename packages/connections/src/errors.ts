@@ -1,6 +1,7 @@
 import { isViteHubError } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -16,7 +17,7 @@ export type ConnectionsErrorCode =
   | "CONNECTIONS_UNAVAILABLE"
 
 /** Every code in the Connections catalog, including config and management route codes. */
-export type ConnectionsCatalogCode = keyof typeof connectionsErrorDiagnostics
+export type ConnectionsCatalogCode = InferDiagnosticCodes<typeof connectionsErrorDiagnostics>
 
 const returnedCodes = [
   "CONNECTIONS_APPROVAL_REQUIRED",
@@ -34,16 +35,7 @@ const returnedCodes = [
  * It reads `code`, so it also accepts an error from another copy of the package.
  */
 export function isConnectionError<TCode extends ConnectionsCatalogCode = ConnectionsCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
-  if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
-  try {
-    const code: unknown = Reflect.get(error, "code")
-    if (typeof code !== "string" || !Object.hasOwn(connectionsErrorDiagnostics, code)) return false
-    if (typeof Reflect.get(error, "why") !== "string") return false
-    return !codes || codes.some(candidate => candidate === code)
-  }
-  catch {
-    return false
-  }
+  return connectionsErrorDiagnostics.is(error) && (!codes || codes.some(code => code === error.code))
 }
 
 /**

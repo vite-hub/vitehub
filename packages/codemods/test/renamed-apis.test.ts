@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { detectCodemods, formatReport, runCodemod, upgradeCodemods } from "../src/index.ts"
+import { detectCodemods, formatReport, runCodemod, runMigration, upgradeCodemods } from "../src/index.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/renamed-apis-test/", import.meta.url))
@@ -28,7 +28,7 @@ describe("renamed-apis", () => {
       "server/api/a.ts": "import { deriveSecret } from '#vitehub/env/server'\nimport { db } from 'vite-hub/database/drizzle'\nimport { kv } from 'vite-hub/kv'\nexport const secret = deriveSecret('app', event)\nexport const remove = () => kv.del('a')\nexport { db }\n",
       "vite.config.ts": "import { hubDb } from '@vite-hub/database/vite'\nimport { hubKv } from '@vite-hub/kv/vite'\nexport default { plugins: [hubDb(), hubKv()] }\n",
     })
-    for (const codemod of upgradeCodemods) await runCodemod(codemod.name, { cwd, dryRun: false })
+    await runMigration({ cwd, codemods: upgradeCodemods })
     const route = await readFile(join(cwd, "server/api/a.ts"), "utf8")
     expect(route).toContain("from 'vite-hub/env'")
     expect(route).toContain("from 'vite-hub/database'")
@@ -159,7 +159,18 @@ describe("renamed-apis", () => {
 
   it("lists a NUXT_APP_SECRET env file without printing its value", async () => {
     const { run } = await migrate({ ".env": "OTHER=1\nNUXT_APP_SECRET=do-not-print-this-value\n", ".dev.vars": "NUXT_APP_SECRET=x\nVITEHUB_SECRET=y\n" })
-    expect(run.result.followUps).toEqual([{ file: ".env", line: 2, message: expect.stringContaining("Set `VITEHUB_SECRET`") }])
+    expect(run.result.followUps).toEqual([{ file: ".env", line: 2, message: expect.stringContaining("also set `VITEHUB_SECRET` to it") }])
     expect(formatReport(run)).not.toContain("do-not-print-this-value")
+  })
+
+  it("does not tell an app to drop a NUXT_APP_SECRET that another module reads", async () => {
+    const { run } = await migrate({
+      ".env.example": "NUXT_APP_SECRET=\n",
+      "package.json": "{\"dependencies\":{\"nuxt-og-image\":\"^5.0.0\",\"vite-hub\":\"0.0.9\"}}\n",
+    })
+    const [followUp] = run.result.followUps
+    expect(followUp?.message).toContain("If ViteHub used this value")
+    expect(followUp?.message).toContain("Keep `NUXT_APP_SECRET` when another module")
+    expect(followUp?.message).not.toContain("no longer reads")
   })
 })
