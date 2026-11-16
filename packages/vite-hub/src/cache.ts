@@ -100,7 +100,7 @@ async function resolveTags<ArgsT extends unknown[]>(tags: CacheTags<ArgsT>, args
 
 function checkTags(tags: unknown): readonly string[] {
   if (!Array.isArray(tags) || !tags.every(tag => typeof tag === "string" && tag !== "")) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0145({ message: `[vitehub] Cache tags must be non-empty strings, but got ${JSON.stringify(tags)}.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_CACHE_TAG_INVALID({ message: `[vitehub] Cache tags must be non-empty strings, but got ${JSON.stringify(tags)}.` })
   }
   return tags
 }

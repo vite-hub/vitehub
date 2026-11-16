@@ -252,6 +252,6 @@ describe.each([
   it("rejects empty tags with a diagnostic", async () => {
     await expect(invalidateTag("")).rejects.toThrow("Cache tags must be non-empty strings")
     const broken = defineCachedFunction(async () => 1, { name: "broken", tags: () => [""], waitUntil })
-    await expect(broken()).rejects.toMatchObject({ code: "VITE_HUB_R0145" })
+    await expect(broken()).rejects.toMatchObject({ code: "VITE_HUB_CACHE_TAG_INVALID" })
   })
 })
