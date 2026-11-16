@@ -799,9 +799,12 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
-  const leaseDatabaseImport = (plugins: readonly unknown[] | undefined) => hasVitePlugin(plugins, databaseVitePluginName)
-    ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/runtime/registry" }
-    : {}
+  // Set by the `config` hook too, because the Nuxt Nitro-only replay can skip this plugin's configResolved.
+  let leaseDatabase = false
+  const leaseDatabaseImport = (plugins: readonly unknown[] | undefined) => {
+    leaseDatabase = hasVitePlugin(plugins, databaseVitePluginName)
+    return leaseDatabase ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/runtime/registry" } : {}
+  }
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
     return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
@@ -1055,7 +1058,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
     durability: () => options.runtime?.driver === "process"
       ? [{
           export: "scheduleDurability",
-          input: { driver: "process", leases: hasVitePlugin(resolved?.plugins, databaseVitePluginName) } satisfies ScheduleDurabilityInput,
+          input: { driver: "process", leases: leaseDatabase } satisfies ScheduleDurabilityInput,
           module: durabilityModuleFile(import.meta.url),
           primitive: "schedule",
         }]
