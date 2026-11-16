@@ -134,4 +134,4 @@ const limiter = createRateLimiter({
 })
 ```
 
-A custom driver returns `[null, result]` after it consumes the counter. It returns `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.
+A custom driver returns a `Result` like other ViteHub operations: `[undefined, result]` after it consumes the counter, and `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.

@@ -11,7 +11,12 @@ export type {
   EmailDriver,
   EmailDriverFactory,
   EmailDriverSource,
+  EmailEnvelope,
   EmailErrorCode,
   EmailMessage,
+  EmailSendMessage,
   EmailSendResult,
+  EmailTemplateMessage,
+  EmailTemplateName,
+  EmailTemplateRegistry,
 } from "./types.ts"

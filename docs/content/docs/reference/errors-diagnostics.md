@@ -32,7 +32,9 @@ if (error) {
 
 `Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with [`defineErrors()`](/docs/runtime/errors) from `vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
-A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics 1.3 requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+
+A catalog checks its own errors. `errors.is(error)` accepts any code of the catalog, and `errors.CODE.is(error)` accepts one code. Both narrow `code` and `data`, and both accept an error from another bundled copy or realm. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 ## Diagnostic codes
 
@@ -104,6 +106,8 @@ throw errors.SEARCH_INDEX_MISSING()
 ```
 
 Add `nostics` as a direct dependency to use it. Omit reporters for throw-only catalogs. ViteHub formats the error where it is reported.
+
+Check your own errors with `errors.SEARCH_INDEX_MISSING.is(error)`, or `errors.is(error)` for any code of the catalog. These Nostics guards check that this catalog created the error, so they reject an error from another bundled copy of `nostics`. Log a diagnostic with `createConsoleReporter()` from `nostics` to print its `cause` too; `formatDiagnostic()` leaves the cause out.
 
 AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports, and CLI output keep the code and fix, without causes or stacks.
 

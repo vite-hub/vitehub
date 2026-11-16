@@ -1,3 +1,4 @@
+import { checkoutPoolReplacedMessage, cleanCheckoutPoolScript } from "./checkout-pool-cleanup.injected.ts";
 import { execFile } from "node:child_process";
 import { lstat, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -54,29 +55,28 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   });
   if (!info) return 0;
   if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`[vitehub] Refusing to clean unsafe Babysitter checkout pool: ${root}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_UNSAFE({ root });
   }
   const quarantine = await mkdtemp(join(dataDir, ".checkouts-cleanup-"));
   const claimed = join(quarantine, "checkouts");
   await rename(root, claimed);
   const claimedInfo = await lstat(claimed, { bigint: true });
   if (!claimedInfo.isDirectory() || claimedInfo.dev !== info.dev || claimedInfo.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   const entries = await readdir(claimed, { withFileTypes: true });
-  await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
-    import { lstat, readdir, rm } from "node:fs/promises";
-    const info = await lstat(".", { bigint: true });
-    if (String(info.dev) !== process.argv[1] || String(info.ino) !== process.argv[2]) {
-      throw new Error("Refusing to clean replaced Babysitter checkout pool");
+  try {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", cleanCheckoutPoolScript, String(info.dev), String(info.ino)], { cwd: claimed });
+  } catch (error) {
+    // A failed execFile() call carries the child's stderr.
+    if (isRuntimeRecord(error) && String(error.stderr ?? "").includes(checkoutPoolReplacedMessage)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed, cause: error });
     }
-    for (const entry of await readdir(".")) {
-      await rm(entry, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
-    }
-  `, String(info.dev), String(info.ino)], { cwd: claimed });
+    throw error;
+  }
   const remaining = await lstat(claimed, { bigint: true });
   if (remaining.dev !== info.dev || remaining.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   return entries.length;
 }

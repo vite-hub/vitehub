@@ -1,17 +1,20 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation, AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import { delivery, delta, event, input, invocation, message, messageAuthors, messageBodies, openWork, receipts, runSummary, threadRows, timestamp, tool, workText } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const show = (value: AgentInvocationView) => mount(AgentInvocation, { props: { invocation: value } });
 const messageCount = (value: AgentInvocationView) => runSummary(mount(AgentInvocationInspector, { props: { invocation: value } })).Messages;
 const count = (text: string, needle: string) => text.split(needle).length - 1;
 const prompt = message("user", "Run it.");
 const commentary = (content: string) => message("assistant", content, { "message.phase": "commentary" });
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation channel deliveries", () => {
   describe("receipts", () => {
