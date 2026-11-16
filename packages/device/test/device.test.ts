@@ -461,26 +461,63 @@ describe("tabs", () => {
     expect(opening.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
   })
 
-  it("brings the disk to the account that the page named before it opened, also when another tab changed the disk meanwhile", async () => {
+  it("does not reassert an account that the page named before it opened when another tab named another account meanwhile", async () => {
     const disk = createFakeDisk()
-    await pageWithProjects(disk)
+    const old = openPage(disk, createFakeBrowser())
+    await old.open({ version: "1" })
+    await old.setAccount("ada")
+    answer(old, "projects", ["ada"])
+    await old.settled()
+    // The page names `ada` from its session, then reads the disk of version 1. The tab misses the messages of the other tab.
     const page = openPage(disk, createFakeBrowser(), { openTimeout: 5000 })
-    void page.setAccount("grace")
+    void page.setAccount("ada")
     const release = disk.holdNextRead()
-    const opened = page.open()
+    const opened = page.open({ version: "2" })
     await new Promise(resolve => setTimeout(resolve, 0))
-    // Another tab, which this one does not hear, clears the copies of `ada` and gives the disk a new generation.
-    const other = openPage(disk, createFakeBrowser())
-    await other.open()
-    await other.clear()
+    // Meanwhile Grace signs in, in another tab of version 2, so the session of the page is no longer the one of `ada`.
+    const grace = openPage(disk, createFakeBrowser())
+    await grace.open({ version: "2" })
+    await grace.setAccount("grace")
+    answer(grace, "projects", ["grace"])
+    await grace.settled()
     release()
     await opened
     await page.settled()
-    expect(disk.meta).toMatchObject({ account: "grace" })
-    expect(page.inspect()).toMatchObject({ account: "grace", persisted: true })
-    answer(page, "projects", ["grace"])
+    expect(disk.meta).toMatchObject({ account: "grace", version: "2" })
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+    expect(page.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
+    // An answer with the session of Grace is not stored as a copy of `ada`, or at all, until the page names an account.
+    answer(page, "projects", ["grace-fresh"])
     await page.settled()
     expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+    await page.setAccount("grace")
+    answer(page, "projects", ["grace-fresh"])
+    await page.settled()
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace-fresh"]))
+  })
+
+  it("brings the disk to the version of the page when another tab cleared the same account while it opened", async () => {
+    const disk = createFakeDisk()
+    const old = openPage(disk, createFakeBrowser())
+    await old.open({ version: "1" })
+    await old.setAccount("ada")
+    answer(old, "projects", ["ada"])
+    await old.settled()
+    const page = openPage(disk, createFakeBrowser(), { openTimeout: 5000 })
+    void page.setAccount("ada")
+    const release = disk.holdNextRead()
+    const opened = page.open({ version: "2" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The tab of version 1, which this one does not hear, clears the copies of `ada`.
+    await old.clear()
+    release()
+    await opened
+    await page.settled()
+    expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
+    expect(page.inspect()).toMatchObject({ account: "ada", persisted: true })
+    answer(page, "projects", ["ada"])
+    await page.settled()
+    expect(disk.keys).toEqual(["projects"])
   })
 
   it("keeps the shared disk under its size cap when several tabs write", async () => {
