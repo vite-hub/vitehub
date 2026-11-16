@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { createJiti } from "jiti"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 /** The `createEnv()` options that the codemod reads. */
@@ -41,9 +41,9 @@ export async function loadT3EnvOptions(cwd: string, file: string): Promise<T3Env
       loaded = await jiti.import(path)
     }
     catch (error) {
-      throw new CodemodError(`Cannot load ${file} to read its schemas: ${error instanceof Error ? error.message : String(error)}. Install the app dependencies, then run the codemod again.`)
+      throw codemodError(`Cannot load ${file} to read its schemas: ${error instanceof Error ? error.message : String(error)}. Install the app dependencies, then run the codemod again.`)
     }
-    if (!isRecord(loaded)) throw new CodemodError(`${file} exports no createEnv() result.`)
+    if (!isRecord(loaded)) throw codemodError(`${file} exports no createEnv() result.`)
     for (const [exportName, value] of Object.entries(loaded)) {
       if (!isRecord(value) || !isRecord(value[marker])) continue
       const options = value[marker]
@@ -56,7 +56,7 @@ export async function loadT3EnvOptions(cwd: string, file: string): Promise<T3Env
         otherOptions: Object.keys(options).filter(name => !["server", "client", "shared"].includes(name)),
       }
     }
-    throw new CodemodError(`${file} exports no createEnv() result. The codemod reads \`export const env = createEnv({ ... })\`.`)
+    throw codemodError(`${file} exports no createEnv() result. The codemod reads \`export const env = createEnv({ ... })\`.`)
   }
   finally {
     await rm(stubDirectory, { recursive: true, force: true })
