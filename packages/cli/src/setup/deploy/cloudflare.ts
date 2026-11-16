@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
@@ -10,12 +10,12 @@ import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostLi
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
-/** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/index.ts`). */
-const valueFlags = new Set(["--config", "--secrets-file"])
+/** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/plugins.ts`). */
+const valueFlags = new Set(["--config"])
 const plainFlags = new Set(["--containers-rollout=gradual"])
 
 interface WranglerCommand {
-  /** `--config` and `--secrets-file` with their values, and the rollout flag, in build order. */
+  /** `--config` with its value, and the rollout flag, in build order. */
   args: string[]
   config: string
   /** The D1 bindings whose migrations `database.migrateOnDeploy` applies before the deploy, in build order. */
@@ -24,7 +24,7 @@ interface WranglerCommand {
 
 /**
  * Reads `commands.deploy` from `<output>/nitro.json` and checks that it is the Wrangler deploy that the build writes:
- * `npx wrangler deploy --config <file> [--secrets-file <file>] [--containers-rollout=gradual]`. With
+ * `npx wrangler deploy --config <file> [--containers-rollout=gradual]`. With
  * `database.migrateOnDeploy`, `npx wrangler d1 migrations apply <binding> --remote --config <file> && ` comes before it
  * once for each D1 binding (`packages/database/src/internal/migrate-on-deploy.ts`).
  */
@@ -94,8 +94,13 @@ function claimExpiry(text: string): string | undefined {
   return match ? new Date(Date.now() + Number(match[1]) * durationUnits[match[2]!]!).toISOString() : undefined
 }
 
-// Wrangler 4.158: `wrangler deploy --help`, `wrangler secret put --help`, `wrangler secret list --help`, and the global
-// `--temporary` flag. Wrangler 4.157: `wrangler d1 migrations apply --help`. Recorded in test/fixtures/host-cli-help/.
+// Wrangler 4.158: `wrangler deploy --help`, `wrangler versions upload --help`, `wrangler secret put --help`,
+// `wrangler secret list --help`, and the global `--temporary` flag. Wrangler 4.157: `wrangler d1 migrations apply --help`.
+// Recorded in test/fixtures/host-cli-help/.
+//
+// `context.upload` goes to `--secrets-file` as JSON, so the values arrive with the new version: a `secret put` before
+// the deploy would roll the old code out with the new values, and a preview value would reach production. JSON, not
+// dotenv: Wrangler's dotenv mode expands `$VAR` and lets the process env override the file.
 export async function cloudflareAdapter(context: DeployContext): Promise<DeployAdapter> {
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
@@ -127,6 +132,12 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
         args.push(...target)
         if (context.temporary) args.push("--temporary")
         if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
+        if (context.upload && Object.keys(context.upload).length) {
+          // mkdtemp makes the folder 0700, and `finally` removes it with the file.
+          const secretsFile = join(folder, "secrets.json")
+          await writeFile(secretsFile, JSON.stringify(context.upload), { flag: "wx", mode: 0o600 })
+          args.push("--secrets-file", secretsFile)
+        }
         const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true })
         if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
         const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
