@@ -14,10 +14,7 @@ A sitemap tells search engines which pages your site has. Set `seo: { sitemap: t
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    publicUrl: 'https://shop.example.com',
-    seo: { sitemap: true },
-  },
+  vitehub: { publicUrl: 'https://shop.example.com', seo: { sitemap: true } },
 })
 ```
 :::
@@ -29,10 +26,18 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [
-    vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: true } }),
-    nitro(),
-  ],
+  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: true } })],
 })
 ```
 :::
@@ -52,7 +57,7 @@ The sitemap gets its pages from:
 | [Content](/docs/content/seo#sitemap-and-robotstxt) | Each published Content page with a URL, with its `lastmod`. When `authorize` blocks readers who are not signed in, Content pages are not listed. |
 | `server/sitemap.ts` | The pages that you return from `defineSitemap()`. |
 
-Paths that start with `/api/` or `/_`, and paths with a file extension, such as `/feed.xml`, are never listed.
+ViteHub never lists a Nuxt page or prerender route that starts with `/api/` or `/_`, or that has a file extension, such as `/feed.xml`. Content pages and `server/sitemap.ts` entries are listed as they are: you chose them.
 
 ## Add pages from your data
 
@@ -77,29 +82,53 @@ export default defineSitemap(async () => products.map(product => ({
 - `loc`: a path that starts with `/`, such as `/products/kettle`, or a full `https://` URL. ViteHub puts `publicUrl` and the app base before a path.
 - `lastmod` (optional): when the page last changed, as a `Date` or a date string.
 
-An entry without a valid `loc` or `lastmod` makes `/sitemap.xml` fail with [`SEO_SITEMAP_ENTRY_INVALID`](/docs/development/diagnostics/SEO_SITEMAP_ENTRY_INVALID).
+An entry without a valid `loc` or `lastmod` makes `/sitemap.xml` fail with `SEO_SITEMAP_ENTRY_INVALID`.
 
 ## Leave pages out
 
 `exclude` lists path prefixes to leave out of the sitemap. A prefix also leaves out the paths below it:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    publicUrl: 'https://shop.example.com',
-    seo: { sitemap: { exclude: ['/admin', '/account'] } },
-  },
+  vitehub: { publicUrl: 'https://shop.example.com', seo: { sitemap: { exclude: ['/admin', '/account'] } } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: { exclude: ['/admin', '/account'] } } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ publicUrl: 'https://shop.example.com', seo: { sitemap: { exclude: ['/admin', '/account'] } } })],
+})
+```
+:::
+::
 
 `/admin` and `/admin/orders` are left out. `/administrators` stays. `exclude` does not block crawlers: `/robots.txt` still allows every path.
 
 ## Rules and limits
 
-- A production build needs `publicUrl`, because a sitemap holds full URLs. Without it, the build fails with [`SEO_PUBLIC_URL_MISSING`](/docs/development/diagnostics/SEO_PUBLIC_URL_MISSING). `vite dev` uses the origin of each request.
+- A production build needs `publicUrl`, because a sitemap holds full URLs. Without it, the build fails with `SEO_PUBLIC_URL_MISSING`. `vite dev` uses the origin of each request.
 - With `seo.sitemap`, ViteHub serves `/sitemap.xml` and `/robots.txt` for the whole app, so Content does not add its own. The `robots.disallow` paths of `defineContent({ seo })` still go into `/robots.txt`. `defineContent({ seo: { sitemap: false } })` keeps Content pages out of the sitemap.
-- Your own `/sitemap.xml` server route fails the build with [`SEO_SITEMAP_ROUTE_EXISTS`](/docs/development/diagnostics/SEO_SITEMAP_ROUTE_EXISTS). Move its pages to `server/sitemap.ts`.
-- One sitemap file holds at most 50,000 URLs. Above that, `/sitemap.xml` fails with [`SEO_SITEMAP_TOO_LARGE`](/docs/development/diagnostics/SEO_SITEMAP_TOO_LARGE).
+- Your own `/sitemap.xml` server route fails the build with `SEO_SITEMAP_ROUTE_EXISTS`. Move its pages to `server/sitemap.ts`.
+- One sitemap file holds at most 50,000 URLs. Above that, `/sitemap.xml` fails with `SEO_SITEMAP_TOO_LARGE`.
 - With a Nuxt `app.baseURL` other than `/`, the sitemap is at `<baseURL>sitemap.xml` and ViteHub serves no `/robots.txt`: the app does not own the robots.txt of its host.
 - Pages that a prerender finds by following links are not listed. List them in `nitro.prerender.routes` or return them from `server/sitemap.ts`.

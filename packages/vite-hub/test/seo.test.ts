@@ -97,7 +97,7 @@ describe("/sitemap.xml", () => {
   })
 
   it("fails with SEO_SITEMAP_ENTRY_INVALID for an entry that is not a page", async () => {
-    for (const entry of [{ loc: "products/kettle" }, { loc: "//evil.example.com/" }, { loc: "/a", lastmod: "not a date" }]) {
+    for (const entry of [{ loc: "products/kettle" }, { loc: "//evil.example.com/" }, { loc: "https://" }, { loc: "https://not a host" }, { loc: "/a", lastmod: "not a date" }]) {
       const route = defineSitemapRoute({ site: "https://shop.example.com", base: "/", pages: [], exclude: [], app: async () => [entry] })
       await expect(route.fetch(new Request("https://shop.example.com/sitemap.xml"))).rejects.toMatchObject({ code: "SEO_SITEMAP_ENTRY_INVALID" })
     }

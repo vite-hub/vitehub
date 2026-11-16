@@ -45,11 +45,17 @@ function excluded(loc: string, site: string, exclude: readonly string[]): boolea
   return exclude.some(prefix => path === prefix || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`))
 }
 
+function isHttpUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false
+  const url = new URL(value)
+  return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== ""
+}
+
 function appEntry(entry: SitemapEntry, site: string): SitemapUrl {
   const loc: unknown = entry?.loc
   const lastmod: unknown = entry?.lastmod
   const date = lastmod instanceof Date ? lastmod : typeof lastmod === "string" ? new Date(lastmod) : undefined
-  const validLoc = typeof loc === "string" && (loc.startsWith("/") ? !loc.startsWith("//") : /^https?:\/\//i.test(loc))
+  const validLoc = typeof loc === "string" && (loc.startsWith("/") ? !loc.startsWith("//") : isHttpUrl(loc))
   if (!validLoc || (lastmod !== undefined && (!date || Number.isNaN(date.getTime())))) {
     throw viteHubErrorDiagnostics.SEO_SITEMAP_ENTRY_INVALID({ entry: JSON.stringify(entry) ?? String(entry) })
   }
