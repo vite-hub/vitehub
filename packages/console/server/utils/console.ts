@@ -13,6 +13,7 @@ import { allowPrivateVariable, parseProjectUrl } from "../../src/project-url.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../src/token-box.ts"
 
 import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
+import type { Diagnostic } from "nostics"
 import type { ConsoleProjectStore } from "../../src/projects.ts"
 
 export { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
@@ -21,6 +22,12 @@ const { member, organization, session } = authSqliteSchema
 
 export function consoleProblem(status: number, code: string, message: string): Response {
   return Response.json({ code, message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
+}
+
+/** A problem from the Console catalog (src/error-diagnostics.ts): the code, `why` as the message, `fix`, and `docs`. */
+export function consoleDiagnosticProblem(status: number, diagnostic: Diagnostic<unknown>): Response {
+  const { code, docs, fix, why } = diagnostic
+  return Response.json({ code, docs, fix, message: why, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
 }
 
 export function consoleJson(value: unknown, status = 200): Response {
