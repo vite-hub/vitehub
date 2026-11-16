@@ -65,9 +65,11 @@ const runtimeEntries = [
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
+  "src/_internal/runtime/redirects.ts",
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
+  "src/seo/runtime.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -639,6 +641,7 @@ export default defineConfig({
           delete exports["./cache/operations"];
           delete exports["./skills/operations"];
           delete exports["./durability/operations"];
+          delete exports["./seo/runtime"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];

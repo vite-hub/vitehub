@@ -37,6 +37,22 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The log cursor has expired. Refresh to read the retained events.",
       fix: "Read the logs again from the first page without a cursor. The log source no longer keeps the events that the cursor pointed to.",
     },
+    SEO_PUBLIC_URL_MISSING: {
+      why: ({ route }: { route: string }) => `The build prerenders \`${route}\`, which holds full URLs, but \`publicUrl\` is not set to one origin. A prerendered file has no request to take the origin from.`,
+      fix: "Set `publicUrl` in `vitehub()` to the origin of the deployed app, such as `publicUrl: \"https://example.com\"`, or remove the route from `nitro.prerender.routes` so each request gives the origin.",
+    },
+    SEO_SITEMAP_ENTRY_INVALID: {
+      why: ({ entry }: { entry: string }) => `\`server/sitemap.ts\` returned an entry that is not a page: ${entry}.`,
+      fix: "Return objects such as `{ loc: \"/blog/hello\", lastmod: \"2026-11-16\" }` from `defineSitemap()`. `loc` is a path that starts with `/` or an `http(s)` URL, and `lastmod` is a date or a date string.",
+    },
+    SEO_SITEMAP_ROUTE_EXISTS: {
+      why: "`seo.sitemap` serves `/sitemap.xml`, but the app has its own server route for `/sitemap.xml`.",
+      fix: "Delete the server route and return its pages from `defineSitemap()` in `server/sitemap.ts`, or remove `seo.sitemap` to keep your route.",
+    },
+    SEO_SITEMAP_TOO_LARGE: {
+      why: ({ count, limit }: { count: number, limit: number }) => `The sitemap has ${count} URLs, but one sitemap file holds at most ${limit}.`,
+      fix: "Leave pages out with `seo.sitemap.exclude`, or return fewer entries from `server/sitemap.ts`.",
+    },
     TASK_FAILED: {
       why: ({ detail, name }: { detail: string, name: string }) => `Task "${name}" failed: ${detail}`,
       fix: "Read the server log for the stack of the error, and fix the `run()` method of the file in `server/tasks/` that the message names.",
@@ -56,6 +72,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_AGENT_OPTION_MISSING: {
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
+    },
+    VITE_HUB_CACHE_TAG_INVALID: {
+      ...dynamicError,
+      fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
@@ -522,6 +542,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
+    },
+    VITE_HUB_REDIRECTS_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,
+      fix: "Set `redirects.host` to the host name only, without `https://`, a port, or a path, for example `redirects: { host: \"example.com\", https: true }`.",
+    },
+    VITE_HUB_REDIRECTS_PREVIEW_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `Each \`redirects.previewHosts\` entry must be a host name such as \`staging.example.com\` or \`*.example.com\`, but one is ${value}.`,
+      fix: "Write each preview host as a host name without `https://`, a port, or a path. Start it with `*.` to match every subdomain.",
+    },
+    VITE_HUB_REDIRECTS_TRAILING_SLASH_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
+      fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
     },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",

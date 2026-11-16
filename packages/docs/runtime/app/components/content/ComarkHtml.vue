@@ -9,10 +9,14 @@ const root = ref<HTMLElement>()
 
 // Scripts inserted by v-html are inert. Recreate them after mounting or replacing the HTML; the package runtimes
 // guard repeated starts, including when the server's scripts already ran before hydration.
+// Hydration sets `html` again, so these scripts never carry the nonce a CSP module added to the server's copies. They
+// take the page's: under a CSP the browser empties every nonce attribute and keeps the value only in the property.
 function runScripts() {
+  const nonce = document.querySelector<HTMLScriptElement>("script[nonce]")?.nonce
   for (const old of root.value?.querySelectorAll("script") ?? []) {
     const script = document.createElement("script")
     for (const { name, value } of old.attributes) script.setAttribute(name, value)
+    if (nonce) script.nonce = nonce
     script.textContent = old.textContent
     old.replaceWith(script)
   }

@@ -205,6 +205,32 @@ With the Process Runtime, the default `providerOutput: "auto"` emits no host Pro
 
 A custom long-running host can call `installProcessScheduleRuntime({ registry, scheduleRunStore, leases, prefix })` from `@vite-hub/schedule/runtime/process`. Pass the same shared `LeaseStore` and prefix to every process of one app. `prefix` defaults to `vitehub:schedule`; use the same prefix for the app's Schedule stores. Without `leases`, it uses `createMemoryLeaseStore()`, which is for one process only. Call and await `controller.close()` during shutdown. It waits for active runs and their `waitUntil()` work, then stops the timer. It does not delete Schedule Definitions or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown. See [graceful shutdown](../runtime/README.md).
 
+## Install an OS timer
+
+A CLI or a desktop tool has no server that stays on. `@vite-hub/schedule/os` installs the cron of a Schedule as a systemd timer on Linux, a launchd job on macOS, or a Task Scheduler task on Windows. The operating system then starts your command at each time.
+
+```ts
+// src/cli.ts
+import { defineSchedule } from "@vite-hub/schedule";
+import { installOsSchedule } from "@vite-hub/schedule/os";
+
+const photoSync = defineSchedule({
+  cron: "0 * * * *",
+  timeZone: "Europe/Madrid",
+  handler() {
+    console.log("Syncing photos");
+  },
+});
+
+const [error, unit] = await installOsSchedule("photo-sync", photoSync, {
+  command: [process.execPath, process.argv[1], "sync"],
+});
+if (error) throw error;
+console.log(unit.changed ? unit.files : "The timer is up to date.");
+```
+
+`command[0]` must be an absolute path. An install with the same input changes nothing. `unit.status()` and `unit.uninstall()` read and remove the timer. A cron or time zone that the OS cannot run exactly returns a typed error, such as `SCHEDULE_OS_TIME_ZONE_UNSUPPORTED`. Read [OS timers](https://vitehub.dev/docs/schedule/os-timers) for scopes, logs, catch-up, and time zones.
+
 ## Choose storage
 
 Schedule Runs record manual runs and Process Runtime runs. Provider cron output runs the handler without a run record.
@@ -236,7 +262,7 @@ The Console Schedules section lists Schedule Definitions with their cron, time z
 
 ## Import runtime helpers
 
-The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
+The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `installOsSchedule`, `osScheduleStatus`, and `uninstallOsSchedule` from `@vite-hub/schedule/os`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
 
 Static Schedule execution logs each failed handler as `[vitehub:schedule] Schedule "<name>" failed` with the message, stack, status, and cause chain. The other schedules on the same cron still finish. The run rejects with the error, or with an `AggregateError` when several failed.
 

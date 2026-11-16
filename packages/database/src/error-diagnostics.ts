@@ -8,6 +8,35 @@ function fileList(files: readonly string[]): string {
   return files.map(file => `\n  - ${file}`).join("")
 }
 
+interface AmbiguousChange {
+  entity: readonly string[]
+  kind: string
+}
+
+function changeName({ entity, kind }: AmbiguousChange): string {
+  return `${kind.replaceAll("_", " ")} ${entity.join(".")}`
+}
+
+interface AmbiguousChangeRetry {
+  command: string
+  hints: readonly unknown[]
+  hintsFile?: string
+}
+
+function changeAnswers(change: AmbiguousChange, { command, hints, hintsFile }: AmbiguousChangeRetry): string {
+  const id = change.entity
+  const answers = {
+    rename: { type: "rename", kind: change.kind, from: [...id.slice(0, -1), "<old_name>"], to: id },
+    create: { type: "create", kind: change.kind, entity: id },
+  }
+  const write = (answer: object) => hintsFile ? JSON.stringify(answer) : `${command} --hints '${JSON.stringify([...hints, answer])}'`
+  return [
+    `\n  ${changeName(change)}:`,
+    `\n    rename: ${write(answers.rename)}`,
+    `\n    create: ${write(answers.create)}`,
+  ].join("")
+}
+
 interface LayerOptionsProblem {
   database: string
   files: readonly string[]
@@ -129,6 +158,18 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_NAME_REQUIRED: {
       why: ({ choices }: { choices: readonly string[] }) => `\`useDatabase()\` without a name returns the default or only database, but the app has several and none is named "default": ${quoteList(choices)}.`,
       fix: ({ choices }: { choices: readonly string[] }) => `Pass the database name, for example \`useDatabase(${JSON.stringify(choices[0])})\`.`,
+    },
+
+    // Generate errors. `vitehub database generate` prints them and exits with code 2.
+    DATABASE_GENERATE_AMBIGUOUS_CHANGE: {
+      why: ({ changes, database }: { changes: readonly AmbiguousChange[], database: string }) => `The Definitions of the database "${database}" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, \`vitehub database generate\` cannot ask, so it wrote no migration.${changes.length ? `\nThe changes to answer:${fileList(changes.map(changeName))}` : " Drizzle Kit lists the changes above."}`,
+      fix: ({ changes, ...retry }: AmbiguousChangeRetry & { changes: readonly AmbiguousChange[] }) => [
+        "Answer each change with a hint and run the command again. A rename keeps the data. A create adds an empty column or table, and the migration drops the removed one with its data.",
+        changes.length
+          ? `Replace <old_name> with the removed name. ${retry.hintsFile ? `Add one answer per change to the array in ${retry.hintsFile}, then run ${retry.command} --hints-file ${retry.hintsFile}:` : "With several changes, put one answer per change in the same array:"}${changes.map(change => changeAnswers(change, retry)).join("")}`
+          : `Copy the answers that Drizzle Kit printed into ${retry.command} --hints '[...]'.`,
+        "In a terminal without CI or --non-interactive, the command asks instead.",
+      ].join("\n"),
     },
 
     // Migration errors. `vitehub database migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.

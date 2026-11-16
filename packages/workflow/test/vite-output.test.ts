@@ -713,6 +713,50 @@ it("keeps native Workflow and step IDs stable across staged builds", { timeout: 
   expect(second.server).toContain(durableWorkflowId)
 })
 
+it("gives a Schedule function the native Workflow IDs of the flow function on every build", { timeout: buildOutputTestTimeout * 3 }, async () => {
+  const rootDir = join(await createWorkspaceTempDir("vitehub-workflow-schedule-ids-"), "app")
+  await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+  await mkdir(join(rootDir, "src"), { recursive: true })
+  await linkNodeModules(resolvePlaygroundNodeModules(), join(rootDir, "node_modules"))
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "schedule-workflow-ids", private: true, type: "module" }))
+  await writeFile(join(rootDir, "vite.config.ts"), [
+    `import { defineConfig } from "vite"`,
+    `import { hubSchedule } from "@vite-hub/schedule/vite"`,
+    `import { hubWorkflow } from "@vite-hub/workflow/vite"`,
+    "",
+    `export default defineConfig({`,
+    `  appType: "custom",`,
+    `  build: { outDir: "dist/client", ssr: true, rolldownOptions: { input: "src/server.ts" } },`,
+    `  plugins: [hubWorkflow({ provider: "vercel" }), hubSchedule()],`,
+    `})`,
+    "",
+  ].join("\n"))
+  await writeFile(join(rootDir, "src", "server.ts"), `export default { fetch: () => new Response("ok") }\n`)
+  await writeFile(join(rootDir, "server", "workflows", "durable.ts"), `export async function greet(name: string) {\n  "use step"\n  return "hello " + name\n}\nexport async function durable(name: string) {\n  "use workflow"\n  return await greet(name)\n}\n`)
+  await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), `import { defineWorkflow } from "@vite-hub/workflow"\nimport { durable } from "./durable.ts"\n\nexport default defineWorkflow("welcome", async () => "inline", { native: durable })\n`)
+  await writeFile(join(rootDir, "src", "nightly.schedule.ts"), `import { defineSchedule } from "@vite-hub/schedule"\nimport { startWorkflow } from "@vite-hub/workflow"\n\nexport default defineSchedule({\n  cron: "0 3 * * *",\n  handler: async () => {\n    await startWorkflow("welcome", "Ava")\n  },\n})\n`)
+
+  const ids = (text: string) => [...new Set(text.match(/(?:workflow|step)\/\/\.\/[^"]+?\/\/(?:durable|greet)/g))].sort()
+  const build = async () => {
+    await execFileAsync(vp, ["build"], { cwd: rootDir, env: { ...process.env, VITEHUB_HOST: "vercel" } })
+    const functions = join(rootDir, ".vercel", "output", "functions")
+    const manifest = await readFile(join(functions, ".well-known", "workflow", "v1", "manifest.json"), "utf8")
+    const schedule = await readFile(join(functions, "api", "vitehub", "schedules", "vercel", "nightly.func", "index.mjs"), "utf8")
+    return { flowIds: ids(manifest), schedule, scheduleIds: ids(schedule) }
+  }
+
+  const first = await build()
+  const second = await build()
+  expect(first.flowIds).toHaveLength(2)
+  expect(second.flowIds).toEqual(first.flowIds)
+  const workflowId = first.flowIds.find(id => id.startsWith("workflow//"))
+  for (const { schedule, scheduleIds } of [first, second]) {
+    expect(scheduleIds).toContain(workflowId)
+    expect(first.flowIds).toEqual(expect.arrayContaining(scheduleIds))
+    expect(schedule).not.toContain("schedule-generations")
+  }
+})
+
 it("restores prior owned native output when Email installation fails", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-rollback-")
   const workflowDir = join(rootDir, "server", "workflows", "recap")

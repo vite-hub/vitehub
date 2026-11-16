@@ -5,7 +5,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 import { parseArgs, parseEnv } from "node:util"
 
-import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
+import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { basename, dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
@@ -400,7 +400,7 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
   const files = expandedFiles(raw, env)
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
-  const loaded = await withViteStageEnvironment(env, async () => withoutStderr(() => vite.loadEnv(stage, envDir, "")))
+  const loaded = await withViteStageEnvironment(env, async () => loadAllEnv(vite.loadEnv, stage, envDir))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
     if (value === "") continue
@@ -415,21 +415,6 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
     }
   }
   return values
-}
-
-/**
- * With `DEBUG=vite:env`, Vite logs every value that loadEnv resolves to stderr. loadEnv is synchronous, so this drops
- * only its own writes.
- */
-function withoutStderr<T>(load: () => T): T {
-  const write = process.stderr.write
-  process.stderr.write = () => true
-  try {
-    return load()
-  }
-  finally {
-    process.stderr.write = write
-  }
 }
 
 interface PlannedValue {
