@@ -525,3 +525,104 @@ describe("the read that says who is signed in", () => {
     expect(browser.disk.keys).toEqual(["session"])
   })
 })
+
+describe("the read that says who is signed in, against other changes", () => {
+  type Session = { user: { id: string } | null }
+  const accountOf = (session: Session) => session.user?.id ?? null
+
+  beforeEach(() => {
+    // The failed reset prints DEVICE_STORAGE_FAILED once.
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("does not name an account that answered while the device opened, when another tab named another account meanwhile", async () => {
+    await visit()
+    const page = await openPage()
+    const release = browser.disk.holdNextRead()
+    const opening = page.openDevice()
+    const session = deferredLoader<Session>()
+    mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    // Bob signs in, in another tab.
+    const other = await openPage()
+    await other.openDevice()
+    await other.setDeviceAccount("bob")
+    release()
+    await opening
+    await tick()
+    await tick()
+    expect(browser.disk.meta).toMatchObject({ account: "bob" })
+    expect(page.inspectDevice().account).not.toBe("ada")
+    // The read starts over, and the answer of the new call names Bob.
+    session.calls.at(-1)!.resolve({ user: { id: "bob" } })
+    await tick()
+    await tick()
+    expect(page.inspectDevice()).toMatchObject({ account: "bob", persisted: true })
+  })
+
+  it("does not store the session when the event of its naming names another account", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    let projectCalls = 0
+    mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    const shown = mount(() => page.useStoredData("projects", () => {
+      // The call that the naming of Ada starts names Bob at once.
+      if (++projectCalls === 2) void page.setDeviceAccount("bob")
+      return new Promise<string[]>(() => undefined)
+    }))
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    await tick()
+    expect(shown.read.status.value).toBe("pending")
+    expect(session.calls).toHaveLength(2)
+    expect(page.inspectDevice().account).toBe("bob")
+    expect(browser.disk.entry("session")).toBeUndefined()
+  })
+
+  it("drops an older session call when another session read answered that nobody is signed in", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    const first = deferredLoader<Session>()
+    const second = deferredLoader<Session>()
+    mount(() => page.useStoredData("session-a", first.loader, { account: accountOf }))
+    mount(() => page.useStoredData("session-b", second.loader, { account: accountOf }))
+    first.calls[0]!.resolve({ user: null })
+    await tick()
+    second.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    await tick()
+    expect(page.inspectDevice().account).toBeNull()
+    expect(second.calls).toHaveLength(2)
+    expect(browser.disk.keys).toEqual([])
+  })
+
+  it("brings the disk to the account again when its session answers after a failed reset", async () => {
+    const before = await openPage()
+    await before.openDevice()
+    await before.setDeviceAccount("bob")
+    for (const unmount of unmounts.splice(0)) unmount()
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    const read = mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    browser.disk.failing = true
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    await tick()
+    expect(browser.disk.meta).toMatchObject({ account: "bob" })
+    browser.disk.failing = false
+    const refreshing = read.read.refresh()
+    session.calls[1]!.resolve({ user: { id: "ada" } })
+    await refreshing
+    await tick()
+    await tick()
+    expect(browser.disk.meta).toMatchObject({ account: "ada" })
+    expect(page.inspectDevice().persisted).toBe(true)
+  })
+})

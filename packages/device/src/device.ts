@@ -63,6 +63,8 @@ export interface Device {
    * epoch changed since the call started (`since`). `null` names no account and stores nothing. Returns whether it applied.
    */
   claim: (key: string, value: unknown, maxAge: number, since: number, account: string | null) => boolean
+  /** Resolves when `open()` read the disk, or at once when the device is open or `open()` was never called. */
+  whenOpen: () => Promise<void>
   subscribe: (listener: (event: DeviceEvent) => void) => () => void
   /** Resolves when every change that the device started is on the disk or failed. */
   settled: () => Promise<void>
@@ -379,9 +381,10 @@ export function createDevice(options: DeviceOptions): Device {
     named = account
     // Another account or a sign-out after the page named one, or copies of another account on the screen: everything goes.
     if (previous !== undefined || [...entries.values()].some(entry => entry.account !== account)) return invalidate()
+    // Nobody is signed in: the loader calls that run belong to an old session, also when nothing is stored yet.
+    if (account === null) return invalidate()
     // The first account of the page, and the screen shows nothing of another account. The answers that came before stay
     // on the screen, and are never stored. Each read calls its loader again, so that its next answer can be stored.
-    if (account === null) return
     epoch++
     emit({ type: "named" })
   }
@@ -432,17 +435,18 @@ export function createDevice(options: DeviceOptions): Device {
   function claim(key: string, value: unknown, maxAge: number, since: number, account: string | null): boolean {
     checkAccount(account)
     if (!opening) warnOnce("open", deviceErrors.DEVICE_NOT_OPEN())
-    // Another account, a sign-out, or a clear came after the call started: the answer can belong to an old session.
-    if (since !== epoch) return false
-    // While the device opens, the copies of the disk decide what the naming changes, so the naming waits for them.
-    if (opening && !opened) {
-      void setAccount(account).then(([error]) => error && warnOnce("storage", error))
-      return false
-    }
-    if (account !== named) {
+    // Another account, a sign-out, or a clear came after the call started: the answer can belong to an old session. A
+    // read waits for `whenOpen()` before it claims, so the device is open here, or `open()` was never called.
+    if (since !== epoch || (opening && !opened)) return false
+    const naming = account !== named
+    if (naming) {
       name(account)
-      void enqueue(() => ensure(account, true, true)).then(([error]) => error && warnOnce("storage", error))
+      // The naming raised the epoch once. A change that its event started, such as a read that named another account at
+      // once, came after it and decides.
+      if (epoch !== since + 1 || named !== account) return false
     }
+    // The disk follows also for the same account, such as after a reset of the disk that failed.
+    void enqueue(() => ensure(account, naming, true)).then(([error]) => error && warnOnce("storage", error))
     if (typeof account === "string") store(key, value, maxAge, account)
     return true
   }
@@ -507,6 +511,9 @@ export function createDevice(options: DeviceOptions): Device {
     },
     write,
     claim,
+    whenOpen: async () => {
+      if (opening) await opening
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

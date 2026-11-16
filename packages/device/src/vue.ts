@@ -64,8 +64,11 @@ interface SharedRead {
 const week = 7 * 24 * 60 * 60 * 1000
 const reads = new Map<string, SharedRead>()
 let watching = false
-/** The read whose answer names the account right now. It keeps its answer, and does not start over. */
-let claiming: SharedRead | undefined
+/**
+ * The read whose answer names the account right now, and the epoch of the event of that naming. For that event only, it
+ * keeps its answer and does not start over. A later event, such as a naming that the event started, applies to it.
+ */
+let claiming: { read: SharedRead, epoch: number } | undefined
 /** The reads with `account` whose loader runs. */
 const identifying = new Set<SharedRead>()
 /** The reads that show a stored copy and wait for the naming before they call their loader. */
@@ -96,7 +99,7 @@ function watchDevice(device: Device): void {
       return
     }
     for (const read of reads.values()) {
-      if (read === claiming) continue
+      if (read === claiming?.read && device.epoch() === claiming.epoch) continue
       // Another account, a sign-out, or a clear: the read shows its default, also when its loader answered.
       if (event.type === "reset") {
         read.answered = false
@@ -141,14 +144,20 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     // A newer call, the release of the read, or a change of the epoch came first.
     if (controller.signal.aborted || device.epoch() !== since) return
     const account = read.account?.(value)
-    if (read.account) checkAccount(account)
+    if (read.account) {
+      checkAccount(account)
+      // The naming waits for the copies of the disk. A change of the epoch meanwhile, such as a message of another tab
+      // or a naming of this page, decides instead, and the read starts over.
+      await device.whenOpen()
+      if (controller.signal.aborted || device.epoch() !== since) return
+    }
     read.answered = true
     read.data.value = value
     read.storedAt.value = undefined
     read.error.value = undefined
     read.status.value = "success"
     if (account === undefined) return device.write(read.key, value, read.maxAge, since)
-    claiming = read
+    claiming = { read, epoch: since + 1 }
     try {
       device.claim(read.key, value, read.maxAge, since, account)
     }
