@@ -289,9 +289,9 @@ function release(read: SharedRead, device: Device, owner: object): void {
  * Nuxt `useAsyncData()`. Reads of the same key share one state and one loader call.
  *
  * The first render shows the stored copy when `openDevice()` finished before the app mounted. On the server, it reads no
- * storage and calls no loader: `data` is the default and `status` is `idle`. In a component that renders before
- * `openDevice()`, such as during hydration, the first render is the same as on the server, and the loader starts when
- * the component mounts.
+ * storage and calls no loader: `data` is the default and `status` is `idle`. In a component that hydrates server HTML,
+ * the first render is the same as on the server, also when the device is open. The stored copy shows and the loader
+ * starts when the component mounts.
  *
  * ```vue
  * <script setup lang="ts">
@@ -388,13 +388,18 @@ function useRead<TData, TDefault>(
     }
   }
   watchDevice(device)
-  // Before `openDevice()`, the first render must match a server render: the default, and `idle`.
-  const deferred = !device.opened() && getCurrentInstance() !== null
+  // A component that hydrates server HTML renders what the server rendered until it mounts: the default, and `idle`.
+  // The shared read can show more already, such as a stored copy when the device opened before the app mounted, or the
+  // answer of a component of the same key that hydrated first. Vue sets the element of a component before its setup
+  // only when it hydrates that element.
+  const hydrating = shallowRef(Boolean(getCurrentInstance()?.vnode.el))
+  const rendered = hydrating.value ? fallback() : undefined
   // The user of the reads of this call, so the loader of this call leaves a read when the call leaves it.
   const owner = {}
-  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, owner, !deferred))
-  if (deferred) {
+  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, owner, !hydrating.value))
+  if (hydrating.value) {
     onMounted(() => {
+      hydrating.value = false
       if (current.value.status.value === "idle") void load(current.value, loader, device)
     })
   }
@@ -408,10 +413,10 @@ function useRead<TData, TDefault>(
   if (getCurrentScope()) onScopeDispose(() => release(current.value, device, owner))
   return {
     // SAFETY: the shared read of a key holds the default, a stored copy, or an answer of the loader of that key.
-    data: computed({ get: () => current.value.data.value as TData | TDefault, set: (value) => { current.value.data.value = value } }),
-    status: computed(() => current.value.status.value),
-    error: computed(() => current.value.error.value),
-    storedAt: computed(() => current.value.storedAt.value),
+    data: computed({ get: () => (hydrating.value ? rendered : current.value.data.value) as TData | TDefault, set: (value) => { current.value.data.value = value } }),
+    status: computed(() => hydrating.value ? "idle" : current.value.status.value),
+    error: computed(() => hydrating.value ? undefined : current.value.error.value),
+    storedAt: computed(() => hydrating.value ? undefined : current.value.storedAt.value),
     refresh: () => load(current.value, loader, device),
   }
 }

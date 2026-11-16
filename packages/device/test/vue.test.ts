@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
-import { createApp, createSSRApp, defineComponent, h, ref, watch } from "vue"
+import { createApp, createSSRApp, defineAsyncComponent, defineComponent, h, ref, watch } from "vue"
+import { renderToString } from "vue/server-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeBrowser, createFakeDisk } from "./support.ts"
 
+import type { Component } from "vue"
 import type { FakeDisk } from "./support.ts"
 import type { StoredDataContext, UseStoredDataReturn } from "../src/vue.ts"
 
@@ -162,15 +164,13 @@ describe("useStoredData", () => {
     expect(again.root.textContent).toBe("\"Docs\" pending stored")
   })
 
-  it("renders like the server before openDevice(), starts the loader on mount, and shows a copy that loads later", async () => {
+  it("starts the loader before openDevice(), and shows a copy that loads later", async () => {
     await visit()
     const page = await openPage()
     const { calls, loader } = deferredLoader<string[]>()
     const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
-    expect(root.textContent).toBe("[] idle")
-    expect(calls).toHaveLength(1)
-    await tick()
     expect(root.textContent).toBe("[] pending")
+    expect(calls).toHaveLength(1)
     await page.openDevice()
     await tick()
     expect(root.textContent).toBe("[\"p1\"] pending stored")
@@ -179,28 +179,6 @@ describe("useStoredData", () => {
     expect(root.textContent).toBe("[\"p1\",\"p2\"] success")
   })
 
-  it("hydrates server HTML without a mismatch when the app opens the device after it mounts", async () => {
-    await visit()
-    const page = await openPage()
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    const { calls, loader } = deferredLoader<string[]>()
-    const root = document.createElement("div")
-    // What the server rendered: the default, and `idle`.
-    root.innerHTML = "<p>[] idle</p>"
-    const app = createSSRApp(defineComponent({
-      setup() {
-        const projects = page.useStoredData("projects", loader, { default: () => [] })
-        return () => h("p", `${JSON.stringify(projects.data.value)} ${projects.status.value}${projects.storedAt.value ? " stored" : ""}`)
-      },
-    }))
-    app.mount(root)
-    unmounts.push(() => app.unmount())
-    await page.openDevice()
-    await tick()
-    expect(warn.mock.calls.filter(([message]) => String(message).includes("Hydration"))).toEqual([])
-    expect(root.textContent).toBe("[\"p1\"] pending stored")
-    expect(calls).toHaveLength(1)
-  })
 
   it("lists the stored copies in inspectDevice()", async () => {
     await visit(["p1", "p2"])
@@ -416,6 +394,104 @@ describe("useStoredData", () => {
     expect(() => page.useStoredData("", async () => 1)).toThrow(expect.objectContaining({ code: "DEVICE_INVALID_KEY" }))
     expect(() => page.useStoredData("projects", async () => 1, { maxAge: -1 })).toThrow(expect.objectContaining({ code: "DEVICE_INVALID_MAX_AGE" }))
     expect(() => page.setDeviceAccount("")).toThrow(expect.objectContaining({ code: "DEVICE_INVALID_ACCOUNT" }))
+  })
+})
+
+describe("hydration", () => {
+  type ListLoader = (context: StoredDataContext) => Promise<string[]>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** A component that renders the projects of the page. */
+  function list(page: Page, loader: ListLoader): Component {
+    return defineComponent({
+      setup() {
+        const projects = page.useStoredData("projects", loader, { default: () => [] })
+        return () => h("p", `${JSON.stringify(projects.data.value)} ${projects.status.value}${projects.storedAt.value ? " stored" : ""}`)
+      },
+    })
+  }
+
+  /** Renders the app as a server does: in a page without a document. */
+  async function serverRender(app: (page: Page) => Component): Promise<string> {
+    vi.stubGlobal("document", undefined)
+    try {
+      const page = await openPage()
+      return await renderToString(createSSRApp(app(page)))
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  /** Hydrates the server HTML in the browser, and returns the root and the hydration mismatches that Vue logged. */
+  function hydrate(html: string, component: Component) {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const root = document.createElement("div")
+    root.innerHTML = html
+    const app = createSSRApp(component)
+    app.mount(root)
+    unmounts.push(() => app.unmount())
+    const mismatches = () => [...warn.mock.calls, ...error.mock.calls].map(([message]) => String(message)).filter(message => message.includes("Hydration"))
+    return { root, mismatches }
+  }
+
+  it("renders the server HTML first when the device opened before the app hydrates, then shows the stored copy", async () => {
+    await visit()
+    const html = await serverRender(page => list(page, async () => ["p1"]))
+    expect(html).toBe("<p>[] idle</p>")
+    const page = await openPage()
+    await page.openDevice()
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root, mismatches } = hydrate(html, list(page, loader))
+    expect(root.innerHTML).toBe(html)
+    await tick()
+    expect(mismatches()).toEqual([])
+    expect(root.textContent).toBe("[\"p1\"] pending stored")
+    expect(calls).toHaveLength(1)
+    calls[0]!.resolve(["p1", "p2"])
+    await tick()
+    expect(root.textContent).toBe("[\"p1\",\"p2\"] success")
+  })
+
+  it("renders the server HTML first when the app opens the device after it mounts", async () => {
+    await visit()
+    const html = await serverRender(page => list(page, async () => ["p1"]))
+    const page = await openPage()
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root, mismatches } = hydrate(html, list(page, loader))
+    expect(root.innerHTML).toBe(html)
+    await page.openDevice()
+    await tick()
+    expect(mismatches()).toEqual([])
+    expect(root.textContent).toBe("[\"p1\"] pending stored")
+    expect(calls).toHaveLength(1)
+  })
+
+  it("renders the server HTML first in a component that hydrates after the read of its key answered", async () => {
+    await visit()
+    let loaded = () => undefined as void
+    const ready = new Promise<void>(resolve => loaded = resolve)
+    const app = (page: Page, loader: ListLoader, late: Promise<void>) => defineComponent({
+      setup: () => () => h("div", [h(list(page, loader)), h(defineAsyncComponent(() => late.then(() => list(page, loader))))]),
+    })
+    const html = await serverRender(page => app(page, async () => ["p1"], Promise.resolve()))
+    expect(html).toBe("<div><p>[] idle</p><p>[] idle</p></div>")
+    const page = await openPage()
+    await page.openDevice()
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root, mismatches } = hydrate(html, app(page, loader, ready))
+    calls[0]!.resolve(["p1", "p2"])
+    await tick()
+    expect(root.innerHTML).toBe("<div><p>[\"p1\",\"p2\"] success</p><p>[] idle</p></div>")
+    loaded()
+    await tick()
+    expect(mismatches()).toEqual([])
+    expect(root.innerHTML).toBe("<div><p>[\"p1\",\"p2\"] success</p><p>[\"p1\",\"p2\"] success</p></div>")
+    expect(calls).toHaveLength(1)
   })
 })
 

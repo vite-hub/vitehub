@@ -25,7 +25,7 @@ The device reads the stored answers into memory, so a render can show them.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
-The ViteHub module opens the device for you when `@vite-hub/device` is installed. On a page that the server rendered, it opens the device after hydration, so the first render in the browser matches the server HTML. With `ssr: false`, it opens the device before the app mounts.
+The ViteHub module opens the device for you when `@vite-hub/device` is installed. On a page that the server rendered, it opens the device after hydration, so hydration does not wait for it. With `ssr: false`, it opens the device before the app mounts.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -48,6 +48,8 @@ import App from './App.vue'
 await openDevice({ version: '1' })
 createApp(App).mount('#app')
 ```
+
+With server rendering, also await `openDevice()` before `app.mount()`. A component that hydrates server HTML renders what the server rendered first, then shows the stored answers when it mounts.
 ::::
 
 ::::tabs-item{label="Vite"}
@@ -61,6 +63,8 @@ import App from './App.vue'
 await openDevice({ version: '1' })
 createApp(App).mount('#app')
 ```
+
+With server rendering, also await `openDevice()` before `app.mount()`. A component that hydrates server HTML renders what the server rendered first, then shows the stored answers when it mounts.
 ::::
 :::
 
