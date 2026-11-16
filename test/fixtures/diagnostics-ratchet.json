@@ -132,14 +132,7 @@
     "packages/workflow/src/vite.ts": 1
   },
   "codesWithoutFix": [
-    "AGENT_B0002",
-    "AGENT_B0005",
-    "AGENT_B0006",
-    "AGENT_B0016",
     "AGENT_B0017",
-    "AGENT_B0022",
-    "AGENT_B0023",
-    "AGENT_B0024",
     "AGENT_R0870",
     "AGENT_R0871",
     "AGENT_R0872",

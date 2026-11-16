@@ -10,10 +10,10 @@ import {
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
 import { messagesSinceResolved } from "../internal/comment-status.ts";
-import { timeAgo } from "../internal/format.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
+import { useRelativeTime } from "../internal/relative-time.ts";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
@@ -220,8 +220,11 @@ export const CommentReply = defineComponent({
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
     }
 
+    const relativeTime = useRelativeTime();
+
     return () => {
       const { message } = props;
+      const time = relativeTime(message.createdAt);
       return h(
         "div",
         {
@@ -235,11 +238,7 @@ export const CommentReply = defineComponent({
             h("div", { "data-slot": "comment-reply-header" }, [
               h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(message)], size: "sm" }),
               h("span", { "data-agent": message.actor ? "true" : undefined, "data-slot": "comment-reply-author" }, writerName(message)),
-              h(
-                "time",
-                { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: new Date(message.createdAt).toLocaleString() },
-                timeAgo(message.createdAt),
-              ),
+              h("time", { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: time.title }, time.text),
               message.editedAt ? h("span", { "data-slot": "comment-reply-edited" }, "edited") : null,
             ]),
             editing.value
