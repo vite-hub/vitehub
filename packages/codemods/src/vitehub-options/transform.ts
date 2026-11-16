@@ -126,7 +126,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
-  if (!code.includes("vite-hub") && !code.includes("hubEnv")) return unchanged
+  if (!/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
   let program: File
   try {
     program = parseProgram(code)
@@ -153,6 +153,18 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     removed.add(node)
     changed = true
   }
+  /** Renames the `from` key of a vite-hub options object to `to`, and keeps its value. */
+  const renameKey = (options: ObjectExpression, from: string, to: string, conflict: string) => {
+    const item = property(options, from)
+    if (!item) return
+    if (property(options, to)) {
+      follow(item, conflict)
+      return
+    }
+    if (item.shorthand) editor.output.overwrite(start(item), end(item), `${to}: ${from}`)
+    else editor.output.overwrite(start(item.key), end(item.key), to)
+    changed = true
+  }
 
   for (const root of roots) {
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
@@ -177,6 +189,21 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   }
 
   for (const options of optionObjects) {
+    renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
+    const sandbox = property(options, "sandbox")
+    const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
+    if (sandbox && sandboxValue?.type === "BooleanLiteral") {
+      if (!sandboxValue.value) remove(sandbox)
+      else renameKey(options, "sandbox", "sandboxTask", "Both sandbox and sandboxTask are set. Remove sandbox.")
+    }
+    else if (sandbox) follow(sandbox, "sandbox is now sandboxTask. Move these options into sandboxTask by hand.")
+    const devtools = property(options, "devtools")
+    if (devtools) {
+      remove(devtools)
+      notes.push(`${file}: removed devtools. Use the ViteHub Console with console: true.`)
+    }
+    const cloudflare = property(options, "cloudflare")
+    if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)
