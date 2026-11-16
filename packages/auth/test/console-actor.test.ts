@@ -57,6 +57,18 @@ describe("Auth changes for a signed Console person", () => {
     expect(error).toMatchObject({ message: expect.stringContaining("Sign in to the app as operator@example.com") });
   });
 
+  it("does not renew the actor's session, whose cookie the caller never gets", async () => {
+    const fixture = await app();
+    // A session that Better Auth renews on its next read: issued two days ago, past `updateAge`.
+    const expiresAt = Date.now() + 5 * 24 * 60 * 60 * 1000;
+    fixture.database.sqlite.prepare("UPDATE session SET expiresAt = ? WHERE userId = ?").run(expiresAt, fixture.operator.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" } });
+    const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
+    expect(error).toBeUndefined();
+    const row = fixture.database.sqlite.prepare("SELECT expiresAt FROM session WHERE userId = ?").get(fixture.operator.id) as { expiresAt: number | string };
+    expect(new Date(row.expiresAt).getTime()).toBe(expiresAt);
+  });
+
   it("keeps Better Auth's permissions: a person whose app account is not an admin cannot ban", async () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "ada@example.com" } });
