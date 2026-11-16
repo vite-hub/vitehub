@@ -193,7 +193,7 @@ describe("Agent Invocation enforcement", () => {
     const run = vi.fn(() => "Must not start")
     const channel = channelAdapter("mailbox", {
       history: {
-        collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+        collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,
       },
       triggers: {
@@ -273,7 +273,7 @@ describe("Agent Invocation enforcement", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       const retry = runAgentWorkflowDefinition(agent, attempt, runAgentInline)
-      const settled = expect(retry).rejects.toThrow("Could not persist the Invocation running state.")
+      const settled = expect(retry).rejects.toMatchObject({ code: "AGENT_INVOCATION_DRIVER_INTERRUPTED", isRetryable: false })
       await vi.advanceTimersByTimeAsync(31_000)
       await settled
     }

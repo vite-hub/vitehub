@@ -1503,10 +1503,12 @@ describe("vitehub", () => {
     await callHook(plugin.config, [config, { command: "build", mode: "production" }])
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
     if (preset === "cloudflare") {
-      expect(config.nitro).toMatchObject({ wasm: { lazy: true } })
+      // workerd refuses to start a Worker whose entry exports a shared value, such as a number.
+      expect(config.nitro).toMatchObject({ wasm: { lazy: true }, rollupConfig: { preserveEntrySignatures: "strict" } })
     }
     else {
       expect(config.nitro).not.toHaveProperty("wasm")
+      expect(config.nitro).not.toHaveProperty("rollupConfig.preserveEntrySignatures")
     }
     if (preset === "deno") {
       expect(config.nitro).toMatchObject({
@@ -1604,7 +1606,7 @@ describe("vitehub", () => {
 
   it("rejects a cache store that the host cannot provide", async () => {
     await expect(applyDeploymentConfig({ cache: true, host: "netlify" })).rejects.toThrow("`cache: true` has no default store for the netlify host.")
-    await expect(applyDeploymentConfig({ cache: { driver: "fs-lite" }, host: "cloudflare" })).rejects.toThrow("`cache.driver: \"fs-lite\"` requires the node host, but the host is cloudflare.")
+    await expect(applyDeploymentConfig({ cache: { driver: "fs-lite" }, host: "cloudflare" })).rejects.toThrow("`cache.driver: \"fs-lite\"` needs the node host, but the host is cloudflare.")
   })
 
   it("preserves an explicit Cloudflare WASM loading mode", async () => {

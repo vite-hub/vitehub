@@ -260,6 +260,14 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-api-keys.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-env.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-settings.vue",
           to: "dist/console/runtime/components",
         },
@@ -313,6 +321,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-search-palette.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-icon.vue",
           to: "dist/console/runtime/components",
         },
         {

@@ -1,4 +1,5 @@
 import { existsSync, realpathSync } from "node:fs"
+import { invariant } from "../invariant.ts"
 import { fileURLToPath } from "node:url"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -45,7 +46,7 @@ function findPackageDir(file: string): string {
   let dir = start
   while (!existsSync(resolve(dir, "package.json"))) {
     const parent = dirname(dir)
-    if (parent === dir) throw new Error(`[vitehub] No package.json above ${file}.`)
+    invariant(parent !== dir, `a file that a package resolver found has a package.json above it (${file})`)
     dir = parent
   }
   packageDirs.set(start, dir)

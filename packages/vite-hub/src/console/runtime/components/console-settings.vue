@@ -58,19 +58,19 @@ function follow(event: MouseEvent, id: string): void {
 
 .vitehub-settings__menu-item {
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.875rem;
   padding: 0.375rem 0.625rem;
 }
 
 .vitehub-settings__menu-item:hover {
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-highlighted);
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .vitehub-settings__menu-item[aria-current="page"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-settings__cards {

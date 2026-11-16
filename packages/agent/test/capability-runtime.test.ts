@@ -152,6 +152,45 @@ describe("agent capability runtime", () => {
     } finally { await result.close() }
   })
 
+  it("drops the Skill Sources of the GitHub source that a PR checkout replaces", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { withSourceSkills } = await import("../src/internal/source-skills.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-source-skills-${crypto.randomUUID()}`
+    const files = (ref: string, content: string, keys: string[]) => ({
+      name: "github",
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref } },
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => keys,
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => keys.map(key => ({ key, content })),
+      getMeta: async () => ({}),
+    })
+    const source = (ref: string, content: string, materialize: "lazy" | "none") => ({
+      ...github({ repo: "example/portal", ref, materialize }),
+      ...files(ref, content, ["version.txt", ".agents/skills/deploy/SKILL.md"]),
+      prepare: undefined,
+      subset: () => files(ref, content, [".agents/skills/deploy/SKILL.md"]),
+    })
+    // A Source with `materialize: "none"` gets Skill Sources mounted inside it, such as `portal/.agents/skills`.
+    const sources = withSourceSkills({ portal: source("main", "support", "none") })
+    expect(Object.keys(sources).filter(key => key !== "portal").length).toBeGreaterThan(0)
+    const definition = defineWorkspace({ store: { provider: "memory" }, sources })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request", "lazy"), mount: { path: "portal" } } } },
+    })
+    const result = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })
+    try {
+      expect(Object.keys(result.workspaceDefinition?.sources ?? {})).toEqual(["vitehubGitHubPullRequest"])
+      await expect(result.workspace!.fs.readFile("portal/.agents/skills/deploy/SKILL.md")).resolves.toBe("pull request")
+    } finally { await result.close() }
+  })
+
   it("does not overlay a GitHub source with a narrower declared scope", async () => {
     const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
     const { github } = await import("@vite-hub/workspace")

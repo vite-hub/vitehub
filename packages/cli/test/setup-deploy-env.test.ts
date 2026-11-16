@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
-import { dirname } from "node:path"
+import { rm, writeFile } from "node:fs/promises"
+import { constants } from "node:os"
+import { dirname, join } from "node:path"
+import process from "node:process"
 
 import { describe, expect, it } from "vitest"
 
-import { buildOutput, builtProject, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
+import { buildOutput, builtProject, cliProcess, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { runSetup } from "./setup-helpers.ts"
 
 import type { SetupDeployOutput, SetupError, SetupMissing } from "../src/setup/index.ts"
@@ -137,6 +139,41 @@ describe("vitehub deploy checks Server Env", () => {
     expect(result.stderr).toContain("Setting API_KEY on cloudflare with the new version from .env.production.")
   })
 
+  it.skipIf(process.platform === "win32").each(["SIGINT", "SIGTERM"] as const)("removes the secrets file and stops Wrangler when %s interrupts the deploy", async (signal) => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env.production": `API_KEY=${canary}\n` } })
+    const hosts = await fakeHosts({ ...hostEnv.cloudflare, FAKE_HOST_HANG: "wrangler deploy" })
+    const cli = cliProcess(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env)
+    let call: Awaited<ReturnType<typeof hosts.calls>>[number] | undefined
+    let ended: Awaited<typeof cli.exited> | undefined
+    void cli.exited.then(result => { ended = result })
+    for (let tries = 0; !call && !ended && tries < 100; tries++) {
+      call = (await hosts.calls()).find(item => item.argv[0] === "deploy")
+      if (!call) await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    try {
+      expect(call?.secretsFile, JSON.stringify(ended)).toMatchObject({ mode: 0o600, values: { API_KEY: canary } })
+      process.kill(cli.pid, signal)
+      const exited = await cli.exited
+
+      expect(exited.code, exited.stderr).toBe(128 + constants.signals[signal])
+      expect(existsSync(call!.secretsFile!.path)).toBe(false)
+      expect(existsSync(dirname(call!.secretsFile!.path))).toBe(false)
+      // Wrangler was stopped before the cleanup, so it cannot read the file later.
+      expect(() => process.kill(call!.pid, 0)).toThrow()
+      expectNoLeak(await hosts.calls(), exited.stdout + exited.stderr, [canary])
+    }
+    finally {
+      // A failed run must not leave the CLI or the fake Wrangler running.
+      for (const pid of [cli.pid, call?.pid]) {
+        try {
+          if (pid) process.kill(pid, "SIGKILL")
+        }
+        catch {}
+      }
+      if (call?.secretsFile) await rm(dirname(call.secretsFile.path), { force: true, recursive: true })
+    }
+  })
+
   it("uploads the preview stage with `wrangler versions upload` and leaves production values alone", async () => {
     const root = await project("cloudflare", [apiKey], { files: { ".env.production": `API_KEY=${canary}\n`, ".env.preview": `API_KEY=${previewCanary}\n` } })
     const hosts = await fakeHosts(hostEnv.cloudflare)
@@ -193,6 +230,67 @@ describe("vitehub deploy checks Server Env", () => {
     expect(result.json.error?.code).toBe("SETUP_ENV_FILE_TRACKED")
     expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["env", "ls"]])
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
+  })
+
+  it("decrypts a tracked dotenvx value before the upload, and fails before any host write without the key", async () => {
+    // `dotenvx encrypt -f .env.production` (dotenvx 2.38.2) wrote these lines and the key below. The key is for tests only.
+    const encrypted = `DOTENV_PUBLIC_KEY_PRODUCTION="03c7b1a9970356dfd0c1fa6d34b3d05c06e26f636fc6f6855bce6144c44f06f55e"
+VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jguUWOaFZottMvcB7tajL79HiGXWwwgSxVino5Hdjy3hfeOT20gycBhZwSFlTHKdeeELYQl69v3rx1lLBfjyjn/hirIORxpH+olOqg=
+`
+    const privateKey = "bdef9133803342d7416abc3655c313601e331f26f375fdbe9662e942af23a50d"
+    const plaintext = "canary-7f3a9c1e5b2d"
+    const root = await project("cloudflare", [appSecret], { deployCommand: migratingDeploy, files: { ".env.production": encrypted } })
+    execFileSync("git", ["init", "-q"], { cwd: root })
+    execFileSync("git", ["add", "-f", ".env.production"], { cwd: root })
+
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const missingKey = await deploy([], root, hosts.env)
+    expect(missingKey.exitCode).toBe(2)
+    expect(missingKey.json.error?.code).toBe("SETUP_ENV_PRIVATE_KEY_MISSING")
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+    expect(await hosts.state()).toMatchObject({ deploys: 0, secrets: {} })
+
+    const result = await deploy([], root, { ...hosts.env, DOTENV_PRIVATE_KEY_PRODUCTION: privateKey })
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.env?.pushed).toEqual(["VITEHUB_SECRET"])
+    expect(result.stderr).toContain("Setting VITEHUB_SECRET on cloudflare with the new version from .env.production, decrypted.")
+    expect(await hosts.state()).toMatchObject({ uploadedSecrets: { VITEHUB_SECRET: plaintext } })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [plaintext, privateKey])
+  })
+
+  it.each(["$BASE", "${BASE.KEY}", "${DOLLAR}BASE"])("refuses %s from a tracked file, or an unignored file, before any host write", async (reference) => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env": `BASE=${canary}\nBASE.KEY=${canary}\n`, ".env.production": `DOLLAR=$\nAPI_KEY=${reference}\n` } })
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+    git("init", "-q")
+    git("add", "-f", ".env")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const expanded = await deploy([], root, hosts.env)
+    expect(expanded.exitCode).toBe(3)
+    expect(expanded.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED", fix: expect.stringContaining("git rm --cached .env") })
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+
+    git("rm", "-q", "--cached", ".env")
+    await writeFile(join(root, ".gitignore"), ".output\n.vitehub\n")
+    const unignored = await deploy([], root, hosts.env)
+    expect(unignored.exitCode).toBe(3)
+    expect(unignored.json.error?.code).toBe("SETUP_ENV_FILE_NOT_IGNORED")
+    expect(await hosts.state()).toMatchObject({ deploys: 0 })
+    expectNoLeak(await hosts.calls(), expanded.stdout + expanded.stderr + unignored.stdout + unignored.stderr, [canary])
+  })
+
+  it("uploads the values of the envDir that the build recorded", async () => {
+    const root = await project("cloudflare", [apiKey], {
+      files: {
+        ".env.production": "API_KEY=from-the-root\n",
+        "config/.env.production": `API_KEY=${canary}\n`,
+        ".output/deployment.json": JSON.stringify({ env: [apiKey], envDir: "../config", host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+      },
+    })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await deploy([], root, hosts.env)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).find(call => call.argv[0] === "deploy")?.secretsFile?.values).toEqual({ API_KEY: canary })
+    expect(result.stderr).toContain("Setting API_KEY on cloudflare with the new version from config/.env.production.")
   })
 
   it("generates a missing VITEHUB_SECRET with --yes, uploads it, and prints only that it was set", async () => {

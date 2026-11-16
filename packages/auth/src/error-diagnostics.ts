@@ -11,6 +11,23 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Event and password errors. The event store, the events route, and the password verifier throw them.
+    AUTH_EVENT_QUERY_INVALID: {
+      why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
+        ? "Auth event from must be before to."
+        : "Auth event windows must be positive and at most 366 days.",
+      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long.",
+    },
+    AUTH_EVENT_RETENTION_INVALID: {
+      why: "Auth event retention limits must be positive integers.",
+      fix: "Pass `retention: { maxAgeMs, maxRecords }` to `createDatabaseAuthEventStore()` with positive whole numbers, or `retention: false` to keep every event.",
+    },
+    AUTH_PASSWORD_HASH_INVALID: {
+      why: "Invalid password hash",
+      fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+
+    // Published numbered errors.
     AUTH_R0001: withFix("Return an Agent Invoker from the `map` callback of `authenticated()` for each request. Remove `map` to use the default Invoker."),
     AUTH_R0002: withFix("Make `meta` of `authenticated()` return a plain object, `null`, or `undefined`, for example `meta: ({ user }) => ({ plan: user.plan })`."),
     AUTH_C0001: withFix("Write the value as a string literal in `defineAuth()`, for example `basePath: '/auth'`. The Vite plugin reads it at build time, so it cannot use a variable or an expression."),

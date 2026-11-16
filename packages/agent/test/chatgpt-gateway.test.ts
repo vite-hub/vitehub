@@ -70,6 +70,6 @@ it("preserves the quota diagnostic in an HTTP 429 response", async () => {
 })
 
 it("keeps Channel task diagnostics separate from ChatGPT readiness", () => {
-  expect(agentDiagnostics.AGENT_R1025({ message: "No trigger declares this task." }).message).toBe("No trigger declares this task.")
+  expect(agentDiagnostics.AGENT_CHANNEL_TASK_UNDECLARED({ channel: "airtable", task: "sync" }).message).toBe('[vitehub] No trigger of Channel "airtable" declares task "sync".')
   expect(agentDiagnostics.AGENT_R1026().message).toContain("cannot find Codex")
 })

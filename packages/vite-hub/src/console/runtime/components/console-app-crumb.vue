@@ -24,7 +24,7 @@ const overview = computed(() => ({ name: resolveConsoleRouteName(route.name, "vi
 .vitehub-app-crumb {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: none;
   flex-shrink: 0;
   font-size: 0.875rem;
@@ -34,7 +34,7 @@ const overview = computed(() => ({ name: resolveConsoleRouteName(route.name, "vi
 }
 
 .vitehub-app-crumb:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 @media (min-width: 40rem) {
