@@ -70,6 +70,8 @@ export {
   toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
+  type ErrorCodes,
+  type ErrorHandle,
   type Result,
   type ResultError,
 } from "./result.ts"

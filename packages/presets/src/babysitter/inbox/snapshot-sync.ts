@@ -209,8 +209,19 @@ export function openPullRequestFingerprint(pr: OpenPullRequest): string {
   })).digest('hex')
 }
 
-type PendingChange = { fingerprint: string; retryAt: number }
-const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.number() })
+/**
+ * A PR that change detection marked for a REST probe. `settled` means its checks stopped running or it
+ * closed, so the probe can wake a merge or a repair. `markedAt` keeps the first mark time for ordering.
+ */
+type PendingChange = { fingerprint: string; retryAt: number; settled?: boolean; markedAt?: number }
+const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.number(), settled: v.optional(v.boolean()), markedAt: v.optional(v.number()) })
+const runningRollup = new Set(['PENDING', 'EXPECTED'])
+
+/** True when the PR's checks stopped running: a lost `check_suite.completed` hides a green or red head. */
+export function openPullRequestChecksSettled(pr: OpenPullRequest): boolean {
+  const state = pr.commits.nodes[0]?.commit.statusCheckRollup?.state
+  return typeof state === 'string' && !runningRollup.has(state)
+}
 // Webhooks can wake the reconciler concurrently. Keep the expensive open-PR
 // snapshot scan single-flight per inbox so each wake cannot reread every large
 // snapshot row before the durable minute gate is observed.
@@ -222,7 +233,7 @@ const changeDetectionInFlight = new WeakSet<PullRequestInbox>()
  * Seeds new PRs and marks PRs whose fingerprint changed, or that closed, for a targeted REST probe.
  * This recovers lost webhook deliveries without probing unchanged PRs.
  */
-export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql: (repository: string) => ReadGraphql, repositories: readonly string[], now: number = Date.now(), allowSeed = true): Promise<void> {
+export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql: (repository: string) => ReadGraphql, repositories: readonly string[], now: number = Date.now(), allowSeed = true, onError?: (repository: string, error: unknown) => void): Promise<void> {
   if (changeDetectionInFlight.has(inbox)) return
   changeDetectionInFlight.add(inbox)
   try {
@@ -252,11 +263,11 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       if (after) cursors.add(after)
     } while (after)
     // Mark changes only after every page succeeded, so a partial list never looks like closed PRs.
-    const mark = async (number: number, fingerprint: string) => {
+    const mark = async (number: number, fingerprint: string, settled: boolean) => {
       const key = `snapshot-changed:${repository}:${number}`
       const pending = v.safeParse(pendingChangeSchema, await inbox.meta(key))
       if (await inbox.meta(`change-fingerprint:${repository}:${number}`) === fingerprint || pending.success && pending.output.fingerprint === fingerprint) return
-      await inbox.setMeta(key, { fingerprint, retryAt: 0 } satisfies PendingChange)
+      await inbox.setMeta(key, { fingerprint, retryAt: 0, settled, markedAt: pending.success ? pending.output.markedAt ?? now : now } satisfies PendingChange)
     }
     for (const [number, pr] of open) {
       const fingerprint = openPullRequestFingerprint(pr)
@@ -264,7 +275,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       // The summary is a point-in-time snapshot. A delivery can insert a row
       // while GraphQL is scanning, so confirm only summary misses before
       // deciding to bootstrap the PR. Existing rows keep the no-read fast path.
-      if (trackedKeys.has(key) || await inbox.get(repository, number)) { await mark(number, fingerprint); continue }
+      if (trackedKeys.has(key) || await inbox.get(repository, number)) { await mark(number, fingerprint, openPullRequestChecksSettled(pr)); continue }
       if (!allowSeed) continue
       // A PR that no delivery reported yet. Seeding applies the filter; the claim hydrates it over REST.
       await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,
@@ -274,11 +285,11 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint)
     }
     // An inbox PR missing from the open list closed or merged.
-    for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed')
-    } catch {
+    for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed', true)
+    } catch (error) {
       // A repository failure must not prevent detection for later repositories.
       // The next interval retries this repository; partial pages are never marked.
-      continue
+      onError?.(repository, error)
     }
   }
 
@@ -287,22 +298,33 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   }
 }
 
-/** Probes up to `limit` PRs that change detection marked, then records their fingerprints. */
-export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = [], limit = 3): Promise<number> {
+/**
+ * Probes up to `limit` PRs that change detection marked, then records their fingerprints. PRs whose
+ * checks settled or that closed come first, up to `settledLimit`: on 2026-11-16 a third of webhook
+ * deliveries timed out, 43 PRs waited for a probe, and green PRs waited 30 minutes or more while the
+ * probes read PRs whose checks were still running. Older marks come before newer ones.
+ */
+export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = [], limit = 3, settledLimit = 10): Promise<number> {
   let probed = 0
+  const due: Array<{ key: string; repository: string; number: string; pending: PendingChange }> = []
   for (const [key, value] of await inbox.metaEntries('snapshot-changed:')) {
-    if (probed >= limit) break
     const pending = v.safeParse(pendingChangeSchema, value)
     const [, repository, number] = /^snapshot-changed:(.+):(\d+)$/.exec(key) ?? []
     if (!pending.success || !repository || !number) { await inbox.deleteMeta(key); continue }
-    if (pending.output.retryAt > now) continue
+    if (pending.output.retryAt <= now) due.push({ key, repository, number, pending: pending.output })
+  }
+  due.sort((a, b) => Number(Boolean(b.pending.settled)) - Number(Boolean(a.pending.settled)) || (a.pending.markedAt ?? 0) - (b.pending.markedAt ?? 0))
+  let settled = 0
+  for (const { key, repository, number, pending } of due) {
+    if (pending.settled ? settled >= settledLimit : probed - settled >= limit) continue
     const s = await inbox.get(repository, Number(number))
     if (!s) { await inbox.deleteMeta(key); continue }
     // A failed probe retries later, not on every reconcile tick.
-    await inbox.setMeta(key, { ...pending.output, retryAt: now + 2 * 60_000 } satisfies PendingChange)
+    await inbox.setMeta(key, { ...pending, retryAt: now + 2 * 60_000 } satisfies PendingChange)
     probed++
+    if (pending.settled) settled++
     await probeSnapshot(inbox, read, s, now, readThreads, activityAuthors)
-    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.output.fingerprint)
+    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.fingerprint)
     await inbox.deleteMeta(key)
   }
   return probed

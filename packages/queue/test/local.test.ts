@@ -602,7 +602,7 @@ describe("local queue delivery with hosted provider rules", () => {
     const [error, result] = await client.sendBatch([])
 
     if (rules === "vercel") {
-      expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: expect.any(RangeError) })
+      expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: expect.objectContaining({ code: "QUEUE_LOCAL_LIMIT_EXCEEDED" }) })
       expect(causeMessage(error)).toBe("Vercel requires at least one job in a `sendBatch()`.")
       expect(result).toBeUndefined()
     }

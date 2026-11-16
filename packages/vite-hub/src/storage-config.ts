@@ -103,13 +103,16 @@ export function defaultDatabaseD1Binding(
 /**
  * The `comments` option turns Comments on. It keeps threads in the Database, so it enables `database` when it is unset.
  * `database: false` with Comments on fails. The Console does not turn Comments on.
+ *
+ * When nothing changes, it returns the same object. `vitehub()` calls it again on the options that the Nuxt module
+ * passed to `markCmsPresetFeaturesResolved()`, and a copy would lose that mark.
  */
 export function withComments(options: ViteHubOptions): ViteHubOptions {
   if (!options.comments) return options
   if (options.database === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: "[vitehub] Comments keeps its threads in the Database, and the `comments` option turns Comments on, but `database` is false. Remove `database: false`, or set `comments: false`." })
   }
-  return { ...options, database: options.database ?? true }
+  return options.database === undefined ? { ...options, database: true } : options
 }
 
 /**

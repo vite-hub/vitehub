@@ -49,6 +49,54 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
 /** The Netlify deploy context of a host env target. */
 const netlifyContexts = { preview: "deploy-preview", production: "production" } as const
 
+/** The contexts that one `all` value stands for, as the Netlify UI lists them for "different value for each context". */
+const allContexts = ["production", "deploy-preview", "branch-deploy", "dev", "dev-server"] as const
+
+interface NetlifyValue {
+  context: string
+  value: string
+  context_parameter?: string
+}
+
+function netlifyValues(value: unknown): NetlifyValue[] | undefined {
+  if (!Array.isArray(value)) return
+  const values: NetlifyValue[] = []
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.context !== "string" || typeof item.value !== "string") return
+    values.push({ context: item.context, value: item.value, ...(typeof item.context_parameter === "string" ? { context_parameter: item.context_parameter } : {}) })
+  }
+  return values
+}
+
+/**
+ * The `updateEnvVar` body that gives an existing variable Functions scope and, for a secret, secret storage. Undefined
+ * when the variable already has both, so PATCH can set the one value. PUT replaces every value, so the body keeps the
+ * values of the other contexts. Netlify masks secret values of every context except `dev`, so a secret with values
+ * in other contexts cannot be rewritten without losing them: that is refused before any write.
+ * https://docs.netlify.com/build/environment-variables/secrets-controller/
+ */
+function netlifyUpdate(existing: unknown, name: string, context: string, value: string, secret: boolean) {
+  const refuse = (reason: string) => setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "netlify", name, reason }), setupExitCodes.conflict)
+  if (!isRecord(existing) || !Array.isArray(existing.scopes)) throw refuse("The Netlify API returned the variable without its scopes.")
+  const scopes = existing.scopes.filter(scope => typeof scope === "string")
+  const wasSecret = existing.is_secret === true
+  if (scopes.includes("functions") && (wasSecret || !secret)) return
+  const values = netlifyValues(existing.values)
+  if (!values) throw refuse("The Netlify API returned the variable without its values.")
+  const others = values.flatMap(item => item.context === "all" ? allContexts.map(each => ({ ...item, context: each })) : [item]).filter(item => item.context !== context)
+  if (wasSecret && others.some(item => item.context !== "dev")) {
+    throw refuse(`It is a secret without Functions scope, and Netlify does not return the secret values of its other contexts, so ViteHub cannot keep them. Add Functions scope to ${name} in Netlify, then push again.`)
+  }
+  const isSecret = wasSecret || secret
+  return {
+    is_secret: isSecret,
+    key: name,
+    // A secret cannot have the post-processing scope.
+    scopes: [...new Set([...scopes, "functions"])].filter(scope => !isSecret || !/^post[-_]processing$/u.test(scope)),
+    values: [...others, { context, value }],
+  }
+}
+
 /**
  * The environment variables of the linked site for one deploy context. Netlify CLI 27.11 (`netlify env:list --help`,
  * `netlify env:import --help`, in test/fixtures/host-cli-help/). `env:list --json` prints the names with values, so
@@ -89,13 +137,15 @@ export function netlifyEnv(context: HostEnvContext): HostEnv {
         if (error instanceof ProvisionRequestError && error.status === 404) return undefined
         throw error
       })
-      // PATCH cannot add a scope or promote a readable variable to a secret. Refuse before writing.
-      if (existing !== undefined && (!isRecord(existing) || !Array.isArray(existing.scopes) || !existing.scopes.includes("functions") || (secret && existing.is_secret !== true))) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "netlify", name, reason: "The existing variable must include Functions scope and, for a secret declaration, secret storage. Update its settings in Netlify before pushing." }), setupExitCodes.conflict)
+      if (existing === undefined) {
+        await request(path, { body: [{ is_secret: secret, key: name, scopes: ["functions"], values: [{ context: deployContext, value }] }], method: "POST", query })
+        return
       }
-      // PATCH sets the value of one context and keeps the others. A new variable gets only this context.
-      if (existing !== undefined) await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
-      else await request(path, { body: [{ is_secret: secret, key: name, scopes: ["functions"], values: [{ context: deployContext, value }] }], method: "POST", query })
+      const update = netlifyUpdate(existing, name, deployContext, value, secret)
+      // PATCH sets the value of one context and keeps the others. PUT replaces the whole variable, so it carries
+      // every other value too.
+      if (update) await request(`${path}/${encodeURIComponent(name)}`, { body: update, method: "PUT", query })
+      else await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
     },
   }
 }
