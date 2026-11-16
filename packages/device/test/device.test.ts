@@ -395,6 +395,34 @@ describe("tabs", () => {
     expect(events.filter(event => event.type === "load")).toEqual([])
   })
 
+  it("keeps the copies of another account that a tab finds on the disk after it read an expired copy, and missed the message", async () => {
+    let time = 1
+    const disk = createFakeDisk()
+    const ada = openPage(disk, createFakeBrowser(), { now: () => time })
+    await ada.open()
+    await ada.setAccount("ada")
+    ada.write("projects", ["ada"], 10, ada.epoch())
+    await ada.settled()
+    time = 100
+    // The opening tab reads the expired copy of `ada`. Its channel is not the one of the other tab, so it misses the message.
+    const opening = openPage(disk, createFakeBrowser(), { now: () => time, openTimeout: 5000 })
+    const release = disk.holdNextRead()
+    const opened = opening.open()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const grace = openPage(disk, createFakeBrowser(), { now: () => time })
+    await grace.open()
+    await grace.setAccount("grace")
+    answer(grace, "projects", ["grace"])
+    await grace.settled()
+    release()
+    await opened
+    await opening.settled()
+    expect(disk.meta).toMatchObject({ account: "grace" })
+    expect(disk.keys).toEqual(["projects"])
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+    expect(opening.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
+  })
+
   it("keeps the shared disk under its size cap when several tabs write", async () => {
     let time = 1
     const disk = createFakeDisk()

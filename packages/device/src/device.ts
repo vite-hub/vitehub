@@ -270,7 +270,11 @@ export function createDevice(options: DeviceOptions): Device {
     else meta ??= found.meta
     // The disk follows the page: the account that it named, or else the account of the disk, in the version of this build.
     const account = named !== undefined ? named : meta?.account
-    if (account !== undefined) void enqueue(() => ensure(account, false)).then(([error]) => error && warnOnce("storage", error))
+    if (account === undefined) return
+    // When the epoch moves before the task runs, the page named an account and queued its own start-over, or the disk
+    // changed, such as a trim that found another account. Then `account` is old, and the task must not delete the disk.
+    const since = epoch
+    void enqueue(async () => epoch === since ? ensure(account, false) : ok).then(([error]) => error && warnOnce("storage", error))
   }
 
   /** Takes the copies that the disk had when the device opened. */
