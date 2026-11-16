@@ -37,5 +37,6 @@ export type { PlaygroundFiles } from "./playground/share.ts";
 export * from "./composables/attachments.ts";
 export * from "./composables/highlighted-code.ts";
 export * from "./config.ts";
+export { uiSdkComponents } from "./ui-sdk/components.ts";
 export * from "./headless.ts";
 export type * from "./types.ts";

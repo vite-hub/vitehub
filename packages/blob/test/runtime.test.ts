@@ -1191,7 +1191,7 @@ describe("blob runtime", () => {
     const { createDriver } = await import("../src/drivers/s3.ts")
     const driver = createDriver({ bucket: "assets", driver: "s3" })
 
-    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor, folded: true })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
 
     expect(filesSdkMock.list).toHaveBeenCalledOnce()
   })

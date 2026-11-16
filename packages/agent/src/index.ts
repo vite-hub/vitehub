@@ -8324,6 +8324,8 @@ async function executeAgentInvocation<
   const inheritedClaim = (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim]
   // SAFETY: The webhook queue installs this private attempt metadata on its runtime context.
   const queuedAttempt = (context as AgentRuntimeContext & { [queuedAgentInvocation]?: { reopenFailed: boolean, retryPending: boolean } })[queuedAgentInvocation]
+  // SAFETY: Only the Agent Workflow handler installs this private boolean marker.
+  const workflowAttempt = (context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey] === true
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   let activity = exclusive || inheritedClaim ? undefined : createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
@@ -8350,12 +8352,21 @@ async function executeAgentInvocation<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         agentName: agentInvocationName(definition as AgentDefinition, context),
         cancellationDriver: invocationCancellationDriver(definition),
+        // A Workflow turn runs its Driver at most once. A retry must not take over the record of an interrupted Driver.
+        ...(workflowAttempt ? { driverAtMostOnce: true } : {}),
         // Channel replay depends on the journal claim to prevent duplicate runs.
         ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
         ...(queuedAttempt ? { reopenFailed: queuedAttempt.reopenFailed, retryPending: queuedAttempt.retryPending } : {}),
       })
       : undefined
+    // An earlier attempt reached the Driver. A claimed replay keeps its handoff conflict below while another owner holds the claim.
+    if (invocationJournal?.driverInterrupted && (invocationJournal.claimStatus === "owned" || !(exclusive || inheritedClaim))) {
+      const error = Object.assign(agentDiagnostics.AGENT_INVOCATION_DRIVER_INTERRUPTED({ id: invocationJournal.id }), { isRetryable: false as const })
+      // While the earlier claim is still held, the failed state is written in the background when that claim expires.
+      await invocationJournal.finish("failed", error)
+      throw error
+    }
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {
       if (invocationJournal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
       throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
