@@ -103,6 +103,16 @@ export function seedConsoleNavigation(base: string, navigation: ConsoleNavigatio
   for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
 }
 
+/**
+ * Drop the navigation of `base` that a `project.get` answer gave, such as a stored one, when a newer answer has none.
+ * The sections come from `sections.list` again, and the subscribers get them.
+ */
+export function reloadConsoleNavigation(base: string): void {
+  if (!navigationValues.has(base)) return
+  navigationRequests.delete(base)
+  void loadConsoleNavigation(base)
+}
+
 /** Whether a route shows a section that the navigation does not have, such as one that the access lost. */
 export function isConsoleSectionRevoked(section: unknown, navigation: Pick<ConsoleNavigation, "sections">): boolean {
   return isConsoleSectionId(section) && !navigation.sections.includes(section)

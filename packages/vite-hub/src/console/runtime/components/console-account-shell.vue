@@ -10,7 +10,8 @@ import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam }
 import { useConsoleApp } from "../client/app-identity";
 import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sidebar";
-import { consoleAppCheckKey, readStored } from "../client/stored";
+import { useStoredData } from "@vite-hub/device/vue";
+import { consoleAppCheckKey } from "../client/stored";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
@@ -120,17 +121,19 @@ function intent(target: LazyPage): void {
 // device keeps each answer, so the names of the apps show in the first frame of the next visit.
 for (const app of apps.value) {
   status[app.id] = "checking";
-  const check = readStored(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
-  rememberConsoleProjectName(app.id, check.stored?.name);
-  if (check.stored?.build) builds[app.id] = check.stored.build;
-  void check.answer.then(
-    (result) => {
-      status[app.id] = result.status;
-      rememberConsoleProjectName(app.id, result.name);
-      if (result.build) builds[app.id] = result.build;
-    },
-    () => { status[app.id] = "unreachable"; },
-  );
+  const check = useStoredData(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
+  if (check.storedAt.value && check.data.value) {
+    rememberConsoleProjectName(app.id, check.data.value.name);
+    if (check.data.value.build) builds[app.id] = check.data.value.build;
+  }
+  // The read starts over when the page names its account, and only its last call answers here.
+  watch(check.status, (state) => {
+    if (state === "error") status[app.id] = "unreachable";
+    if (state !== "success" || !check.data.value) return;
+    status[app.id] = check.data.value.status;
+    rememberConsoleProjectName(app.id, check.data.value.name);
+    if (check.data.value.build) builds[app.id] = check.data.value.build;
+  }, { immediate: true });
 }
 
 onMounted(() => {

@@ -29,16 +29,21 @@ afterEach(() => {
 
 /** The Console server and the app behind it. A test changes the answers between page loads. */
 function server() {
-  const answers = { account: ada as ConsoleAccount | undefined, sections: ["kv", "logs"], projectStatus: 200, hold: false }
+  // `holdAccount` holds only `/api/account`. `navigation: false` answers project.get without its navigation.
+  const answers = { account: ada as ConsoleAccount | undefined, sections: ["kv", "logs"], projectStatus: 200, hold: false, holdAccount: false, navigation: true }
   const sent: string[] = []
   const held: (() => void)[] = []
   const fetch = vi.fn(operationRpcFetch(async (url: string, init: RequestInit) => {
     const call = url === "/api/account" ? "account" : `${operationRpcRequest(init.body).operation} ${url}`
     sent.push(call)
-    if (answers.hold) await new Promise<void>(resolve => held.push(resolve))
-    if (call === "account") return answers.account ? Response.json(answers.account) : Response.json({ code: "UNAUTHORIZED", message: "Sign in." }, { status: 401 })
+    // The session of the cookie that the request carried: a held request answers as it was sent.
+    const account = answers.account
+    if (answers.hold || (answers.holdAccount && call === "account")) await new Promise<void>(resolve => held.push(resolve))
+    // A loader call that the device started over is aborted, as `fetch()` rejects then.
+    if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError")
+    if (call === "account") return account ? Response.json(account) : Response.json({ code: "UNAUTHORIZED", message: "Sign in." }, { status: 401 })
     if (answers.projectStatus !== 200) return Response.json({ code: "CONSOLE_ACCESS_DENIED", message: "No access to this app.", ok: false, status: answers.projectStatus }, { status: answers.projectStatus })
-    return Response.json({ ok: true, value: { protocol: 1, name: "Shop", operations: [], sections: answers.sections, navigation: { sections: answers.sections } } })
+    return Response.json({ ok: true, value: { protocol: 1, name: "Shop", operations: [], sections: answers.sections, ...(answers.navigation ? { navigation: { sections: answers.sections } } : {}) } })
   }))
   return {
     answers,
@@ -47,6 +52,7 @@ function server() {
     /** Lets the held requests answer. */
     release: () => {
       answers.hold = false
+      answers.holdAccount = false
       for (const resolve of held.splice(0)) resolve()
     },
   }
@@ -234,6 +240,11 @@ describe("account Console with stored reads", () => {
     const app = server()
     const page = await firstVisit(app)
     const { signOutConsoleAccount } = await import("../src/console/runtime/client/account.ts")
+    // The server ends the session, so the account read of the page, which starts over, answers 401.
+    signOut.mockImplementationOnce(async () => {
+      app.answers.account = undefined
+      return { error: null }
+    })
     await signOutConsoleAccount()
     expect(signOut).toHaveBeenCalled()
     expect(browser.disk.keys).toEqual([])
@@ -251,6 +262,78 @@ describe("account Console with stored reads", () => {
     expect(browser.disk.keys).toEqual([])
     // The device still belongs to Ada, so the next answers are kept again.
     expect(browser.disk.meta?.account).toBe("u-ada")
+  })
+
+  it("never stores an app answer under the stored account before /api/account confirms who is signed in", async () => {
+    const app = server()
+    await firstVisit(app)
+    // Bob signed in on this computer. His app answer comes first, and the account answer waits.
+    app.answers.account = bob
+    app.answers.sections = ["logs"]
+    app.answers.holdAccount = true
+    const written: string[] = []
+    const open = browser.disk.open
+    browser.disk.open = async () => {
+      const storage = await open()
+      return { ...storage, write: (expected, change) => {
+        written.push(...change.puts.map(entry => `${expected.account} ${entry.key} ${entry.json}`))
+        return storage.write(expected, change)
+      } }
+    }
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // The tab can close now: nothing that Bob's cookie answered is on the disk as a copy of Ada.
+    expect(written).toEqual([])
+    app.release()
+    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+    expect(written.filter(copy => copy.startsWith("u-ada "))).toEqual([])
+    expect(browser.disk.meta?.account).toBe("u-bob")
+  })
+
+  it("loads the page again when another tab signs out while the account answers, after the read starts over", async () => {
+    const app = server()
+    await firstVisit(app)
+    app.answers.holdAccount = true
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    // Another tab of this browser signs out: the server ends the session, and its device names nobody.
+    app.answers.account = undefined
+    const { createDevice } = await import("../../device/src/device.ts")
+    const other = createDevice({ openStorage: () => browser.disk.open(), channel: browser.tabs.channel() })
+    await other.open({ version: "console-1" })
+    await other.setAccount(null)
+    app.release()
+    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+    expect(browser.disk.meta?.account).toBeNull()
+    expect(browser.disk.keys).toEqual([])
+  })
+
+  it("opens the app of a ?app= link on a first visit, also when the naming starts its project.get over", async () => {
+    const app = server()
+    const page = await openPage(app)
+    const address = await page.session.startConsoleAccount({ boot: "app", home: "/", navigate: page.navigate, pageOrigin: "https://console.example.com", pathname: "/", search: "?app=p-1", showPath: () => {} })
+    expect(address).toBeUndefined()
+    await page.session.openConsoleProject()
+    expect(page.session.useConsoleProjects().gate.value).toEqual({ kind: "ready" })
+    await vi.waitFor(() => expect(browser.disk.keys).toEqual(["console:account", "console:project:p-1"]))
+  })
+
+  it("loads the sections again when project.get of this visit has no navigation", async () => {
+    const app = server()
+    await firstVisit(app)
+    app.answers.hold = true
+    app.answers.navigation = false
+    app.answers.sections = ["logs"]
+    const page = await openPage(app)
+    await page.start()
+    void page.session.openConsoleProject()
+    expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "logs"])
+    app.release()
+    await vi.waitFor(async () => expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["logs"]))
+    expect(app.sent).toContain("sections.list /p/p-1/_vitehub/rpc")
   })
 
   it("waits for the account on a page without a session cookie, and for a link to an app that the stored account lacks", async () => {

@@ -1,5 +1,5 @@
-import { clearDevice, inspectDevice, openDevice, setDeviceAccount } from "@vite-hub/device"
-import { ref, shallowRef } from "vue"
+import { clearDevice, openDevice } from "@vite-hub/device"
+import { ref, shallowRef, watch } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
 
@@ -7,7 +7,7 @@ import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
 import { consoleResponseError } from "./request"
-import { consoleSectionsPath, seedConsoleNavigation } from "./sections"
+import { consoleSectionsPath, reloadConsoleNavigation, seedConsoleNavigation } from "./sections"
 import { consoleAccountKey, consoleDeviceVersion, consoleProjectKey, readStored } from "./stored"
 
 import type { ConsoleAccount, ConsoleAccountProject } from "./account"
@@ -88,6 +88,10 @@ let state: ConsoleProjectsState | undefined
 let probeVersion = 0
 /** The `project.get` of the app of a `?app=<id>` link, sent while the account loads. */
 let earlyProbe: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
+/** The `project.get` read of the open app. It lives until another app opens, so it can start over on the naming. */
+let projectRead: ConsoleStoredRead<ConsoleProjectProbe> | undefined
+/** The account read of an `account` Console. It lives as long as the page, and each answer names the device account. */
+let accountRead: ConsoleStoredRead<ConsoleAccount | undefined> | undefined
 /**
  * The page opened from the account that the device kept. Only then does a stored `project.get` answer open the app:
  * the stored answers belong to that account.
@@ -189,8 +193,10 @@ function open(info: ConsoleProjectInfo): void {
     if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, current.id)
   }
   // The rail and the Overview read the sections that came with `project.get`, so they need no second call. A newer
-  // answer replaces the stored one, so a section that the access lost goes away.
+  // answer replaces the stored one, so a section that the access lost goes away. An answer without navigation drops the
+  // one of a stored answer, and the sections come from `sections.list` again.
   if (info.navigation) seedConsoleNavigation(consoleSectionsPath, info.navigation)
+  else reloadConsoleNavigation(consoleSectionsPath)
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
 }
@@ -232,12 +238,21 @@ export async function openConsoleProject(): Promise<void> {
   // The boot sent `project.get` while the account loaded. Its answer counts only for the app that opens.
   const early = earlyProbe
   earlyProbe = undefined
-  const read = projects.mode === "embedded"
-    ? { stored: undefined, answer: probeConsoleProject({ ...consoleProjectTarget(current), origin: "" }) }
-    : early?.id === current.id ? early.read : readProject(current.id)
+  if (early && early.id !== current.id) early.read.stop()
+  let read: Pick<ConsoleStoredRead<ConsoleProjectProbe>, "answer" | "stored">
+  if (projects.mode === "embedded") {
+    const answer = probeConsoleProject({ ...consoleProjectTarget(current), origin: "" })
+    read = { stored: undefined, answer: () => answer }
+  }
+  else {
+    const next = early?.id === current.id ? early.read : readProject(current.id)
+    if (projectRead !== next) projectRead?.stop()
+    projectRead = next
+    read = next
+  }
   // Only an answer that opened the project counts. A stored refusal waits for the project.
   if (openedFromDevice && read.stored?.kind === "ready") open(read.stored.info)
-  const probe = await read.answer
+  const probe = await read.answer()
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
   const gate = gateOf(probe, consoleProjectTarget(current))
@@ -292,10 +307,12 @@ export async function checkConsoleProjects(): Promise<void> {
   const pending = list.filter(project => project.id !== opened)
   projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
   await Promise.all(pending.map(async (project) => {
-    const read = projects.mode === "account" ? readProject(project.id) : { stored: undefined, answer: probeConsoleProject(targetOf(projects, project)) }
+    const stored = projects.mode === "account" ? readProject(project.id) : undefined
     // The stored answer names the project while it answers again.
-    if (read.stored?.kind === "ready") rememberConsoleProjectName(project.id, read.stored.info.name)
-    const probe = await read.answer.catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    if (stored?.stored?.kind === "ready") rememberConsoleProjectName(project.id, stored.stored.info.name)
+    const answer = stored ? stored.answer() : probeConsoleProject(targetOf(projects, project))
+    const probe = await answer.catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    stored?.stop()
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
     if (probe.kind === "ready") rememberConsoleProjectName(project.id, probe.info.name)
@@ -436,13 +453,11 @@ export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<
   await openDevice({ version: consoleDeviceVersion })
   // Only a page with a session cookie uses the stored account. The server picks the sign-in page without one.
   const signedIn = options.boot === "app" || options.boot === "shell"
-  // The device stores only the answers of reads that start after the page names its account. With a session cookie, the
-  // account is most likely the account of the last visit, so the page names it before its first read. An answer for
-  // another person names that person before the device can store it, and then the device deletes every copy. The device
-  // names the account during the call, so the reads do not wait for IndexedDB.
-  const kept = inspectDevice().account
-  if (signedIn && kept) void setDeviceAccount(kept)
-  const read = readStored(consoleAccountKey, () => loadDeviceAccount(kept))
+  // The answer of `/api/account` says who is signed in, so it names the account of the device, and the device stores it
+  // under that account. Until then the page names no account: the stored answers only draw the first frame, and the
+  // device stores the answers of the other reads only when their calls start after the naming.
+  const read = readStored(consoleAccountKey, loadConsoleAccount, { account: account => account?.user.id ?? null })
+  accountRead = read
   const stored = signedIn && read.stored && opensFromStored(read.stored, options) ? read.stored : undefined
   // Without a stored account, the `project.get` of a `?app=<id>` link goes out now, so it does not wait for the account.
   const linked = new URLSearchParams(options.search ?? "").get("app")
@@ -450,31 +465,23 @@ export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<
   if (stored) {
     openedFromDevice = true
     const address = startAccountState(stored, options)
-    void read.answer.then(fresh => refreshConsoleAccount(fresh, options), () => undefined)
+    followConsoleAccount(read, options)
     return address
   }
-  const account = await read.answer.catch(() => undefined)
-  // Another account deletes the stored answers. The page names the account before the reads of the app start, so the
-  // device keeps their answers for the next visit. It does not wait for IndexedDB to delete the old ones.
-  void setDeviceAccount(account?.user.id ?? null)
-  // The first answer started before the page named this account, so the device did not keep it. The next visit opens
-  // from the account only when the device has it. The read waits until the page is idle, so it does not slow this visit.
-  if (account && account.user.id !== kept) {
-    const idle = globalThis.requestIdleCallback ?? ((callback: () => void) => setTimeout(callback, 200))
-    idle(() => void readStored(consoleAccountKey, loadConsoleAccount).answer.catch(() => undefined))
-  }
-  return startAccountState(account, options)
+  const account = await read.answer().catch(() => undefined)
+  const address = startAccountState(account, options)
+  followConsoleAccount(read, options)
+  return address
 }
 
 /**
- * Load the account of this visit for a page that named `kept`. An answer for another person, or for nobody, names
- * that account before it returns, so the device never stores it as a copy of `kept`.
+ * Apply each later answer of the account read: the answer of this visit after a stored account, and the answer after
+ * another tab signed out, signed in as another person, or cleared the device, when the read starts over.
  */
-async function loadDeviceAccount(kept: string | null): Promise<ConsoleAccount | undefined> {
-  const account = await loadConsoleAccount()
-  const id = account?.user.id ?? null
-  if (kept && id !== kept) void setDeviceAccount(id)
-  return account
+function followConsoleAccount(read: ConsoleStoredRead<ConsoleAccount | undefined>, options: ConsoleAccountBoot): void {
+  watch(read.read.status, (status) => {
+    if (status === "success" && accountRead === read) void refreshConsoleAccount(read.read.data.value, options)
+  })
 }
 
 /** Set the projects of the account and the gate of the page. Returns the address that the page shows. */
@@ -509,7 +516,10 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
   // A guess for another app, or a boot that opens no app, leaves the early answer unread. A later open asks again.
-  if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) earlyProbe = undefined
+  if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) {
+    earlyProbe?.read.stop()
+    earlyProbe = undefined
+  }
   return address ?? (missingApp ? options.home : undefined)
 }
 
@@ -522,8 +532,6 @@ async function refreshConsoleAccount(fresh: ConsoleAccount | undefined, options:
   const projects = useState()
   const shown = projects.account.value
   if (!shown) return
-  // Another person, or nobody, deletes the copies of the stored account in every tab.
-  await setDeviceAccount(fresh?.user.id ?? null)
   const current = projects.current.value
   const store = fresh && createConsoleProjectStore(accountProjectStorage(fresh, current?.id))
   // The open app must still be an app of the team, at the same URL. A team that had no app opens one now.
@@ -531,6 +539,7 @@ async function refreshConsoleAccount(fresh: ConsoleAccount | undefined, options:
   if (!fresh || !store || fresh.user.id !== shown.user.id || fresh.teamId !== shown.teamId || !sameApp) {
     // A newer attempt must not open the stale app while the page loads again.
     ++probeVersion
+    stopConsoleReads()
     await clearDevice()
     options.navigate(`${options.pathname}${options.search ?? ""}`)
     return
@@ -607,7 +616,16 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
  */
 export function reloadConsoleAccount(): void {
   const projects = useState()
+  stopConsoleReads()
   void clearDevice().then(() => projects.navigate(projects.home))
+}
+
+/** Stop the reads of the boot before the page loads again, so a read that starts over does not load it a second time. */
+function stopConsoleReads(): void {
+  accountRead?.stop()
+  accountRead = undefined
+  projectRead?.stop()
+  projectRead = undefined
 }
 
 /** The page that a completed sign-in opens: the `/open` link that the person followed, else the Console home. */
