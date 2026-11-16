@@ -6,6 +6,7 @@ import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import {
   createNoExternalAddition,
@@ -213,7 +214,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       }
     }
 
-    const loadedEnv = loadEnv(mode, projectRoot, "")
+    const loadedEnv = loadAllEnv(loadEnv, mode, projectRoot)
     const context = createSourceContext({
       env: { ...loadedEnv, ...process.env },
       mode: "build",
@@ -282,7 +283,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       let developmentSecretEnvKey: string | undefined
       if (env.command === "serve") {
         const projectRoot = resolveProjectRoot(config.root || process.cwd())
-        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadEnv(env.mode, projectRoot, ""))
+        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadAllEnv(loadEnv, env.mode, projectRoot))
         developmentSecret = resolvedSecret.secret
         developmentSecretGenerated = resolvedSecret.generated
         developmentSecretEnvKey = resolvedSecret.envKey

@@ -1,5 +1,5 @@
 import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
-import { viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
+import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { readConsoleAccessGrants, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
@@ -76,10 +76,19 @@ function targetPath(record: ConsoleTicketRecord): string | undefined {
   return url.origin === record.origin ? url.href : undefined
 }
 
+/** The page with `?vitehub`, which opens the pill, before its hash. A page that already has the query keeps it. */
+export function withPageTools(page: string): string {
+  const hash = page.indexOf("#")
+  const path = hash === -1 ? page : page.slice(0, hash)
+  const query = path.indexOf("?")
+  if (query !== -1 && new URLSearchParams(path.slice(query)).has(viteHubPageToolsQuery)) return page
+  return `${path}${query === -1 ? "?" : "&"}${viteHubPageToolsQuery}${hash === -1 ? "" : page.slice(hash)}`
+}
+
 /**
  * Redeem a `page.member` or `page.guest` ticket: find or make the user, add the roles, start a Better Auth session for
- * the browser, and go to the page. The `vitehub_session` marker and the reset page tools hint make the next page ask
- * the session route again, as after a sign-in.
+ * the browser, and go to the page with `?vitehub`, which opens the pill. The `vitehub_session` marker and the reset page
+ * tools hint make the next page ask the session route again, as after a sign-in.
  */
 export async function openSiteSession(record: ConsoleTicketRecord, request: Request, event: ConsoleRequestEvent): Promise<Response> {
   const location = targetPath(record)
@@ -102,7 +111,7 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
-  return seeOther(location, headers)
+  return seeOther(withPageTools(location), headers)
 }
 
 /** A page path of the app, such as `/runs/42`. */

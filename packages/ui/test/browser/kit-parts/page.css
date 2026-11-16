@@ -1,0 +1,49 @@
+/* The fixture layout, the same on both pages: one box per case, with room for rings and shadows around the part. */
+body {
+  margin: 0;
+}
+
+.cases {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+}
+
+.case {
+  display: flex;
+  padding: 8px;
+}
+
+.case[data-block] {
+  flex-direction: column;
+  width: min(28rem, 100%);
+}
+
+.case[data-part="skeleton"] {
+  width: 14rem;
+}
+
+/* The kit page's stand-in for the Console's UButton, of the same size: `xs` in alerts and small empty states, `sm`
+   elsewhere. The check masks every button. */
+.fixture-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+
+  &[data-size="sm"] {
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  & > svg {
+    width: 16px;
+    height: 16px;
+  }
+}

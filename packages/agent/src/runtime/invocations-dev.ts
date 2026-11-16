@@ -99,6 +99,6 @@ export async function handleAgentInvocationsDevRequest(input: Request | ViteHubC
     return Response.json(await cancelInJournals(request, grant, journals, body.id))
   }
   catch (error) {
-    return failure(`Agent Invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error && Reflect.get(error, "code") === "AGENT_INVOCATION_ID_AMBIGUOUS" ? 409 : 500)
+    return failure(`Agent Invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`, agentDiagnostics.AGENT_INVOCATION_ID_AMBIGUOUS.is(error) ? 409 : 500)
   }
 }

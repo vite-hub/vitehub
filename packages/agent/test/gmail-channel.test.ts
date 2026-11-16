@@ -2398,7 +2398,7 @@ describe("gmail() Channel", () => {
     const second = await collection.page({ cursor: "page-2", query: await collection.parseQuery({}) })
     expect(second).toMatchObject({ items: [{ id: "m3" }], nextCursor: null })
     expect(google.calls.filter(call => call.path === "messages").map(call => [call.query.get("q"), call.query.get("maxResults")])).toEqual([["in:inbox", "2"], ["in:inbox", "50"]])
-    await expect(collection.page({ cursor: "stale", query: {} })).rejects.toMatchObject({ code: "AGENT_R0936" })
+    await expect(collection.page({ cursor: "stale", query: {} })).rejects.toMatchObject({ code: "AGENT_R0936", message: "[vitehub] Invalid Gmail history cursor." })
 
     const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch }) }, driver: { run: () => "ok" } })
     await expect(replayChannel(agent, "gmail", { cursor: "stale", force: true })).rejects.toThrow(/Invalid Channel "gmail" history cursor/)

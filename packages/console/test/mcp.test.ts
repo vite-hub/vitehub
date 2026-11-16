@@ -289,7 +289,7 @@ describe("ViteHub MCP at /mcp/account", () => {
     ])
   })
 
-  it("names the vite-hub version of an older app that refuses the fields of an MCP call", async () => {
+  it("checks the link of an older app that refuses the fields of an MCP call, and names its vite-hub version for operations", async () => {
     const apps = (await call("list_apps", {}, tokens.bob)).body!.result.structuredContent as { apps: Array<{ id: string }> }
     const id = apps.apps[0]!.id
     olderApp = true
@@ -300,8 +300,10 @@ describe("ViteHub MCP at /mcp/account", () => {
         expect(answer.body!.result.content[0]!.text).toContain("CONSOLE_APP_VITEHUB_OUTDATED: The app runs vite-hub 0.0.1, which does not accept this call of the ViteHub MCP.")
         expect(answer.body!.result.content[0]!.text).toContain("Fix: Upgrade vite-hub in the app")
       }
-      // check_app returns the diagnostic as its answer.
-      expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ answer: { code: "CONSOLE_APP_VITEHUB_OUTDATED" }, linked: false, status: 401 })
+      // The older app has the key of the link, so check_app finds it linked: it reads project.get as the Console page does.
+      appCalls.length = 0
+      expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ answer: { name: "probe", vitehub: "0.0.1" }, linked: true, status: 200 })
+      expect(appCalls.map(entry => entry.caller)).toEqual([{ team: { id: teamId, role: "member" }, user: expect.objectContaining({ email: "bob@example.com" }), via: "console" }])
     }
     finally {
       olderApp = false

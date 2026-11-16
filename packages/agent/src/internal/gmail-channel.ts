@@ -749,7 +749,7 @@ async function googleKeys(fetchImpl: typeof fetch, refresh: boolean): Promise<Go
   const response = await fetchImpl(googleCertsUrl, { signal: withTimeout() })
   const body = await responseJson(response)
   const parsed = v.safeParse(jwksSchema, body)
-  if (!response.ok || !parsed.success) throw gmailRequestError("Google OAuth certificates request", response.status)
+  if (!response.ok || !parsed.success) throw Object.assign(agentDiagnostics.AGENT_GMAIL_CERTIFICATES_FAILED({ status: response.status }), { status: response.status })
   const keys = parsed.output.keys.flatMap((key) => {
     const jwk = v.safeParse(jwkSchema, key)
     return jwk.success ? [jwk.output] : []
@@ -1469,7 +1469,7 @@ export function gmailHistoryCollection(
         // The cursor of an ID list is the offset of its next ID.
         const ids = [...new Set(query.ids)]
         let start = options.cursor === undefined ? 0 : Number(options.cursor)
-        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail page token." })
+        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail history cursor." })
         while (true) {
           const end = Math.min(ids.length, start + Math.min(Math.max(options.limit ?? 50, 1), 100))
           const items = await getGmailMessages(client, ids.slice(start, end), bodyLimit)
@@ -1489,7 +1489,7 @@ export function gmailHistoryCollection(
           })
         }
         catch (error) {
-          if (cursor && gmailErrorStatus(error) === 400) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail page token." })
+          if (cursor && gmailErrorStatus(error) === 400) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail history cursor." })
           throw error
         }
         const items = await getGmailMessages(client, page.ids, bodyLimit)

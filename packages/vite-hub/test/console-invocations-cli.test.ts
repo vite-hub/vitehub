@@ -85,7 +85,8 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
     expect(JSON.parse(cancel.stdout)).toMatchObject({ id: value.id, outcome: "requested" })
 
     const missing = await cli(["cancel", "missing"], fixture.host)
-    expect(missing).toMatchObject({ exitCode: 1, stderr: "Console request failed with HTTP 404: Invocation not found.\n" })
+    expect(missing.exitCode).toBe(1)
+    expect(missing.stderr).toMatch(/^\[AGENT_R0511\] Console request failed with HTTP 404: Invocation not found\.\n.*fix: /s)
     fixture.release()
   })
 })

@@ -28,9 +28,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0907",
   "AGENT_R0906",
   // Instruction composition retains the input-error status of Markdown Template failures.
-  "MARKDOWN_TEMPLATE_R0008",
-  "MARKDOWN_TEMPLATE_R0009",
-  "MARKDOWN_TEMPLATE_R0010",
   "MARKDOWN_TEMPLATE_R0014",
   "MARKDOWN_TEMPLATE_R0018",
   "MARKDOWN_TEMPLATE_R0020",
@@ -4430,6 +4427,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "GitHub activity session links require an Agent identity.",
       fix: "Run the GitHub Channel from an Agent Definition so the activity has an Agent identity, or remove `activity.publicUrl` from the GitHub Channel options.",
     },
+    AGENT_GMAIL_CERTIFICATES_FAILED: {
+      why: ({ status }: { status: number }) => `Google OAuth certificates request failed with HTTP ${status}.`,
+      fix: "Check that the server can reach https://www.googleapis.com/oauth2/v3/certs. A retry helps when Google was only unavailable.",
+    },
     AGENT_GMAIL_DISPATCH_FAILED: {
       why: ({ count }: { count: number }) => `Gmail message dispatch failed for ${count} message(s); saved for retry.`,
       fix: "Read the failed Invocations of the Gmail Channel for the cause. The messages are saved, and the next poll retries them.",
@@ -4453,6 +4454,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_GMAIL_SYNC_BUSY: {
       why: "Gmail mailbox synchronization is already running; retry polling after it completes.",
       fix: "Poll the Gmail Channel again after the running synchronization completes.",
+    },
+    AGENT_GMAIL_TOKEN_REFRESH_FAILED: {
+      why: ({ reason, status }: { reason?: string, status?: number }) => `Google OAuth token refresh failed${status ? ` with HTTP ${status}` : ""}${reason ? `: ${reason}` : ""}.`,
+      fix: "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN, and create a new refresh token when Google answers `invalid_grant`. Read error.cause for a network failure.",
     },
     AGENT_HOST_ROUTE_DUPLICATE: {
       why: ({ route }: { route: string }) => `Agent host route already registered: ${route}`,
@@ -4487,6 +4492,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE: {
       why: "[vitehub] Agent invocations accept `database` only with `store: \"database\"`.",
       fix: "Set `store: \"database\"` next to `database` in the Agent `invocations` option, or remove `database`.",
+    },
+    AGENT_INVOCATION_CLAIM_CONFLICT: {
+      why: "Invocation already exists or is claimed.",
+      fix: "Another run already holds this Invocation, so this duplicate does not run. Read it with `invocations.get(id)`, or pass `force` to Channel replay to start it again.",
     },
     AGENT_INVOCATION_CLAIM_UNAVAILABLE: {
       why: "Could not acquire the Invocation execution claim.",

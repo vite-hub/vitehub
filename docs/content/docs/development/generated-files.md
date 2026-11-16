@@ -22,6 +22,7 @@ not these files.
 | `.vitehub/types/blob.d.ts` | Blob Package | Blob store names from `blob.stores`. |
 | `.vitehub/types/browser.d.ts` | Browser Package | Browser Definition names and input/result module types. |
 | `.vitehub/types/email.d.ts` | Email Package | Exact module declarations for discovered `#vitehub/emails/<name>` imports. |
+| `.vitehub/types/email-templates.d.ts` | Email Package | Template names and `data` types for `email.send({ template })`. Only an app with templates gets it. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Workspace name types. |
 | `.vitehub/types/source/collections.d.ts` | Source Package | Collection names and definitions. |
 | `.vitehub/email/templates/*.mjs` | Email Package | Bundled Markdown email templates used by provider builds. |
