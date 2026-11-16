@@ -71,3 +71,17 @@ it("keeps a value required when the template also reads it outside a branch", as
 it("types a template without bindings as empty data", async () => {
   await expect(inferMarkdownTemplateDataType("# Hello")).resolves.toEqual({ required: false, type: "Record<string, never>" })
 })
+
+it("infers bindings in rendered HTML block children", async () => {
+  await expect(inferMarkdownTemplateDataType("<div>\nHello {{ data.name }}\n</div>")).resolves.toEqual({
+    required: true,
+    type: "{\n  \"name\": string | number | boolean\n}",
+  })
+})
+
+it.each(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])("keeps %s HTML block children literal", async (tag) => {
+  await expect(inferMarkdownTemplateDataType(`<${tag}>\n{{ data.literal }}\n</${tag}>`)).resolves.toEqual({
+    required: false,
+    type: "Record<string, never>",
+  })
+})

@@ -1,7 +1,7 @@
 import { parseMarkdown } from "comark"
 import type { ElementNode, Node } from "comark"
 
-import { parserOptions } from "../parser.ts"
+import { hasMarkdownHtmlChildren, parserOptions } from "../parser.ts"
 import { prepareTemplate } from "../prepare.ts"
 
 // `scalar` comes from `{{ data.x }}` and bound attributes, `markdown` from `:insert`, `condition` from `::if` props.
@@ -57,29 +57,32 @@ function addAttributes(root: DataField, [tag, attributes]: ElementNode, required
 }
 
 // The renderer shows one branch of an `::if`. Nodes after a nested branch render always, as in `conditionalBranches()`.
-function visitCondition(root: DataField, [tag, attributes, ...children]: ElementNode, required: boolean): void {
+async function visitCondition(root: DataField, [tag, attributes, ...children]: ElementNode, required: boolean): Promise<void> {
   addAttributes(root, [tag, attributes], false)
   let afterBranch = false
   for (const child of children) {
     if (Array.isArray(child) && (child[0] === "else-if" || child[0] === "else")) {
-      visitCondition(root, child, required)
+      await visitCondition(root, child, required)
       afterBranch = true
     }
-    else visit(root, [child], afterBranch && required)
+    else await visit(root, [child], afterBranch && required)
   }
 }
 
-function visit(root: DataField, nodes: Node[], required: boolean): void {
+async function visit(root: DataField, nodes: Node[], required: boolean): Promise<void> {
   for (const node of nodes) {
     // Text and comment nodes bind no data.
     if (!Array.isArray(node) || node[0] === null) continue
     if (node[0] === "if") {
-      visitCondition(root, node, required)
+      await visitCondition(root, node, required)
       continue
     }
     addAttributes(root, node, required)
     // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
-    visit(root, node.slice(2) as Node[], required)
+    const children = hasMarkdownHtmlChildren(node)
+      ? (await parseMarkdown(node.slice(2).join(""), parserOptions)).nodes
+      : node.slice(2) as Node[]
+    await visit(root, children, required)
   }
 }
 
@@ -97,7 +100,7 @@ function renderField(field: DataField, indent: string): string {
 export async function inferMarkdownTemplateDataType(template: string, indent = ""): Promise<MarkdownTemplateDataType> {
   const prepared = await prepareTemplate(template)
   const root = emptyField()
-  visit(root, (await parseMarkdown(prepared.template, parserOptions)).nodes, true)
+  await visit(root, (await parseMarkdown(prepared.template, parserOptions)).nodes, true)
   if (!root.children.size) return { required: false, type: "Record<string, never>" }
   return { required: [...root.children.values()].some(field => field.required), type: renderField(root, indent) }
 }
