@@ -20,6 +20,7 @@ the same behavior.
 | --- | --- |
 | `vite-hub` | `vitehub()`, the framework Vite plugin. |
 | `vite-hub` | `detectHost()`: the host `vitehub()` detects when `host` is omitted. Use it for host-specific config. |
+| `vite-hub/seo` | `defineSitemap()` for the pages of `server/sitemap.ts`. See [Sitemap and robots.txt](/docs/frameworks-hosts/sitemap). |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
@@ -138,6 +139,7 @@ the same behavior.
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
+| `vite-hub/schedule/os` | `installOsSchedule()`, `osScheduleStatus()`, and `uninstallOsSchedule()`: run a Schedule from a systemd, launchd, or Task Scheduler timer. See [OS timers](/docs/schedule/os-timers). |
 | `vite-hub/schedule/runtime` | Schedule Run stores and custom runtime wiring. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |

@@ -20,7 +20,7 @@ export const viteHubServerImports = {
   database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
   email: { "vite-hub/email": ["email"] },
   // Generated Env declarations type the primitive root for each app.
-  env: { "vite-hub/env": ["useServerEnv"] },
+  env: { "vite-hub/env": ["checkServiceToken", "requireServiceToken", "useServerEnv"] },
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
@@ -28,6 +28,7 @@ export const viteHubServerImports = {
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
+  seo: { "vite-hub/seo": ["defineSitemap"] },
   workflow: { "vite-hub/workflow": ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
   workspace: { "vite-hub/workspace": ["useWorkspace"] },
 } as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
@@ -52,6 +53,7 @@ interface ServerImportEntries {
   "vite-hub/realtime/server": typeof import("./realtime/server.ts")
   "vite-hub/sandbox/task": typeof import("./sandbox/task.ts")
   "vite-hub/schedule": typeof import("./schedule.ts")
+  "vite-hub/seo": typeof import("./seo.ts")
   "vite-hub/workflow": typeof import("./workflow.ts")
   "vite-hub/workspace": typeof import("./workspace.ts")
 }

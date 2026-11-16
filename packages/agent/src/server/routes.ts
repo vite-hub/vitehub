@@ -75,7 +75,7 @@ import {
 } from "../internal/channel-state.ts"
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
-import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
+import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
@@ -413,7 +413,7 @@ interface ChatTypingRefresh {
 }
 
 function createRouteError(statusCode: number, message: string): AgentHttpError {
-  return new AgentHttpError(statusCode, message)
+  return agentHttpError(statusCode, message)
 }
 
 function createRouteBodyError(message: string): Error & { status?: number; statusCode?: number } {
@@ -9721,8 +9721,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
-      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
+      if (!deliveryState) throw invariantError("chatDeliveryState is set whenever webhookDeliveryState is not used, so the Agent Channel delivery state resolves")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
@@ -10322,7 +10321,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
     if (!match) throw agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: JSON.stringify(channel), problem: "unknown" })
-    if (agentChannelOptions(agent)[channel]?.history) throw agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: JSON.stringify(channel), problem: "history" })
+    if (agentChannelOptions(agent)[channel]?.history) throw agentDiagnostics.AGENT_CHANNELS_NO_CONVERSATIONS({ channel: JSON.stringify(channel) })
     return match.registration
   }
   handler.conversation = async (request, input, handlerOptions = {}) => {

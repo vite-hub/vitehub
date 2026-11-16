@@ -37,6 +37,22 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The log cursor has expired. Refresh to read the retained events.",
       fix: "Read the logs again from the first page without a cursor. The log source no longer keeps the events that the cursor pointed to.",
     },
+    SEO_PUBLIC_URL_MISSING: {
+      why: ({ route }: { route: string }) => `The build prerenders \`${route}\`, which holds full URLs, but \`publicUrl\` is not set to one origin. A prerendered file has no request to take the origin from.`,
+      fix: "Set `publicUrl` in `vitehub()` to the origin of the deployed app, such as `publicUrl: \"https://example.com\"`, or remove the route from `nitro.prerender.routes` so each request gives the origin.",
+    },
+    SEO_SITEMAP_ENTRY_INVALID: {
+      why: ({ entry }: { entry: string }) => `\`server/sitemap.ts\` returned an entry that is not a page: ${entry}.`,
+      fix: "Return objects such as `{ loc: \"/blog/hello\", lastmod: \"2026-11-16\" }` from `defineSitemap()`. `loc` is a path that starts with `/` or an `http(s)` URL, and `lastmod` is a date or a date string.",
+    },
+    SEO_SITEMAP_ROUTE_EXISTS: {
+      why: "`seo.sitemap` serves `/sitemap.xml`, but the app has its own server route for `/sitemap.xml`.",
+      fix: "Delete the server route and return its pages from `defineSitemap()` in `server/sitemap.ts`, or remove `seo.sitemap` to keep your route.",
+    },
+    SEO_SITEMAP_TOO_LARGE: {
+      why: ({ count, limit }: { count: number, limit: number }) => `The sitemap has ${count} URLs, but one sitemap file holds at most ${limit}.`,
+      fix: "Leave pages out with `seo.sitemap.exclude`, or return fewer entries from `server/sitemap.ts`.",
+    },
     TASK_FAILED: {
       why: ({ detail, name }: { detail: string, name: string }) => `Task "${name}" failed: ${detail}`,
       fix: "Read the server log for the stack of the error, and fix the `run()` method of the file in `server/tasks/` that the message names.",

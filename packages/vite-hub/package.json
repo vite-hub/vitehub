@@ -652,6 +652,11 @@
       "import": "./dist/schedule.js",
       "default": "./dist/schedule.js"
     },
+    "./schedule/os": {
+      "types": "./dist/schedule/os.d.ts",
+      "import": "./dist/schedule/os.js",
+      "default": "./dist/schedule/os.js"
+    },
     "./schedule/runtime": {
       "types": "./dist/schedule/runtime.d.ts",
       "import": "./dist/schedule/runtime.js",
@@ -686,6 +691,11 @@
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js",
       "default": "./dist/test.js"
+    },
+    "./seo": {
+      "types": "./dist/seo.d.ts",
+      "import": "./dist/seo.js",
+      "default": "./dist/seo.js"
     },
     "./skills": {
       "types": "./dist/skills.d.ts",

@@ -2303,6 +2303,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      linkedom:
+        specifier: ^0.18.13
+        version: 0.18.13
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
@@ -2480,7 +2483,7 @@ importers:
         specifier: 0.6.2
         version: 0.6.2
       '@vite-hub/agent':
-        specifier: ^0.1.0
+        specifier: '*'
         version: link:../agent
       '@vite-hub/runtime':
         specifier: workspace:*
@@ -2510,6 +2513,9 @@ importers:
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261103-rc
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3352,6 +3358,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13

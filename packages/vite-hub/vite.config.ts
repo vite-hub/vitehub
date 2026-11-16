@@ -68,6 +68,7 @@ const runtimeEntries = [
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
+  "src/seo/runtime.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -639,6 +640,7 @@ export default defineConfig({
           delete exports["./cache/operations"];
           delete exports["./skills/operations"];
           delete exports["./durability/operations"];
+          delete exports["./seo/runtime"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];

@@ -10,4 +10,7 @@ export const emailPreview: {
   templates: Array<{ file: string, name: string, source: string }>
 } = { roots: [], templates: [] }
 
+/** The configured plugin replaces this with the Markdown renderer when the application has templates. */
+export const renderEmailTemplate: ((source: string, data?: Record<string, unknown>) => Promise<{ html: string, text: string }>) | undefined = undefined
+
 export default definition
