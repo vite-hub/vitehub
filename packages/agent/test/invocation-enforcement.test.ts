@@ -273,7 +273,7 @@ describe("Agent Invocation enforcement", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       const retry = runAgentWorkflowDefinition(agent, attempt, runAgentInline)
-      const settled = expect(retry).rejects.toThrow("Could not persist the Invocation running state.")
+      const settled = expect(retry).rejects.toMatchObject({ code: "AGENT_INVOCATION_DRIVER_INTERRUPTED", isRetryable: false })
       await vi.advanceTimersByTimeAsync(31_000)
       await settled
     }
