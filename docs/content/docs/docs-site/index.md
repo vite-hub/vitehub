@@ -11,7 +11,7 @@ icon: i-lucide-library
   :::code-tree
   ```ts [nuxt.config.ts]
   export default defineNuxtConfig({
-    modules: ['@vite-hub/docs/nuxt'],
+    modules: ['vite-hub/docs/nuxt'],
     docs: {
       // Name in titles, the rail, and llms.txt
       site: { name: 'Lumen', url: 'https://lumen.example.com' },
@@ -86,3 +86,20 @@ The design follows the comark-ui site: Geist, neutral grays, small radii, hairli
 ## Reference and limits
 
 The [Server API](/docs/docs-site/server-api) lists every module option, frontmatter field, export, and route. [Limits and errors](/docs/docs-site/limits-and-errors) lists what the module does not do yet and how to fix each error.
+
+## Use without ViteHub
+
+The module also works in a Nuxt app without `vite-hub`. Install `@vite-hub/docs` and add `@vite-hub/docs/nuxt` to `modules`:
+
+```bash pm [commands/install-alone]
+pnpm add @vite-hub/docs
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: { site: { name: 'Lumen' } },
+})
+```
+
+Import the other paths from `@vite-hub/docs` too, such as `createDocsManifest()` from `@vite-hub/docs/server`. Without `vite-hub/nuxt`, the site has no [Comments](/docs/docs-site/configure#comments) and no [assistant](/docs/docs-site/assistant).
