@@ -243,7 +243,6 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
       if (!bytes || bytes.length < length + ivLength + tagLength || (bytes[0] !== version && !counted)) {
         return [sealErrors.ENV_SEAL_INVALID(), undefined]
       }
-      const db = counted ? usesDatabase(options.db, "This value was sealed with `uses`. Pass the same `db` to `unseal()`, so that it can take a use.") : undefined
       const header = bytes.subarray(0, length)
       const expected = await fingerprint(purpose)
       if (expected.some((byte, index) => header[1 + index] !== byte)) {
@@ -260,6 +259,8 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
       catch {
         return [sealErrors.ENV_SEAL_INVALID(), undefined]
       }
+      // Require the database only after authenticating the counted header.
+      const db = counted ? usesDatabase(options.db, "This value was sealed with `uses`. Pass the same `db` to `unseal()`, so that it can take a use.") : undefined
       // Check the expiry after decryption, so that a changed expiry reads as ENV_SEAL_INVALID.
       const expiresAt = new DataView(header.buffer, header.byteOffset).getFloat64(5)
       const id = db && toHex(header.subarray(headerLength))

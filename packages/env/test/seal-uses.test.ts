@@ -131,6 +131,17 @@ describe("seal with uses", () => {
     await expect(unseal("app:share", link)).rejects.toMatchObject({ code: "ENV_SEAL_ARGUMENT_INVALID" })
   })
 
+  it("rejects an unauthenticated counted header without requiring a db", async () => {
+    const sealed = await seal("app:share", { message: "a sufficiently long ordinary JSON payload" })
+    const bytes = Buffer.from(sealed, "base64url")
+    bytes[0] = 2
+    expect((await unseal("app:share", bytes.toString("base64url")))[0]?.code).toBe("ENV_SEAL_INVALID")
+
+    const { db } = (await sharedDatabase())()
+    const counted = await seal("app:share", "hello", { uses: 1, db })
+    expect((await unseal("app:share", flip(counted, 13)))[0]?.code).toBe("ENV_SEAL_INVALID")
+  })
+
   it("still opens a value without uses any number of times, with or without a db", async () => {
     const { db } = (await sharedDatabase())()
     const sealed = await seal("app:share", "hello")
