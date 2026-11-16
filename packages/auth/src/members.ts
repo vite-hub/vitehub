@@ -140,6 +140,8 @@ export interface MembersGate {
   allows: (context: AuthContext, user: MemberUser) => Promise<boolean>
   /** Refuses the sign-up of a person that the list cannot let in. */
   databaseHooks: (context: AuthContext) => NonNullable<BetterAuthOptions["databaseHooks"]>
+  /** Remove a refused signup only when this endpoint created its user. */
+  cleanup: (context: AuthContext, userId: string, endpoint: object | null | undefined) => Promise<void>
   /** The error to throw for a refused sign-in. */
   refusal: () => APIError
 }
@@ -149,6 +151,11 @@ export interface MembersGate {
  * are always members.
  */
 export function createMembersGate(members: readonly MemberEntry[], admins: readonly AdminAccount[], plugins: readonly BetterAuthPlugin[]): MembersGate {
+  const createdUsers = new WeakMap<object, Set<string>>()
+  const cleanup = async (context: AuthContext, userId: string, endpoint: object | null | undefined) => {
+    if (!endpoint || !createdUsers.get(endpoint)?.delete(userId)) return
+    await context.internalAdapter.deleteUser(userId)
+  }
   const accounts = [...members.flatMap(entry => entry.kind === "account" ? [entry] : []), ...admins]
   const orgs = members.flatMap(entry => entry.kind === "github-org" ? [entry.org] : [])
   const adminRole = plugins.some(plugin => plugin.id === "admin") ? adminRoleGrant(plugins, membersVariable).role : undefined
@@ -201,6 +208,7 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
     entries: members.map(formatMemberEntry),
     check,
     allows,
+    cleanup,
     refusal: notMember,
     databaseHooks: context => ({
       user: {
@@ -210,19 +218,25 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
             // The app's own hooks run after this one and can give the admin role, so with `admin()` the account decides.
             if (!emailListed(user.email) && !adminRole && !accounts.length && !orgs.length) throw notMember()
           },
+          after: async (user, endpoint) => {
+            if (!endpoint) return
+            const users = createdUsers.get(endpoint) ?? new Set<string>()
+            users.add(user.id)
+            createdUsers.set(endpoint, users)
+          },
         },
       },
       account: {
         create: {
-          // The first account of a user is a sign-up. Linking another account to a member is not checked.
+          // Only this endpoint's new users need signup validation; linking never deletes an existing user.
           // The email can be unverified here: Auth creates no session until the email is verified.
-          before: async (account) => {
-            if ((await context.internalAdapter.findAccounts(account.userId)).length) return
+          before: async (account, endpoint) => {
+            if (!endpoint || !createdUsers.get(endpoint)?.has(account.userId)) return
             const user = await context.internalAdapter.findUserById(account.userId)
             const answer = Boolean(user && (emailListed(user.email) || isAdmin(user))) || accountListed(account) || await orgMember(context, account)
             if (answer === true) return
             // Without a transaction, Better Auth would keep the user of a refused sign-up.
-            if (user) await context.internalAdapter.deleteUser(user.id)
+            if (user) await cleanup(context, user.id, endpoint)
             throw answer ? unavailable(answer) : notMember()
           },
         },

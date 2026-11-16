@@ -134,11 +134,18 @@ export function createAccessPolicyPlugin({ policy, members }: { policy?: AuthAcc
           session: {
             create: {
               // Refusing here refuses every way in: social and email sign-in, sign-up, and impersonation.
-              before: async (session) => {
+              before: async (session, endpoint) => {
                 const user = await context.internalAdapter.findUserById(session.userId)
                 if (!user) return false
                 // A refused member gets a code that says why. An app policy refusal stays a plain failure.
-                if (members && !await members.allows(context, user)) throw members.refusal()
+                if (members) {
+                  try {
+                    if (!await members.allows(context, user)) throw members.refusal()
+                  } catch (error) {
+                    await members.cleanup(context, user.id, endpoint)
+                    throw error
+                  }
+                }
                 if (!await askPolicy(context, user)) return false
               },
               after: async (session) => {

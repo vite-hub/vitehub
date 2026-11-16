@@ -1,6 +1,8 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
-import { admin } from "better-auth/plugins"
+import { admin, magicLink } from "better-auth/plugins"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { BetterAuthPlugin } from "better-auth"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthConsole } from "../src/console-runtime.ts"
@@ -39,7 +41,7 @@ function stubGitHub(account: { id: number, email: string, verified?: boolean, or
   })
 }
 
-function createMembersAuth(options: { plugins?: ReturnType<typeof admin>[] } = {}) {
+function createMembersAuth(options: { plugins?: BetterAuthPlugin[] } = {}) {
   const db: Record<string, Row[]> = { account: [], session: [], user: [], verification: [] }
   const definition = defineFixedAuth({
     database: memoryAdapter(db),
@@ -90,6 +92,35 @@ function signUp(auth: Auth, email: string) {
 }
 
 describe("VITEHUB_MEMBERS", () => {
+  it.each([false, true])("keeps an existing accountless user when linking their first account (admin: %s)", async (isAdmin) => {
+    vi.stubEnv("VITEHUB_MEMBERS", "github:1")
+    const { db, auth } = createMembersAuth({ plugins: [admin()] })
+    const context = await auth().$context
+    const user = await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true, role: isAdmin ? "admin" : "user" })
+    await context.internalAdapter.createAccount({ userId: user.id, providerId: "github", accountId: "2" })
+    expect(await context.internalAdapter.findUserById(user.id)).not.toBeNull()
+    expect(db.account).toHaveLength(1)
+  })
+
+  it("removes only a new refused magic-link user and preserves an existing user", async () => {
+    vi.stubEnv("VITEHUB_MEMBERS", "github:1")
+    let link = ""
+    const { db, auth } = createMembersAuth({ plugins: [magicLink({ sendMagicLink: async ({ url }) => { link = url } })] })
+    const context = await auth().$context
+    await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true })
+    for (const email of ["stranger@example.com", "existing@example.com"]) {
+      const start = await auth().handler(new Request(`${origin}/api/auth/sign-in/magic-link`, {
+        method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ email }),
+      }))
+      expect(start.status).toBe(200)
+      const response = await auth().handler(new Request(link))
+      expect(response.status).toBe(403)
+      expect(await response.json()).toMatchObject({ code: "AUTH_NOT_MEMBER" })
+      expect(db.user!.map(user => user.email)).toEqual(["existing@example.com"])
+      expect(db.session).toHaveLength(0)
+    }
+  })
+
   it("lets a listed GitHub account sign up, and refuses another one without keeping its user", async () => {
     vi.stubEnv("VITEHUB_MEMBERS", "github:22072217")
     const { db, auth } = createMembersAuth()
