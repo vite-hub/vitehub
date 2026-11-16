@@ -3,7 +3,7 @@ import { useUserSession } from "@vite-hub/auth/vue"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
-import { computed, markRaw, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
+import { computed, getCurrentInstance, markRaw, onMounted, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
 import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
@@ -413,11 +413,14 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return await requestResult("refresh", isRefreshResult)
   }
 
-  watch([() => toValue(documentId), enabled], ([id, active]) => {
+  const start = () => watch([() => toValue(documentId), enabled], ([id, active]) => {
     destroyDocument()
     if (!active || !id || typeof window === "undefined") return
     connect(id)
   }, { immediate: true })
+  // In a component, connect after mount so the first client render matches the server's `disconnected`.
+  if (getCurrentInstance()) onMounted(start)
+  else start()
 
   watch(enabled, (active) => {
     const current = workspaceProvider.value
