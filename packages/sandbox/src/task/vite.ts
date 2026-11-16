@@ -5,7 +5,7 @@ import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
 import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
-import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName, type CloudflareSandboxEntrypointOptions } from './cloudflare'
+import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName } from './cloudflare'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
@@ -16,7 +16,9 @@ import {
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
 import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
-import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources } from './inspect'
+import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources, type SandboxTaskResourceInspectionOptions } from './inspect'
+import { sandboxDeploymentEnv } from './deployment-env'
+import type { DeploymentEnvContribution } from '@vite-hub/internal/build/deployment-plan-output'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
 import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
@@ -28,6 +30,8 @@ export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandb
 
 export type SandboxTaskOptions = AgentSandboxTaskConfig | false
 export type SandboxTaskVitePlugin = Plugin & {
+  /** The variables that Sandbox Tasks read on the deployed host. See `sandboxDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
     name: string
@@ -253,7 +257,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
-  let cloudflareSandbox: CloudflareSandboxEntrypointOptions | undefined
+  let cloudflareSandbox: SandboxTaskResourceInspectionOptions | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
   const sandboxTaskNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
@@ -354,7 +358,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     config.nitro = nitro
     const className = prepared.cloudflare.className || defaultCloudflareSandboxClassName
     const container = nitro.cloudflare?.wrangler?.containers?.find(entry => entry.class_name === className)
-    cloudflareSandbox = { ...prepared.cloudflare, name: container?.name }
+    cloudflareSandbox = { ...prepared.cloudflare, name: container?.name, instanceType: container?.instance_type, maxInstances: container?.max_instances }
     return true
   }
 
@@ -362,6 +366,12 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     name: '@vite-hub/sandbox/task/vite',
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/task/provider-runtime', setup: sandboxTaskNitroModule },
+    api: {
+      // Without Sandbox Task Definitions, the server opens no Sandbox.
+      deploymentEnv: context => sandboxTaskEnabled && definitions.length
+        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.provider : undefined), context)
+        : [],
+    },
     vitehub: {
       inspect: () => sandboxTaskEnabled ? ({
         definitions: [{

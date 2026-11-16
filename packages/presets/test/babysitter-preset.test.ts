@@ -4202,6 +4202,23 @@ describe("Babysitter preset runtime", () => {
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
+  it("runs a placed Sandbox pass while this host's worker capacity admits nothing", async () => {
+    const release = vi.fn();
+    const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+    // Local memory admits no model pass. The pass runs on another host, so it must not wait for one.
+    const sample = vi.fn(() => ({ concurrency: 0 }));
+    const f = await fixture(false, false, { placement: { place },
+      workerCapacity: { concurrency: 1, queue: { maxPending: 1, timeout: 2_000 }, adaptive: { sample, intervalMs: 100 } } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      f.choose("pushRepair");
+      await f.reconcile();
+      expect(place).toHaveBeenCalledOnce();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  }, 30_000);
+
   it("runs a pass on this host when placement returns no Sandbox", async () => {
     const release = vi.fn();
     const f = await fixture(false, false, { placement: { place: () => ({ release }) } });

@@ -145,7 +145,7 @@ Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at 
 
 When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
 
-Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`. Give `seal()` a separate `secret` for stored values for the same reason.
+Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKeys`. Give `seal()` a separate `secret` for stored values for the same reason.
 
 > [!WARNING]
 > Anyone with the root secret can derive every secret above, including Auth session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.
