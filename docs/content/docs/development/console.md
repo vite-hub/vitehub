@@ -447,7 +447,7 @@ The CLI reads one `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` variable, and `<NAME>` is
 Each signed request has two headers:
 
 - `x-vitehub-signature: key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>`
-- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. The ViteHub MCP of the Console adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores fields that it does not know, so a newer Console can still call an older app.
+- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. The ViteHub MCP of the Console adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores fields that it does not know, so a newer Console can still call an older app. An app with a vite-hub from before this rule refuses the MCP fields. The MCP `check_app` tool then checks the link as the Console page does, and the other MCP tools answer `CONSOLE_APP_VITEHUB_OUTDATED`.
 
 The signature is Ed25519 over these lines, joined with a line feed:
 
