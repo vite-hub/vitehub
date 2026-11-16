@@ -297,6 +297,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
       ...await docsCommentsDependencies(nuxt, docs.comments),
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
+      // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build. This package's 1.x loads
+      // first under the same name, so Nuxt UI uses it too.
+      "@nuxt/fonts": {},
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},

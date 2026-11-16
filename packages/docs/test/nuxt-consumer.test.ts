@@ -54,6 +54,9 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       { name: "Geist", global: true },
       { name: "Geist Mono", global: true },
     ]))
+    // @nuxt/fonts 0.14, the version that Nuxt UI asks for, writes empty font files on a Nitro 3 build.
+    const fontModules = nuxt.options._installedModules.filter(({ meta }) => meta.name === "@nuxt/fonts")
+    expect(fontModules.map(({ meta }) => meta.version)).toEqual([expect.stringMatching(/^1\./)])
   }
   finally {
     await nuxt?.close()
