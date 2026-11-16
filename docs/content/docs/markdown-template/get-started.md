@@ -2,9 +2,8 @@
 title: Render your first Markdown template
 description: "Install the Markdown Template package, bind data, and return rendered Markdown."
 layout: tutorial
-navigation.title: Tutorial
-navigation.order: 52
-navigation.group: Application APIs
+navigation.title: Get started
+navigation.order: 2
 icon: i-lucide-rocket
 ---
 
@@ -74,5 +73,5 @@ Status: ready
 
 To keep the template in a file, import a `*.template.md` file. In a framework app, `vitehub()` loads it. In a modular Vite config, add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`.
 
-Next, read [Markdown templates](/docs/reference/markdown-templates) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
+Next, read [Markdown templates](/docs/markdown-template) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
 ::
