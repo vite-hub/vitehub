@@ -101,7 +101,7 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     // One hour, the default of content.preview.
     const expiresIn = first.previews![0]!.expiresAt.getTime() - before
     expect(expiresIn).toBeGreaterThan(3590_000)
-    expect(expiresIn).toBeLessThanOrEqual(3600_000)
+    expect(expiresIn).toBeLessThanOrEqual(3600_000 + Date.now() - before)
 
     const link = new Request(`https://docs.example${first.previews![0]!.url}`)
     expect(await content.sources.allow("pr/1", link, "site")).toMatchObject({ allowed: true, reason: "token" })
