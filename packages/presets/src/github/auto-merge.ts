@@ -3,6 +3,7 @@ import html from "comark/plugins/html"
 import linkify from "comark/plugins/linkify"
 import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
@@ -292,14 +293,10 @@ export function createGitHubPullRequestOperations(
   options: GitHubPullRequestOperationsOptions,
 ): GitHubPullRequestOperations {
   const [owner, name, extra] = options.repository.split("/")
-  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
-  if (!owner || !name || extra !== undefined || !/^[\w.-]+\/[\w.-]+$/.test(options.repository)) throw new Error("Expected a GitHub owner/repository.")
-  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
-  if (!Number.isSafeInteger(options.number) || options.number <= 0) throw new Error("Expected a positive pull request number.")
-  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
-  if (!/^[a-f\d]{40}$/i.test(options.expectedHeadOid)) throw new Error("Expected a full GitHub head commit SHA.")
-  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
-  if (options.expectedBaseOid !== undefined && !/^[a-f\d]{40}$/i.test(options.expectedBaseOid)) throw new Error("Expected a full GitHub base commit SHA.")
+  if (!owner || !name || extra !== undefined || !/^[\w.-]+\/[\w.-]+$/.test(options.repository)) throw invariantError("the Babysitter passes the owner/name repository of a pull request that it read from GitHub")
+  if (!Number.isSafeInteger(options.number) || options.number <= 0) throw invariantError("the Babysitter passes the positive number of a pull request that it read from GitHub")
+  if (!/^[a-f\d]{40}$/i.test(options.expectedHeadOid)) throw invariantError("the Babysitter passes the full head commit SHA of a pull request that it read from GitHub")
+  if (options.expectedBaseOid !== undefined && !/^[a-f\d]{40}$/i.test(options.expectedBaseOid)) throw invariantError("the Babysitter passes the full base commit SHA of a pull request that it read from GitHub")
   const repository = options.repository
   const mentionAllowlist = new Set(normalizeGitHubMentionAllowlist(options.mentionAllowlist))
   let expectedHeadOid = options.expectedHeadOid
@@ -606,8 +603,7 @@ export function createGitHubPullRequestOperations(
       await snapshot()
       signal?.throwIfAborted()
       const pushedHead = await options.push()
-      // Internal invariant: the Babysitter's push is the GitHub host push, which returns a checked full commit SHA.
-      if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw new Error("The host push did not return a verified commit SHA.")
+      if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw invariantError("the GitHub host push returns a checked full commit SHA")
       expectedHeadOid = pushedHead
       return pushedHead
     },

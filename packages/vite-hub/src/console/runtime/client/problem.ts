@@ -1,5 +1,5 @@
 import { consoleDiagnostic, consoleDiagnosticAction, isConsoleDiagnosticCode, type ConsoleDiagnosticAction, type ConsoleDiagnosticCode } from "../diagnostics"
-import { ConsoleNetworkError, ConsoleRequestError } from "./request"
+import { ConsoleRequestError } from "./request"
 
 /** A failure as the Console shows it: what happened, how to repair it, and the next step. */
 export interface ConsoleProblem {
@@ -47,8 +47,8 @@ export function consoleProblem(error: unknown): ConsoleProblem | undefined {
       why: error.message,
     }
   }
-  // Only failures wrapped at the fetch boundary are transient network errors.
-  if (error instanceof ConsoleNetworkError) return fromCode("CONSOLE_UNAVAILABLE")
+  // Only failures wrapped at the fetch boundary are transient network errors. They show the default why.
+  if (error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE") return fromCode("CONSOLE_UNAVAILABLE")
   if (error instanceof Error) {
     const code = text(Reflect.get(error, "code"))
     if (code && isConsoleDiagnosticCode(code)) return fromCode(code, error.message)

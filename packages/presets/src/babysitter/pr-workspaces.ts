@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readFile, readdir, rename, rm, statfs, writeFile } 
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
+import { invariantError } from "@vite-hub/internal/invariant";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const exec = promisify(execFile);
@@ -91,8 +92,7 @@ export function validWarmWorkspaces(value: unknown): value is boolean | Babysitt
 /** `owner+name+number`: GitHub names never contain `+`, so an entry name maps back to one PR. */
 function entryName(repository: string, number: number): string {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !Number.isSafeInteger(number) || number < 1) {
-    // Internal invariant: the inbox only claims PRs of configured owner/name repositories.
-    throw new Error("Expected a GitHub repository in owner/name form and a pull request number.");
+    throw invariantError("the Babysitter inbox claims only pull requests of owner/name repositories")
   }
   return `${repository.toLowerCase().replace("/", "+")}+${number}`;
 }
