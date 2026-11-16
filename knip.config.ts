@@ -182,6 +182,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   // The generated Durable Object imports it, and the tests build that output.
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
+  // The OS timer tests check the generated files with the OS tools, when the machine has them.
+  schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
