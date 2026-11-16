@@ -1,4 +1,8 @@
+import { createError } from "nitro/h3"
+
 import type { Result, ResultError } from "@vite-hub/runtime"
+import type { HTTPError } from "h3"
+import type { Diagnostic } from "nostics"
 
 import type { BlobErrorCode, BlobOperation } from "./types.ts"
 import { blobErrorDiagnostics, blobErrors } from "./error-diagnostics.ts"
@@ -26,8 +30,21 @@ export function blobError(
   options: { cause?: unknown, detail?: string } = {},
 ): ResultError<BlobErrorCode> {
   const error: ResultError<BlobErrorCode> = blobErrors[code]({ ...options, operation, store })
-  // H3 reads `statusCode`, so a route that rethrows a missing object answers 404, not 500.
+  // A Result error keeps `name` equal to its code, so it cannot be an H3 `HTTPError`. A route maps the code to a status.
   return code === "BLOB_NOT_FOUND" ? Object.assign(error, { statusCode: 404 }) : error
+}
+
+/** A Blob HTTP error: an H3 `HTTPError` that also has the diagnostic fields of its cause. */
+export type BlobHttpError = HTTPError & Pick<Diagnostic, "code" | "docs" | "fix" | "why">
+
+/**
+ * Turns a thrown client error, such as an invalid pathname, into an H3 `HTTPError`. H3 marks any other thrown error
+ * as unhandled, and Nitro then answers 500 without the message. The result keeps `code`, `why`, `fix`, and `docs`, on
+ * the error and in the JSON body.
+ */
+export function blobHttpError(status: number, cause: Diagnostic): BlobHttpError {
+  const { code, docs, fix, message, why } = cause
+  return Object.assign(createError({ body: { code, docs, fix }, cause, message, status }), { code, docs, fix, why })
 }
 
 export async function blobResult<TResult>(

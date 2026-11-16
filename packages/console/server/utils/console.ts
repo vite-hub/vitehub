@@ -233,6 +233,13 @@ function failureOf(value: unknown, status: number): ProjectOperationFailure {
  * `undefined` when the team has no such project.
  */
 export async function callProjectOperation(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
+  const result = await signedProjectCall(caller, id, operation, input, options)
+  if (!result || !refusedCallerFields(result, options)) return result
+  const outdated = outdatedApp(await signedProjectCall(caller, id, "project.get", {}))
+  return outdated ? { error: outdated, ok: false, status: result.status } : result
+}
+
+async function signedProjectCall(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
   const target = await caller.projects.target(id)
   if (!target) return undefined
   const outcome = await callOperationRpc(operation, input, async (body) => {
@@ -244,22 +251,24 @@ export async function callProjectOperation(caller: ConsoleTeamCaller, id: string
   const { body, response } = outcome.answer
   if (outcome.ok) return { ok: true, status: response.status, value: outcome.value }
   // Host middleware, such as the signature check, answers with the diagnostic body and no birpc reply.
-  const error = failureOf(outcome.error ?? body, response.status)
-  if (response.status === 401 && error.code === "CONSOLE_SIGNATURE_INVALID" && (options.surface || options.readOnly)) {
-    const outdated = await outdatedApp(caller, id)
-    if (outdated) return { error: outdated, ok: false, status: response.status }
-  }
-  return { error, ok: false, status: response.status }
+  return { error: failureOf(outcome.error ?? body, response.status), ok: false, status: response.status }
 }
 
 /**
- * Why an app refused the signed caller of an MCP call, when the reason is its vite-hub version. An app before the
- * forward-compatible caller check refuses the fields that it does not know, such as `surface` and `readOnly`, as a
- * malformed header. The Console then asks `project.get` with the fields of a Console page call, which every linked app
- * takes, and names the version of the app.
+ * Whether an app refused the caller of an MCP call as a malformed header. An app before the forward-compatible caller
+ * check refuses the caller fields that it does not know: `surface` and `confirmed` before vite-hub #4052, `readOnly`
+ * before #4624. It still takes the fields of a Console page call, which every linked app knows.
  */
-async function outdatedApp(caller: ConsoleTeamCaller, id: string): Promise<ProjectOperationFailure | undefined> {
-  const project = await callProjectOperation(caller, id, "project.get", {})
+function refusedCallerFields(result: ProjectOperationResult, options: ConsoleCallOptions): boolean {
+  return !result.ok && result.status === 401 && result.error.code === "CONSOLE_SIGNATURE_INVALID" && Boolean(options.surface || options.readOnly)
+}
+
+/**
+ * Why an app refused the signed caller of an MCP call, when the reason is its vite-hub version, which the `project.get`
+ * of a Console page call names. The Console does not send the call again without the MCP fields: they are the rules
+ * that the app applies to the call, and an older app would run it without them.
+ */
+function outdatedApp(project: ProjectOperationResult | undefined): ProjectOperationFailure | undefined {
   const version: unknown = project?.ok && project.value instanceof Object ? Reflect.get(project.value, "vitehub") : undefined
   if (typeof version !== "string") return undefined
   const { code, fix, why } = consoleErrorDiagnostics.CONSOLE_APP_VITEHUB_OUTDATED({ version })
@@ -269,10 +278,13 @@ async function outdatedApp(caller: ConsoleTeamCaller, id: string): Promise<Proje
 /**
  * Call `project.get` on the project with a signed request. A linked project answers `200`. Before the project has the
  * public key of the link, it answers `401` with `CONSOLE_KEY_UNKNOWN`, or `500` with `CONSOLE_KEY_NOT_CONFIGURED`.
- * `answer` is the value, or the diagnostic of the failure.
+ * `answer` is the value, or the diagnostic of the failure. An older app that refuses the MCP fields of the caller has
+ * the key of the link all the same: the check then reads `project.get` as a Console page does, and the app is linked.
  */
 export async function checkProject(caller: ConsoleTeamCaller, id: string, options: ConsoleCallOptions = {}): Promise<Response> {
-  const result = await callProjectOperation(caller, id, "project.get", {}, options)
+  const first = await signedProjectCall(caller, id, "project.get", {}, options)
+  // `project.get` only reads, so the call of a Console page asks the same question without the MCP rules.
+  const result = first && refusedCallerFields(first, options) ? await signedProjectCall(caller, id, "project.get", {}) : first
   if (!result) return projectNotFound()
   return consoleJson({ answer: result.ok ? result.value : result.error, linked: result.ok, status: result.status })
 }
