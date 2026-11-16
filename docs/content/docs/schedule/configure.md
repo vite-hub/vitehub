@@ -98,7 +98,7 @@ Do not use this driver on request-scoped or serverless hosts that may stop betwe
 
 ### Run on more than one server
 
-Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. This works on Postgres and remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
+Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. This works on Postgres, with postgres.js or node-postgres, and on remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
 
 | Case | What happens |
 | --- | --- |

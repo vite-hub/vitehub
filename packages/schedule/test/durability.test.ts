@@ -13,8 +13,11 @@ describe("scheduleDurability", () => {
     expect(scheduleDurability({ driver: "process" }, context({}, [{ primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }]))).toMatchObject([{ store: "process", scope: "process" }])
   })
 
-  it("is shared only with SQL leases on a Postgres Default Database", () => {
+  it("is shared only with SQL leases on a Postgres or remote libSQL Default Database", () => {
     expect(scheduleDurability({ driver: "process", leases: true }, context({}, [{ primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }]))).toMatchObject([{ store: "postgres", scope: "shared" }])
+    expect(scheduleDurability({ driver: "process", leases: true }, context({}, [{ primitive: "database", store: "libsql", scope: "shared", reason: "A remote libSQL server." }]))).toMatchObject([{ store: "libsql", scope: "shared" }])
     expect(scheduleDurability({ driver: "process", leases: true }, context({}, [{ primitive: "database", store: "sqlite", scope: "host", reason: "A file." }]))).toMatchObject([{ scope: "process", reason: expect.stringContaining("sqlite") }])
+    // The lease store has no D1 client, so each process keeps its leases in memory.
+    expect(scheduleDurability({ driver: "process", leases: true }, context({}, [{ primitive: "database", store: "d1", scope: "shared", reason: "Cloudflare D1 over HTTP." }]))).toMatchObject([{ scope: "process", fix: expect.stringContaining("remote libSQL") }])
   })
 })

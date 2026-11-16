@@ -3518,12 +3518,18 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/pg':
+        specifier: catalog:database
+        version: 8.23.1
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
+      pg:
+        specifier: catalog:database
+        version: 8.23.1
       postgres:
         specifier: catalog:database
         version: 3.4.9

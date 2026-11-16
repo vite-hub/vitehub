@@ -84,8 +84,10 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@types/pg": "catalog:database",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
+    "pg": "catalog:database",
     "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

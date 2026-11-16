@@ -29,6 +29,7 @@ import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
+import type { ScheduleDurabilityInput } from "./durability.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -448,7 +449,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
             ? [
                 // Every server of the app claims each occurrence in the Default Database, so one server runs it.
                 "  const leases = scheduleLeaseStoreFromDatabase(databases.default.db)",
-                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js or libSQL client, so each server process runs every Schedule. Use a Postgres or remote libSQL Default Database to run more than one server.')",
+                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js, node-postgres, or libSQL client, so each server process runs every Schedule. Use a Postgres or remote libSQL Default Database to run more than one server.')",
               ]
             : []),
           "  const runtimeInstallation = installProcessScheduleRuntime({",
@@ -1049,9 +1050,15 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   }
   inspectable.api = { deploymentEnv: context => scheduleDeploymentEnv(discoverRegistrySchedules().length, context) }
   inspectable.vitehub = {
-    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
+    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron. The generated
+    // runtime keeps its leases in the Default Database when the app has the Database plugin.
     durability: () => options.runtime?.driver === "process"
-      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url), primitive: "schedule" }]
+      ? [{
+          export: "scheduleDurability",
+          input: { driver: "process", leases: hasVitePlugin(resolved?.plugins, databaseVitePluginName) } satisfies ScheduleDurabilityInput,
+          module: durabilityModuleFile(import.meta.url),
+          primitive: "schedule",
+        }]
       : [],
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: ownModule(import.meta.url, "operations") }],
