@@ -159,6 +159,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: ["runtime/**/*.{ts,vue,css}"],
     ignoreDependencies: [
       // The module installs these Nuxt modules by name from `moduleDependencies`.
+      "@nuxt/fonts",
       "nuxt-agent-discovery",
       "nuxt-og-image",
       "nuxt-site-config",
