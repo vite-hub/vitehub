@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterAll, beforeAll, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kvResult } from "../src/errors.ts"
@@ -63,13 +63,13 @@ for (const operation of ["setIfAbsent", "deleteIfEquals"] as const) {
     const circular: { self?: unknown } = {}
     circular.self = circular
     const value = kind === "nested bigint" ? { nested: 1n } : kind === "bigint array" ? [1n] : circular
-    const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
-    await storage.setItem("ticket", "original")
+    const loadDatabases = vi.fn(async () => ({}))
+    const storage = createHostedKVStorage({ store: { driver: "database", database: "default", namespace: "invalid-values" } }, "default", loadDatabases)
     const [error] = await kvResult(operation, "default", () => operation === "setIfAbsent"
       ? storage.setIfAbsentItem!("ticket", value)
       : storage.deleteIfEqualsItem!("ticket", value), ["KV_INVALID_VALUE"])
     expect(error).toMatchObject({ code: "KV_INVALID_VALUE", fix: expect.any(String) })
-    expect(await storage.getItem("ticket")).toBe("original")
+    expect(loadDatabases).not.toHaveBeenCalled()
     await storage.dispose()
   })
 }
