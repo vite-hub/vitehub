@@ -295,6 +295,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./cache",
       "./console",
       "./console/auth",
       "./console/mcp-client",
@@ -306,6 +307,7 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
+      "./seo",
       "./skills",
       "./test",
     ]);
@@ -780,6 +782,7 @@ describe("framework package contract", () => {
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

@@ -36,6 +36,7 @@ export type {
   ScheduleOptions,
   SecurityHeaders,
   SecurityOptions,
+  SeoOptions,
   SystemdOptions,
   ViteHubNodeOptions,
   ViteHubOptions,

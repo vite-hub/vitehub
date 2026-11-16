@@ -1,5 +1,5 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
-import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
+import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -40,6 +40,7 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import type { SecurityOptions } from "./security-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
@@ -92,10 +93,11 @@ import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-export type { CacheOptions } from "./cache.ts"
+export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
+export type { SeoOptions } from "./seo/vite.ts"
 export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SecurityHeaders, SecurityOptions } from "./security-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
@@ -575,6 +577,12 @@ export interface ViteHubOptions {
    */
   sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
+  /**
+   * Search engine files. `seo: { sitemap: true }` serves `/sitemap.xml` with the Nuxt pages without a dynamic part, the
+   * static prerender routes, the published Content pages with a URL, and the entries of `server/sitemap.ts`, and
+   * `/robots.txt` that names it unless the app has its own. URLs start with `publicUrl`, else the request origin.
+   */
+  seo?: SeoOptions
   workflow?: boolean | WorkflowOptions
   workspace?: boolean | WorkspaceOptions
 }
@@ -1761,7 +1769,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       hosting: plan.nitroPreset,
     } as WorkspaceOptions))
   }
+  if (options.seo?.sitemap || options.seo?.robots) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))
   const sourcePlugin = hubSource({
+    ...options.seo?.sitemap || options.seo?.robots ? { appSeo: { sitemap: Boolean(options.seo.sitemap), robots: options.seo.robots !== false } } : {},
     auth: options.auth
       ? ({ projectRoot, serverDirs }) => Boolean(requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
           options.auth === true ? undefined : options.auth,
