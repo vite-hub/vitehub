@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest"
 import { formatReport, runCodemod } from "../src/index.ts"
 import { planFromEnvFile, readEnvFileKeys } from "../src/nuxt-safe-runtime-config/env-file.ts"
 import { looksSecret, nuxtVariableName } from "../src/nuxt-safe-runtime-config/fields.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 
@@ -21,7 +22,7 @@ describe.each([
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      await expect(withVersionPlaceholder(edit.after)).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })

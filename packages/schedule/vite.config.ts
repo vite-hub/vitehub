@@ -30,6 +30,7 @@ export default defineConfig({
       "src/durability.ts",
       "src/index.ts",
       "src/operations.ts",
+      "src/os.ts",
       "src/runtime.ts",
       "src/runtime/console.ts",
       "src/runtime/kv.ts",
