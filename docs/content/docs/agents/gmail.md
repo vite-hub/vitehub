@@ -342,10 +342,10 @@ To start Invocations as soon as mail arrives, do steps 5 and 6 of [Set up Google
 A poll runs steps 3 to 5 from a Schedule, without a notification.
 
 1. Pub/Sub sends a push with a Google-signed OIDC token. The Channel checks the signature with Google's public keys, the issuer, audience, expiry, verified service account email, and subscription name. A failed check returns `401` or `400`.
-2. It acknowledges with `204` and continues in the background.
+2. It acknowledges with `204` and continues in the background. A notification whose history ID is not newer than the stored cursor stops here: the last sync already read that change.
 3. It reads `history.list` from the stored cursor, checks each message's current labels with a metadata-only request, and fetches bodies of messages still in the Inbox. Older labels from the history do not exclude a message that went back to the Inbox before this check. If a dispatch failed, the message can still be retried after a hook removes it from the Inbox.
 4. It starts one Invocation per message through the `received` trigger, with run ID `channel:<channel>:<message id>`. It skips a message whose Invocation is terminal (finished) or whose Workflow dispatch is confirmed. An active claim stops two concurrent runs of one message. A claim for an unconfirmed pending Invocation stays retryable and holds the cursor until the message is [skipped](#failed-messages).
-5. It saves page tokens and remaining message IDs in the State Adapter, so the next push continues without refetching completed bodies. When every message has an Invocation or was [skipped](#failed-messages), it stores the new cursor and clears the progress in one transaction.
+5. When a page has new messages, it saves page tokens and remaining message IDs in the State Adapter, so the next push continues without refetching completed bodies. When every message has an Invocation or was [skipped](#failed-messages), it stores the new cursor, the sync health, and clears the progress in one write.
 
 ### Mailbox identity
 
@@ -361,13 +361,15 @@ A poll runs steps 3 to 5 from a Schedule, without a notification.
 - On Cloudflare, mailbox locks use the existing cache actor, and cursors and watch state stay even when other thread locks are sharded.
 - Custom SQLite drivers and libSQL clients set `durable: true` only when storage survives restarts. Built-in file and remote libSQL URLs declare it; memory URLs never qualify.
 
-The Channel verifies Google OIDC and the Pub/Sub envelope before it opens or writes delivery State.
+The Channel verifies Google OIDC and the Pub/Sub envelope before it reads or writes State. The webhook route does not store a copy of a Gmail push or record it in the delivery log, because Gmail sends a push for every mailbox change, also for label changes. `channels status` shows the result of each sync.
 
 ### Cursor, locks, and limits
 
 The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
 
-One process at a time reads the mailbox. A push during a sync makes the running sync read once more. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
+One process at a time reads the mailbox. A push during a sync makes the running sync read once more.
+
+A push or poll that finds no new mail sends 5 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
 
 Background work runs in the host's `waitUntil`, which Cloudflare Workers stop 30 seconds after the response. For large bursts on Workers, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run.
 

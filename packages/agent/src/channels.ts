@@ -85,6 +85,7 @@ import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
+import { untrackedChannelWebhook } from "./internal/channel-delivery.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
@@ -4428,6 +4429,8 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   const labels = gmailOptionLabels(options)
   const bodyLimit = options.bodyLimit ?? gmailDefaultBodyLimit
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
+  // The last cursor that a sync in this process saw, so a push that it already covers sends no State request.
+  const cursors = new Map<string, string>()
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
   const modify = async (context: AgentCallbackContext<TRuntimeConfig>, id: string, input: GmailModifyInput) =>
@@ -4502,6 +4505,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             await syncGmailMailbox({
               bodyLimit,
               client,
+              cursors,
               dispatch: dispatchReceived(context),
               ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
@@ -4527,6 +4531,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           await syncGmailMailbox({
             bodyLimit,
             client,
+            cursors,
             dispatch: dispatchReceived(context),
             ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
             notificationHistoryId: async () => await gmailMailboxHistoryId(client),
@@ -4554,7 +4559,10 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         webhooks: [],
       }),
     },
-    webhooks: {
+    // Pub/Sub sends one push for each mailbox change, also for label changes. The cursor and the sync status record the
+    // work, so the route stores no copy of the request and no delivery record.
+    webhooks: untrackedChannelWebhook<AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>>({
+      ackTimeoutMs: false,
       durableState: true,
       signature: {
         async verify({ context, rawBody, request }) {
@@ -4567,7 +4575,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           return true
         },
       },
-    },
+    }),
   })
   Object.defineProperty(channel, gmailClientKey, { enumerable: true, value: resolveClient })
   const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
