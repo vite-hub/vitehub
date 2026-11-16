@@ -67,6 +67,19 @@ it("redacts captured and streamed credentials across chunks and streams", async 
   expect(shown).not.toContain("private-")
 })
 
+it("redacts a multiline value that arrives in chunks split at its newline", async () => {
+  const secret = "first-line-canary\nsecond-line-canary"
+  const root = await createProject()
+  let shown = ""
+  const result = await createDeployRun({ write: chunk => { shown += chunk } }, [secret])(process.execPath, ["-e", `
+    process.stderr.write("value: first-line-canary\\n")
+    setTimeout(() => process.stderr.write("second-line-canary\\ndone\\n"), 30)
+  `], { cwd: root, env: {}, show: true })
+  expect(result.exitCode).toBe(0)
+  expect(result.stderr).toBe("value: <redacted>\ndone\n")
+  expect(shown).toBe(result.stderr)
+})
+
 it.skipIf(process.platform === "win32")("lets file-reading CLIs reopen stdin without a reachable secret file", async () => {
   const root = await createProject({
     "reader.cjs": `const fs = require("node:fs")

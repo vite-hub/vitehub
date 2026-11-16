@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdtemp, open, rm, unlink } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { constants, tmpdir } from "node:os"
 import { delimiter } from "node:path"
 import process from "node:process"
 
@@ -155,8 +155,47 @@ export function redact(text: string, secrets: readonly string[]): string {
 }
 
 /**
- * The default runner. It never uses a shell, so no argument is parsed again. Shown output is redacted per line, so a
- * value split across two chunks is still found.
+ * Runs `work` with a signal that SIGINT and SIGTERM abort. The abort stops the host CLI that `work` runs and lets its
+ * `finally` remove the files it wrote. Then the process exits with 128 + the signal number, as a shell reports it.
+ * It exits instead of raising the signal again: another listener, such as signal-exit, would delay that past our exit.
+ */
+export async function untilInterrupted<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  let received: NodeJS.Signals | undefined
+  const stop = (signal: NodeJS.Signals) => {
+    received ??= signal
+    controller.abort()
+  }
+  process.on("SIGINT", stop)
+  process.on("SIGTERM", stop)
+  try {
+    return await work(controller.signal)
+  }
+  finally {
+    process.off("SIGINT", stop)
+    process.off("SIGTERM", stop)
+    if (received) process.exit(128 + constants.signals[received])
+  }
+}
+
+/** Where the end of `text` could be the start of a secret: the output after it waits for the next chunk. */
+function secretStart(text: string, secrets: readonly string[]): number {
+  let start = text.length
+  for (const secret of secrets) {
+    for (let index = Math.max(0, text.length - secret.length + 1); index < start; index++) {
+      if (text[index] === secret[0] && secret.startsWith(text.slice(index))) {
+        start = index
+        break
+      }
+    }
+  }
+  return start
+}
+
+/**
+ * The default runner. It never uses a shell, so no argument is parsed again. Shown output is redacted per line, and a
+ * line end that could start a secret waits for the next chunk, so a value split across chunks, even at its own
+ * newline, is still found.
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
   return async (command, args, options) => {
@@ -189,11 +228,10 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
         const pending = { stderr: "", stdout: "" }
         const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
           if (!options.show) return
-          pending[stream] += chunk
-          const end = flush ? pending[stream].length : pending[stream].lastIndexOf("\n") + 1
-          if (end === 0) return
-          stderr.write(redact(pending[stream].slice(0, end), secrets))
-          pending[stream] = pending[stream].slice(end)
+          const text = redact(pending[stream] + chunk, secrets)
+          const end = flush ? text.length : Math.min(text.lastIndexOf("\n") + 1, secretStart(text, secrets))
+          pending[stream] = text.slice(end)
+          if (end) stderr.write(text.slice(0, end))
         }
         for (const stream of ["stdout", "stderr"] as const) {
           const outputStream = child[stream]
@@ -204,8 +242,14 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
             show(stream, chunk)
           })
         }
-        child.on("error", reject)
+        // An abort kills the child: wait until it has closed, so that the caller removes its files after it.
+        let failure: unknown
+        child.on("error", (error) => {
+          failure = error
+          if (child.pid === undefined) reject(error)
+        })
         child.on("close", (exitCode) => {
+          if (failure !== undefined) return reject(failure)
           show("stdout", "", true)
           show("stderr", "", true)
           resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
