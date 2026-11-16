@@ -7,8 +7,8 @@ import { consoleProjectDisplayName, useConsoleProjects } from "../client/project
 import { useConsoleToast } from "../client/toast";
 
 /**
- * The env values of the team's apps, by stage. Only a self-hosted Console whose operator turned values on stores them;
- * console.vitehub.dev never does, and the page says so. Owners and admins set, replace, delete, and reveal values.
+ * The env values of the team's apps, by stage. Only a Console whose operator turned values on stores them. Otherwise
+ * the page says so. Owners and admins set, replace, delete, and reveal values.
  * Members see the names. A value field is write-only: the page shows a value only after a reveal, which the Console logs.
  */
 const projects = useConsoleProjects();

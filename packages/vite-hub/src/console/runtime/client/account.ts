@@ -389,8 +389,8 @@ export interface ConsoleEnvVariable {
 }
 
 /**
- * The env values of one stage of a project. `off` is a Console that stores no values, which is the default and always
- * the case on console.vitehub.dev: `message` says how its operator turns them on.
+ * The env values of one stage of a project. `off` is a Console that stores no values, which is the default: `message`
+ * says how its operator turns them on.
  */
 export type ConsoleEnvStage =
   | { off: true, message: string }

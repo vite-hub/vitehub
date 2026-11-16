@@ -3,8 +3,8 @@ import { createDatabaseEnvStore, listDatabaseEnvNamespaces } from "vite-hub/env/
 import type { DatabaseEnvStore, EnvDatabase } from "vite-hub/env/database"
 
 /**
- * Env values in a self-hosted Console. Whoever runs a Console can read the values that it stores, so it stores none
- * until its operator turns them on. The hosted Console at console.vitehub.dev never turns them on.
+ * Env values in a Console. Whoever runs a Console can read the values that it stores, so it stores none until its
+ * operator turns them on.
  */
 export const envValuesVariable = "VITEHUB_CONSOLE_ENV_VALUES"
 
@@ -34,7 +34,7 @@ export type ConsoleEnvConfig =
   | { state: "on", keys: Uint8Array[] }
   | { state: "misconfigured", problem: string }
 
-export const envValuesOffMessage = `This Console does not store env values. Keep them in .env.<stage> files and on the host. A self-hosted Console stores them when its operator sets ${envValuesVariable}=1 and ${envKeyVariable} or ${envKeysVariable}. The hosted Console at console.vitehub.dev never stores values.`
+export const envValuesOffMessage = `This Console does not store env values. Keep them in .env.<stage> files and on the host. The operator of this Console turns them on with ${envValuesVariable}=1 and ${envKeyVariable} or ${envKeysVariable}.`
 
 /** A key as 64 hex digits, or as base64 or base64url of 32 bytes, such as `openssl rand -base64 32`. */
 export function parseEnvKey(text: string): Uint8Array | undefined {

@@ -87,7 +87,9 @@ describe("Console env values", () => {
       const problem = await response.json() as { code: string, message: string }
       expect(problem.code).toBe("CONSOLE_ENV_VALUES_OFF")
       expect(problem.message).toContain("does not store env values")
-      expect(problem.message).toContain("console.vitehub.dev never stores values")
+      expect(problem.message).toContain("VITEHUB_CONSOLE_ENV_VALUES=1")
+      // Every Console runs this code, so the message speaks about this Console only, not about console.vitehub.dev.
+      expect(problem.message).not.toContain("console.vitehub.dev")
     }
     expect(readConsoleEnvConfig({})).toEqual({ state: "off" })
     expect(readConsoleEnvConfig({ VITEHUB_CONSOLE_ENV_VALUES: "1" })).toMatchObject({ state: "misconfigured" })
