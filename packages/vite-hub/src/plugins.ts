@@ -768,6 +768,7 @@ function deploymentNitroModule(
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
   envPlugin: () => EnvVitePlugin | undefined,
   contributedEnv: () => readonly DeploymentEnvEntry[],
+  envDir: () => string | false | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -804,7 +805,7 @@ function deploymentNitroModule(
       }
       const registry = envPlugin()?.api.getServerEnvRegistry()
       const env = mergeDeploymentEnv([...registry ? deploymentEnvEntries(registry) : [], ...contributedEnv()])
-      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), identity, outputDir, plan, rootDir, services })
+      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), envDir: envDir(), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -881,6 +882,8 @@ function deploymentPlugins(
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
   let resolvedPlugins: readonly unknown[] | undefined
+  // Vite's resolved envDir, for `deployment.json`. The CLI reads the stage env files there.
+  let resolvedEnvDir: string | false | undefined
   // The names that primitives read outside Server Env, for `deployment.json`. The Console belongs to this package.
   const contributedEnv = () => [
     ...collectDeploymentEnv(resolvedPlugins, { host: plan.host }),
@@ -1076,7 +1079,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1146,6 +1149,7 @@ function deploymentPlugins(
       },
       configResolved(config) {
         resolvedPlugins = config.plugins
+        resolvedEnvDir = config.envDir
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const inspectionNitro = (config as ResolvedConfig & { nitro?: { rootDir?: string, output?: { dir?: string } } }).nitro
         deploymentRoot = resolve(inspectionNitro?.rootDir ?? config.root ?? process.cwd())
@@ -1241,7 +1245,7 @@ function normalizePublicUrl(value: string): string {
   // to reject credential syntax such as `https://@host` as well.
   const authority = value.trim().match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1]
   if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password || authority?.includes("@")) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: `[vitehub] publicUrl must be an http(s) origin without a path, received ${JSON.stringify(value)}.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_PUBLIC_URL_INVALID({ value: JSON.stringify(value) })
   }
   return url.origin
 }
@@ -1648,7 +1652,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
     const { auth: mcpAuth = true, ...mcpOptions } = mcpConfig
     if (mcpAuth && !options.auth) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0141({ message: "[vitehub] The MCP server needs Auth, so that only signed-in MCP clients call its tools. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } to let anyone call every tool." })
+      throw viteHubErrorDiagnostics.VITE_HUB_MCP_AUTH_MISSING()
     }
     plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
       ...mcpOptions,

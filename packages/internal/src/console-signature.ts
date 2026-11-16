@@ -54,11 +54,15 @@ export interface ConsoleCallerUser {
  * Who sent a signed request. The key holder asserts it, so an app trusts it as much as it trusts the key.
  * - `via: "console"`: the ViteHub Console, for the signed-in `user`, in the `team` that linked the app. With
  *   `surface: "mcp"`, the ViteHub MCP of the Console called for the user: the app applies its MCP rules, and
- *   `confirmed: true` says that the person agreed to a destructive call.
+ *   `confirmed: true` says that the person agreed to a destructive call. `readOnly: true` limits the call to operations
+ *   that only read.
  * - `via: "cli"`: the `vitehub` CLI, or another tool with a private key. It has no user.
+ *
+ * An app ignores the fields that it does not know, so a newer Console can add fields. A new field can only add
+ * information: an older app skips it. A field that restricts the call needs a new signature version.
  */
 export type ConsoleCaller =
-  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string }, surface?: "mcp", confirmed?: true }
+  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string }, surface?: "mcp", confirmed?: true, readOnly?: true }
   | { via: "cli" }
 
 /** A private key and the name that the app knows its public key by. */
@@ -168,9 +172,11 @@ function optionalText(value: unknown, maximum = 512): string | undefined | false
   return String(value) === value && value.length > 0 && value.length <= maximum ? value : false
 }
 
-const consoleCallerKeys = new Set(["via", "user", "team", "surface", "confirmed"])
-
-/** Read an `x-vitehub-caller` value. Returns `undefined` for anything that is not one of the {@link ConsoleCaller} forms. */
+/**
+ * Read an `x-vitehub-caller` value. Returns `undefined` for anything that is not one of the {@link ConsoleCaller} forms.
+ * Fields that this version does not know are ignored, so a newer Console can still call this app. A known field with a
+ * value that this version does not know, such as another `surface`, is refused: the app cannot apply its rules.
+ */
 export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
   if (value.length > maximumCallerLength) return undefined
   const bytes = fromBase64url(value)
@@ -183,22 +189,24 @@ export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
     return undefined
   }
   if (!isRecord(parsed)) return undefined
-  if (parsed.via === "cli") return Object.keys(parsed).length === 1 ? { via: "cli" } : undefined
-  if (parsed.via !== "console" || !isRecord(parsed.user) || Object.keys(parsed).some(key => !consoleCallerKeys.has(key))) return undefined
+  if (parsed.via === "cli") return parsed.user === undefined ? { via: "cli" } : undefined
+  if (parsed.via !== "console" || !isRecord(parsed.user)) return undefined
   // `confirmed` belongs to an MCP call only, so a Console page call cannot carry it.
   if ((parsed.surface !== undefined && parsed.surface !== "mcp") || (parsed.confirmed !== undefined && (parsed.confirmed !== true || parsed.surface !== "mcp"))) return undefined
+  if (parsed.readOnly !== undefined && parsed.readOnly !== true) return undefined
   const mcp = parsed.surface === "mcp" ? { surface: "mcp" as const, ...(parsed.confirmed === true ? { confirmed: true as const } : {}) } : {}
+  const readOnly = parsed.readOnly === true ? { readOnly: true as const } : {}
   const id = optionalText(parsed.user.id)
   const name = optionalText(parsed.user.name)
   const email = optionalText(parsed.user.email)
-  if (!id || name === false || email === false || Object.keys(parsed.user).some(key => key !== "id" && key !== "name" && key !== "email")) return undefined
+  if (!id || name === false || email === false) return undefined
   const user: ConsoleCallerUser = { id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
-  if (parsed.team === undefined) return { via: "console", user, ...mcp }
+  if (parsed.team === undefined) return { via: "console", user, ...mcp, ...readOnly }
   if (!isRecord(parsed.team)) return undefined
   const teamId = optionalText(parsed.team.id)
   const role = optionalText(parsed.team.role)
-  if (!teamId || role === false || Object.keys(parsed.team).some(key => key !== "id" && key !== "role")) return undefined
-  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) }, ...mcp }
+  if (!teamId || role === false) return undefined
+  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) }, ...mcp, ...readOnly }
 }
 
 /**
@@ -272,9 +280,10 @@ export async function verifyConsoleSignature(options: { headers: Headers, keys: 
   const caller = decodeConsoleCaller(callerValue)
   const bodyDigest = fields ? fromBase64url(fields.body) : undefined
   const signature = fields ? fromBase64url(fields.v1) : undefined
-  if (!fields || !isConsoleKeyName(fields.key) || !timestampPattern.test(fields.t) || bodyDigest?.length !== 32 || signature?.length !== 64 || !caller) {
-    return failure("CONSOLE_SIGNATURE_INVALID", `The \`${consoleSignatureHeader}\` or \`${consoleCallerHeader}\` header is malformed.`)
+  if (!fields || !isConsoleKeyName(fields.key) || !timestampPattern.test(fields.t) || bodyDigest?.length !== 32 || signature?.length !== 64) {
+    return failure("CONSOLE_SIGNATURE_INVALID", `The \`${consoleSignatureHeader}\` header is malformed.`)
   }
+  if (!caller) return failure("CONSOLE_SIGNATURE_INVALID", `The \`${consoleCallerHeader}\` header names a caller that this app does not know. A newer Console or CLI may send it: upgrade vite-hub in the app.`)
   const now = Math.floor((options.now ?? Date.now()) / 1_000)
   const skew = now - Number(fields.t)
   if (Math.abs(skew) > consoleSignatureWindowSeconds) {

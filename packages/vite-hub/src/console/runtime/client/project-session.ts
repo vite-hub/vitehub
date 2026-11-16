@@ -41,7 +41,7 @@ export type ConsoleProjectGate =
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
-export const consoleAccountPages = ["home", "team", "team-settings", "settings"] as const
+export const consoleAccountPages = ["home", "team", "team-settings", "env", "settings"] as const
 export type ConsoleAccountPage = typeof consoleAccountPages[number]
 
 function accountPageOf(pathname: string): ConsoleAccountPage | undefined {

@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
-import { readFile, writeFile } from "node:fs/promises"
+import { readFile, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { decryptEnvValues, envPrivateKeyName } from "../src/setup/env-encrypted.ts"
+import { readLocalEnvValues } from "../src/setup/env.ts"
 import { cliProcess, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
@@ -353,6 +355,132 @@ describe("vitehub env push", () => {
     expect(shell.json.pushed).toEqual([{ name: "VITEHUB_SECRET", replaced: false, secret: true, source: "process" }])
   })
 
+  describe("encrypted values", () => {
+    // `dotenvx encrypt -f .env.production` (dotenvx 2.38.2) wrote this file and the key below. The key is for tests only.
+    const encryptedProduction = `#/-------------------[DOTENV_PUBLIC_KEY]--------------------/
+#/            public-key encryption for .env files          /
+#/       [how it works](https://dotenvx.com/encryption)     /
+#/----------------------------------------------------------/
+DOTENV_PUBLIC_KEY_PRODUCTION="03c7b1a9970356dfd0c1fa6d34b3d05c06e26f636fc6f6855bce6144c44f06f55e"
+
+# .env.production
+VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jguUWOaFZottMvcB7tajL79HiGXWwwgSxVino5Hdjy3hfeOT20gycBhZwSFlTHKdeeELYQl69v3rx1lLBfjyjn/hirIORxpH+olOqg=
+GITHUB_TOKEN=encrypted:BH2Zgaauie0nYA70n/0V4sYvJoX7TQmr81eXcCp5+rCN1Fn2ozHtRImvwbH3h24a65I5LYCx3cxklhEaNR1mIV68ZuJrUN2//g8OBOXJLF7QOoPOIUqve9JwpSro3O2wKWObb0wSCT24rfxv
+SENTRY_DSN=encrypted:BDVAnrfFrkI2lE2NgsxhgRJjKYVTuZ2NR70tJSQ2H95SbqxVLUXNFD3oFwhCIhwCZW2S9ynwxN25Gsjp/i5JKPUBseNllHMQu/IWtG4sBw5LuvhVzROV0Q0QAMC8SH3JmRywLyeXhVCu2fLhNzxMyTYOMUOn/XAN/204
+`
+    const privateKey = "bdef9133803342d7416abc3655c313601e331f26f375fdbe9662e942af23a50d"
+    const keysFile = `DOTENV_PRIVATE_KEY_PRODUCTION=${privateKey}\n`
+    const plaintext = [canary, "gh-enc-4d2e", "https://sentry.example/enc"]
+
+    async function encryptedProject(files: Record<string, string> = {}) {
+      const root = await linkedProject(["cloudflare"], { ".env.production": encryptedProduction, ...files })
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+      git("init", "-q")
+      git("add", "-f", ".env.production")
+      return { git, root }
+    }
+
+    it("names the private key as dotenvx does", () => {
+      expect(envPrivateKeyName(".env", "")).toBe("DOTENV_PRIVATE_KEY")
+      expect(envPrivateKeyName(".env.production", "")).toBe("DOTENV_PRIVATE_KEY_PRODUCTION")
+      expect(envPrivateKeyName(".env.production.local", "")).toBe("DOTENV_PRIVATE_KEY_PRODUCTION_LOCAL")
+      expect(envPrivateKeyName(".env.production", "DOTENV_PUBLIC_KEY_CI=\"03ab\"\n")).toBe("DOTENV_PRIVATE_KEY_CI")
+    })
+
+    it("decrypts a tracked dotenvx file with the key from the shell and sends plaintext on stdin only", async () => {
+      const { root } = await encryptedProject()
+      const hosts = await fakeHosts({ ...hostEnv.cloudflare, DOTENV_PRIVATE_KEY_PRODUCTION: privateKey })
+      const result = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+
+      expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+      expect(result.json.pushed).toEqual([
+        { encrypted: true, name: "VITEHUB_SECRET", replaced: false, secret: true, source: ".env.production" },
+        { encrypted: true, name: "GITHUB_TOKEN", replaced: false, secret: true, source: ".env.production" },
+        { encrypted: true, name: "SENTRY_DSN", replaced: false, secret: false, source: ".env.production" },
+      ])
+      const calls = await hosts.calls()
+      expect(calls.filter(call => call.stdin).map(call => call.stdin)).toEqual(plaintext)
+      expect((await hosts.state()).secrets).toEqual({ GITHUB_TOKEN: "gh-enc-4d2e", SENTRY_DSN: "https://sentry.example/enc", VITEHUB_SECRET: canary })
+      expectNoLeak(calls, result.stdout + result.stderr, [...plaintext, privateKey, ...tokens])
+    })
+
+    it("keeps the ciphertext origin through cross-file references when only the alias is pushed", async () => {
+      const { encrypt, keypair } = await import("@dotenvx/primitives")
+      const production = keypair()
+      const local = keypair()
+      const value = "cross-file-secret-7d32"
+      const root = await createProject({
+        ".env.production": `SHARED_TOKEN=${encrypt(production.publicKey, value)}\n`,
+        ".env.production.local": "GITHUB_TOKEN=$SHARED_TOKEN\nBRACED_TOKEN=${SHARED_TOKEN}\n",
+      })
+      const env = {
+        DOTENV_PRIVATE_KEY_PRODUCTION: production.privateKey,
+        DOTENV_PRIVATE_KEY_PRODUCTION_LOCAL: local.privateKey,
+      }
+      const values = await readLocalEnvValues(root, root, "production", env)
+      for (const name of ["GITHUB_TOKEN", "BRACED_TOKEN"]) {
+        const alias = values.get(name)!
+        expect({ name, encrypted: alias.encrypted, source: alias.source, value: alias.value }).toEqual({ name, encrypted: true, source: ".env.production", value: values.get("SHARED_TOKEN")!.value })
+        expect(alias.encrypted).toBe(true)
+        // Decrypt only the alias, just as --only does: SHARED_TOKEN is not selected.
+        const decrypted = await decryptEnvValues(root, [{ file: alias.source, name, value: alias.value }], env)
+        expect(decrypted.values.get(name)).toBe(value)
+      }
+    })
+
+    it("reads the key from an untracked .env.keys and says so in the text output", async () => {
+      const { root } = await encryptedProject({ ".env.keys": keysFile })
+      const hosts = await fakeHosts(hostEnv.cloudflare)
+      const result = await runSetup(["env", "push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+      expect(result.exitCode, result.stderr).toBe(0)
+      expect(result.stdout).toContain("VITEHUB_SECRET from .env.production, decrypted")
+      expect((await hosts.state()).secrets).toEqual({ VITEHUB_SECRET: canary })
+      expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary, privateKey])
+    })
+
+    it("fails with the name of the private key when it is missing, before it calls the host", async () => {
+      const { root } = await encryptedProject()
+      const hosts = await fakeHosts(hostEnv.cloudflare)
+      const result = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+
+      expect(result.exitCode).toBe(2)
+      expect(result.json.error).toMatchObject({ code: "SETUP_ENV_PRIVATE_KEY_MISSING", fix: "Set DOTENV_PRIVATE_KEY_PRODUCTION in the shell, or add it to .env.keys, which git must ignore." })
+      expect(result.json.error?.why).toContain("VITEHUB_SECRET, GITHUB_TOKEN, SENTRY_DSN")
+      expect(await hosts.calls()).toEqual([])
+    })
+
+    it("fails on a wrong private key and prints neither key", async () => {
+      const { root } = await encryptedProject()
+      const wrongKey = "1".repeat(64)
+      const hosts = await fakeHosts({ ...hostEnv.cloudflare, DOTENV_PRIVATE_KEY_PRODUCTION: wrongKey })
+      const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.json.error).toMatchObject({ code: "SETUP_ENV_DECRYPT_FAILED", why: expect.stringContaining("WRONG_PRIVATE_KEY") })
+      expect(await hosts.calls()).toEqual([])
+      expect(result.stdout + result.stderr).not.toContain(wrongKey)
+    })
+
+    it("refuses a tracked .env.keys, and still refuses a plaintext secret from a tracked file", async () => {
+      const { git, root } = await encryptedProject({ ".env.keys": keysFile, ".env": "VITEHUB_GITHUB_TOKEN=plain-tracked-9b1c\n" })
+      git("add", "-f", ".env.keys")
+      const hosts = await fakeHosts(hostEnv.cloudflare)
+      const keys = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+      expect(keys.exitCode).toBe(3)
+      expect(keys.json.error).toMatchObject({ code: "SETUP_ENV_KEYS_TRACKED", fix: expect.stringContaining("git rm --cached .env.keys") })
+
+      git("rm", "-q", "--cached", ".env.keys")
+      git("add", "-f", ".env")
+      const plain = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_GITHUB_TOKEN"], root, hosts.env)
+      expect(plain.exitCode).toBe(3)
+      expect(plain.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED" })
+      expect(plain.json.error?.why).toContain("VITEHUB_GITHUB_TOKEN")
+      expect(await hosts.calls()).toEqual([])
+      expect([keys, plain].map(run => run.stdout + run.stderr).join("")).not.toContain(privateKey)
+    })
+  })
+
   it("redacts the values from host CLI error output", async () => {
     const root = await linkedProject(["cloudflare"], local)
     const hosts = await fakeHosts({ ...hostEnv.cloudflare, FAKE_HOST_ECHO_STDIN: "1", FAKE_HOST_FAIL: "wrangler secret put" })
@@ -412,5 +540,121 @@ describe("vitehub env push", () => {
     const result = await envCommand<PushJson>(["push", "--yes", "--stage", "preview", "--only", "VITEHUB_SECRET"], root, hosts.env)
     expect(result.json).toMatchObject({ pushed: [{ name: "VITEHUB_SECRET", source: ".env.preview" }], stage: "preview", target: "preview" })
     expect((await hosts.state() as { vercel?: object }).vercel).toEqual({ preview: { VITEHUB_SECRET: "preview-secret" } })
+  })
+})
+
+describe("vitehub env push value sources", () => {
+  const secretOnly = [envEntries[0]!]
+  const gitIn = (root: string) => (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+
+  it.each(["$BASE", "${BASE}", "${UNSET:-$BASE}", "${BASE.KEY}", "${DOLLAR}BASE"])("refuses a secret that %s expands from a tracked file, though its own file is ignored", async (reference) => {
+    const root = await linkedProject(["cloudflare"], { ".env": `BASE=${canary}\nBASE.KEY=${canary}\n`, ".env.production": `DOLLAR=$\nVITEHUB_SECRET=${reference}\n` })
+    const git = gitIn(root)
+    git("init", "-q")
+    git("add", "-f", ".env")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED", fix: expect.stringContaining("git rm --cached .env") })
+    expect(result.json.error?.why).toContain("VITEHUB_SECRET")
+    expect(await hosts.calls()).toEqual([])
+    expect(result.stdout + result.stderr).not.toContain(canary)
+  })
+
+  it("refuses a secret that a shell value expands from a tracked file", async () => {
+    const root = await linkedProject(["cloudflare"], { ".env": `BASE=${canary}\n`, ".env.production": "VITEHUB_SECRET=$LINK\n" })
+    const git = gitIn(root)
+    git("init", "-q")
+    git("add", "-f", ".env")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, { ...hosts.env, LINK: "$BASE" })
+
+    expect(result.json.error?.code).toBe("SETUP_ENV_FILE_TRACKED")
+    expect(await hosts.calls()).toEqual([])
+  })
+
+  it("refuses an ignored symlink to a tracked file, by the real path", async () => {
+    const root = await linkedProject(["cloudflare"], { "shared/production.env": `VITEHUB_SECRET=${canary}\n` })
+    await symlink(join(root, "shared/production.env"), join(root, ".env.production"))
+    const git = gitIn(root)
+    git("init", "-q")
+    git("add", "shared/production.env")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED", fix: expect.stringContaining("git rm --cached shared/production.env") })
+    expect(await hosts.calls()).toEqual([])
+  })
+
+  it("refuses a secret from a file that git does not track and does not ignore", async () => {
+    const root = await linkedProject(["cloudflare"], { ".gitignore": ".output\n.vitehub\n", ".env.production": `VITEHUB_SECRET=${canary}\n` })
+    gitIn(root)("init", "-q")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_ENV_FILE_NOT_IGNORED", fix: expect.stringContaining(".gitignore") })
+    expect(result.json.error?.why).toContain(".env.production")
+    expect(await hosts.calls()).toEqual([])
+  })
+
+  it("fails closed when git cannot answer inside a repository", async () => {
+    const root = await linkedProject(["cloudflare"], { ".env.production": `VITEHUB_SECRET=${canary}\n` })
+    gitIn(root)("init", "-q")
+    await writeFile(join(root, ".git/HEAD"), "not a ref\n")
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_ENV_GIT_FAILED")
+    expect(await hosts.calls()).toEqual([])
+    expect(result.stdout + result.stderr).not.toContain(canary)
+  })
+
+  it("pushes a secret from a file outside any git repository, with a warning", async () => {
+    const root = await linkedProject(["cloudflare"], { ".env.production": `VITEHUB_SECRET=${canary}\n` })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.stderr).toContain("Warning: .env.production is not in a git repository")
+    expect(await hosts.state()).toMatchObject({ secrets: { VITEHUB_SECRET: canary } })
+  })
+
+  it("reads the envDir that the build recorded, as the app does", async () => {
+    const files = {
+      ".env.production": "VITEHUB_SECRET=from-the-root\n",
+      "config/.env.production": `VITEHUB_SECRET=${canary}\n`,
+      ".output/deployment.json": JSON.stringify({ env: secretOnly, envDir: "../config", host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+    }
+    const root = await linkedProject(["cloudflare"], files)
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.pushed).toEqual([{ name: "VITEHUB_SECRET", replaced: false, secret: true, source: "config/.env.production" }])
+    expect(await hosts.state()).toMatchObject({ secrets: { VITEHUB_SECRET: canary } })
+
+    // The tracked-file check follows envDir too.
+    const git = gitIn(root)
+    git("init", "-q")
+    git("add", "-f", "config/.env.production")
+    const tracked = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+    expect(tracked.json.error).toMatchObject({ code: "SETUP_ENV_FILE_TRACKED", fix: expect.stringContaining("git rm --cached config/.env.production") })
+  })
+
+  it("reads no env file with envDir: false, as the app does", async () => {
+    const files = {
+      ".env.production": `VITEHUB_SECRET=${canary}\n`,
+      ".output/deployment.json": JSON.stringify({ env: secretOnly, envDir: false, host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+    }
+    const root = await linkedProject(["cloudflare"], files)
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const none = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+    expect(none.json).toMatchObject({ pushed: [], skipped: [{ names: ["VITEHUB_SECRET"], required: true }] })
+
+    const shell = await envCommand<PushJson>(["push", "--yes"], root, { ...hosts.env, VITEHUB_SECRET: "from-the-shell" })
+    expect(shell.json.pushed).toEqual([{ name: "VITEHUB_SECRET", replaced: false, secret: true, source: "process" }])
   })
 })

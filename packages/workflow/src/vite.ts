@@ -251,7 +251,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    invariant(config, "the Schedule plugin prepares the Workflow runtime after configResolved() sets the Vite config")
+    invariant(config, "the Schedule plugin prepares the Workflow runtime during the build, after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
     if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
