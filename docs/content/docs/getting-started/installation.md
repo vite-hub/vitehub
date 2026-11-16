@@ -212,7 +212,9 @@ Each feature other than Env, Source, and Logs needs its own package. When you tu
 [vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install them in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
-When an installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
+When an installed `@vite-hub/*` package comes from another release than `vite-hub`, the build stops with [`VITE_HUB_PACKAGE_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_package_version_unsupported). Install the packages of the same release, and change pnpm `overrides` that pin them too.
+
+When another installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
 
 ```text [output/unsupported-package.txt]
 [vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'

@@ -20,9 +20,9 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 | `vue`                                     | All entry points.                                         |
 | `ai`                                      | All entry points. Components use AI SDK types. |
 | `@ai-sdk/vue`                              | `useChat()` and other Vue helpers. Optional when the app has its own state. |
-| `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
-| `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
-| `vite-hub`                                | Nuxt. `vite-hub/nuxt` gives the components their Nuxt runtime. |
+| `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `vite-hub/ui/headless`. |
+| `vite` and `@vitejs/plugin-vue`           | The `vite-hub/ui/vite` plugin.                           |
+| `vite-hub`                                | All entry points: the `vite-hub/ui` paths. In Nuxt, `vite-hub/nuxt` gives the components their Nuxt runtime. |
 | `@iconify-json/lucide`                    | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an app that uses only the headless entry does not need them.
@@ -49,19 +49,19 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 ```css [nuxt/assets/css/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
-@import "@vite-hub/ui/styles.css";
+@import "vite-hub/ui/styles.css";
 ```
 
 `vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
-For explicit imports, import every component from `@vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`@vite-hub/ui/markdown-editor`) and the workspace parts (`@vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`@vite-hub/ui/theme`) and the share links (`@vite-hub/ui/playground`) have their own too, because they load without the components.
+For explicit imports, import every component from `vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`vite-hub/ui/markdown-editor`) and the workspace parts (`vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`vite-hub/ui/theme`) and the share links (`vite-hub/ui/playground`) have their own too, because they load without the components.
 
 ## Install in Vue with Vite
 
 Install the package, its peers, and Vite:
 
 ```bash [commands/install-vite]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue
 pnpm add -D vite @vitejs/plugin-vue
 ```
 
@@ -69,7 +69,7 @@ Add the Vite plugin after the Vue plugin:
 
 ```ts [vite/vite.config.ts]
 import vue from "@vitejs/plugin-vue";
-import viteHubUI from "@vite-hub/ui/vite";
+import viteHubUI from "vite-hub/ui/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -81,7 +81,7 @@ Register the Nuxt UI and ViteHub UI Vue plugins:
 
 ```ts [vite/src/main.ts]
 import NuxtUI from "@nuxt/ui/vue-plugin";
-import { createViteHubUI } from "@vite-hub/ui";
+import { createViteHubUI } from "vite-hub/ui";
 import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/main.css";
@@ -94,14 +94,14 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 ```css [vite/src/assets/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
-@import "@vite-hub/ui/styles.css";
+@import "vite-hub/ui/styles.css";
 ```
 
 The Vite plugin does not register components. Import them where you use them:
 
 ```vue [vite/src/components/Example.vue]
 <script setup lang="ts">
-import { Chat } from "@vite-hub/ui";
+import { Chat } from "vite-hub/ui";
 </script>
 ```
 
@@ -117,7 +117,7 @@ These pages use Nuxt auto-imports. In Vue with Vite, import each component.
 ## Verify the setup
 
 In Nuxt, replace `app.vue` with this example. In Vue with Vite, put the
-template in `App.vue` and import `Markdown` from `@vite-hub/ui`:
+template in `App.vue` and import `Markdown` from `vite-hub/ui`:
 
 ```vue [nuxt/app.vue]
 <template>
@@ -202,7 +202,7 @@ export default defineAppConfig({
 The Nuxt module reads both for you and follows changes to the app config. A name in `viteHubUI.icons` wins over the same name in `ui.icons`, for the ViteHub parts only. In Vue with Vite, pass one object with all the names. A ref or a getter keeps them reactive:
 
 ```ts [vite/icons/src/main.ts] fragment
-import { vitehubTheme } from "@vite-hub/ui/theme";
+import { vitehubTheme } from "vite-hub/ui/theme";
 
 app.use(createViteHubUI({ icons: { ...vitehubTheme.icons, delete: "i-ph-trash", edit: "i-ph-pencil-simple" } }));
 ```
@@ -247,12 +247,12 @@ The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-m
 
 ### Design system tokens
 
-`@vite-hub/ui/theme.css` is the ViteHub design system for a whole app. It sets the colors and the radius under their [shadcn/ui names](https://ui.shadcn.com/docs/theming), and Nuxt UI's `--ui-*` tokens read those names. To change one, set its name after the theme: on `:root` for light, and on `:root.dark` for dark.
+`vite-hub/ui/theme.css` is the ViteHub design system for a whole app. It sets the colors and the radius under their [shadcn/ui names](https://ui.shadcn.com/docs/theming), and Nuxt UI's `--ui-*` tokens read those names. To change one, set its name after the theme: on `:root` for light, and on `:root.dark` for dark.
 
 ```css [nuxt/tokens/assets/css/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
-@import "@vite-hub/ui/theme.css";
+@import "vite-hub/ui/theme.css";
 
 :root {
   --radius: 0.375rem;

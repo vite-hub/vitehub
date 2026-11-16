@@ -96,6 +96,8 @@ describe("Console diagnostic catalog", () => {
   it("rejects unknown codes", () => {
     expect(isConsoleDiagnosticCode("CONNECTION_FORBIDDEN")).toBe(false)
     expect(isConsoleDiagnosticCode(undefined)).toBe(false)
+    // The registry's own `is` guard is not a code.
+    expect(isConsoleDiagnosticCode("is")).toBe(false)
   })
 })
 

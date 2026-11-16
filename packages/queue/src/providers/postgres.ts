@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { hostname } from "node:os"
 
+import { invariant } from "@vite-hub/internal/invariant"
 import postgres from "postgres"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
@@ -124,8 +125,7 @@ function toJobSummary(row: JobRow): LocalQueueJob {
 
 export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): PostgresQueueEngine {
   const table = options.table ?? postgresQueueTable
-  // Internal invariant: only the Queue runtime and its tests choose this private SQL table name.
-  if (!identifier.test(table)) throw new TypeError(`The Queue table name "${table}" must be a lowercase SQL identifier.`)
+  invariant(identifier.test(table), "the Queue table name is a lowercase SQL identifier, because only the Queue runtime and its tests choose it")
   const rules: LocalQueueDeliveryRules = localQueueDeliveryRules.postgres
   const retryDelayMs = options.retryDelayMs ?? rules.retryDelayMs
   const lockSeconds = options.lockSeconds ?? postgresQueueLockSeconds

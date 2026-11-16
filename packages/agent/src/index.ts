@@ -24,7 +24,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
-import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule, loadInstalledAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
@@ -1135,9 +1135,12 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
         return journal
       }
       const workflowName = resolveAgentWorkflowName(agent, binding, context)
-      const recoveryConfig = (await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig()
+      const recoveryState = "discoveryDefault" in binding
+        ? await loadInstalledAgentWorkflowRuntimeStateModule()
+        : await loadAgentWorkflowRuntimeStateModule()
+      const recoveryConfig = recoveryState ? recoveryState.getWorkflowRuntimeConfig() : false
       // Discovery-default agents fall back to inline execution when Workflow
-      // is disabled. There is no provider run to inspect in this case, so keep
+      // is disabled or not installed. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
       const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
@@ -1227,9 +1230,12 @@ async function runAgentAsWorkflow<
       console.error(new AggregateError([error, journalError], "[vitehub] Agent Workflow preparation and invocation journaling failed."))
     }
   }
-  let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
+  let workflowRuntimeState: Awaited<ReturnType<typeof loadInstalledAgentWorkflowRuntimeStateModule>>
   try {
-    workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+    // A discovered Agent uses Workflow only when the app installs it. agentWorkflow() requires it.
+    workflowRuntimeState = "discoveryDefault" in binding
+      ? await loadInstalledAgentWorkflowRuntimeStateModule()
+      : await loadAgentWorkflowRuntimeStateModule()
   }
   catch (error) {
     await ensureActivity()
@@ -1237,6 +1243,7 @@ async function runAgentAsWorkflow<
     await recordPreparationFailure(error)
     throw error
   }
+  if (!workflowRuntimeState) return undefined
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {

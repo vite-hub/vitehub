@@ -10,7 +10,7 @@ The demo has a public docs MCP server. To edit the linked demo, use the hosted C
 | Server | Path | Sign-in | Tools |
 | --- | --- | --- | --- |
 | Docs | `/mcp` | None | `list-pages`, `get-page` |
-| Console | `https://console.vitehub.dev/mcp/account` | Console OAuth | `list_apps`, `list_operations`, and `run_operation` for linked apps |
+| Console | `https://console.vitehub.dev/mcp/account` | Console OAuth | `list_apps`, `list_operations`, `read_operation`, and `run_operation` for linked apps |
 
 The docs server reads the published pages. The Console server sends signed requests as your Console user, subject to the demo’s authorization policy.
 
@@ -37,7 +37,7 @@ The docs server reads the published pages. The Console server sends signed reque
 
 ## Edit a page from your agent
 
-Ask your agent to find the demo with `list_apps`, inspect its Content operations with `list_operations`, and use `run_operation` to read and save a draft. Include the digest returned by the read when saving. Review and publish the draft in the Console.
+Ask your agent to find the demo with `list_apps`, inspect its Content operations with `list_operations`, use `read_operation` to read a draft, and `run_operation` to save it. Include the digest returned by the read when saving. Review and publish the draft in the Console.
 
 ::warning
 `content.publish` publishes the drafts. A blog post or a release is live within a minute. Clients such as Claude Code ask before they run a tool with `destructiveHint`, but ViteHub cannot force them to ask.
