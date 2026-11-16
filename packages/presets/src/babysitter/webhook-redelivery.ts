@@ -38,7 +38,9 @@ export function createWebhookRedelivery(options: WebhookRedeliveryOptions) {
   const limit = options.limit ?? 200;
   const pauseMs = options.pauseMs ?? 250;
   const sent = new Map<string, number>();
-  let lastStart: number | undefined;
+  // The oldest delivery time the next sweep must still read. It moves forward only after a sweep
+  // handled every failed delivery it listed, so a limit or a failed request never drops a delivery.
+  let watermark: number | undefined;
   let running = false;
   return {
     /** Redelivers the failed deliveries since the last sweep. Returns how many it sent. */
@@ -47,13 +49,12 @@ export function createWebhookRedelivery(options: WebhookRedeliveryOptions) {
       running = true;
       const start = now();
       try {
-        const since = Math.max(start - windowMs, lastStart === undefined ? -Infinity : lastStart - overlapMs);
+        const since = Math.max(start - windowMs, watermark ?? -Infinity);
         const failed = await options.source.failedDeliveries(since, signal);
-        lastStart = start;
         let redelivered = 0, abandoned = 0, errors = 0;
         const events: Record<string, number> = {};
         for (const delivery of failed) {
-          if (redelivered >= limit) break;
+          if (redelivered + errors >= limit) break;
           const attempts = sent.get(delivery.guid) ?? 0;
           if (attempts >= maxAttempts) { abandoned++; continue; }
           signal?.throwIfAborted();
@@ -72,7 +73,9 @@ export function createWebhookRedelivery(options: WebhookRedeliveryOptions) {
         }
         // Forget old guids; they are outside every later window.
         if (sent.size > 20_000) for (const guid of [...sent.keys()].slice(0, sent.size - 10_000)) sent.delete(guid);
-        if (failed.length) options.event("babysitter.webhook.redelivered", { failed: failed.length, redelivered, abandoned, errors, events });
+        const remaining = failed.length - redelivered - abandoned;
+        watermark = remaining > 0 ? since : start - overlapMs;
+        if (failed.length) options.event("babysitter.webhook.redelivered", { failed: failed.length, redelivered, abandoned, errors, remaining, events });
         return redelivered;
       } finally {
         running = false;

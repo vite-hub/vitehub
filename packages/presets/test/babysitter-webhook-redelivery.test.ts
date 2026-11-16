@@ -19,7 +19,7 @@ describe("Babysitter webhook redelivery", () => {
     expect(f.event).toHaveBeenCalledWith("babysitter.webhook.redelivered", expect.objectContaining({ failed: 2, redelivered: 2, events: { "check_suite.completed": 2 } }))
   })
 
-  it("looks back two hours first, then to the previous sweep with an overlap", async () => {
+  it("looks back two hours first, then to the previous complete sweep with an overlap", async () => {
     const f = setup(() => [])
     const first = f.now()
     await f.redelivery.sweep()
@@ -27,6 +27,26 @@ describe("Babysitter webhook redelivery", () => {
     f.advance(5 * 60_000)
     await f.redelivery.sweep()
     expect(f.source.failedDeliveries.mock.calls[1]![0]).toBe(first - 20 * 60_000)
+  })
+
+  it("keeps deliveries past the limit or after a failed request for the next sweep", async () => {
+    let now = 10 * 3_600_000
+    const pending = new Map(Array.from({ length: 411 }, (_, index) => [String(index + 1), { ...delivery(index + 1), deliveredAt: now - 3_600_000 + index }]))
+    const source = {
+      failedDeliveries: vi.fn(async (since: number) => [...pending.values()].filter(item => item.deliveredAt >= since)),
+      redeliver: vi.fn(async (id: string) => {
+        if (id === "5" && source.redeliver.mock.calls.filter(([call]) => call === "5").length === 1) throw new Error("GitHub 502")
+        pending.delete(id)
+      }),
+    }
+    const redelivery = createWebhookRedelivery({ source, event: vi.fn(), error: vi.fn(), pauseMs: 0, now: () => now })
+    const sent: number[] = []
+    for (let sweep = 0; sweep < 4; sweep++) {
+      sent.push(await redelivery.sweep())
+      now += 5 * 60_000
+    }
+    expect(sent.reduce((sum, count) => sum + count, 0)).toBe(411)
+    expect(pending.size).toBe(0)
   })
 
   it("gives up on an event after three redeliveries", async () => {
