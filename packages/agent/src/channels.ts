@@ -106,6 +106,7 @@ import {
   gmailMailboxHistoryId,
   gmailMailboxProfile,
   gmailSettings,
+  isGmailNotificationCovered,
   modifyGmailMessage,
   readGmailChannelStatus,
   normalizeGmailLabelSettings,
@@ -4516,6 +4517,8 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           if (cachedMailbox && notifiedMailbox !== cachedMailbox.trim().toLowerCase()) {
             return Response.json({ accepted: false, reason: "Gmail notification belongs to another mailbox." }, { status: 400 })
           }
+          // A notification that a sync of this mailbox already covered needs no work, so it skips the profile read.
+          if (isGmailNotificationCovered(cursors, state, notifiedMailbox, push.historyId)) return new Response(null, { status: 204 })
           // The sync runs before the answer. Pub/Sub sends a notification again, with backoff, until a sync covers it:
           // after a failure, after the time budget, and while another sync holds the mailbox (it also reads once more).
           try {

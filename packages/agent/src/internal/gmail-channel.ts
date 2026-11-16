@@ -1021,6 +1021,15 @@ function cursorCacheKey(keyPrefix: string, mailbox: string | undefined): string 
   return `${keyPrefix}\n${mailbox ?? ""}`
 }
 
+/**
+ * Whether this process already synced the mailbox past `historyId`. The cache holds only cursors of mailboxes that a sync
+ * verified, so this needs no Gmail or State request.
+ */
+export function isGmailNotificationCovered(cursors: ReadonlyMap<string, string>, binding: AgentChannelStateBinding, mailbox: string, historyId: string): boolean {
+  const known = cursors.get(cursorCacheKey(binding.keyPrefix, mailbox))
+  return known !== undefined && !isNewerHistoryId(historyId, known)
+}
+
 /** Gmail history IDs are decimal integers that only grow. */
 function isNewerHistoryId(historyId: string, cursor: string): boolean {
   return BigInt(historyId) > BigInt(cursor)

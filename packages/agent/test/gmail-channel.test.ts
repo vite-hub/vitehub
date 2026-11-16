@@ -1435,6 +1435,34 @@ describe("gmail() Channel", () => {
     } finally { release(); errors.mockRestore() }
   })
 
+  it("answers a covered push with a custom client without a Gmail or State request", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const broker = gmailClientFromSettings({ clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" }, google.fetch)
+    const gmailRequests: string[] = []
+    const client: GmailClient = async (request) => {
+      gmailRequests.push(request.path)
+      return await broker(request)
+    }
+    const { requests, state } = countingCloudflareState()
+    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: () => "ok" }, name: "covered-broker" })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const push = async (historyId: number) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "Max@example.com", historyId })), messageId: `covered-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+    }), "gmail", { agentName: "covered-broker", waitUntil: vi.fn(), webhookState: () => state })).status
+    expect(await push(100)).toBe(204)
+    google.history.set("100", { historyId: "105", ids: [] })
+    expect(await push(105)).toBe(204)
+    gmailRequests.length = 0
+    // Pub/Sub sends the notification again: the custom client could change mailboxes, but a covered push does no work.
+    expect(await requests(async () => expect(await push(105)).toBe(204))).toEqual([])
+    expect(gmailRequests).toEqual([])
+    // A newer notification still checks the mailbox before it syncs.
+    expect(await push(106)).toBe(204)
+    expect(gmailRequests).toEqual(["profile", "history"])
+  })
+
   it("saves a checkpoint after the push time budget and continues on the next delivery", async () => {
     stubGmailEnv()
     vi.useFakeTimers({ toFake: ["Date"] })
