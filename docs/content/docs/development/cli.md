@@ -87,6 +87,9 @@ Available namespaces:
 | `vitehub deploy` | Available | ViteHub CLI | Create the missing host resources, build the app for the default host target, or the one of `--host`, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Loads the project config only after the deploy question, to read the Provision Steps. |
 | `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. `--host` picks a target. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
+| `vitehub login` | Available | ViteHub CLI | Sign in to a ViteHub Console with the device flow and save an API key for this machine. `--console` names a self-hosted Console. Does not load the project config. |
+| `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
+| `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
@@ -646,6 +649,43 @@ Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked
 ### `SETUP_DEPLOY_PUSH_FAILED`
 
 The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
+
+## Sign in to a Console
+
+`vitehub login` signs the CLI in to a ViteHub Console with the device flow of RFC 8628. It needs no project.
+
+```bash [Terminal]
+vitehub login                                         # console.vitehub.dev
+vitehub login --console https://console.example.com   # a self-hosted Console
+```
+
+```txt [Output]
+Open https://console.vitehub.dev/device and enter the code WDJB-MJHT
+Or open https://console.vitehub.dev/device?user_code=WDJBMJHT
+Waiting for approval...
+Signed in to https://console.vitehub.dev as Ada (ada@example.com) in team Acme.
+The API key expires on 13 Feb 2027. Saved in /home/ada/.config/vitehub/credentials.json.
+```
+
+1. The CLI asks the Console for a code and prints it with the `/device` address.
+2. In the browser, you sign in, check the machine name and the code, choose a team, and click **Approve** or **Deny**.
+3. The CLI gets an API key for that team, valid for 90 days. The Console keeps only a SHA-256 hash of the key, and the CLI never prints it.
+
+The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. `--console` and `VITEHUB_CONSOLE_URL` name the Console. Plain `http://` works only for `localhost`.
+
+- `vitehub whoami` shows the person, the team, the role, and the projects of the key.
+- `vitehub logout` revokes the key on the Console and removes it from the file.
+- In CI, set `VITEHUB_CONSOLE_TOKEN` to an API key from **Account settings** > **API keys** in the Console. It wins over the saved key.
+
+A key acts as you in one team. A key made in the Console can name some projects of the team: it then opens only those and cannot link or unlink projects. Revoke a key in **Account settings** > **API keys**.
+
+### `CLI_CONSOLE_LOGIN_FAILED`
+
+The device flow did not finish: the Console did not answer, the person denied the code, or the code expired after 15 minutes. Run `vitehub login` again.
+
+### `CLI_CONSOLE_SIGNED_OUT`
+
+The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
 
 ## List deployments
 

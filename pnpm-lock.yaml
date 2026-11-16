@@ -700,7 +700,8 @@ packageExtensionsChecksum: sha256-EN5fx8uOipDXMuAPAKPp6HUTszSWHhOJHioZQq82cSE=
 
 patchedDependencies:
   '@netlify/blobs@11.1.4': e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd
-  '@ui-sdk/core@0.1.0-beta.2': a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098
+  '@ui-sdk/core@0.1.0-beta.2': 21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626
+  '@ui-sdk/vue@0.1.0-beta.2': 614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317
   '@vercel/blob@2.8.0': 015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25
   nuxt-agent-discovery@0.8.2: 938c034a9b7f331c9e2f568ddb972a1e0b279fa6637b33d970edbd146c6d3a1d
   pkce-challenge@5.0.1: 10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5
@@ -1138,10 +1139,10 @@ importers:
         version: 4.1.4
       '@ui-sdk/core':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+        version: 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       '@ui-sdk/vue':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt@4.6.4(2428d1b2a012b45050cafb457e5d2e99))(vue@3.5.44(typescript@6.0.3))
+        version: 0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt@4.6.4(de97ead755bea8f59ff4722463175db8))(vue@3.5.44(typescript@6.0.3))
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
@@ -2584,10 +2585,10 @@ importers:
         version: 24.19.1
       '@ui-sdk/core':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+        version: 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       '@ui-sdk/vue':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt@4.6.4(de97ead755bea8f59ff4722463175db8))(vue@3.5.44(typescript@6.0.3))
+        version: 0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt@4.6.4(de97ead755bea8f59ff4722463175db8))(vue@3.5.44(typescript@6.0.3))
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -2848,10 +2849,10 @@ importers:
     dependencies:
       '@ui-sdk/core':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+        version: 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       '@ui-sdk/vue':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(@nuxt/kit@4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))
+        version: 0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))
     devDependencies:
       '@fontsource-variable/geist':
         specifier: catalog:ui
@@ -3680,10 +3681,10 @@ importers:
         version: 24.19.1
       '@ui-sdk/core':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+        version: 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       '@ui-sdk/vue':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(@nuxt/kit@4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.3)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))
+        version: 0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.3)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
@@ -4009,10 +4010,10 @@ importers:
         version: 3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       '@ui-sdk/core':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+        version: 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       '@ui-sdk/vue':
         specifier: 0.1.0-beta.2
-        version: 0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.2.4)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(vue@3.5.44(typescript@6.0.3))
+        version: 0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.2.4)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(vue@3.5.44(typescript@6.0.3))
       '@vercel/sandbox':
         specifier: catalog:sandbox
         version: 4.0.0
@@ -29174,47 +29175,38 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)': {}
+  '@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)': {}
 
-  '@ui-sdk/vue@0.1.0-beta.2(@nuxt/kit@4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.3)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))':
+  '@ui-sdk/vue@0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.3)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))':
     dependencies:
-      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       vue: 3.5.44(typescript@6.0.3)
     optionalDependencies:
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
       '@nuxt/schema': 4.6.3
       nuxt: nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a)
 
-  '@ui-sdk/vue@0.1.0-beta.2(@nuxt/kit@4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))':
+  '@ui-sdk/vue@0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a))(vue@3.5.44(typescript@6.0.3))':
     dependencies:
-      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       vue: 3.5.44(typescript@6.0.3)
     optionalDependencies:
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
       '@nuxt/schema': 4.6.4
       nuxt: nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a)
 
-  '@ui-sdk/vue@0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.2.4)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(vue@3.5.44(typescript@6.0.3))':
+  '@ui-sdk/vue@0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.2.4)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(vue@3.5.44(typescript@6.0.3))':
     dependencies:
-      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       vue: 3.5.44(typescript@6.0.3)
     optionalDependencies:
       '@nuxt/kit': 4.6.4(@nuxt/schema@4.6.4)(confbox@0.2.4)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
       '@nuxt/schema': 4.6.4
       nuxt: nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2)
 
-  '@ui-sdk/vue@0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt@4.6.4(2428d1b2a012b45050cafb457e5d2e99))(vue@3.5.44(typescript@6.0.3))':
+  '@ui-sdk/vue@0.1.0-beta.2(patch_hash=614ca14dc921d0aea30a45e769f5051ca5374d3317dae647fed0d87086358317)(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626))(nuxt@4.6.4(de97ead755bea8f59ff4722463175db8))(vue@3.5.44(typescript@6.0.3))':
     dependencies:
-      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
-      vue: 3.5.44(typescript@6.0.3)
-    optionalDependencies:
-      '@nuxt/kit': 4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
-      '@nuxt/schema': 4.6.4
-      nuxt: 4.6.4(2428d1b2a012b45050cafb457e5d2e99)
-
-  '@ui-sdk/vue@0.1.0-beta.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5)))(@nuxt/schema@4.6.4)(@ui-sdk/core@0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098))(nuxt@4.6.4(de97ead755bea8f59ff4722463175db8))(vue@3.5.44(typescript@6.0.3))':
-    dependencies:
-      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=a76bd86dee30a146c3ae3b8108b37b8e17227f48220531721eee655f4e8b9098)
+      '@ui-sdk/core': 0.1.0-beta.2(patch_hash=21f6a9da660ddcae338f08181e4de86e7570d3edc5b897aa584d6956e688d626)
       vue: 3.5.44(typescript@6.0.3)
     optionalDependencies:
       '@nuxt/kit': 4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.18)(rollup@4.67.5))
