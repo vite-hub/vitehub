@@ -1,6 +1,6 @@
-import { formatDiagnostic } from "nostics"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -1106,7 +1106,7 @@ export function defineContent<
       return links.length ? { ...result, previews: links } : result
     }
     catch (error) {
-      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0076({ pull: pull.number, reason: error instanceof Error ? error.message : String(error) })))
+      warnDiagnostic(contentErrorDiagnostics.CONTENT_R0076({ pull: pull.number, reason: error instanceof Error ? error.message : String(error), cause: error }))
       return result
     }
   }
@@ -1172,7 +1172,7 @@ export function defineContent<
         const key = `${name}:${parsed.ref}`
         if (!reportedDenials.has(key) && reportedDenials.size < 100) {
           reportedDenials.add(key)
-          console.warn(formatDiagnostic(access.error))
+          warnDiagnostic(access.error)
         }
         return await next(request)
       }
