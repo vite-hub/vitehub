@@ -198,12 +198,12 @@ describe("VITEHUB_MEMBERS", () => {
     expect((await githubSignIn(auth())).error).toBeNull()
   })
 
-  it("shows the list in the Auth Console", async () => {
-    vi.stubEnv("VITEHUB_MEMBERS", "github:22072217, @acme.com")
+  it("shows the list in the Auth Console without the emails", async () => {
+    vi.stubEnv("VITEHUB_MEMBERS", "github:22072217, @acme.com, ada@example.com, grace@example.com")
     const { auth } = createMembersAuth()
     const [error, description] = await createAuthConsole(auth()).describe()
     expect(error).toBeUndefined()
-    expect(description?.access).toContain("VITEHUB_MEMBERS lets only github:22072217, @acme.com and the admins sign up and sign in.")
+    expect(description?.access).toContain("VITEHUB_MEMBERS lets only 2 emails, github:22072217, @acme.com, and the admins, sign up and sign in.")
   })
 
   it.each([

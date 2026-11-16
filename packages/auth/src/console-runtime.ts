@@ -349,7 +349,11 @@ function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
 function membersAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   const options: unknown = plugins?.find((plugin) => plugin.id === accessPolicyPluginId)?.options;
   const members: unknown = options && typeof options === "object" ? Reflect.get(options, "members") : undefined;
-  return Array.isArray(members) && members.length ? [`${membersVariable} lets only ${members.join(", ")} and the admins sign up and sign in.`] : [];
+  if (!Array.isArray(members) || !members.length) return [];
+  // Emails name people, so the note counts them and lists only accounts, domains, and organizations.
+  const emails = members.filter((entry) => typeof entry === "string" && /^[^@]+@/.test(entry)).length;
+  const listed = [...(emails ? [`${emails} ${emails === 1 ? "email" : "emails"}`] : []), ...members.filter((entry) => typeof entry === "string" && !/^[^@]+@/.test(entry))];
+  return [`${membersVariable} lets only ${listed.join(", ")}, and the admins, sign up and sign in.`];
 }
 
 /** The `VITEHUB_ADMIN_CLAIM` rule as an access note. */

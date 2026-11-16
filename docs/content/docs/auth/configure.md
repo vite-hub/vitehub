@@ -377,7 +377,7 @@ The accounts in `VITEHUB_ADMINS` and users with the admin role of `admin()` can 
 - For a request with a user id but no session, such as an upload link, call [`checkAuthMember()`](/docs/auth/server-api#check-a-member-without-a-session).
 - Auth must store sessions to end them. With `stateless()`, Auth fails with `AUTH_MEMBERS_SESSION_STORE_REQUIRED`. An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`.
 
-On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_MEMBERS`. The Auth Console shows the list in its access notes.
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_MEMBERS`. The Auth Console shows the list in its access notes, with the number of emails in place of the emails.
 
 ## Sign in through a trusted proxy
 
