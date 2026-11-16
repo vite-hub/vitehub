@@ -5,15 +5,24 @@ import type { AgentInvocationListOptions } from "../invocations.ts"
 const DEFAULT_LIST_LIMIT = 50
 export const maxAgentInvocationListLimit = 100
 
+interface ListDiagnostics {
+  limit: ListDiagnostic
+  searchType: ListDiagnostic
+  searchLength: ListDiagnostic
+  cursor: ListDiagnostic
+}
+
+type ListDiagnostic = (params: { message: string }) => Error
+
 // Entry points keep their public diagnostic identities while sharing validation rules.
-const defaultListDiagnostics = {
+const defaultListDiagnostics: ListDiagnostics = {
   limit: agentDiagnostics.AGENT_R0618,
   searchType: agentDiagnostics.AGENT_R0619,
   searchLength: agentDiagnostics.AGENT_R0620,
   cursor: agentDiagnostics.AGENT_R0621,
 }
 
-function normalizeLimit(limit: number | undefined, diagnostics: typeof defaultListDiagnostics): number {
+function normalizeLimit(limit: number | undefined, diagnostics: ListDiagnostics): number {
   if (limit === undefined) return DEFAULT_LIST_LIMIT
   if (!Number.isInteger(limit) || limit < 1) {
     throw diagnostics.limit({ message: "[vitehub] Agent Invocation list limit must be a positive integer." })
@@ -21,7 +30,7 @@ function normalizeLimit(limit: number | undefined, diagnostics: typeof defaultLi
   return Math.min(limit, maxAgentInvocationListLimit)
 }
 
-function normalizeSearch(search: string | undefined, diagnostics: typeof defaultListDiagnostics): string | undefined {
+function normalizeSearch(search: string | undefined, diagnostics: ListDiagnostics): string | undefined {
   if (search === undefined) return
   if (typeof search !== "string") {
     throw diagnostics.searchType({ message: "[vitehub] Agent Invocation search must be a string." })
@@ -34,7 +43,7 @@ function normalizeSearch(search: string | undefined, diagnostics: typeof default
   return value
 }
 
-function normalizeBuiltInCursor(cursor: string | undefined, diagnostics: typeof defaultListDiagnostics): string | undefined {
+function normalizeBuiltInCursor(cursor: string | undefined, diagnostics: ListDiagnostics): string | undefined {
   if (cursor === undefined) return
   const value = Number(cursor)
   if (!Number.isSafeInteger(value) || value < 1 || String(value) !== cursor) {
@@ -46,7 +55,7 @@ function normalizeBuiltInCursor(cursor: string | undefined, diagnostics: typeof 
 /** Apply shared list rules while leaving custom store cursors opaque. */
 export function normalizeAgentInvocationListOptions(
   options: AgentInvocationListOptions,
-  { sequenceCursor = false, diagnostics = defaultListDiagnostics }: { sequenceCursor?: boolean, diagnostics?: typeof defaultListDiagnostics } = {},
+  { sequenceCursor = false, diagnostics = defaultListDiagnostics }: { sequenceCursor?: boolean, diagnostics?: ListDiagnostics } = {},
 ): AgentInvocationListOptions & { limit: number } {
   const normalized = { ...options, limit: normalizeLimit(options.limit, diagnostics) }
   const search = normalizeSearch(options.search, diagnostics)
