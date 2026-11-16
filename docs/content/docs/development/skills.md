@@ -218,7 +218,7 @@ curl https://app.example.com/.well-known/agent-skills/index.json
 
 ### SKILL_INVALID_PATH
 
-A file path is not a relative path inside the skill. Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\`.
+A file path is not a relative path inside the skill, or does not fit in a skill archive. Use paths such as `SKILL.md` or `references/api.md`, without `..`, `.`, empty segments, a leading `/`, or `\`. The part after the last `/` has at most 100 bytes. A longer path needs a `/` with at most 155 bytes before it and 100 bytes after it.
 
 ### SKILL_DUPLICATE_NAME
 
