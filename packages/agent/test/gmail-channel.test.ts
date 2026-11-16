@@ -582,7 +582,7 @@ describe("gmail() Channel", () => {
     } finally { await state.disconnect() }
   })
 
-  it("continues from the cursor of an earlier version and moves it into the mailbox record", async () => {
+  it("continues from the cursor of an earlier version and keeps writing it for that version", async () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
@@ -591,7 +591,65 @@ describe("gmail() Channel", () => {
       await syncGmailMailbox({ bodyLimit: 1000, client, dispatch: vi.fn(), notificationHistoryId: "200", state: { keyPrefix: "mail:", state } })
       expect(client.mock.calls.map(([request]) => `${request.path} ${request.query?.startHistoryId}`)).toEqual(["history 100"])
       expect(await storedCursor(state)).toBe("200")
-      expect(await state.get("mail:history-id")).toBeNull()
+      // An app that pins an earlier version again continues from here.
+      expect(await state.get("mail:history-id")).toBe("200")
+    } finally { await state.disconnect() }
+  })
+
+  it("reads history after it clears a pending mark, even when its own notification is covered", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const google = await createGoogle()
+      google.history.set("105", { historyId: "110", ids: ["m1"] })
+      await state.set("mail:mailbox", { historyId: "100" })
+      let busy = true
+      // Push B (105) finds the lock busy. Before its retry, the holder advances the cursor to 105, push C (110, new mail)
+      // marks a pending sync and gets 204, and the holder releases the lock.
+      const contended = new Proxy(state, {
+        get(target, property) {
+          if (property === "acquireLock" && busy) return async () => {
+            busy = false
+            await target.set("mail:mailbox", { historyId: "105" })
+            await target.set("mail:sync-pending", true)
+            return null
+          }
+          const value: unknown = Reflect.get(target, property, target)
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      })
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      await syncGmailMailbox({
+        bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+        dispatch, notificationHistoryId: "105", state: { keyPrefix: "mail:", state: contended },
+      })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("110")
+      expect(await state.get("mail:sync-pending")).toBeNull()
+    } finally { await state.disconnect() }
+  })
+
+  it("starts a new cursor when the credentials belong to another mailbox", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const google = await createGoogle()
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      await state.set("mail:mailbox", { historyId: "500", mailbox: "max@example.com" })
+      const cursors = new Map<string, string>()
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      const options = {
+        bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+        cursors, dispatch, state: { keyPrefix: "mail:", state },
+      }
+      // The old mailbox's cursor is in State and in process memory.
+      await syncGmailMailbox({ ...options, mailbox: "max@example.com", notificationHistoryId: "400" })
+      // The other mailbox has smaller history IDs. Its first push starts its own cursor.
+      await syncGmailMailbox({ ...options, mailbox: "other@example.com", notificationHistoryId: "100" })
+      await expect(state.get("mail:mailbox")).resolves.toMatchObject({ historyId: "100", mailbox: "other@example.com" })
+      await syncGmailMailbox({ ...options, mailbox: "other@example.com", notificationHistoryId: "105" })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("105")
     } finally { await state.disconnect() }
   })
 
@@ -1027,7 +1085,8 @@ describe("gmail() Channel", () => {
       }
       let failed = true
       const dispatch = vi.fn(async () => {
-        expect(await state.get("mail:history-id")).toBeNull()
+        // The old cursor key stays for apps that pin an earlier version again.
+        expect(await state.get("mail:history-id")).toBe("100")
         expect(await state.get("mail:sync-progress")).toBeNull()
         expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"], attempts: progress.attempts })
         expect(await state.get("mail:sync-seen-ids")).toEqual(["m1"])
@@ -1371,18 +1430,21 @@ describe("gmail() Channel", () => {
     try {
       expect((await push("max@example.com", 100)).status).toBe(204)
       current = gmailClientFromSettings({ ...credentials, refreshToken: "rotated-token" }, second.fetch)
-      second.history.set("100", { historyId: "110", ids: ["m1"] })
+      second.history.set("110", { historyId: "115", ids: ["m1"] })
       expect((await push(notification === "current" ? "other@example.com" : "max@example.com", 110)).status).toBe(204)
       expect(second.calls.filter(call => call.path === "profile")).toHaveLength(1)
-      expect(driver).toHaveBeenCalledTimes(notification === "current" ? 1 : 0)
       if (notification === "stale") {
         expect(second.calls.map(call => call.path)).toEqual(["profile"])
         expect(errors).toHaveBeenCalledWith(expect.stringContaining("Gmail notification belongs to another mailbox."))
-        // The stale notification did not advance the cursor or dispatch the current mailbox's message.
+        // The stale notification did not start a cursor for the current mailbox.
         expect((await push("other@example.com", 110)).status).toBe(204)
-        expect(second.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100"])
-        expect(driver).toHaveBeenCalledOnce()
       }
+      // The other mailbox starts its own cursor, because history IDs of two mailboxes cannot be compared.
+      expect(second.calls.filter(call => call.path === "history")).toEqual([])
+      expect(driver).not.toHaveBeenCalled()
+      expect((await push("other@example.com", 115)).status).toBe(204)
+      expect(second.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["110"])
+      expect(driver).toHaveBeenCalledOnce()
     }
     finally { errors.mockRestore() }
   })

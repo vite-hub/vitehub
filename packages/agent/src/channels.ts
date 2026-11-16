@@ -104,6 +104,7 @@ import {
   gmailMessageSchema,
   gmailMailboxAddress,
   gmailMailboxHistoryId,
+  gmailMailboxProfile,
   gmailSettings,
   modifyGmailMessage,
   readGmailChannelStatus,
@@ -4431,6 +4432,20 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
   // The last cursor that a sync in this process saw, so a push that it already covers sends no State request.
   const cursors = new Map<string, string>()
+  /**
+   * The address of the credentials' mailbox, and its history ID when this call read the profile.
+   * A custom `client` can rotate credentials, so with `client`, each call reads it.
+   */
+  const mailboxProfile = async (settings: GmailSettings, client: GmailClient): Promise<{ address: string, historyId?: string }> => {
+    const cached = !options.client && verifiedMailbox
+      && verifiedMailbox.clientId === settings.clientId && verifiedMailbox.clientSecret === settings.clientSecret
+      && verifiedMailbox.refreshToken === settings.refreshToken
+      ? verifiedMailbox.address : undefined
+    if (cached) return { address: cached }
+    const profile = await gmailMailboxProfile(client)
+    if (!options.client) verifiedMailbox = { address: profile.emailAddress, clientId: settings.clientId, clientSecret: settings.clientSecret, refreshToken: settings.refreshToken }
+    return { address: profile.emailAddress, historyId: profile.historyId }
+  }
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
   const modify = async (context: AgentCallbackContext<TRuntimeConfig>, id: string, input: GmailModifyInput) =>
@@ -4497,16 +4512,14 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           }
           // Acknowledge Pub/Sub first. The stored history cursor lets a later notification retry failed work.
           context.waitUntil((async () => {
-            const mailbox = cachedMailbox ?? await gmailMailboxAddress(client)
-            if (!options.client) {
-              verifiedMailbox = { address: mailbox, clientId: settings.clientId, clientSecret: settings.clientSecret, refreshToken: settings.refreshToken }
-            }
-            if (notifiedMailbox !== mailbox.trim().toLowerCase()) throw new Error("Gmail notification belongs to another mailbox.")
+            const mailbox = (cachedMailbox ?? (await mailboxProfile(settings, client)).address).trim().toLowerCase()
+            if (notifiedMailbox !== mailbox) throw new Error("Gmail notification belongs to another mailbox.")
             await syncGmailMailbox({
               bodyLimit,
               client,
               cursors,
               dispatch: dispatchReceived(context),
+              mailbox,
               ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
               state,
@@ -4528,13 +4541,16 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         async invoke(context) {
           const settings = await gmailChannelSettings(context)
           const client = options.client ?? gmailClientFromSettings(settings, options.fetch)
+          const profile = await mailboxProfile(settings, client)
           await syncGmailMailbox({
             bodyLimit,
             client,
             cursors,
             dispatch: dispatchReceived(context),
+            mailbox: profile.address.trim().toLowerCase(),
             ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
-            notificationHistoryId: async () => await gmailMailboxHistoryId(client),
+            // The first poll starts the cursor at the current history ID, like the first push.
+            notificationHistoryId: async () => profile.historyId ?? await gmailMailboxHistoryId(client),
             state: context.channelState,
             throwOnDispatchFailure: true,
             ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),

@@ -365,7 +365,7 @@ The Channel verifies Google OIDC and the Pub/Sub envelope before it reads or wri
 
 ### Cursor, locks, and limits
 
-The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
+The first push or poll only stores the cursor; [replay](#replay-past-mail) reads earlier mail. When the credentials change to another mailbox, its first push or poll stores a new cursor, because history IDs of two mailboxes cannot be compared. Gmail keeps history for about a week. When the stored history is gone, the Channel reads the last two days of Inbox mail and continues from the current history.
 
 One process at a time reads the mailbox. A push during a sync makes the running sync read once more.
 

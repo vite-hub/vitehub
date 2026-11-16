@@ -883,12 +883,17 @@ export interface GmailMailboxSync {
   bodyLimit: number
   client: GmailClient
   /**
-   * The last cursor that this process read or wrote, by State key prefix. A push that it already covers costs no State
-   * request. The sync updates it.
+   * The last cursor that this process read or wrote, by State key prefix and mailbox. A push that it already covers
+   * costs no State request. The sync updates it.
    */
   cursors?: Map<string, string>
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
+  /**
+   * The lowercase address of the credentials' mailbox. A stored cursor of another mailbox counts as no cursor, because
+   * history IDs of two mailboxes cannot be compared.
+   */
+  mailbox?: string
   /** Sync attempts for one message before the Channel skips it. Defaults to `gmailDefaultMaxAttempts`. */
   maxAttempts?: number
   /**
@@ -905,6 +910,11 @@ export interface GmailMailboxSync {
 
 export async function gmailMailboxAddress(client: GmailClient): Promise<string> {
   return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).emailAddress
+}
+
+/** The address and current history ID of the mailbox. */
+export async function gmailMailboxProfile(client: GmailClient): Promise<{ emailAddress: string, historyId: string }> {
+  return await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })
 }
 
 /** The current history ID of the mailbox. A poll starts the cursor at it, like the first push. */
@@ -940,6 +950,8 @@ interface GmailSyncHealth {
 interface GmailMailboxRecord {
   /** The history cursor: the sync has read the mailbox up to this history ID. */
   historyId?: string
+  /** The address of the mailbox that `historyId` belongs to. */
+  mailbox?: string
   health?: GmailSyncHealth
   progress?: GmailSyncProgress
   syncedAt?: string
@@ -950,6 +962,7 @@ function mailboxKeys(keyPrefix: string) {
   return {
     /** The cursor before the mailbox record. Read only when the record does not exist yet. */
     legacyCursor: `${keyPrefix}history-id`,
+    /** The checkpoint before the mailbox record. */
     legacyProgress: `${keyPrefix}sync-progress`,
     lock: `${keyPrefix}sync`,
     mailbox: `${keyPrefix}mailbox`,
@@ -968,14 +981,23 @@ function mailboxState(binding: AgentChannelStateBinding): AtomicAgentStateLockAd
   return requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
 }
 
-async function readMailboxRecord(state: AtomicAgentStateLockAdapter, keys: GmailMailboxKeys): Promise<{ legacy: boolean, record: GmailMailboxRecord }> {
+/**
+ * Reads the mailbox record. A record of another mailbox reads as empty. Without a record, it reads the cursor and the
+ * checkpoint of earlier versions, so failed messages that wait for a retry are not lost on upgrade.
+ */
+async function readMailboxRecord(state: AtomicAgentStateLockAdapter, keys: GmailMailboxKeys, mailbox: string | undefined): Promise<{ legacy: boolean, record: GmailMailboxRecord }> {
   const record = await state.get<GmailMailboxRecord>(keys.mailbox)
-  if (record) return { legacy: false, record }
+  if (record) return { legacy: false, record: mailbox && record.mailbox && record.mailbox !== mailbox ? {} : record }
   const historyId = await state.get<string>(keys.legacyCursor)
   if (!historyId) return { legacy: false, record: {} }
-  const stored = await state.get<GmailSyncProgress & { startHistoryId: string }>(keys.legacyProgress)
-  const progress = stored?.startHistoryId === historyId ? stored : undefined
-  return { legacy: true, record: { historyId, ...(progress ? { progress } : {}) } }
+  const legacyProgress = await state.get<GmailSyncProgress & { startHistoryId?: string }>(keys.legacyProgress)
+  if (legacyProgress?.startHistoryId !== historyId) return { legacy: true, record: { historyId } }
+  const { startHistoryId: _startHistoryId, ...progress } = legacyProgress
+  return { legacy: true, record: { historyId, progress } }
+}
+
+function cursorCacheKey(keyPrefix: string, mailbox: string | undefined): string {
+  return `${keyPrefix}\n${mailbox ?? ""}`
 }
 
 /** Gmail history IDs are decimal integers that only grow. */
@@ -1224,12 +1246,13 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   const state = mailboxState(sync.state)
   const keys = mailboxKeys(keyPrefix)
   const notification = typeof sync.notificationHistoryId === "string" ? sync.notificationHistoryId : undefined
+  const cacheKey = cursorCacheKey(keyPrefix, sync.mailbox)
   if (notification !== undefined) {
-    // Cursors only move forward, so a remembered cursor is a lower bound of the stored one.
-    let known = sync.cursors?.get(keyPrefix)
+    // Cursors of one mailbox only move forward, so a remembered cursor is a lower bound of the stored one.
+    let known = sync.cursors?.get(cacheKey)
     if (known === undefined) {
-      known = (await readMailboxRecord(state, keys)).record.historyId
-      if (known) sync.cursors?.set(keyPrefix, known)
+      known = (await readMailboxRecord(state, keys, sync.mailbox)).record.historyId
+      if (known) sync.cursors?.set(cacheKey, known)
     }
     if (known && !isNewerHistoryId(notification, known)) return
   }
@@ -1263,13 +1286,19 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       keys,
       record: {},
       state,
-      write: async (record, mutations = []) => {
-        // Remove legacy State only in the same fenced mutation that stores its replacement.
-        const legacyCleanup: AgentStateCacheMutation[] = legacy ? [{ key: keys.legacyCursor, type: "delete" }, { key: keys.legacyProgress, type: "delete" }] : []
-        if (ownershipLost || !await state.mutateWithLock(heldLock, [{ key: keys.mailbox, type: "set", value: record }, ...legacyCleanup, ...mutations])) throw lost()
+      write: async (next, mutations = []) => {
+        const record: GmailMailboxRecord = { ...next, ...(sync.mailbox ? { mailbox: sync.mailbox } : {}) }
+        const compatibility: AgentStateCacheMutation[] = [
+          // The checkpoint of earlier versions is in the record now.
+          ...(legacy ? [{ key: keys.legacyProgress, type: "delete" as const }] : []),
+          // Earlier versions read the cursor from this key. Writing it keeps the place of an app that pins an earlier
+          // version again. Stop writing it after @vite-hub/agent 0.2.0 ships.
+          ...(record.historyId ? [{ key: keys.legacyCursor, type: "set" as const, value: record.historyId }] : []),
+        ]
+        if (ownershipLost || !await state.mutateWithLock(heldLock, [{ key: keys.mailbox, type: "set", value: record }, ...compatibility, ...mutations])) throw lost()
         legacy = false
         lease.record = record
-        if (record.historyId) sync.cursors?.set(keyPrefix, record.historyId)
+        if (record.historyId) sync.cursors?.set(cacheKey, record.historyId)
       },
     }
     let renewalTask = Promise.resolve()
@@ -1281,14 +1310,15 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     let recordRead = false
     try {
       if (clearPending && !await state.mutateWithLock(heldLock, [{ key: keys.pending, type: "delete" }])) throw lost()
-      const read = await readMailboxRecord(state, keys)
+      const read = await readMailboxRecord(state, keys, sync.mailbox)
       legacy = read.legacy
       lease.record = read.record
       recordRead = true
       // Keep the matching checkpoint and its existing seen-ID snapshot before dispatching retries.
       if (legacy) await lease.write(lease.record)
       do {
-        outcome = await syncMailboxOnce(sync, lease, first ? notification : undefined)
+        // A holder that cleared a pending mark reads history for a notification that it has not seen.
+        outcome = await syncMailboxOnce(sync, lease, first && !clearPending ? notification : undefined)
       } while (outcome === "resumed")
       if (sync.topic && (!lease.record.watchExpiresAt || Date.parse(lease.record.watchExpiresAt) - Date.now() <= watchRenewalMarginMs)) {
         try {
@@ -1310,7 +1340,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       if (failure !== undefined) {
         await (async () => {
           if (!recordRead) {
-            const read = await readMailboxRecord(state, keys)
+            const read = await readMailboxRecord(state, keys, sync.mailbox)
             legacy = read.legacy
             lease.record = read.record
           }
