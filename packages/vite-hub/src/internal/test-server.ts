@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { renameSync, rmSync, writeFileSync } from "node:fs"
 import { createServer as createHttpServer } from "node:http"
 import { pathToFileURL } from "node:url"
 import { parentPort, workerData } from "node:worker_threads"
@@ -6,12 +7,18 @@ import { parentPort, workerData } from "node:worker_threads"
 import type { ViteDevServer } from "vite"
 
 /**
- * The worker of `vite-hub/test/register`. It runs one Vite server of the app, as Vitest does, and answers the module
- * hooks of every test process over a local port. It runs in its own thread because Node blocks the main thread while
- * it loads modules, and the hooks thread passes its own imports through the hooks.
+ * The Vite server of `vite-hub/test/register`. It runs one Vite server of the app, as Vitest does, and answers the
+ * module hooks of the test processes over a local port. It runs outside the test's main thread because Node blocks
+ * that thread while it loads modules, and the hooks thread passes its own imports through the hooks.
+ *
+ * - In a worker thread of a test process, it posts its address to the process.
+ * - As its own process for the test processes of `node --test` (`<root> <address file> <runner pid>`), it writes its
+ *   address to the file, and stops when the runner process ends.
  */
 
-const { root } = workerData as { root: string }
+const [root, addressFile, runner] = parentPort
+  ? [(workerData as { root: string }).root]
+  : [process.argv[2]!, process.argv[3]!, Number(process.argv[4])]
 
 async function startVite(): Promise<ViteDevServer> {
   // The ViteHub plugins write and add the same test setup files as for Vitest. This changes only this thread.
@@ -69,5 +76,23 @@ const http = createHttpServer((request, response) => {
 http.listen(0, "127.0.0.1", () => {
   const address = http.address()
   // SAFETY: A TCP server that listens has an AddressInfo address.
-  parentPort!.postMessage(`http://127.0.0.1:${(address as { port: number }).port}/${token}`)
+  const url = `http://127.0.0.1:${(address as { port: number }).port}/${token}`
+  if (parentPort) {
+    parentPort.postMessage(url)
+    return
+  }
+  // The test processes read the file as soon as it exists, so it appears with its whole content.
+  writeFileSync(`${addressFile}.tmp`, url)
+  renameSync(`${addressFile}.tmp`, addressFile!)
+  setInterval(() => {
+    try {
+      process.kill(runner!, 0)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return
+      rmSync(addressFile!, { force: true })
+      rmSync(`${addressFile}.lock`, { force: true })
+      process.exit(0)
+    }
+  }, 1000)
 })
