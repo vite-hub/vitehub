@@ -1,8 +1,8 @@
+import { invariantError } from '@vite-hub/internal/invariant'
 import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { findDynamicImports } from 'mlly'
 import type { Rolldown } from 'vite'
-import { sandboxTaskErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export interface DiscoveredDefinitionBundleOptions {
   alias?: Record<string, string>
@@ -96,7 +96,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
   const modules = Object.fromEntries(chunks.map(chunk => [chunk.fileName, chunk.code]))
 
   if (!modules['definition.js']) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0048({ message: `[vitehub] Failed to bundle discovered definition graph "${options.filename}".` })
+    throw invariantError('the bundle input is named `definition`, so Rolldown emits `definition.js` or throws first')
   }
 
   const externalImports = [...new Set(chunks
