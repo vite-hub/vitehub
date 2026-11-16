@@ -79,6 +79,10 @@ pnpm vitehub project info --url https://app.example.com
   "protocol": 1,
   "name": "my-app",
   "vitehub": "0.1.0",
+  "build": {
+    "time": "2026-11-14T10:00:00.000Z",
+    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main" }
+  },
   "sections": ["env", "kv"],
   "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
@@ -87,5 +91,7 @@ pnpm vitehub project info --url https://app.example.com
 `project.get` tells a client what the project runs and what the caller may use, and every caller that passes Console access can read it. It lists only the sections and operations that the app installs and that `authorize` allows, so a read-only grant such as `"kv:read"` leaves out the writes. An operation that reads its section from the input, such as `documents.action`, is listed, and each call checks its section again.
 
 `protocol` is the version of this answer, and a client stops at a protocol that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs.
+
+`build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, and the branch. The Console shows it as **Last deploy** on Home and on the app Overview. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name.
 
 The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.

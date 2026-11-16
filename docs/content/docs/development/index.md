@@ -60,7 +60,7 @@ invocation events in a browser.
 Run the narrowest check that covers the behavior you changed:
 
 - `vitehub agent eval` for Agent behavior.
-- `vitehub provision run --provider <name> --dry-run` for provider resources.
+- `vitehub provision run --host <name> --dry-run` for provider resources.
 - `pnpm build` when generated host output changed.
 
 [Verification](/docs/development/verification) explains each check and what it

@@ -5,7 +5,7 @@ import {
 } from "../cloudflare.ts";
 import { resolveRemoteSandboxRuntime } from "./remote.ts";
 
-export { createCloudflareSandboxDurableObject } from "./cloudflare-durable-object.ts";
+export { createCloudflareSandboxDurableObject, createCloudflareSandboxOutbound } from "./cloudflare-durable-object.ts";
 
 export async function resolveCloudflareSandbox(
   options: CloudflareSandboxOptions,
