@@ -227,7 +227,7 @@ describe("kv operations", () => {
     expect((await kv.get("vitehub:state"))[1]).toBe("x")
   })
 
-  it("says whether a key can expire, since no driver reports the time left", async () => {
+  it("says that a key can expire, since no driver reports the time left", async () => {
     await run({ key: "ephemeral", operation: "set", value: "x" })
     expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "unknown" })
     for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {

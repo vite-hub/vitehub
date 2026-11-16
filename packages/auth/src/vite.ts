@@ -9,11 +9,13 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
 import { resolveAuthViteConfig } from "./config.ts"
+import { authDeploymentEnv } from "./deployment-env.ts"
 import { authMemoryDatabaseError } from "./database-options.ts"
 import { authAbilitiesCandidates, discoverAuthClient, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { authTableNames } from "./table-names.ts"
 
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -53,6 +55,8 @@ type NitroBuild = {
 }
 
 export interface AuthVitePluginAPI {
+  /** The variables that Auth reads on the deployed host. See `authDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedAuthViteConfig | undefined
   refresh: () => ResolvedAuthViteConfig | undefined
 }
@@ -363,6 +367,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
     name: AUTH_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: () => authDeploymentEnv(runtimeConfig),
       getConfig: () => runtimeConfig,
       refresh: refreshRuntimeConfig,
     },

@@ -1,27 +1,86 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 
-import type { DeploymentPlan } from "../deployment.ts"
+import type { DeploymentPlan, ViteHubHost } from "../deployment.ts"
 import type { ViteHubProviderOutputEntry } from "../inspect.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
- * One Server Env declaration that the deployed app reads from host variables, as `deployment.json` lists it.
+ * One set of host variables that the deployed app reads, as `deployment.json` lists it: a Server Env declaration, or
+ * a variable that a primitive reads itself, such as `VITEHUB_SECRET` or `BLOB_READ_WRITE_TOKEN`.
  * It holds names only, so `vitehub deploy` can check the host without booting Vite. It never holds a value.
  */
 export interface DeploymentEnvEntry {
-  /** The declaration path, such as `env.server.github.token`, when it is safe to show. */
+  /** The declaration path, such as `env.server.github.token`, when it is safe to show. Primitive entries have none. */
   path?: string
   /** The host variable names, in read order. The first name that is set supplies the value. */
   names: readonly string[]
+  /** Any variable whose name starts with this prefix supplies the value, such as `VITEHUB_CONSOLE_KEY_`. */
+  prefix?: string
   required: boolean
   secret: boolean
   /** A default supplies the value when no name is set. */
   hasDefault: boolean
+  /** The primitives that read these names, such as `blob`. Server Env declarations have none. */
+  owners?: readonly string[]
+}
+
+/** What a primitive needs to know to name the variables it reads in the deployed app. */
+export interface DeploymentEnvContext {
+  host: ViteHubHost
+}
+
+/**
+ * The host variables that a primitive reads itself, outside the Server Env registry, for one host and its resolved
+ * config. A Vite plugin exposes it as `api.deploymentEnv`, and the build writes the result to `deployment.json`.
+ * Return names only, never values.
+ */
+export type DeploymentEnvContribution = (context: DeploymentEnvContext) => readonly DeploymentEnvEntry[]
+
+// A host variable name. Anything else is dropped, since a name with other characters may hold data.
+const hostVariableName = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
+
+function deploymentEnvContribution(plugin: unknown): DeploymentEnvContribution | undefined {
+  if (!plugin || typeof plugin !== "object") return
+  const api: unknown = Reflect.get(plugin, "api")
+  if (!api || typeof api !== "object") return
+  const contribution: unknown = Reflect.get(api, "deploymentEnv")
+  // SAFETY: `api.deploymentEnv` is the documented contribution member. Its result passes through `deploymentEnvEntry()`.
+  return typeof contribution === "function" ? contribution as DeploymentEnvContribution : undefined
+}
+
+/** The entries that the Vite plugins contribute through `api.deploymentEnv` for one host. */
+export function collectDeploymentEnv(plugins: readonly unknown[] | undefined, context: DeploymentEnvContext): DeploymentEnvEntry[] {
+  return (plugins ?? []).flatMap(plugin => deploymentEnvContribution(plugin)?.(context) ?? [])
+}
+
+/**
+ * Joins entries that read the same names: the result is required when one of them is, secret when one of them is,
+ * and has a default only when all of them have one. Entries keep their first order.
+ */
+export function mergeDeploymentEnv(entries: readonly DeploymentEnvEntry[]): DeploymentEnvEntry[] {
+  const merged = new Map<string, DeploymentEnvEntry>()
+  for (const entry of entries) {
+    const key = JSON.stringify([entry.path ?? null, entry.names, entry.prefix ?? null])
+    const current = merged.get(key)
+    if (!current) {
+      merged.set(key, entry)
+      continue
+    }
+    const owners = [...new Set([...current.owners ?? [], ...entry.owners ?? []])]
+    merged.set(key, {
+      ...current,
+      required: current.required || entry.required,
+      secret: current.secret || entry.secret,
+      hasDefault: current.hasDefault && entry.hasDefault,
+      ...(owners.length ? { owners } : {}),
+    })
+  }
+  return [...merged.values()]
 }
 
 interface FinalizeDeploymentPlanOutputOptions {
-  /** The Server Env names to record. Omit it when the app has no Env plugin. */
+  /** The Server Env and primitive names to record. Omit it when the app has no Env plugin and no primitive names. */
   env?: readonly DeploymentEnvEntry[]
   identity?: {
     name: string
@@ -90,12 +149,15 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
 
 // Copy the known fields only, so a caller cannot put a value into the manifest by accident.
 function deploymentEnvEntry(entry: DeploymentEnvEntry): DeploymentEnvEntry {
+  const owners = entry.owners?.filter(owner => /^[a-z][a-z0-9-]{0,63}$/.test(owner))
   return {
     ...(entry.path === undefined ? {} : { path: entry.path }),
-    names: [...entry.names],
+    names: entry.names.filter(name => hostVariableName.test(name)),
+    ...(entry.prefix !== undefined && hostVariableName.test(entry.prefix) ? { prefix: entry.prefix } : {}),
     required: entry.required,
     secret: entry.secret,
     hasDefault: entry.hasDefault,
+    ...(owners?.length ? { owners } : {}),
   }
 }
 
@@ -120,7 +182,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
     },
     runtime: options.plan.runtime,
     services: options.services ?? options.plan.services,
-    ...(options.env ? { env: options.env.map(deploymentEnvEntry) } : {}),
+    ...(options.env ? { env: options.env.map(deploymentEnvEntry).filter(entry => entry.names.length || entry.prefix) } : {}),
   }
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
