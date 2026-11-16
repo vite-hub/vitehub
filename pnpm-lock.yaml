@@ -1552,6 +1552,12 @@ importers:
       '@babel/parser':
         specifier: ^7.29.9
         version: 7.29.9
+      '@noble/ciphers':
+        specifier: ^2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1580,6 +1586,9 @@ importers:
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
