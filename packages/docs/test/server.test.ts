@@ -1,4 +1,4 @@
-import { globSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { H3 } from "h3"
@@ -7,14 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DocsPublicConfig } from "../src/nuxt.ts"
 
 const fixtures = resolve(import.meta.dirname, "fixtures/content")
-const readFixture = async (key: string) => readFileSync(join(fixtures, key.replaceAll(":", "/")), "utf8")
-const getItem = vi.fn<(key: string) => Promise<unknown>>(readFixture)
-const getKeys = vi.fn(async () => globSync("**/*.md", { cwd: fixtures }).map(key => key.replaceAll("/", ":")))
+const readFixture = async (key: string) => readFileSync(join(fixtures, key), "utf8")
+const getItem = vi.fn<(key: string) => Promise<string | null>>(readFixture)
 // The pages that the `rawMarkdown` option rewrote at build time.
 const rewritten = new Map<string, string>()
-const useKV = vi.fn((base: string) => base === "assets:docs-agent"
-  ? { getItem: async (key: string) => rewritten.get(key) ?? null }
-  : { getItem, getKeys, getItemRaw: getItem })
+const read = vi.fn(async (store: string, file: string) => store === "docs-agent" ? rewritten.get(file) ?? null : await getItem(file))
 const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase" | "mcp"> = {
   appBase: "/",
   site: { name: "Fixture", url: "https://docs.example.com", description: "Fixture docs.", logo: null, badge: null },
@@ -22,10 +19,8 @@ const docsConfig: Pick<DocsPublicConfig, "site" | "sitemap" | "appBase" | "mcp">
   mcp: { name: "fixture", url: "https://docs.example.com/mcp", guide: null },
 }
 
-// The handlers use the real `nitro/h3`. Storage and runtime config need a Nitro build, so they are fakes.
-vi.mock("nitro/kv", () => ({ useKV }))
-// Development has no packed files, so the handlers read Nitro server assets.
-vi.mock("#docs/files", () => ({ default: null }))
+// The handlers use the real `nitro/h3`. The files and runtime config need a Nitro build, so they are fakes.
+vi.mock("#docs/files", () => ({ default: { read } }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: docsConfig } }) }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/agent", () => ({ default: { llms: { details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://docs.example.com/openapi.json" }] }] } } }))
@@ -110,7 +105,7 @@ describe("raw Markdown route", () => {
   it("reads the pages that rawMarkdown rewrote at build time", async () => {
     rewritten.set("docs_0/docs/kv/ttl.md", "---\ntitle: TTL\n---\nRewritten for agents.\n")
     expect(await (await app.fetch(new Request("https://docs.example.com/raw/docs/kv/ttl.md"))).text()).toContain("Rewritten for agents.")
-    expect(useKV).toHaveBeenCalledWith("assets:docs-agent")
+    expect(read).toHaveBeenCalledWith("docs-agent", "docs_0/docs/kv/ttl.md")
   })
 
   it.each(["/raw/missing.md", "/raw/docs/kv.html", "/raw/docs/kv/index.md"])("returns 404 for %s", async (path) => {

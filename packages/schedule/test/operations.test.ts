@@ -8,7 +8,8 @@ import { executeStaticSchedule } from "../src/runtime/execute.ts"
 import { summarizeScheduleRun } from "../src/runtime/operations.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
 import { createMemoryStartedScheduleStore, installStartedSchedules } from "../src/runtime/started.ts"
-import { createMemoryScheduleRunStore, ScheduleHistoryIncompleteError } from "../src/runtime/store.ts"
+import { scheduleErrorDiagnostics } from "../src/error-diagnostics.ts"
+import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
 
 import type { OperationAccess } from "@vite-hub/internal/operations"
 import type { ScheduleHandler } from "../src/types.ts"
@@ -120,7 +121,7 @@ describe("schedule operations", () => {
   })
 
   it("report incomplete history as 503", async () => {
-    const listRuns = vi.fn(() => { throw new ScheduleHistoryIncompleteError(1001, 1000) })
+    const listRuns = vi.fn(() => { throw scheduleErrorDiagnostics.SCHEDULE_HISTORY_INCOMPLETE({ maxRecords: 1000, recordCount: 1001 }) })
     setScheduleRunStore({ ...createMemoryScheduleRunStore(), listRuns })
 
     expect(await call("runs", { id: "digest" })).toMatchObject({ code: "SCHEDULE_HISTORY_INCOMPLETE", ok: false, status: 503 })
@@ -137,7 +138,7 @@ describe("schedule operations", () => {
     })
 
     const result = await call(method === "listRuns" ? "runs" : "attempts", { id: method === "listRuns" ? "digest" : run!.id })
-    expect(result).toEqual({ code: "OPERATION_FAILED", message: "Schedule operation failed.", ok: false, status: 500 })
+    expect(result).toEqual({ code: "SCHEDULE_OPERATION_FAILED", docs: "https://vitehub.dev/docs/schedule/diagnostics/schedule_operation_failed", fix: expect.stringContaining("error.cause"), message: "Schedule operation failed.", ok: false, status: 500 })
     expect(read).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(result)).not.toContain("private-password")
   })

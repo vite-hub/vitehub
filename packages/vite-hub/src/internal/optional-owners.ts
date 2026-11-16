@@ -3,6 +3,8 @@ import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { formatDiagnostic } from "nostics"
+
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import { consoleFeaturePackages, featureIds, featurePackages, features } from "@vite-hub/internal/features"
@@ -270,8 +272,9 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
 }
 
 /**
- * Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range.
- * `hostPackages` adds the packages that the host or a provider needs, from `hostFeaturePackages`.
+ * Throws when an enabled feature misses one of its packages or has a ViteHub package outside the range of `vite-hub`,
+ * and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
+ * provider needs, from `hostFeaturePackages`.
  */
 export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}): void {
   const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
@@ -281,7 +284,7 @@ export function assertFeaturePackages(features: readonly OptionalFeature[], host
     const missing = features.filter(isMissing)
     if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  warnUnsupportedPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
+  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
 }
 
 /**
@@ -329,15 +332,16 @@ function shellArgument(value: string): string {
 }
 
 /**
- * The warning for installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, or
- * `undefined` when all are in range. A package without a version, or with a range that is not semver, such as
- * `workspace:*` in a source checkout, is not checked. A prerelease of a supported release line is in range.
+ * Installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, with the sentences
+ * that name them and the `pnpm add` arguments that install supported versions. A package without a version, or with a
+ * range that is not semver, such as `workspace:*` in a source checkout, is not checked. A prerelease of a supported
+ * release line is in range.
  */
-export function unsupportedPackageVersionsWarning(
+function unsupportedPackageVersions(
   packages: readonly string[],
-  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
-  manifest: unknown = readViteHubManifest(),
-): string | undefined {
+  versionOf: (packageName: string) => string | undefined,
+  manifest: unknown,
+): { install: string, installed: string } | undefined {
   const peers = isPlainObject(manifest) && isPlainObject(manifest.peerDependencies) ? manifest.peerDependencies : {}
   const { satisfies, validRange, validVersion } = semverFunctions()
   const unsupported = [...new Set(packages)].flatMap((name) => {
@@ -349,11 +353,36 @@ export function unsupportedPackageVersionsWarning(
   })
   if (!unsupported.length) return undefined
   const viteHub = isPlainObject(manifest) && typeof manifest.version === "string" ? `vite-hub ${manifest.version}` : "vite-hub"
-  const lines = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`)
+  const installed = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`).join(" ")
   // A preview of `vite-hub` gives a ViteHub package the preview URL. Other packages get the supported range.
   const previews = installArguments(unsupported.map(({ name }) => name), manifest)
-  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!))
-  return `[vitehub] ${lines.join(" ")} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${install.join(" ")}`
+  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!)).join(" ")
+  return { install, installed }
+}
+
+const isViteHubPackage = (name: string) => name.startsWith("@vite-hub/")
+
+/**
+ * The error for installed ViteHub packages outside the range of `vite-hub`, or `undefined` when all are in range.
+ * ViteHub packages of another release share internal contracts with `vite-hub` that can change in any commit.
+ */
+export function unsupportedViteHubPackagesError(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): ReturnType<typeof viteHubErrorDiagnostics.VITE_HUB_PACKAGE_VERSION_UNSUPPORTED> | undefined {
+  const unsupported = unsupportedPackageVersions(packages.filter(isViteHubPackage), versionOf, manifest)
+  return unsupported && viteHubErrorDiagnostics.VITE_HUB_PACKAGE_VERSION_UNSUPPORTED(unsupported)
+}
+
+/** The warning for other installed packages outside the range of `vite-hub`, or `undefined` when all are in range. */
+export function unsupportedPackageVersionsWarning(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): string | undefined {
+  const unsupported = unsupportedPackageVersions(packages.filter(name => !isViteHubPackage(name)), versionOf, manifest)
+  return unsupported && `[vitehub] ${unsupported.installed} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${unsupported.install}`
 }
 
 interface SemverFunctions {
@@ -383,14 +412,14 @@ const checkedPackageVersions = new Set<string>()
 let viteHubManifest: unknown
 
 /**
- * Prints the warning of `unsupportedPackageVersionsWarning` one time for each package in this process. The import
- * facades call `assertFeaturePackages` for each import, so a package is checked only the first time. The check only
- * warns, so a `vite-hub` manifest that it cannot read turns it off and does not stop the build.
+ * Throws the error of `unsupportedViteHubPackagesError`, and prints the warning of `unsupportedPackageVersionsWarning`
+ * one time for each package in this process. The import facades call `assertFeaturePackages` for each import, so a
+ * package in range is checked only the first time. A package out of range stays unchecked, so the next check throws
+ * again until the app installs a supported version. A `vite-hub` manifest that the check cannot read turns it off.
  */
-function warnUnsupportedPackageVersions(packages: readonly string[]): void {
+function checkPackageVersions(packages: readonly string[]): void {
   const unchecked = [...new Set(packages)].filter(name => !checkedPackageVersions.has(name))
   if (!unchecked.length) return
-  for (const name of unchecked) checkedPackageVersions.add(name)
   if (viteHubManifest === undefined) {
     try {
       viteHubManifest = readViteHubManifest()
@@ -399,6 +428,13 @@ function warnUnsupportedPackageVersions(packages: readonly string[]): void {
       viteHubManifest = null
     }
   }
+  const error = unsupportedViteHubPackagesError(unchecked, installedPackageVersion, viteHubManifest)
+  if (error) {
+    // Vite and Nitro print the message of a build error, not its fix. The fix names the install command and pnpm `overrides`.
+    console.error(formatDiagnostic(error))
+    throw error
+  }
+  for (const name of unchecked) checkedPackageVersions.add(name)
   const warning = unsupportedPackageVersionsWarning(unchecked, installedPackageVersion, viteHubManifest)
   if (warning) console.warn(warning)
 }

@@ -96,12 +96,14 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     await posts.save("b", { data: { title: "B" }, body: "New\n" })
     const before = Date.now()
     const first = await content.publish({ collection: "posts", ids: ["b"] })
+    const after = Date.now()
     expect(first.pullRequest?.number).toBe(1)
     expect(first.previews).toEqual([{ collection: "posts", id: "b", url: expect.stringMatching(/^\/pr\/1\/posts\/b\?vitehub-content-token=/), expiresAt: expect.any(Date) }])
-    // One hour, the default of content.preview.
-    const expiresIn = first.previews![0]!.expiresAt.getTime() - before
-    expect(expiresIn).toBeGreaterThan(3590_000)
-    expect(expiresIn).toBeLessThanOrEqual(3600_000 + Date.now() - before)
+    // One hour, the default of content.preview, from the moment publish() signs the link: somewhere between `before`
+    // and `after`, and the token rounds it down to the second.
+    const expiresAt = first.previews![0]!.expiresAt.getTime()
+    expect(expiresAt).toBeGreaterThan(before + 3600_000 - 1000)
+    expect(expiresAt).toBeLessThanOrEqual(after + 3600_000)
 
     const link = new Request(`https://docs.example${first.previews![0]!.url}`)
     expect(await content.sources.allow("pr/1", link, "site")).toMatchObject({ allowed: true, reason: "token" })
