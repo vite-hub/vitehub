@@ -14,6 +14,7 @@ import { consoleErrorMessage } from "../client/documents";
 
 import type { ConsoleDocumentPreview, ConsoleDocumentsClient } from "../client/documents";
 import type { ConsolePreviewDocument, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
+import Icon from "./console-icon.vue";
 
 /**
  * The side browser of the document editor, with its own toolbar. The draft view posts the document on screen to the
@@ -351,7 +352,7 @@ onBeforeUnmount(() => {
         <UButton variant="ghost" icon="i-lucide-rotate-cw" aria-label="Reload the preview" :loading="loading" @click="render" />
       </UTooltip>
       <div class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md bg-elevated px-2.5">
-        <UIcon :name="view === 'published' ? 'i-lucide-globe' : 'i-lucide-eye'" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+        <Icon :name="view === 'published' ? 'i-lucide-globe' : 'i-lucide-eye'" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
         <span class="truncate font-mono text-xs text-muted" :title="address">{{ address || url.pathname }}</span>
         <UBadge
           class="ms-auto shrink-0"
@@ -365,7 +366,7 @@ onBeforeUnmount(() => {
       <UTabs v-model="viewTab" :items="viewItems" :content="false" class="self-end" aria-label="Preview" />
       <UTabs v-model="viewportTab" :items="viewportItems" :content="false" class="hidden self-end sm:flex" aria-label="Viewport">
         <template #leading="{ item }">
-          <UIcon :name="item.icon" class="size-4" aria-hidden="true" />
+          <Icon :name="item.icon" class="size-4" aria-hidden="true" />
           <span class="sr-only">{{ item.name }}</span>
         </template>
       </UTabs>
