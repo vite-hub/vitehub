@@ -6,6 +6,7 @@ import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import {
   createNoExternalAddition,
   createViteHubEnvImportAliases,
@@ -77,6 +78,8 @@ export { env }
 
 export interface EnvVitePluginAPI {
   createServerEnvRegistry: (declarations: EnvRuntimeConfigOptions | undefined) => EnvRuntimeRegistry
+  /** `VITEHUB_SECRET`, which `deriveSecret()` and `seal()` read at runtime. Optional here: features that need it say so. */
+  deploymentEnv: DeploymentEnvContribution
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
   onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
@@ -254,6 +257,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     name: ENV_VITE_PLUGIN_NAME,
     api: {
       createServerEnvRegistry,
+      deploymentEnv: () => [{ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }],
       getPublicEnv,
       getServerEnvRegistry,
       onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),

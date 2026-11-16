@@ -35,6 +35,10 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // `getAgentInvocationsDatabase()` returns Drizzle types and loads drizzle-orm when it is called.
   ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
+  // Agent UI checks json-render specs and reads the form schemas of @vite-hub/forms. Its entries are Zod schemas.
+  ["@vite-hub/agent/ui", { "@json-render/core": "both", "@json-render/vue": "runtime", "@vite-hub/forms": "both", "zod": "runtime" }],
+  // The Vue renderer reads the json-render state store, which needs Zod, and draws Button and Tabs with @ui-sdk/vue.
+  ["@vite-hub/agent/ui/vue", { "@json-render/vue": "both", "@ui-sdk/vue": "runtime", "@vite-hub/forms": "both", "zod": "runtime" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
   ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],

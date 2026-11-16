@@ -18,8 +18,8 @@ export const channelErrors = /*#__PURE__*/ defineErrors({
       fix: "Read `error.cause`. Name a trigger or an `on` handler of the Channel, and call from the persistent server that hosts the Channel, with SQLite or libSQL Agent State and `agent: true`.",
     },
     CHANNEL_SEND_FAILED: {
-      why: ({ channel, kind }: { channel: string, kind: string }) => `The "${kind}" adapter of Channel "${channel}" failed to send the message.`,
-      fix: "Read `error.cause` for the adapter error. The message can still have reached the recipient, so check before you send it again.",
+      why: ({ channel, detail, kind }: { channel: string, detail?: string, kind: string }) => `The "${kind}" adapter of Channel "${channel}" failed to send the message.${detail ? ` ${detail}` : ""}`,
+      fix: "Read `error.cause` for the adapter error. Make `send` of a custom adapter resolve to an object, such as `{ id }`. The message can still have reached the recipient, so check before you send it again.",
     },
   },
 })

@@ -87,6 +87,10 @@ export async function sync(event: ViteHubContext) {
 }
 ```
 
+## Set the values on the host
+
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+
 ## Derive secrets from one root secret
 
 `deriveSecret(purpose)` from `@vite-hub/env` derives a 32-byte hex secret from `VITEHUB_SECRET` with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
@@ -352,7 +356,15 @@ The result has `ok`, the `host` that the app runs on when it is known, and one e
 
 ### Managed credentials
 
-`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
+`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption keys in host configuration and back them up separately from the database.
+
+`encryptionKeys` is a keyring: the current key first, then previous keys. Each value is stored as `v2:<keyId>:<iv>:<ciphertext>`, where `keyId` is `sealKeyId()` of the key that sealed it. A read picks the key by its id. A value from an older store, `<iv>:<ciphertext>` without a key id, reads with the current key, then each previous key. The AES-GCM additional data binds each value to its namespace, key, and revision, so a value moved to another row does not decrypt.
+
+To rotate the key:
+
+1. Pass `encryptionKeys: [newKey, oldKey]`. New writes use `newKey`.
+2. Call `await store.rotate()`. It re-encrypts each value that another key sealed and returns `{ rotated, skipped }`. Revisions stay the same, so `revisionCondition()` and `expectedRevision` stay valid. A value that a write replaces during the rotation keeps the new write.
+3. Pass `encryptionKeys: [newKey]`.
 
 `@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `sealWithKey`, `unsealWithKey`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format. To seal an app value with a key derived from `VITEHUB_SECRET`, use [`seal()` and `unseal()`](#seal-a-value).
 
