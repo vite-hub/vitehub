@@ -77,6 +77,26 @@ export default defineNuxtConfig({
 ```
 :::
 
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      security: {
+        headers: { 'X-Robots-Tag': 'noindex' },
+        maxBodySize: '1mb',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
