@@ -481,6 +481,7 @@
     "packages/codemods/src/nuxt-safe-runtime-config/call-sites.ts": 1,
     "packages/connections/src/internal/http-access.ts": 1,
     "packages/database/src/internal/migration-plan.ts": 1,
+    "packages/env/src/seal-uses.ts": 2,
     "packages/internal/src/ast.ts": 2,
     "packages/internal/src/build/paths.ts": 1,
     "packages/internal/src/config-edit.ts": 1,
