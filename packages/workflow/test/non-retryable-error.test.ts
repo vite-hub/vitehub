@@ -60,7 +60,7 @@ const refundAfterDecline: WorkflowDefinition = {
     catch (error) {
       caught.push(error)
     }
-    await context.step!.sleep!("wait", "200 milliseconds")
+    await context.sleep(200)
     return "refunded"
   },
 }

@@ -46,8 +46,8 @@ describe("vitehub({ mcp })", () => {
   })
 
   it("fails when the MCP server would be public without an explicit mcp.auth: false", () => {
-    expect(() => vitehub({ mcp: true, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
-    expect(() => vitehub({ mcp: {}, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
-    expect(() => vitehub({ mcp: { auth: true }, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_R0141" }))
+    expect(() => vitehub({ mcp: true, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_MCP_AUTH_MISSING" }))
+    expect(() => vitehub({ mcp: {}, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_MCP_AUTH_MISSING" }))
+    expect(() => vitehub({ mcp: { auth: true }, host: "node" })).toThrow(expect.objectContaining({ name: "VITE_HUB_MCP_AUTH_MISSING" }))
   })
 })

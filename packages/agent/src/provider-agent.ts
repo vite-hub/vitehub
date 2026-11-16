@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
 import { withProviderStatusError } from "./internal/provider-status-error.ts"
@@ -1738,7 +1739,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || typeof address === "string") throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
+  invariant(address && typeof address !== "string", "a server that listens on 127.0.0.1 port 0 reports an AddressInfo after it emits listening")
   return {
     async close() {
       http.closeAllConnections()
@@ -2088,7 +2089,7 @@ async function prepareWorkspace(
   const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
   if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
-    throw new Error("Unable to initialize workspace Git repository")
+    throw agentDiagnostics.AGENT_WORKSPACE_GIT_INIT_FAILED()
   }
   return {
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
@@ -2099,10 +2100,11 @@ async function prepareWorkspace(
   }
 }
 
-async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
+/** Closes the Workspace session. It commits the changes only when the invocation completed without `failed`. */
+async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, failed: boolean, abortSignal: AbortSignal) {
   if (!session) return
   try {
-    if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
+    if (failed || !context.workspaceDefinition || context.workspaceMode !== "write") return
     if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
     const diff = await session.diff({ abortSignal })
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
@@ -3103,7 +3105,7 @@ async function* runProvider<
         const requested = execOptions?.cwd || "/workspace"
         const suffix = requested.replace(/^\/workspace(?:\/|$)/, "")
         const cwd = resolve(root, suffix)
-        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
+        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_WORKSPACE_COMMAND_CWD_OUTSIDE()
         const { abortSignal, ...hostOptions } = execOptions || {}
         const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
@@ -3231,7 +3233,7 @@ async function* runProvider<
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
     if (options.sandbox) assertProviderSandboxInvocation(options.sandbox, context, Boolean(capabilityEnvironment?.PATH))
     if (options.launch !== undefined && capabilityEnvironment?.PATH) {
-      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: false })
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
@@ -3306,7 +3308,7 @@ async function* runProvider<
       effectiveSignal?.throwIfAborted()
       providerLaunchDiagnosticSecrets = providerLaunchSecretValues(launch)
       onProviderExit = launch.onExit
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever driver.launch is set")
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, providerCwd),
         effectiveSignal,
@@ -3328,7 +3330,7 @@ async function* runProvider<
           workspaceSession.exec("git", ["rev-parse", "--verify", "HEAD"], { abortSignal: effectiveSignal }),
           effectiveSignal,
         )
-        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw new Error("Host-prepared provider checkout HEAD changed during launch.")
+        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw agentDiagnostics.AGENT_PROVIDER_CHECKOUT_HEAD_CHANGED()
         pullRequestRoot = true
       }
     }
@@ -3473,7 +3475,7 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     if (options.sandbox) {
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever the Agent has a sandbox")
       const configuredCommand = options.providerSettings?.binaryPath
       if (configuredCommand !== undefined && typeof configuredCommand !== "string") {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3910,7 +3912,7 @@ async function* runProvider<
         await closeWorkspace(
           context,
           workspaceSession,
-          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          Boolean(caught ?? cleanupErrors[0] ?? !completed),
           signal,
         )
       }
@@ -4209,7 +4211,7 @@ export function createProviderAgentAdapter<
     stream: async function* (context) {
       for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
-        if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
+        if (event.type === "error" && event.recoverable !== true) throw agentDiagnostics.AGENT_R0726({ message: event.error })
       }
     },
   }
