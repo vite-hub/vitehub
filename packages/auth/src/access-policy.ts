@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { createAuthMiddleware } from "better-auth/api"
 import { deleteSessionCookie, parseCookies } from "better-auth/cookies"
 import { decryptOAuthToken } from "better-auth/oauth2"
@@ -60,8 +61,7 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
   }
 
   const allows = async (user: PolicyUser, key: string, context = auth): Promise<boolean> => {
-    // Internal invariant: Better Auth runs `init` before any request or token check reaches the plugin.
-    if (!context) throw new Error("The access policy plugin was used before Better Auth initialized it.")
+    invariant(context, "Better Auth runs `init` of the access policy plugin before a request or token check reaches it")
     const cacheKey = await digest(key)
     if ((allowedUntil.get(cacheKey) ?? 0) > Date.now()) return true
     allowedUntil.delete(cacheKey)
