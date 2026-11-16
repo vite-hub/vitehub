@@ -738,13 +738,13 @@ describe("contentSource", () => {
   it("rejects Comark parse plugins in plugins", () => {
     const knap = { name: "knap", pre() {} }
     expect(() => defineContent({ plugins: [knap], source: "source" as SourceName })).toThrow(expect.objectContaining({
-      code: "CONTENT_R0006",
+      code: "CONTENT_PLUGINS_PARSE_PLUGIN",
       message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
     }))
 
     const mixed = { name: "mixed", setup() {}, post() {} }
     expect(() => defineContent({ plugins: [mixed], source: "source" as SourceName })).toThrow(expect.objectContaining({
-      code: "CONTENT_R0006",
+      code: "CONTENT_PLUGINS_PARSE_PLUGIN",
       message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
     }))
   })
@@ -1095,7 +1095,7 @@ describe("defineContentHandler", () => {
 
   it("names access: \"public\" for the old route: \"public\"", () => {
     // @ts-expect-error route is a boolean. Public reading moved to access.
-    expect(() => defineContent({ source: guide, route: "public" })).toThrow(expect.objectContaining({ code: "CONTENT_R0006", message: expect.stringContaining('access: "public"') }))
+    expect(() => defineContent({ source: guide, route: "public" })).toThrow(expect.objectContaining({ code: "CONTENT_ROUTE_INVALID", message: expect.stringContaining('access: "public"') }))
   })
 
   it("asks read for the whole route, and read-draft for one collection", async () => {
@@ -1103,7 +1103,7 @@ describe("defineContentHandler", () => {
     const content = defineContent({ source: guide, authorize: policy })
     expect(await content.can({ action: "read" })).toBe(true)
     expect(policy).toHaveBeenLastCalledWith({ user: null, action: "read" })
-    await expect(content.can({ action: "read", collection: "posts" } as never)).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ action: "read", collection: "posts" } as never)).rejects.toMatchObject({ code: "CONTENT_CAN_INPUT_INVALID" })
     expect(await defineContent({ source: guide, route: false }).can({ action: "read" })).toBe(false)
   })
 })

@@ -349,7 +349,7 @@ function refTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer
  */
 export async function signContentRefToken(source: string, ref: string, maxAge: number = defaultMaxAge): Promise<ContentPreviewToken> {
   if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.sign() maxAge must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_MAX_AGE_INVALID({ option: "content.sources.sign() maxAge", min: minimumMaxAge, max: maximumMaxAge })
   }
   const key = await signingKey()
   if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
@@ -401,12 +401,12 @@ function cookie(value: string, maxAge: number, secure: boolean): string {
 
 function assertEvent(event: unknown, method: string): asserts event is ContentPreviewEvent {
   if (!isObject(event)) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}() requires an H3 event or a Request.` })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_EVENT_INVALID({ method })
   }
 }
 
 interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
-/** An async request scope. Disabled, it holds nothing. Enabled, it throws `CONTENT_R0008` without AsyncLocalStorage. */
+/** An async request scope. Disabled, it holds nothing. Enabled, it throws `CONTENT_PREVIEW_ASYNC_CONTEXT_MISSING` without AsyncLocalStorage. */
 export function createRequestScope<T>(enabled: boolean): Scope<T> {
   return createScope(enabled)
 }
@@ -423,7 +423,7 @@ function createScope<T>(enabled: boolean): Scope<T> {
   // concurrent requests. There is no safe synchronous fallback for that contract.
   // Fail while the Content runtime is created so unsupported hosts are detected at
   // startup/build time, instead of turning the first preview request into a 500.
-  throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content preview needs an async request context (AsyncLocalStorage). On Cloudflare Workers, enable the nodejs_als compatibility flag." })
+  throw contentErrorDiagnostics.CONTENT_PREVIEW_ASYNC_CONTEXT_MISSING()
 }
 
 /** Create the preview grant and request scope for one Content runtime. */
@@ -448,7 +448,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     requireEnabled(method)
     const maxAge = signOptions.maxAge ?? defaultMaxAge
     if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}({ maxAge }) must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+      throw contentErrorDiagnostics.CONTENT_PREVIEW_MAX_AGE_INVALID({ option: `content.preview.${method}({ maxAge })`, min: minimumMaxAge, max: maximumMaxAge })
     }
     const key = await signingKey()
     if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
@@ -476,7 +476,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
 
   function requireEnabled(method: string): void {
     if (!options.enabled) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}() needs document collections. Add defineContent({ workspace, collections }).` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTIONS_UNDEFINED({ method })
     }
   }
 
@@ -514,11 +514,11 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     async sign(signOptions) {
       const { collection, id } = isObject(signOptions) ? signOptions : {}
       if (String(collection) !== collection || !collection || String(id) !== id || !id) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() requires { collection, id }: the one document the frame previews." })
+        throw contentErrorDiagnostics.CONTENT_PREVIEW_DOCUMENT_INVALID({ tooLong: false })
       }
       const scope = encodeScope(collection, id)
       if (!frameTokenPattern.test(`${frameTokenVersion}.0.${scope}.${"A".repeat(43)}`)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() received a collection and id that are too long." })
+        throw contentErrorDiagnostics.CONTENT_PREVIEW_DOCUMENT_INVALID({ tooLong: true })
       }
       const { expires, token } = await sign(signOptions, "sign", scope)
       return { token, expiresAt: new Date(expires * 1000) }
@@ -948,6 +948,6 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       }
       return
     }
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] defineContentPreviewPlugin() needs a Nitro 3 app." })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_NITRO_REQUIRED()
   }
 }

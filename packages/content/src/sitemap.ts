@@ -110,7 +110,7 @@ export const contentSitemapLimit = 50_000
 
 export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions | undefined {
   if (options === undefined) return
-  const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
+  const invalid = (message: string) => contentErrorDiagnostics.CONTENT_SEO_OPTIONS_INVALID({ problem: message })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
   const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
@@ -177,7 +177,7 @@ function isLlmsSection(value: unknown): boolean {
 }
 
 /** The origin of a site URL, such as `https://example.com`, with the path of a mounted app and no trailing slash. */
-export function siteOrigin(site: unknown, invalid: (message: string) => Error = message => contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })): string {
+export function siteOrigin(site: unknown, invalid: (message: string) => Error = () => contentErrorDiagnostics.CONTENT_SITE_INVALID({ site })): string {
   if (String(site) !== site || !/^https?:\/\//i.test(site)) throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
   try {
     // A site mounted below a path keeps it, such as `https://example.com/docs`, so every URL carries it.

@@ -127,10 +127,6 @@ type SessionStore = ReturnType<typeof createSessionStore>
 const sessionToken = /^[\w-]{8,128}$/
 const missingTableRetryMs = 60_000
 
-function invalid(message: string): Error {
-  return contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })
-}
-
 function setupError(message: string): Error {
   return contentErrorDiagnostics.CONTENT_R0012({ message: `[vitehub] ${message}` })
 }
@@ -150,21 +146,21 @@ function iso(milliseconds: number | null): string | null {
 
 function textField(value: unknown, name: string, maximum: number): string | null {
   if (value === undefined || value === null) return null
-  if (String(value) !== value) throw invalid(`content.sessions user.${name} must be a string.`)
+  if (String(value) !== value) throw contentErrorDiagnostics.CONTENT_SESSION_USER_INVALID({ problem: `content.sessions user.${name} must be a string.` })
   return value.slice(0, maximum) || null
 }
 
 function readUser(user: unknown): { id: string, name: string | null, image: string | null } {
-  if (user === null || Object(user) !== user) throw invalid("content.sessions requires user: { id, name?, image? }.")
+  if (user === null || Object(user) !== user) throw contentErrorDiagnostics.CONTENT_SESSION_USER_INVALID({ problem: "content.sessions requires user: { id, name?, image? }." })
   const id: unknown = Reflect.get(Object(user), "id")
-  if (String(id) !== id || !id || id.length > 256) throw invalid("content.sessions user.id must be a non-empty string of at most 256 characters.")
+  if (String(id) !== id || !id || id.length > 256) throw contentErrorDiagnostics.CONTENT_SESSION_USER_INVALID({ problem: "content.sessions user.id must be a non-empty string of at most 256 characters." })
   return { id, name: textField(Reflect.get(Object(user), "name"), "name", 256), image: textField(Reflect.get(Object(user), "image"), "image", 2048) }
 }
 
 function readSession(options: unknown): string {
   const session: unknown = options !== null && Object(options) === options ? Reflect.get(Object(options), "session") : undefined
   if (String(session) !== session || !sessionToken.test(session)) {
-    throw invalid("content.sessions requires session: a token of 8 to 128 letters, digits, - or _, one per tab or client.")
+    throw contentErrorDiagnostics.CONTENT_SESSION_TOKEN_INVALID()
   }
   return session
 }
@@ -251,12 +247,12 @@ export function createContentSessions(options: {
     let kind: ReportInput["kind"] = "edit"
     if (mode === "acquire") {
       const requested: unknown = Reflect.get(Object(input), "kind")
-      if (requested !== undefined && requested !== "edit" && requested !== "live") throw invalid("content.sessions.acquire() kind must be 'edit' or 'live'.")
+      if (requested !== undefined && requested !== "edit" && requested !== "live") throw contentErrorDiagnostics.CONTENT_SESSION_KIND_INVALID({ problem: "content.sessions.acquire() kind must be 'edit' or 'live'." })
       if (requested === "live") kind = "live"
     }
     if (mode === "report") {
       const requested: unknown = Reflect.get(Object(input), "kind")
-      if (requested !== "view" && requested !== "edit") throw invalid("content.sessions.report() requires kind: 'view' or 'edit'.")
+      if (requested !== "view" && requested !== "edit") throw contentErrorDiagnostics.CONTENT_SESSION_KIND_INVALID({ problem: "content.sessions.report() requires kind: 'view' or 'edit'." })
       kind = requested
     }
     const takeover = mode === "acquire" && Reflect.get(Object(input), "takeover") === true

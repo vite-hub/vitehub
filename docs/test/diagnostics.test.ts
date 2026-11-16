@@ -50,7 +50,17 @@ describe("diagnostic catalogs", () => {
   })
 
   it("gives the package that the code prefix names a code that two catalogs declare", () => {
-    expect(code("CONTENT_R0006").pkg).toBe("content")
+    const fixture = mkdtempSync(resolve(tmpdir(), "diagnostic-owner-"))
+    try {
+      for (const [pkg, definition] of [["cms", "{ why: \"Failed.\" }"], ["content", "{ fix: \"Retry.\" }"]] as const) {
+        mkdirSync(resolve(fixture, `packages/${pkg}/src`), { recursive: true })
+        writeFileSync(resolve(fixture, `packages/${pkg}/src/error-diagnostics.ts`), `defineDiagnostics({ codes: { CONTENT_R0001: ${definition} } })`)
+      }
+      expect(readDiagnosticCodes(fixture)).toEqual([expect.objectContaining({ code: "CONTENT_R0001", pkg: "content", why: "Failed.", fix: "Retry." })])
+    }
+    finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
   })
 
   it("keeps Agent MCP errors in their existing section alongside the new app MCP catalog", () => {

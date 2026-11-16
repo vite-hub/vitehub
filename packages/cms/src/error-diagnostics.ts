@@ -12,8 +12,10 @@ export const cmsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Set the `vitehub()` setting or the `cms` preset option that the message names, such as `vitehub({ database: true })` or `extends: [cms, { database: \"default\" }]`.",
     },
-    CONTENT_R0006: {
-      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    // Named errors. Each names what failed. Keep them in alphabetical order.
+    CONTENT_CMS_OPTION_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] Content cms preset ${problem}`,
+      fix: "Set each option of `extends: [cms, { ... }]` to a value that the message accepts. Use `repo`, `branch`, `draftBranch`, `root`, and `publish` only with the GitHub store, and `blob` only without it.",
     },
   },
 })

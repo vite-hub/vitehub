@@ -42,7 +42,7 @@ export default defineContent({
 
 `get()`, `list()`, `save()`, and the Console return `url` for a routable collection. Values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. An empty pattern field, or a function that returns `null`, gives `url: null`: the document has no page. Without `url`, reads leave the key out and `collection.routable` is `false`. [`content.resolve(path)`](/docs/content/configure#find-the-document-of-a-page) uses `url` to find a page's document.
 
-A pattern must start with `/` and name only `:id` and defined fields. Otherwise loading the definition throws `CONTENT_R0006`.
+A pattern must start with `/` and name only `:id` and defined fields. Otherwise loading the definition throws `CONTENT_DOCUMENTS_URL_INVALID`.
 
 In a collection with [locales](/docs/content/configure#locales), a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale, so `/docs/:id` gives `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern, such as `/:locale/docs/:id`, to place the locale yourself. A `url()` function receives `{ id, data, locale }`.
 

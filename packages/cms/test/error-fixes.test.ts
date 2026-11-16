@@ -1,8 +1,13 @@
 import { parseAst } from "vite"
 import { expect, it } from "vitest"
+import { z } from "zod"
+
+import { defineContent } from "@vite-hub/content"
+import { documents } from "@vite-hub/content/collections"
 
 import { readCmsPresetUsage, resolveCmsPresetPlan } from "../src/build.ts"
 import { cmsErrorDiagnostics } from "../src/error-diagnostics.ts"
+import cms from "../src/index.ts"
 
 import type { CmsDatabaseChoices } from "../src/build.ts"
 
@@ -35,5 +40,13 @@ it("names the preset option when the cms preset asks for a Database that does no
   expect(() => resolveCmsPresetPlan({ file, options: { database: "history" } }, databases, "/app")).toThrow(expect.objectContaining({
     code: "CONTENT_B0002",
     fix: expect.stringContaining("`cms` preset option"),
+  }))
+})
+
+it("puts the fix of CONTENT_CMS_OPTION_INVALID on the error of a cms preset option that is not valid", () => {
+  const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
+  expect(() => defineContent({ extends: [cms, { workspace: "Bad name!" }], collections })).toThrow(expect.objectContaining({
+    code: "CONTENT_CMS_OPTION_INVALID",
+    fix: cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem: "p" }).fix,
   }))
 })

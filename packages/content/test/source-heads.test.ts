@@ -291,7 +291,7 @@ describe("content.sources", () => {
 
     expect(await content.sources.unpin("docs")).toMatchObject({ sha: second, pinned: false })
     expect(await title(content, "/guide")).toBe("Guide v2")
-    await expect(content.sources.pin("main", "docs")).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.sources.pin("main", "docs")).rejects.toMatchObject({ code: "CONTENT_PIN_SHA_INVALID" })
   })
 
   it("reads the branch without a head when there is no token", async () => {
@@ -468,7 +468,7 @@ describe("content.sources", () => {
 
   it("names the Sources that have a head", async () => {
     const content = server()
-    await expect(content.sources.head()).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("Sources with a head: docs") })
+    await expect(content.sources.head()).rejects.toMatchObject({ code: "CONTENT_SOURCE_WITHOUT_HEAD", message: expect.stringContaining("Sources with a head: docs") })
   })
 })
 
