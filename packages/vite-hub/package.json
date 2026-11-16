@@ -297,6 +297,11 @@
       "import": "./dist/comments/server.js",
       "default": "./dist/comments/server.js"
     },
+    "./comments/testing": {
+      "types": "./dist/comments/testing.d.ts",
+      "import": "./dist/comments/testing.js",
+      "default": "./dist/comments/testing.js"
+    },
     "./connections": {
       "types": "./dist/connections.d.ts",
       "import": "./dist/connections.js",
@@ -421,6 +426,11 @@
       "types": "./dist/docs/nuxt.d.ts",
       "import": "./dist/docs/nuxt.js",
       "default": "./dist/docs/nuxt.js"
+    },
+    "./docs/server": {
+      "types": "./dist/docs/server.d.ts",
+      "import": "./dist/docs/server.js",
+      "default": "./dist/docs/server.js"
     },
     "./doctor": {
       "types": "./dist/doctor.d.ts",
@@ -582,6 +592,11 @@
       "import": "./dist/rate-limit/drivers/memory.js",
       "default": "./dist/rate-limit/drivers/memory.js"
     },
+    "./rate-limit/drivers/kv": {
+      "types": "./dist/rate-limit/drivers/kv.d.ts",
+      "import": "./dist/rate-limit/drivers/kv.js",
+      "default": "./dist/rate-limit/drivers/kv.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
@@ -727,6 +742,21 @@
       "import": "./dist/ui/vite.js",
       "default": "./dist/ui/vite.js"
     },
+    "./ui/playground": {
+      "types": "./dist/ui/playground.d.ts",
+      "import": "./dist/ui/playground.js",
+      "default": "./dist/ui/playground.js"
+    },
+    "./ui/theme": {
+      "types": "./dist/ui/theme.d.ts",
+      "import": "./dist/ui/theme.js",
+      "default": "./dist/ui/theme.js"
+    },
+    "./ui/workspace": {
+      "types": "./dist/ui/workspace.d.ts",
+      "import": "./dist/ui/workspace.js",
+      "default": "./dist/ui/workspace.js"
+    },
     "./web-container": {
       "types": "./dist/web-container.d.ts",
       "import": "./dist/web-container.js",
@@ -736,6 +766,16 @@
       "types": "./dist/web-container/connect.d.ts",
       "import": "./dist/web-container/connect.js",
       "default": "./dist/web-container/connect.js"
+    },
+    "./web-container/env": {
+      "types": "./dist/web-container/env.d.ts",
+      "import": "./dist/web-container/env.js",
+      "default": "./dist/web-container/env.js"
+    },
+    "./web-container/snapshot": {
+      "types": "./dist/web-container/snapshot.d.ts",
+      "import": "./dist/web-container/snapshot.js",
+      "default": "./dist/web-container/snapshot.js"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
@@ -802,6 +842,7 @@
       "default": "./dist/page/pill.iife.js"
     },
     "./ui/styles.css": "./dist/ui/styles.css",
+    "./ui/theme.css": "./dist/ui/theme.css",
     "./tsconfig": "./tsconfig.json",
     "./console/ui": {
       "types": "./dist/console/ui.d.ts",
@@ -881,7 +922,6 @@
     "confbox": "^0.2.4",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
-    "nanotar": "^0.3.0",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
@@ -949,6 +989,7 @@
     "@vite-hub/internal": "workspace:*",
     "@ui-sdk/core": "0.1.0-beta.5",
     "@ui-sdk/vue": "0.1.0-beta.5",
+    "@vite-hub/kit": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",
@@ -982,6 +1023,7 @@
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
+    "tar": "^7.5.22",
     "typescript": "catalog:tooling",
     "uqr": "catalog:ui",
     "vite": "catalog:vite",

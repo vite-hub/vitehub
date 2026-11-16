@@ -28,6 +28,7 @@
   "type": "module",
   "sideEffects": [
     "./dist/styles/default.css",
+    "./dist/styles/tailwind.css",
     "./dist/styles/default.scoped.css",
     "./dist/styles/tokens.css"
   ],
@@ -44,6 +45,7 @@
     },
     "./package.json": "./package.json",
     "./styles/default.css": "./dist/styles/default.css",
+    "./styles/tailwind.css": "./dist/styles/tailwind.css",
     "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
     "./styles/tokens.css": "./dist/styles/tokens.css"
   },
