@@ -32,7 +32,7 @@ The response carries one reply. `r` holds the value. The HTTP status is `200`, o
 
 A failure has `e` instead of `r`, with the diagnostic `code`, `message`, and `status`, and `fix`, `docs`, or `details` when the failure has them. The HTTP status is the same `status`. A failure never contains a stack. A request that the endpoint cannot read, such as a body over the limit, gets a reply without `i`. Only own operation names run: `toString`, `constructor`, `__proto__`, and other unknown names get `404` with `Console operation not found.`
 
-The sections are Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
+The sections are Auth, Env, Agents, Skills, Served skills, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Cache, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The Console shows only the sections that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows.
 
 The build and the development server include only the Console routes and server code of the sections that the app turns on. An app without Agents has no Agent routes, and an app without a document editor owner, such as [Content](/docs/content), has no document editor or media library code.
 
@@ -43,6 +43,7 @@ The build and the development server include only the Console routes and server 
 - **Blob** lists stores and pages of object metadata. It uploads (up to 8 MiB) and deletes objects with `blob.put` and `blob.delete`.
 - **Database** lists found Definitions (the files that declare each resource), their source, definition mode, and table names, without connecting to a database.
 - **KV** lists stores and keys. It fetches a value only when you select its key. It edits and deletes with `kv.set` and `kv.delete`.
+- **Cache** lists the entries of Nitro's `cache` mount with group, name, size, and expiry. It shows one value when you select its entry, and invalidates one entry or a prefix with `cache.delete`. The app must set `cache`.
 - **Rate Limit** lists policies. It reads or resets the counter of a key you enter with `rate-limit.peek` and `rate-limit.reset`.
 - **Sandbox**, **Workspace**, **Workflow**, and **Queue** list Definitions and their source without starting runtime resources.
 - **Schedule** lists Schedule Definitions with their cron expression and time zone. It runs a Definition that sets `manual: true`.
@@ -160,7 +161,24 @@ Env does not read secret values, call providers, or check credentials. Values an
 
 ## Manage Connections
 
-The Console has no Connections section. To connect a provider account, use [`vitehub connections`](/docs/connections) against the app. In production, it needs the Connections management API with your own `actor` policy: `connections: { management: { actor: './server/connections-actor.ts' } }`.
+An app with [`connections`](/docs/connections) has a **Connections** section. It lists each Connection with its provider, status, account, and last refresh, and works in production without app Auth or `connections.management`.
+
+1. **Connect** or **Reconnect** on an OAuth Connection calls `connections.connect` with your signed Console call. The app starts the sign-in for you and returns the provider URL.
+2. The Console opens the provider in a new tab. You choose the account and approve the scopes.
+3. The provider sends the browser to the app's callback, `/_vitehub/connections/callback`. The app exchanges the code and keeps the grant. The Console never sees a code or a token.
+4. Close the tab. The list loads again when you come back to the Console.
+
+**Revoke** calls `connections.revoke`, which revokes the grant at the provider and deletes it from the app. Activity names you as `user:<your Console user id>`.
+
+| Operation | Kind | Use |
+| --- | --- | --- |
+| `connections.list` | read | List the Connections. |
+| `connections.connect` | write | Return the provider URL of a new sign-in, valid for 10 minutes. |
+| `connections.revoke` | destructive | Revoke the grant of a Connection. |
+
+- The callback of a Console sign-in needs no app session and no `state` cookie, because the Console page and the app have different origins. The signed call that started it checked you, and the `state` works once, for 10 minutes.
+- The provider must allow the callback URL of the app, such as `https://app.example.com/_vitehub/connections/callback`.
+- API key and ChatGPT Connections show their status here. Set a key, or sign in with a ChatGPT plan, with [`vitehub connections`](/docs/connections/server-api#cli).
 
 ## Connect to MCP servers
 
@@ -268,13 +286,13 @@ The store is the verification table of Better Auth, so the app needs [Auth with 
 
 The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
 
-- **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none.
+- **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own.
 - **Link a phone** shows a QR code. The phone's camera opens the link, and the phone is signed in as you. The code works for 10 minutes.
 - **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. It signs the browser in as a new app user with that name. Guests never get the **Console** link, and the Console never lets them in.
 
 Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
 
-- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool.
+- A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. With `console.authorize`, the member needs the `site` section, and `grants` in the result picks the [page tool roles](#limit-a-user-to-some-sections).
 - A guest gets the `guest` role and the roles you picked. Comments offers `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`, and [checks them](/docs/comments/configure#roles-from-site-access).
 
 A guest user has no password and a placeholder email, `guest-<id>@guests.invalid`. Better Auth runs your `databaseHooks.user.create` for them, so a hook that closes sign-up refuses guests too.
@@ -288,6 +306,26 @@ A guest user has no password and a placeholder email, `guest-<id>@guests.invalid
 | `site.invites` and `site.revoke-invite` | List the invites that nobody opened yet, and revoke one. |
 | `site.sessions` and `site.revoke-session` | List the browsers of members and guests, and sign one out. |
 | `site.grants` | Lists the roles that Site access gives. |
+
+### Site access from the terminal
+
+Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](#sign-console-requests), it calls the deployed app.
+
+```bash [Terminal]
+pnpm vitehub site sessions
+pnpm vitehub site revoke <id> --yes
+pnpm vitehub site invite Ana --grants comments-write --expires-in-days 7
+pnpm vitehub site invites
+pnpm vitehub site revoke-invite <id> --yes
+pnpm vitehub site grants
+```
+
+`vitehub site sessions` prints the id, kind, person, device, last use, and expiry of each browser. `--json` prints the operation result.
+
+`vitehub site open [path]` runs `site.link`, but a command cannot sign a browser in as you. The link opens the app as the person who asks, and a command signs its calls with a key, not as a person. A development server knows you only as the local developer, without an email. So the command fails with `403` and `CONSOLE_TICKET_NO_PERSON`, and so does `vitehub site invite` against a deployed app, since an invite records the member who made it:
+
+- For a deployed app, use **Open site**, **Link a phone**, or **Invite someone** in the Console.
+- On a development server, which the Console cannot reach, invite your own browser as a guest with the roles you need: `vitehub site invite Me --grants comments-read,comments-write`, then open the link that it prints in a browser on the same machine, since the development server answers only this machine. `vitehub site grants` lists the roles.
 
 ## Links to the Console
 
@@ -578,6 +616,7 @@ Every Console call runs `authorize` with the Web `Request` before it reads data:
 | `{ sections: ['content'] }` | Allows only these section ids, with all their actions. An empty list returns `403`. |
 | `{ sections: ['kv:read'] }` | Allows `kv` for reads only. `write` and `destructive` operations return `403`, unless the call only reads (`readOnlyWhen`). |
 | `{ sections: ['blob:media'] }` | Allows Blob operations on the `media` store only. `'blob:media:read'` allows only reads. |
+| `{ sections: ['site'], grants: ['comments-read'] }` | With the `site` section, [Site access](#give-browsers-site-access) signs the person in to the app with only these page tool roles, and the `console` role. Without `grants`, they get every page tool role. |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401`. |
 
@@ -836,6 +875,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers. A proxy must not change it. |
 | `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](#one-time-links) works once, within 60 seconds. |
 | `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in the browser where you are signed in to the app with the email of your Console account. |
+| `CONSOLE_TICKET_NO_PERSON` | `403` | Make the link in the Console. A `vitehub` command signs as a key, not as a person. See [Site access from the terminal](#site-access-from-the-terminal). |
 | `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |

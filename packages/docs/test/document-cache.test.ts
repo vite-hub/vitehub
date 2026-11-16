@@ -209,3 +209,28 @@ it("gives the page route the same document as the docs parser", async () => {
   expect(JSON.stringify(document)).toContain("comark-html")
   expect(document.toc).toEqual([expect.objectContaining({ text: "Install" })])
 })
+
+it("searches unloaded panel pages while excluding hidden pages on the server", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { docsAppManifest } = await import("../src/manifest.ts")
+  const { createDocsSearch, docsManifestPages } = await import("../src/navigation.ts")
+  const section = manifest.sections.find(section => section.id === "kv")!
+  const original = section.pages
+  onTestFinished(() => { section.pages = original })
+  const page = original[0]!
+  section.pages = [
+    ...original,
+    { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },
+    { ...page, id: "diagnostics/kv_invalid_cursor", path: "/docs/kv/diagnostics/kv_invalid_cursor", sourceTitle: "KV_INVALID_CURSOR", seo: { index: false }, navigation: true },
+    { ...page, id: "hidden", path: "/docs/kv/hidden", navigation: false },
+    { ...page, id: "hidden-code", path: "/docs/kv/hidden-code", seo: { index: false }, navigation: false },
+  ]
+  const appManifest = docsAppManifest(manifest, { panels: true }).manifest
+  expect(docsManifestPages(appManifest).some(page => page.path.endsWith("/kv_invalid_cursor"))).toBe(false)
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+  expect(response.status).toBe(200)
+  const records = await response.json()
+  expect(createDocsSearch(records)("KV_INVALID_CURSOR").map(record => record.id)).toContain("/docs/kv/diagnostics/kv_invalid_cursor")
+  expect(records.some((record: { id: string }) => record.id.startsWith("/docs/kv/hidden"))).toBe(false)
+})

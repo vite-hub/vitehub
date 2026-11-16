@@ -328,3 +328,44 @@ describe("push", () => {
     expect((await app.pull("alice", { cursor: current, ...as(alice) })).body).toMatchObject({ reset: false, rows: [{ id: "a2", done: true }] })
   })
 })
+
+it("rejects a constraint violation and continues the push", async () => {
+  const app = await setup()
+  const alice = await app.start("alice")
+  const { body } = await app.push("alice", { ...as(alice), mutations: [insert("bad", { id: "bad" }), insert("good", { id: "good", title: "ok" })] })
+  expect(body.results.map(result => result.status)).toEqual(["rejected", "applied"])
+  expect((await app.rows()).map(row => row.id)).toEqual(["good"])
+})
+
+it("revalidates concurrent patches against the committed row", async () => {
+  let release: () => void = () => {}
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  let waiting = 0
+  const app = await setup({ write: async ({ op, row }) => {
+    if (op === "update" && ++waiting <= 2) {
+      if (waiting === 2) release()
+      await barrier
+    }
+    return !(row.title === "locked" && row.done)
+  } })
+  const alice = await app.start("alice")
+  await app.push("alice", { ...as(alice), mutations: [insert("seed", { id: "a", title: "open" })] })
+  const replies = await Promise.all([
+    app.push("alice", { ...as(alice), mutations: [update("one", "a", { title: "locked" })] }),
+    app.push("alice", { ...as(alice), mutations: [update("two", "a", { done: true })] }),
+  ])
+  expect(replies.flatMap(reply => reply.body.results.map(result => result.status)).sort()).toEqual(["applied", "rejected"])
+  expect((await app.rows()).some(row => row.title === "locked" && row.done)).toBe(false)
+})
+
+it("removes a previous owner after a direct scope transfer", async () => {
+  const app = await setup()
+  const alice = await app.start("alice")
+  await app.push("alice", { ...as(alice), mutations: [insert("seed", { id: "a", title: "open" })] })
+  const snapshot = await app.start("alice")
+  await app.db.update(todos).set({ ownerId: "bob" }).where(eq(todos.id, "a"))
+  const { body } = await app.pull("alice", snapshot)
+  expect(body.reset).toBe(false)
+  expect(body.deleted).toEqual(["a"])
+  expect(body.rows).toEqual([])
+})
