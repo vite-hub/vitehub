@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
-import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
@@ -247,7 +247,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     parsed = parseInfoArgs(args, context)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeInfoUsage(context)
     return 1
   }

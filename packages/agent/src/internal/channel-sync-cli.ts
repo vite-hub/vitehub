@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
@@ -605,7 +606,7 @@ export async function runAgentChannelSyncCli(
     return 0
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
 }
