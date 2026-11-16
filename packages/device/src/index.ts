@@ -23,8 +23,8 @@ export function openDevice(options?: OpenDeviceOptions): Promise<void> {
 
 /**
  * Names the signed-in account, so its copies stay on the device across reloads. Call it each time the app learns who
- * is signed in. Another account, or `null` after a sign-out, deletes every copy in every tab. Until the page names an
- * account, answers stay in memory and nothing is written to the disk.
+ * is signed in. Another account, or `null` after a sign-out, deletes every copy in every tab. The device stores only the
+ * answers of loader calls that start after the page names an account, so each read that runs calls its loader again.
  */
 export function setDeviceAccount(account: string | null): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
   checkAccount(account)

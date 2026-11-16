@@ -270,6 +270,75 @@ describe("useStoredData", () => {
     expect(calls).toHaveLength(2)
   })
 
+  it("shows an answer that came before the page named its account, stores only the answer of the call after it", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
+    calls[0]!.resolve(["before"])
+    await tick()
+    expect(root.textContent).toBe("[\"before\"] success")
+    await page.setDeviceAccount("ada")
+    await tick()
+    // The answer stays on the screen, and the read calls its loader again.
+    expect(root.textContent).toBe("[\"before\"] pending")
+    expect(browser.disk.keys).toEqual([])
+    expect(calls).toHaveLength(2)
+    calls[1]!.resolve(["after"])
+    await tick()
+    await tick()
+    expect(root.textContent).toBe("[\"after\"] success")
+    expect(browser.disk.entry("projects")?.json).toBe("[\"after\"]")
+  })
+
+  it("calls each loader once when the page names its account before the reads start", async () => {
+    await visit()
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
+    expect(root.textContent).toBe("[\"p1\"] pending stored")
+    calls[0]!.resolve(["p1", "p2"])
+    await tick()
+    await tick()
+    expect(calls).toHaveLength(1)
+    expect(browser.disk.entry("projects")?.json).toBe("[\"p1\",\"p2\"]")
+  })
+
+  it.each([
+    ["before", true],
+    ["after", false],
+  ])("never stores under a new account an answer of a call that started before the page named it, when the answer comes %s the naming", async (_, answersFirst) => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { calls, loader } = deferredLoader<string[]>()
+    const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
+    // Another tab signs in as `grace`. This tab drops everything and calls its loader again, with the session it had.
+    const other = await openPage()
+    await other.openDevice()
+    await other.setDeviceAccount("grace")
+    await tick()
+    expect(calls).toHaveLength(2)
+    if (answersFirst) {
+      calls[1]!.resolve(["ada only"])
+      await tick()
+    }
+    await page.setDeviceAccount("grace")
+    if (!answersFirst) calls[1]!.resolve(["ada only"])
+    await tick()
+    await tick()
+    expect(browser.disk.entry("projects")).toBeUndefined()
+    expect(calls).toHaveLength(3)
+    expect(calls[1]!.signal.aborted).toBe(true)
+    calls[2]!.resolve(["grace"])
+    await tick()
+    await tick()
+    expect(root.textContent).toBe("[\"grace\"] success")
+    expect(browser.disk.entry("projects")?.json).toBe("[\"grace\"]")
+  })
+
   it("shows the default in a tab whose read answered when another tab signs out", async () => {
     const first = await openPage()
     await first.openDevice()

@@ -45,11 +45,11 @@ export type ConsoleProjectGate =
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
-export const consoleAccountPages = ["home", "team", "settings"] as const
+export const consoleAccountPages = ["home", "team", "team-settings", "settings"] as const
 export type ConsoleAccountPage = typeof consoleAccountPages[number]
 
 function accountPageOf(pathname: string): ConsoleAccountPage | undefined {
-  const page = /^\/([a-z]+)\/?$/.exec(pathname)?.[1]
+  const page = /^\/([a-z-]+)\/?$/.exec(pathname)?.[1]
   return consoleAccountPages.find(item => item === page)
 }
 
@@ -205,8 +205,10 @@ function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget): Conso
   if (probe.kind === "ready") return undefined
   const projects = useState()
   if (projects.mode === "embedded") return undefined
-  // The project has no public key for this link yet, or another one: the person sets the variable of this link.
-  if (probe.kind === "signed" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED")) {
+  // The project has no public key for this link yet, or another one: the person sets the variable of this link. An app
+  // without `console: true` yet has no Console route at all. The setup page asks for both, so the person gets the
+  // variable and the next step in one place instead of a retry.
+  if (probe.kind === "signed" || probe.kind === "missing" || (probe.kind === "failed" && probe.code === "CONSOLE_KEY_NOT_CONFIGURED")) {
     const linked = projects.account.value?.projects.find(project => project.url === target.url)
     if (linked) return { kind: "setup", project: linked }
   }

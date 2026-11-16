@@ -17,7 +17,8 @@ export interface UseStoredDataOptions<TDefault> {
 
 /**
  * What the loader gets. `signal` aborts when a newer call starts, when the last component of the read unmounts or
- * moves to another key, and when another account, a sign-out, or a clear makes the answer old.
+ * moves to another key, when another account, a sign-out, or a clear makes the answer old, and when the page names its
+ * account, because the device stores only the answers of calls that start after that.
  */
 export interface StoredDataContext {
   signal: AbortSignal
@@ -46,7 +47,7 @@ interface SharedRead {
   answered: boolean
   users: number
   controller: AbortController | undefined
-  /** The loader of the last call, which a reset of the device calls again. */
+  /** The loader of the last call, which a reset of the device or the naming of the account calls again. */
   loader: (context: StoredDataContext) => Promise<unknown>
   fallback: () => unknown
   maxAge: number
@@ -56,23 +57,32 @@ const week = 7 * 24 * 60 * 60 * 1000
 const reads = new Map<string, SharedRead>()
 let watching = false
 
-/** Follows the device: a copy that loads late shows, a copy of another account goes away, and a reset starts every read over. */
+/**
+ * Follows the device: a copy that loads late shows, a naming of the account calls every loader again, and a reset starts
+ * every read over.
+ */
 function watchDevice(device: Device): void {
   if (watching) return
   watching = true
   device.subscribe((event) => {
-    if (event.type === "reset") {
-      for (const read of reads.values()) restart(read, device)
+    if (event.type === "load") {
+      for (const key of event.keys) {
+        const read = reads.get(key)
+        if (read && !read.answered) show(read, device)
+      }
       return
     }
-    for (const key of event.keys) {
-      const read = reads.get(key)
-      if (!read || read.answered) continue
-      if (event.type === "load") show(read, device)
-      else if (read.storedAt.value) {
+    for (const read of reads.values()) {
+      // Another account, a sign-out, or a clear: the read shows its default, also when its loader answered.
+      if (event.type === "reset") {
+        read.answered = false
         read.data.value = read.fallback()
         read.storedAt.value = undefined
+        read.error.value = undefined
       }
+      // The answer of the older call never shows, and only the answer of the new call can be stored. A read that waits
+      // for its component to mount calls its loader then.
+      if (read.status.value !== "idle") void load(read, read.loader, device)
     }
   })
 }
@@ -84,21 +94,6 @@ function show(read: SharedRead, device: Device): void {
   read.storedAt.value = new Date(stored.storedAt)
 }
 
-/**
- * Another account, a sign-out, or a clear: the read shows its default, also when its loader answered, and calls the
- * loader again. The answer of the older call never shows.
- */
-function restart(read: SharedRead, device: Device): void {
-  read.controller?.abort()
-  read.controller = undefined
-  read.answered = false
-  read.data.value = read.fallback()
-  read.storedAt.value = undefined
-  read.error.value = undefined
-  // A read that waits for its component to mount calls its loader then.
-  if (read.status.value !== "idle") void load(read, read.loader, device)
-}
-
 async function load(read: SharedRead, loader: (context: StoredDataContext) => Promise<unknown>, device: Device): Promise<void> {
   // No component shows a released read, and its answer must not replace the answer of a newer read of the key.
   if (!read.users) return
@@ -107,20 +102,20 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
   read.controller = controller
   read.loader = loader
   read.status.value = "pending"
-  const epoch = device.epoch()
+  const since = device.epoch()
   try {
     const value = await loader({ signal: controller.signal })
-    // A newer call, the release of the read, or a reset of the device came first.
-    if (controller.signal.aborted || device.epoch() !== epoch) return
+    // A newer call, the release of the read, or a change of the epoch came first.
+    if (controller.signal.aborted || device.epoch() !== since) return
     read.answered = true
     read.data.value = value
     read.storedAt.value = undefined
     read.error.value = undefined
     read.status.value = "success"
-    device.write(read.key, value, read.maxAge)
+    device.write(read.key, value, read.maxAge, since)
   }
   catch (error) {
-    if (controller.signal.aborted || device.epoch() !== epoch) return
+    if (controller.signal.aborted || device.epoch() !== since) return
     read.error.value = error instanceof Error ? error : new Error(String(error), { cause: error })
     read.status.value = "error"
   }

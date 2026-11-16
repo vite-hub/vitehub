@@ -1,6 +1,6 @@
 ---
 title: Device browser API
-description: openDevice(), setDeviceAccount(), clearDevice(), inspectDevice(), and useStoredData() with every option, the status values, and the rules for accounts, tabs, and server rendering.
+description: Open the device, name its account, inspect stored copies, and useStoredData() with options, status values, and rules for tabs and server rendering.
 navigation.title: Browser API
 navigation.order: 4
 icon: i-lucide-code
@@ -42,9 +42,11 @@ export async function onSession(user: { id: string } | null) {
 
 | Call | Result |
 | --- | --- |
-| The same account as the stored copies | The copies stay. New answers go to the disk. |
-| Another account | Every copy goes, in every tab. Answers that this page got before it named its first account stay, because they came with the new session. After the page named an account, every read shows its default and calls its loader again. |
-| `null` | Every copy goes, in every tab. The device writes nothing until the page names an account again. After the page named an account, every read shows its default and calls its loader again. |
+| The same account as the stored copies | The copies stay. Each read that runs calls its loader again, and its next answer goes to the disk. |
+| Another account | Every copy goes, in every tab. A read that shows a copy of the other account, and every read after the page named an account, shows its default and calls its loader again. |
+| `null` | Every copy goes, in every tab. The device stores nothing until the page names an account again. A read that shows a copy of the other account, and every read after the page named an account, shows its default and calls its loader again. |
+
+The device stores an answer only when its loader call started after the page named its account, and nothing made the answers old since then. An answer that came before the page named its account stays on the screen until the new one, and the device never stores it. If your app knows the account before it mounts, such as from the HTML, call `setDeviceAccount()` before `app.mount()`, so each read calls its loader once.
 
 It returns `[error, undefined]`. `error` is `DEVICE_STORAGE_FAILED` when IndexedDB failed to delete the copies of the previous account. An empty string or another value throws `DEVICE_INVALID_ACCOUNT`.
 
@@ -81,12 +83,12 @@ const { data: project, status, error, refresh, storedAt } = useStoredData(
 | Argument | Does |
 | --- | --- |
 | `key` | Names the stored copy. A string, a ref, or a getter. When it changes, the read moves to the new key, as if it started again. |
-| `loader` | `({ signal }) => Promise<T>`. Calls the server. `signal` aborts when a newer call starts, when the last component of the read unmounts or moves to another key, and when another account, a sign-out, or a clear makes the answer old. |
+| `loader` | `({ signal }) => Promise<T>`. Calls the server. `signal` aborts when a newer call starts, when the last component of the read unmounts or moves to another key, when another account, a sign-out, or a clear makes the answer old, and when the page names its account. |
 
 | Option | Default | Does |
 | --- | --- | --- |
 | `default` | `() => undefined` | The value when the device has no copy. |
-| `maxAge` | 7 days | A stored copy that is older does not show, and the next `openDevice()` deletes it. In milliseconds. |
+| `maxAge` | 7 days | A stored copy that is older does not show, and the disk deletes it at the next `openDevice()` or write. In milliseconds. |
 
 | Field | Holds |
 | --- | --- |
@@ -96,9 +98,9 @@ const { data: project, status, error, refresh, storedAt } = useStoredData(
 | `storedAt` | The time of the stored copy while `data` holds it. `undefined` once `data` is an answer of this page, or the default. |
 | `refresh()` | Calls the loader again and aborts the older call. It never throws: a failure goes to `error`. |
 
-Reads of one key share one state and one loader call, also in different components. The first read of a key always calls the loader, also when it shows a stored copy. The state of a key goes away when its last read unmounts, so the next read calls the loader again. The answer goes to the device when the loader returns. The device keeps it as JSON, so return plain data: objects, arrays, strings, numbers, booleans, and null.
+Reads of one key share one state and one loader call, also in different components. The first read of a key always calls the loader, also when it shows a stored copy. The state of a key goes away when its last read unmounts, so the next read calls the loader again. The answer goes to the device when the loader returns, if the call started after the page named its account. The device keeps it as JSON, so return plain data: objects, arrays, strings, numbers, booleans, and null.
 
-After another account or a sign-out in a page that named an account, after `clearDevice()`, and after such a change in another tab, every read shows its default and calls its loader again, also a read whose loader answered. The answer of a loader call that started before the change does not show and does not go to the device. When a page names its first account, only a stored copy of another account goes back to the default.
+After another account or a sign-out in a page that named an account, after `clearDevice()`, and after any change of the disk by another tab, also for the same account, every read shows its default and calls its loader again, also a read whose loader answered. The answer of a loader call that started before the change does not show and does not go to the device. When a page names its first account, a read that shows a stored copy of another account goes back to the default, every other read keeps what it shows, and each read calls its loader again.
 
 ## Server rendering
 

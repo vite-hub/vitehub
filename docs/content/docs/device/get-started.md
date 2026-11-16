@@ -49,7 +49,7 @@ const session = await fetch('/api/session').then(response => response.json() as 
 await setDeviceAccount(session.user?.id ?? null)
 ```
 
-Until the page names an account, the answers stay in memory and nothing goes to the disk. Another account, or `null` after a sign-out, deletes every copy.
+The device stores only the answers of loader calls that start after this call. A read that started before shows its answer, and calls its loader again when the page names the account. If your app knows the account before it mounts, such as from the HTML, name it before `mount()`, so each read calls its loader once. Another account, or `null` after a sign-out, deletes every copy.
 
 ::
 

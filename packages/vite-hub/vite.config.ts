@@ -171,6 +171,7 @@ export default defineConfig({
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        { from: "src/console/runtime/diagnostics.ts", to: "dist/console/runtime" },
         {
           from: "src/console/runtime/components/console-lazy-views.ts",
           to: "dist/console/runtime/components",
@@ -422,6 +423,11 @@ export default defineConfig({
           from: "src/console/runtime/components/console-auth-action.vue",
           to: "dist/console/runtime/components",
         },
+        { from: "src/console/runtime/components/console-account-team-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings-card.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },

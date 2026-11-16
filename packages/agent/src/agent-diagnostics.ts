@@ -10,6 +10,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1042",
   "AGENT_R1043",
   "AGENT_R1044",
+  "AGENT_STORAGE_PREFIX_INVALID",
+  "AGENT_STORAGE_PREFIX_OUTSIDE",
   "AGENT_R1007",
   "AGENT_R0981",
   "AGENT_R0982",
@@ -60,10 +62,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0078",
   "AGENT_R0079",
   "AGENT_R0080",
-  "AGENT_R0081",
   "AGENT_R0084",
-  "AGENT_R0085",
-  "AGENT_R0086",
   "AGENT_R0089",
   "AGENT_R0090",
   "AGENT_R0091",
@@ -76,8 +75,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0100",
   "AGENT_R0101",
   "AGENT_R0102",
-  "AGENT_R0105",
-  "AGENT_R0106",
   "AGENT_R0114",
   "AGENT_R0115",
   "AGENT_R0116",
@@ -94,9 +91,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0146",
   "AGENT_R0150",
   "AGENT_R0152",
-  "AGENT_R0153",
-  "AGENT_R0154",
-  "AGENT_R0155",
   "AGENT_R0162",
   "AGENT_R0164",
   "AGENT_R0165",
@@ -186,11 +180,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0425",
   "AGENT_R0426",
   "AGENT_R0430",
-  "AGENT_R0432",
-  "AGENT_R0433",
   "AGENT_R0434",
   "AGENT_R0446",
-  "AGENT_R0449",
   "AGENT_R0453",
   "AGENT_R0455",
   "AGENT_R0456",
@@ -247,7 +238,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0512",
   "AGENT_R0513",
   "AGENT_R0514",
-  "AGENT_R0515",
   "AGENT_R0516",
   "AGENT_R0518",
   "AGENT_R0521",
@@ -447,6 +437,7 @@ const agentTypeDiagnosticCodes = new Set([
 const agentDiagnosticHandles = defineDiagnostics({
   ...agentDiagnosticOptions,
   codes: {
+    // AGENT_R0081, AGENT_R0085, AGENT_R0086, AGENT_R0088, AGENT_R0094, AGENT_R0109, and AGENT_R0153 through AGENT_R0155 are retired. Nothing raised them. AGENT_R0105, AGENT_R0106, and AGENT_R0151 are retired: only a ViteHub bug reached them. Do not reuse them.
     // AGENT_R0038 through AGENT_R0048, AGENT_R0889, and AGENT_R0922 are retired. Nothing raised them. Do not reuse them.
     AGENT_R0907: {
       ...dynamicError,
@@ -797,108 +788,357 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Send a pull request event with head.sha, and with head.repo when it names a head branch, as GitHub pull_request events do.",
     },
-    AGENT_R0070: dynamicError,
-    AGENT_R0071: dynamicError,
-    AGENT_R0072: dynamicError,
-    AGENT_R0073: dynamicError,
-    AGENT_R0074: dynamicError,
-    AGENT_R0075: dynamicError,
-    AGENT_R0076: dynamicError,
-    AGENT_R0077: dynamicError,
-    AGENT_R0078: dynamicError,
-    AGENT_R0079: dynamicError,
-    AGENT_R0080: dynamicError,
-    AGENT_R0081: dynamicError,
-    AGENT_R0082: dynamicError,
-    AGENT_R0083: dynamicError,
-    AGENT_R0084: dynamicError,
-    AGENT_R0085: dynamicError,
-    AGENT_R0086: dynamicError,
-    AGENT_R0087: dynamicError,
-    AGENT_R0088: dynamicError,
-    AGENT_R0089: dynamicError,
-    AGENT_R0090: dynamicError,
-    AGENT_R0091: dynamicError,
-    AGENT_R0092: dynamicError,
-    AGENT_R0093: dynamicError,
-    AGENT_R0094: dynamicError,
-    AGENT_R0095: dynamicError,
-    AGENT_R0096: dynamicError,
-    AGENT_R0097: dynamicError,
-    AGENT_R0098: dynamicError,
-    AGENT_R0099: dynamicError,
-    AGENT_R0100: dynamicError,
-    AGENT_R0101: dynamicError,
-    AGENT_R0102: dynamicError,
-    AGENT_R0103: dynamicError,
-    AGENT_R0104: dynamicError,
-    AGENT_R0105: dynamicError,
-    AGENT_R0106: dynamicError,
+    AGENT_R0070: {
+      ...dynamicError,
+      fix: "Delete the existing pull request checkout folder in the Workspace, or mount the pull request at an empty path, so that ViteHub clones it again. Do not change the remotes or branch settings of a checkout that ViteHub made.",
+    },
+    AGENT_R0071: {
+      ...dynamicError,
+      fix: "Read the git output in the message. Check that the Workspace can reach github.com and that the GitHub token can read the repository, then retry.",
+    },
+    AGENT_R0072: {
+      ...dynamicError,
+      fix: "Make sure that the cwd of the git() tool is a git repository. The message shows the output of git status.",
+    },
+    AGENT_R0073: {
+      ...dynamicError,
+      fix: "Commit or discard the changes in the working tree, then run the git write command again.",
+    },
+    AGENT_R0074: {
+      ...dynamicError,
+      fix: "Pass the git() tool a non-empty command string, such as git status.",
+    },
+    AGENT_R0075: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace that can start a shell session in defineAgent({ workspace }), or remove git().",
+    },
+    AGENT_R0076: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace that can start a shell session in defineAgent({ workspace }), or remove git().",
+    },
+    AGENT_R0077: {
+      ...dynamicError,
+      fix: "Pass gmail_draft valid email addresses, such as name@example.com, without <, >, or control characters.",
+    },
+    AGENT_R0078: {
+      ...dynamicError,
+      fix: "Give the gmail_draft field that the message names one line of non-empty text.",
+    },
+    AGENT_R0079: {
+      ...dynamicError,
+      fix: "Give gmail_draft a non-empty body.",
+    },
+    AGENT_R0080: {
+      ...dynamicError,
+      fix: "Set vitehub({ connections: true }), and run the Capability that the message names from a discovered Agent Definition with the ViteHub Connections primitive.",
+    },
+    AGENT_R0082: {
+      ...dynamicError,
+      fix: "Give the MCP server that the message names an http or sse transport without authProvider, and set its URL in transport.url or in the mcp endpoint of the Connection provider.",
+    },
+    AGENT_R0083: {
+      ...dynamicError,
+      fix: "Set the MCP server that the message names to a non-empty connection name, and set its channels to an array of Channel names or remove channels.",
+    },
+    AGENT_R0084: {
+      ...dynamicError,
+      fix: "Omit the subject when gmail_draft replies to a message, or use the subject of the original message.",
+    },
+    AGENT_R0087: {
+      ...dynamicError,
+      fix: "Reply with gmail_draft only to a message that has a Message-ID header, or send a new draft without a reply target.",
+    },
+    AGENT_R0089: {
+      ...dynamicError,
+      fix: "Pass gmail_search a max from 1 to 50, or omit it to use 10.",
+    },
+    AGENT_R0090: {
+      ...dynamicError,
+      fix: "Pass gmail_search a query string, or omit it to search the inbox.",
+    },
+    AGENT_R0091: {
+      ...dynamicError,
+      fix: "Remove null bytes from the gmail_search query.",
+    },
+    AGENT_R0092: {
+      ...dynamicError,
+      fix: "Check that the Gmail Connection calls the Gmail API and that its scopes allow the operation that the message names.",
+    },
+    AGENT_R0093: {
+      ...dynamicError,
+      fix: "Give gmail_draft at least one email address in the field that the message names.",
+    },
+    AGENT_R0095: {
+      ...dynamicError,
+      fix: "Pass gmail() only connection, a Connection name, and operations, a list of \"search\", \"read\", and \"draft\".",
+    },
+    AGENT_R0096: {
+      ...dynamicError,
+      fix: "Name each input command with lowercase letters, digits, - and _, starting with a letter, such as \"review\".",
+    },
+    AGENT_R0097: {
+      ...dynamicError,
+      fix: "Pass inputCommands({ commands }) an object that maps each command name to its command.",
+    },
+    AGENT_R0098: {
+      ...dynamicError,
+      fix: "Make each entry of inputCommands({ commands }) an object.",
+    },
+    AGENT_R0099: {
+      ...dynamicError,
+      fix: "Give the input command a non-empty description string, or remove description.",
+    },
+    AGENT_R0100: {
+      ...dynamicError,
+      fix: "Set the channels of the input command to an array of non-empty Channel IDs, or remove channels.",
+    },
+    AGENT_R0101: {
+      ...dynamicError,
+      fix: "Set inputCommands({ trigger }) to a non-empty string, such as \"/\", or remove it to use \"/\".",
+    },
+    AGENT_R0102: {
+      ...dynamicError,
+      fix: "Remove spaces and other whitespace from inputCommands({ trigger }).",
+    },
+    AGENT_R0103: {
+      ...dynamicError,
+      fix: "Change the input commands so that their expansions do not call each other in a loop or nest too deep.",
+    },
+    AGENT_R0104: {
+      ...dynamicError,
+      fix: "Enable the primitive that the message names in vitehub(). For the i18n() Capability, give the Agent agentI18n from vite-hub/i18n/server.",
+    },
     // AGENT_R0107 and AGENT_R0108 are retired with llmGate() and llmRoute(). Do not reuse them.
-    AGENT_R0109: dynamicError,
     // AGENT_R0110 through AGENT_R0113 are retired with llmGate() and llmRoute(). Do not reuse them.
-    AGENT_R0114: dynamicError,
-    AGENT_R0115: dynamicError,
-    AGENT_R0116: dynamicError,
-    AGENT_R0117: dynamicError,
-    AGENT_R0118: dynamicError,
-    AGENT_R0119: dynamicError,
-    AGENT_R0120: dynamicError,
-    AGENT_R0121: dynamicError,
-    AGENT_R0122: dynamicError,
-    AGENT_R0123: dynamicError,
-    AGENT_R0124: dynamicError,
-    AGENT_R0125: dynamicError,
-    AGENT_R0126: dynamicError,
-    AGENT_R0127: dynamicError,
-    AGENT_R0128: dynamicError,
-    AGENT_R0129: dynamicError,
-    AGENT_R0130: dynamicError,
-    AGENT_R0131: dynamicError,
-    AGENT_R0132: dynamicError,
-    AGENT_R0133: dynamicError,
-    AGENT_R0134: dynamicError,
-    AGENT_R0135: dynamicError,
-    AGENT_R0136: dynamicError,
-    AGENT_R0137: dynamicError,
-    AGENT_R0138: dynamicError,
-    AGENT_R0139: dynamicError,
-    AGENT_R0140: dynamicError,
-    AGENT_R0141: dynamicError,
-    AGENT_R0142: dynamicError,
-    AGENT_R0143: dynamicError,
-    AGENT_R0144: dynamicError,
-    AGENT_R0145: dynamicError,
-    AGENT_R0146: dynamicError,
-    AGENT_R0147: dynamicError,
-    AGENT_R0148: dynamicError,
-    AGENT_R0149: dynamicError,
-    AGENT_R0150: dynamicError,
-    AGENT_R0151: dynamicError,
-    AGENT_R0152: dynamicError,
-    AGENT_R0153: dynamicError,
-    AGENT_R0154: dynamicError,
-    AGENT_R0155: dynamicError,
-    AGENT_R0156: dynamicError,
-    AGENT_R0157: dynamicError,
-    AGENT_R0158: dynamicError,
-    AGENT_R0159: dynamicError,
-    AGENT_R0160: dynamicError,
-    AGENT_R0161: dynamicError,
-    AGENT_R0162: dynamicError,
-    AGENT_R0163: dynamicError,
-    AGENT_R0164: dynamicError,
-    AGENT_R0165: dynamicError,
-    AGENT_R0166: dynamicError,
-    AGENT_R0167: dynamicError,
-    AGENT_R0168: dynamicError,
+    AGENT_R0114: {
+      ...dynamicError,
+      fix: "Pass mcp({ integrity }) an object that maps each server name of mcp({ servers }) to its tool fingerprints.",
+    },
+    AGENT_R0115: {
+      ...dynamicError,
+      fix: "Use only server names from mcp({ servers }) as keys of mcp({ integrity }).",
+    },
+    AGENT_R0116: {
+      ...dynamicError,
+      fix: "Map each tool name to its fingerprint string for the server that the message names in mcp({ integrity }).",
+    },
+    AGENT_R0117: {
+      ...dynamicError,
+      fix: "Pass mcp({ servers }) an object that maps each server name to its config.",
+    },
+    AGENT_R0118: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace with write access in defineAgent({ workspace }), or use another memory store than workspaceJsonlMemoryStore().",
+    },
+    AGENT_R0119: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace in defineAgent({ workspace }), or use another memory store than workspaceJsonlMemoryStore().",
+    },
+    AGENT_R0120: {
+      ...dynamicError,
+      fix: "Give each memory() store a scope with at least one non-empty field, and remove retention from the store that the message names.",
+    },
+    AGENT_R0121: {
+      ...dynamicError,
+      fix: "Use a memory kind from the allowKinds of the store, or add the kind to allowKinds.",
+    },
+    AGENT_R0122: {
+      ...dynamicError,
+      fix: "Pass store with the name of the memory store to use. This Agent has more than one store.",
+    },
+    AGENT_R0123: {
+      ...dynamicError,
+      fix: "Pass the name of a store from memory({ stores }).",
+    },
+    AGENT_R0124: {
+      ...dynamicError,
+      fix: "Remove read.tools.read: false or read.tools.search: false from the memory store, or use a store that allows this tool.",
+    },
+    AGENT_R0125: {
+      ...dynamicError,
+      fix: "Set write: { mode: \"tool\" } on the memory store, or write to a store that has it.",
+    },
+    AGENT_R0126: {
+      ...dynamicError,
+      fix: "Pass openapi() an options object with spec, and set connection to a Connection name or remove it.",
+    },
+    AGENT_R0127: {
+      ...dynamicError,
+      fix: "Set openapi({ spec }) to the URL of an OpenAPI document or to the document object.",
+    },
+    AGENT_R0128: {
+      ...dynamicError,
+      fix: "Set openapi({ operations }) to a list of operationIds, or to an object that maps tool names to operationIds.",
+    },
+    AGENT_R0129: {
+      ...dynamicError,
+      fix: "Use an operationId from the OpenAPI document in openapi({ operations }), or add the operation to the document.",
+    },
+    AGENT_R0130: {
+      ...dynamicError,
+      fix: "Make openapi({ spec }) return the URL of an OpenAPI document or the document object.",
+    },
+    AGENT_R0131: {
+      ...dynamicError,
+      fix: "Set openapi({ spec }) to a URL that returns a JSON OpenAPI document, or pass the document object.",
+    },
+    AGENT_R0132: {
+      ...dynamicError,
+      fix: "Set openapi({ server }) to the base URL of the API, or add servers[0].url to the OpenAPI document.",
+    },
+    AGENT_R0133: {
+      ...dynamicError,
+      fix: "Remove the operation from openapi({ operations }), or use an operation with GET, HEAD, or POST.",
+    },
+    AGENT_R0134: {
+      ...dynamicError,
+      fix: "Give each operation in the OpenAPI document its own operationId.",
+    },
+    AGENT_R0135: {
+      ...dynamicError,
+      fix: "Use a tool name that starts with a letter and has only letters, digits, and underscores, by renaming the operationId or mapping a name in openapi({ operations }).",
+    },
+    AGENT_R0136: {
+      ...dynamicError,
+      fix: "Map each operation to its own command name in openapi({ operations }), so that no two operations make the same command.",
+    },
+    AGENT_R0137: {
+      ...dynamicError,
+      fix: "Send the request fields that the OpenAPI operation requires. The message lists the fields that are wrong.",
+    },
+    AGENT_R0138: {
+      ...dynamicError,
+      fix: "Pass the OpenAPI tool an object with path, query, and body fields.",
+    },
+    AGENT_R0139: {
+      ...dynamicError,
+      fix: "Remove the input fields that the message names, or put them in path, query, or body.",
+    },
+    AGENT_R0140: {
+      ...dynamicError,
+      fix: "Pass the path input of the OpenAPI tool as an object of path parameters.",
+    },
+    AGENT_R0141: {
+      ...dynamicError,
+      fix: "Pass the query input of the OpenAPI tool as an object of query parameters.",
+    },
+    AGENT_R0142: {
+      ...dynamicError,
+      fix: "Remove body from the input. This OpenAPI operation has no request body.",
+    },
+    AGENT_R0143: {
+      ...dynamicError,
+      fix: "Pass body as an object when the input also has body fields at the top level.",
+    },
+    AGENT_R0144: {
+      ...dynamicError,
+      fix: "Remove body from the input. This OpenAPI operation has no request body.",
+    },
+    AGENT_R0145: {
+      ...dynamicError,
+      fix: "Pass the path or query parameters that the message names.",
+    },
+    AGENT_R0146: {
+      ...dynamicError,
+      fix: "Pass the path or query input of the OpenAPI tool as an object.",
+    },
+    AGENT_R0147: {
+      ...dynamicError,
+      fix: "Remove the parameters that the message names. The OpenAPI operation does not declare them.",
+    },
+    AGENT_R0148: {
+      ...dynamicError,
+      fix: "Pass the parameter that the message names.",
+    },
+    AGENT_R0149: {
+      ...dynamicError,
+      fix: "Pass the path parameter that the message names.",
+    },
+    AGENT_R0150: {
+      ...dynamicError,
+      fix: "Set otlp({ endpoint }) to the OTLP base URL of the collector, such as \"https://otel.example.com\".",
+    },
+    AGENT_R0152: {
+      ...dynamicError,
+      fix: "Set otlp({ endpoint }) to an absolute http or https URL, such as \"https://otel.example.com\".",
+    },
+    AGENT_R0156: {
+      ...dynamicError,
+      fix: "Add progressSummary() to defineAgent({ capabilities }) and let the Agent run it. Do not call its hooks yourself.",
+    },
+    AGENT_R0157: {
+      ...dynamicError,
+      fix: "Add progressSummary() to defineAgent({ capabilities }) and let the Agent run it. Do not call its hooks yourself.",
+    },
+    AGENT_R0158: {
+      ...dynamicError,
+      fix: "Read the message for the error of the progressSummary({ driver }) run, and fix that Driver or its model settings.",
+    },
+    AGENT_R0159: {
+      ...dynamicError,
+      fix: "Make the rateLimit({ identity }) function return a non-empty value for each run, such as a user ID.",
+    },
+    AGENT_R0160: {
+      ...dynamicError,
+      fix: "Run the Agent through a Channel or route that gives run metadata, or use another rateLimit({ identity }).",
+    },
+    AGENT_R0161: {
+      ...dynamicError,
+      fix: "With rateLimit({ identity: \"ip\" }), set trustedIpHeaders to the headers that your host sets, such as [\"cf-connecting-ip\"]. With other identities, remove trustedIpHeaders.",
+    },
+    AGENT_R0162: {
+      ...dynamicError,
+      fix: "Pass rateLimit({ limiter }) a Rate Limiter from createRateLimiter() of vite-hub/rate-limit, or a function that returns one.",
+    },
+    AGENT_R0163: {
+      ...dynamicError,
+      fix: "Give each rateLimit() Capability of the Agent its own id, or remove the duplicate.",
+    },
+    AGENT_R0164: {
+      ...dynamicError,
+      fix: "Pass sandbox({ commands }) at least one executable name, such as [\"node\"].",
+    },
+    AGENT_R0165: {
+      ...dynamicError,
+      fix: "Pass sandbox({ commands }) only executable names, such as [\"node\", \"python3\"], without arguments or shell syntax.",
+    },
+    AGENT_R0166: {
+      ...dynamicError,
+      fix: "Pass sandbox_exec a command string.",
+    },
+    AGENT_R0167: {
+      ...dynamicError,
+      fix: "Run a command from sandbox({ commands }), or add the command to that list.",
+    },
+    AGENT_R0168: {
+      ...dynamicError,
+      fix: "Use a Sandbox driver that supports exec(), set in vitehub({ sandbox }).",
+    },
     // AGENT_R0169 through AGENT_R0197 are retired with the schedule() Capability. Do not reuse them.
-    AGENT_R0198: dynamicError,
-    AGENT_R0199: dynamicError,
-    AGENT_R0200: dynamicError,
-    AGENT_R0201: dynamicError,
-    AGENT_R0202: dynamicError,
-    AGENT_R0203: dynamicError,
+    AGENT_R0198: {
+      ...dynamicError,
+      fix: "Set skills({ shellExecution }) to \"read\" or \"write\", or remove it.",
+    },
+    AGENT_R0199: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace in defineAgent({ workspace }), or remove shellExecution from skills().",
+    },
+    AGENT_R0200: {
+      ...dynamicError,
+      fix: "Use a Blob asset path relative to the Workspace, without \"..\" or \".\" parts, such as \"images/chart.png\".",
+    },
+    AGENT_R0201: {
+      ...dynamicError,
+      fix: "Set vitehub({ blob: { serve: true } }), or use a Blob driver that returns a public URL.",
+    },
+    AGENT_R0202: {
+      ...dynamicError,
+      fix: "Use a Blob driver that returns absolute URLs, or publish Blob assets from an Agent run that started from an HTTP request.",
+    },
+    AGENT_R0203: {
+      ...dynamicError,
+      fix: "Pass the Blob list tool a limit that is a positive number, or omit it.",
+    },
     AGENT_R0204: {
       ...dynamicError,
       fix: "Set blob in vitehub(), such as blob: true, or run pnpm add @vite-hub/blob in the app. The message shows the load error.",
@@ -1687,105 +1927,371 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Pass a name to agentWorkflow(), such as agentWorkflow(\"support\"), when you call it outside a discovered Agent.",
     },
-    AGENT_R0422: dynamicError,
-    AGENT_R0423: dynamicError,
-    AGENT_R0424: dynamicError,
-    AGENT_R0425: dynamicError,
-    AGENT_R0426: dynamicError,
-    AGENT_R0427: dynamicError,
-    AGENT_R0428: dynamicError,
-    AGENT_R0429: dynamicError,
-    AGENT_R0430: dynamicError,
-    AGENT_R0431: dynamicError,
-    AGENT_R0432: dynamicError,
-    AGENT_R0433: dynamicError,
-    AGENT_R0434: dynamicError,
-    AGENT_R0435: dynamicError,
-    AGENT_R0436: dynamicError,
-    AGENT_R0437: dynamicError,
-    AGENT_R0438: dynamicError,
-    AGENT_R0439: dynamicError,
-    AGENT_R0440: dynamicError,
-    AGENT_R0441: dynamicError,
-    AGENT_R0442: dynamicError,
-    AGENT_R0443: dynamicError,
-    AGENT_R0444: dynamicError,
-    AGENT_R0445: dynamicError,
-    AGENT_R0446: dynamicError,
-    AGENT_R0447: dynamicError,
-    AGENT_R0448: dynamicError,
-    AGENT_R0449: dynamicError,
-    AGENT_R0450: dynamicError,
-    AGENT_R0451: dynamicError,
-    AGENT_R0452: dynamicError,
-    AGENT_R0453: dynamicError,
-    AGENT_R0454: dynamicError,
-    AGENT_R0455: dynamicError,
-    AGENT_R0456: dynamicError,
-    AGENT_R0457: dynamicError,
-    AGENT_R0458: dynamicError,
-    AGENT_R0459: dynamicError,
-    AGENT_R0460: dynamicError,
-    AGENT_R0461: dynamicError,
-    AGENT_R0462: dynamicError,
-    AGENT_R0463: dynamicError,
-    AGENT_R0464: dynamicError,
-    AGENT_R0465: dynamicError,
-    AGENT_R0466: dynamicError,
-    AGENT_R0467: dynamicError,
-    AGENT_R0468: dynamicError,
-    AGENT_R0469: dynamicError,
-    AGENT_R0470: dynamicError,
-    AGENT_R0471: dynamicError,
-    AGENT_R0472: dynamicError,
-    AGENT_R0473: dynamicError,
-    AGENT_R0474: dynamicError,
-    AGENT_R0475: dynamicError,
-    AGENT_R0476: dynamicError,
-    AGENT_R0477: dynamicError,
-    AGENT_R0478: dynamicError,
-    AGENT_R0479: dynamicError,
-    AGENT_R0480: dynamicError,
-    AGENT_R0481: dynamicError,
-    AGENT_R0482: dynamicError,
-    AGENT_R0483: dynamicError,
-    AGENT_R0484: dynamicError,
-    AGENT_R0485: dynamicError,
-    AGENT_R0486: dynamicError,
-    AGENT_R0487: dynamicError,
-    AGENT_R0488: dynamicError,
-    AGENT_R0489: dynamicError,
-    AGENT_R0490: dynamicError,
-    AGENT_R0491: dynamicError,
-    AGENT_R0492: dynamicError,
-    AGENT_R0493: dynamicError,
-    AGENT_R0494: dynamicError,
-    AGENT_R0495: dynamicError,
-    AGENT_R0496: dynamicError,
-    AGENT_R0497: dynamicError,
-    AGENT_R0498: dynamicError,
-    AGENT_R0499: dynamicError,
-    AGENT_R0500: dynamicError,
-    AGENT_R0501: dynamicError,
-    AGENT_R0502: dynamicError,
-    AGENT_R0503: dynamicError,
-    AGENT_R0504: dynamicError,
-    AGENT_R0505: dynamicError,
-    AGENT_R0506: dynamicError,
-    AGENT_R0507: dynamicError,
-    AGENT_R0508: dynamicError,
-    AGENT_R0509: dynamicError,
-    AGENT_R0510: dynamicError,
-    AGENT_R0511: dynamicError,
-    AGENT_R0512: dynamicError,
-    AGENT_R0513: dynamicError,
-    AGENT_R0514: dynamicError,
-    AGENT_R0515: dynamicError,
-    AGENT_R0516: dynamicError,
-    AGENT_R0517: dynamicError,
-    AGENT_R0518: dynamicError,
-    AGENT_R0519: dynamicError,
-    AGENT_R0520: dynamicError,
+    AGENT_R0422: {
+      ...dynamicError,
+      fix: "Give this Agent its own Workflow name with agentWorkflow(\"other-name\"), or run the discovered Agent that owns the name.",
+    },
+    AGENT_R0423: {
+      ...dynamicError,
+      fix: "Check the Channel credentials and permissions for activity, such as the GitHub App permissions for issue comments. Read error.cause for the Channel error.",
+    },
+    AGENT_R0424: {
+      ...dynamicError,
+      fix: "Make the waitUntil() function of the runtime context accept a Promise, or remove activity from the Channel.",
+    },
+    AGENT_R0425: {
+      ...dynamicError,
+      fix: "Pass each Channel in defineAgent({ channels }) as a Channel definition, such as webChat(), or as the name of a file in server/channels, as the message shows.",
+    },
+    AGENT_R0426: {
+      ...dynamicError,
+      fix: "Move the chat() options to defineAgent({ messages, channels }), and remove chat() from capabilities.",
+    },
+    AGENT_R0427: {
+      ...dynamicError,
+      fix: "Set driver in defineAgent(), such as driver: { model } or driver: { run }.",
+    },
+    AGENT_R0428: {
+      ...dynamicError,
+      fix: "Read the stream of the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0429: {
+      ...dynamicError,
+      fix: "Call toUIMessageStream() on the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0430: {
+      ...dynamicError,
+      fix: "Set defineAgent({ name }) to 512 characters or fewer.",
+    },
+    AGENT_R0431: {
+      ...dynamicError,
+      fix: "Rename the Workspace source that the message names in the Agent workspace options, because the registered Workspace already defines that key.",
+    },
+    // AGENT_R0432, AGENT_R0433, AGENT_R0436, AGENT_R0437, AGENT_R0445, AGENT_R0448, AGENT_R0449, and AGENT_R0515 are retired. Nothing raised AGENT_R0445, AGENT_R0448, or AGENT_R0449, and only a ViteHub bug reached the others. Do not reuse them.
+    AGENT_R0434: {
+      ...dynamicError,
+      fix: "Make the finish delivery effect resolver of the Channel return an object with a non-empty kind string.",
+    },
+    AGENT_R0435: {
+      ...dynamicError,
+      fix: "Make the chat error fallback reply finish before messages.timeout, for example with a faster messages.errorFallbackText function. A retry does not help.",
+    },
+    AGENT_R0438: {
+      ...dynamicError,
+      fix: "Read the message for the error that the model stream reported, and check the model ID and the provider API key. A retry helps for rate limits and 5xx errors.",
+    },
+    AGENT_R0439: {
+      ...dynamicError,
+      fix: "Call toUIMessageStream() on the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0440: {
+      ...dynamicError,
+      fix: "Call toUIMessageStream() only once for each Invocation output.",
+    },
+    AGENT_R0441: {
+      ...dynamicError,
+      fix: "Read the stream of the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0442: {
+      ...dynamicError,
+      fix: "Call toUIMessageStream() on the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0443: {
+      ...dynamicError,
+      fix: "Read textStream of the Invocation output before the Invocation finishes.",
+    },
+    AGENT_R0444: {
+      ...dynamicError,
+      fix: "Set a Workflow provider and remove nonportable Capabilities from the Agent, or set messages.durable: false on the Channel.",
+    },
+    AGENT_R0446: {
+      ...dynamicError,
+      fix: "Make the instruction expression that the message names resolve to a scalar, such as {{ context.customer.name }}. Read error.cause for the template error.",
+    },
+    AGENT_R0447: {
+      ...dynamicError,
+      fix: "Change the instruction template or condition that the message names. Read error.cause for the template error.",
+    },
+    AGENT_R0450: {
+      ...dynamicError,
+      fix: "Give each instruction skill block a non-empty path, and each other instruction block a non-empty key.",
+    },
+    AGENT_R0451: {
+      ...dynamicError,
+      fix: "Do not abort the Invocation, or pass a reason to AbortController.abort(reason) to see why it stopped.",
+    },
+    AGENT_R0452: {
+      ...dynamicError,
+      fix: "Retry later, or raise driver.capacity.concurrency, driver.capacity.queue.maxPending, or driver.capacity.queue.timeout. For a sample timeout, make driver.capacity.adaptive.sample() answer before sampleTimeoutMs.",
+    },
+    AGENT_R0453: {
+      ...dynamicError,
+      fix: "Make driver.capacity.adaptive.sample() return an object with a finite concurrency number, such as { concurrency: 4 }.",
+    },
+    AGENT_R0454: {
+      ...dynamicError,
+      fix: "Remove the driver option that the message names, or correct its spelling.",
+    },
+    AGENT_R0455: {
+      ...dynamicError,
+      fix: "Set driver.capacity to an object, such as { concurrency: 4 }.",
+    },
+    AGENT_R0456: {
+      ...dynamicError,
+      fix: "Set driver.capacity.concurrency to a positive integer, such as 4.",
+    },
+    AGENT_R0457: {
+      ...dynamicError,
+      fix: "Set driver.capacity.queue to an object, such as { maxPending: 20 }.",
+    },
+    AGENT_R0458: {
+      ...dynamicError,
+      fix: "Set driver.capacity.queue.maxPending to a positive integer, such as 20.",
+    },
+    AGENT_R0459: {
+      ...dynamicError,
+      fix: "Set driver.capacity.queue.timeout to a positive number of milliseconds no greater than 2147483647, or remove it.",
+    },
+    AGENT_R0460: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive to an object with a sample function.",
+    },
+    AGENT_R0461: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive.sample to a function that returns { concurrency }.",
+    },
+    AGENT_R0462: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive.fallbackConcurrency to an integer from 0 to driver.capacity.concurrency, or remove it.",
+    },
+    AGENT_R0463: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive.intervalMs to a number of milliseconds from 100 to 2147483647, or remove it.",
+    },
+    AGENT_R0464: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive.rampUp to a positive integer, or remove it.",
+    },
+    AGENT_R0465: {
+      ...dynamicError,
+      fix: "Set driver.capacity.adaptive.sampleTimeoutMs to a positive number of milliseconds no greater than 2147483647, or remove it.",
+    },
+    AGENT_R0466: {
+      ...dynamicError,
+      fix: "Set driver.env to an object of string or undefined values, or to a resolver function.",
+    },
+    AGENT_R0467: {
+      ...dynamicError,
+      fix: "Set each value of driver.env to a string or undefined.",
+    },
+    AGENT_R0468: {
+      ...dynamicError,
+      fix: "Set driver.launch to a resolver function or an object with a non-empty command string, and set driver.launch.onExit to a function or remove it.",
+    },
+    AGENT_R0469: {
+      ...dynamicError,
+      fix: "Set driver.launch.args to an array of strings.",
+    },
+    AGENT_R0470: {
+      ...dynamicError,
+      fix: "Set driver.permissions to \"ask\", \"allow-edits\", \"allow-edits-unattended\", or \"allow-all\".",
+    },
+    AGENT_R0471: {
+      ...dynamicError,
+      fix: "Set driver.execution to an object, or remove it.",
+    },
+    AGENT_R0472: {
+      ...dynamicError,
+      fix: "Set driver.execution.attachments to an object, such as { maxBytes: 10000000 }, or remove it.",
+    },
+    AGENT_R0473: {
+      ...dynamicError,
+      fix: "Set driver.execution.attachments.maxBytes to a positive number of bytes.",
+    },
+    AGENT_R0474: {
+      ...dynamicError,
+      fix: "Set driver.model to a non-empty model ID string, or remove it.",
+    },
+    AGENT_R0475: {
+      ...dynamicError,
+      fix: "Set driver.providerSettings to an object, or remove it.",
+    },
+    AGENT_R0476: {
+      ...dynamicError,
+      fix: "Set driver.sessionStorePath to a non-empty file path, or remove it.",
+    },
+    AGENT_R0477: {
+      ...dynamicError,
+      fix: "Remove the Codex options that the message names from claudeCodeDriver(), or use codexDriver().",
+    },
+    AGENT_R0478: {
+      ...dynamicError,
+      fix: "Set driver.credentials to a string, a sealed Server Env value, or a resolver function.",
+    },
+    AGENT_R0479: {
+      ...dynamicError,
+      fix: "Set driver.credentialProfile to a non-empty name, such as \"work\".",
+    },
+    AGENT_R0480: {
+      ...dynamicError,
+      fix: "Set driver.credentialProfile to at most 128 characters that start with a lowercase letter or number and have only lowercase letters, numbers, dots, underscores, or hyphens.",
+    },
+    AGENT_R0481: {
+      ...dynamicError,
+      fix: "Rename driver.credentialProfile so that it does not end with a dot and is not a reserved Windows name, such as con, nul, or com1.",
+    },
+    AGENT_R0482: {
+      ...dynamicError,
+      fix: "Set driver.credentials when you set driver.credentialProfile, or remove driver.credentialProfile.",
+    },
+    AGENT_R0483: {
+      ...dynamicError,
+      fix: "Set driver.credentialProfile when you set driver.credentials and driver.sessionStorePath, or remove driver.sessionStorePath.",
+    },
+    AGENT_R0484: {
+      ...dynamicError,
+      fix: "Set driver.reasoningEffort to a value that the model lists, such as \"medium\", or remove it.",
+    },
+    AGENT_R0485: {
+      ...dynamicError,
+      fix: "Set driver.reasoningSummary to \"auto\", \"concise\", \"detailed\", or \"none\".",
+    },
+    AGENT_R0486: {
+      ...dynamicError,
+      fix: "Set driver.model when you set driver.reasoningEffort or driver.reasoningSummary.",
+    },
+    AGENT_R0487: {
+      ...dynamicError,
+      fix: "Remove providerSettings.shadowHomePath when you set driver.credentials.",
+    },
+    AGENT_R0488: {
+      ...dynamicError,
+      fix: "Remove driver.env.CODEX_HOME when you set driver.credentials.",
+    },
+    AGENT_R0489: {
+      ...dynamicError,
+      fix: "Remove driver.env.T3CODE_CODEX_LAUNCH_ARGS, or remove driver.reasoningEffort and driver.reasoningSummary.",
+    },
+    AGENT_R0490: {
+      ...dynamicError,
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object, not a string.",
+    },
+    AGENT_R0491: {
+      ...dynamicError,
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object.",
+    },
+    AGENT_R0492: {
+      ...dynamicError,
+      fix: "Create the provider Driver with codexDriver() or claudeCodeDriver() from vite-hub/agent, and do not set driver.kind yourself.",
+    },
+    AGENT_R0493: {
+      ...dynamicError,
+      fix: "Set exactly one of driver.model, driver.run, or driver.ask.",
+    },
+    AGENT_R0494: {
+      ...dynamicError,
+      fix: "Set driver.maxRetries to a non-negative integer, such as 2.",
+    },
+    AGENT_R0495: {
+      ...dynamicError,
+      fix: "Change the driver option that the message names: give title() and progressSummary() a Driver with model or run, set driver.ask to Jev questions or a function that returns them, or set maxRetries in one place only.",
+    },
+    AGENT_R0496: {
+      ...dynamicError,
+      fix: "Set driver.run to a function.",
+    },
+    AGENT_R0497: {
+      ...dynamicError,
+      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.",
+    },
+    AGENT_R0498: {
+      ...dynamicError,
+      fix: "Put a value after the option that the message names, such as vitehub agent info --agent support.",
+    },
+    AGENT_R0499: {
+      ...dynamicError,
+      fix: "Remove the unknown option. Run vitehub agent info --help to list the options.",
+    },
+    AGENT_R0500: {
+      ...dynamicError,
+      fix: "Remove the extra argument. Pass the Agent with vitehub agent info --agent <name>.",
+    },
+    AGENT_R0501: {
+      ...dynamicError,
+      fix: "Pass --url the URL of the running Vite Development Server of the app, and use the same vite-hub version in the CLI and the app.",
+    },
+    AGENT_R0502: {
+      ...dynamicError,
+      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations show <id>.",
+    },
+    AGENT_R0503: {
+      ...dynamicError,
+      fix: "Change the option value that the message names to the form that it shows, such as --since 7d, --timeout 30s, or an HTTPS --url without credentials.",
+    },
+    AGENT_R0504: {
+      ...dynamicError,
+      fix: "Remove the unknown option. Run vitehub agent invocations --help to list the options.",
+    },
+    AGENT_R0505: {
+      ...dynamicError,
+      fix: "Remove the option or argument that the message names, or use it with an action that supports it. Run vitehub agent invocations --help to see the options of each action.",
+    },
+    AGENT_R0506: {
+      ...dynamicError,
+      fix: "Pass an action, such as vitehub agent invocations list.",
+    },
+    AGENT_R0507: {
+      ...dynamicError,
+      fix: "Pass the invocation ID after the action, such as vitehub agent invocations show <id>. Run vitehub agent invocations list to find it.",
+    },
+    AGENT_R0508: {
+      ...dynamicError,
+      fix: "Pass --url the app that enables the Console, and use the same vite-hub version in the CLI and the app.",
+    },
+    AGENT_R0509: {
+      ...dynamicError,
+      fix: "Pass --url the app that enables the Console, and use the same vite-hub version in the CLI and the app.",
+    },
+    AGENT_R0510: {
+      ...dynamicError,
+      fix: "Pass --url the app that enables the Console, and use the same vite-hub version in the CLI and the app.",
+    },
+    AGENT_R0511: {
+      ...dynamicError,
+      fix: "Check --url and the Console key in VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>. The message shows the HTTP status. A retry helps only for network errors and 5xx.",
+    },
+    AGENT_R0512: {
+      ...dynamicError,
+      fix: "Set driver.model.apiKey to a string or a sealed Server Env value.",
+    },
+    AGENT_R0513: {
+      ...dynamicError,
+      fix: "Set driver.model.apiKey to a non-empty value, or remove it.",
+    },
+    AGENT_R0514: {
+      ...dynamicError,
+      fix: "Set driver.model to a non-empty model ID, such as \"gpt-5.5\". For chatgpt(), list the IDs with vitehub connections models chatgpt.",
+    },
+    AGENT_R0516: {
+      ...dynamicError,
+      fix: "Use a Standard Schema library, such as Valibot or Zod, whose validate() returns { value } or { issues } with an issues array.",
+    },
+    AGENT_R0517: {
+      ...dynamicError,
+      fix: "Change the Agent output schema or the instructions so that the model output matches the schema. The message lists the issues.",
+    },
+    AGENT_R0518: {
+      ...dynamicError,
+      fix: "Use a Standard Schema library, such as Valibot or Zod, whose validate() returns { value } or { issues }.",
+    },
+    AGENT_R0519: {
+      ...dynamicError,
+      fix: "Retry the delivery. If it fails again, check that the Agent State store is reachable and that no other process holds the delivery for a long time.",
+    },
+    AGENT_R0520: {
+      ...dynamicError,
+      fix: "Retry the delivery. If it fails again, check that the Agent State store is reachable and answers in less than 30 seconds.",
+    },
     AGENT_R0521: {
       ...dynamicError,
       fix: "Put a value after the option that the message names, such as --query key=value or an absolute --webhook-path /api/webhooks/telegram.",
@@ -2337,9 +2843,18 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0784: dynamicError,
-    AGENT_R0785: dynamicError,
-    AGENT_R0786: dynamicError,
+    AGENT_R0784: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0785: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0786: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
     AGENT_R0787: {
       ...dynamicError,
       fix: "Call connect() on the Agent State before you use it. A Channel does this when it starts, so check that your code does not use the State before that.",
@@ -2348,7 +2863,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0789: dynamicError,
+    AGENT_R0789: {
+      ...dynamicError,
+      fix: "Read the message for why the steered message failed, then send it again. `vitehub agent invocations` lists the failed Invocation.",
+    },
     AGENT_R0790: {
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
@@ -2389,7 +2907,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
     },
-    AGENT_R0800: dynamicError,
+    AGENT_R0800: {
+      ...dynamicError,
+      fix: "Read the message for why the steered message failed, then send it again. `vitehub agent invocations` lists the failed Invocation.",
+    },
     AGENT_R0801: {
       ...dynamicError,
       fix: "Check that every server instance uses the same durable Channel State, such as libSQL or Durable Objects, and that it answers before its locks expire. Send the message again if the Channel shows no answer.",
@@ -2603,8 +3124,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Pass createLibsqlAgentState({ client }) a libSQL client that has transaction(), such as the client of @libsql/client, or pass url.",
     },
-    AGENT_R0856: dynamicError,
-    AGENT_R0857: dynamicError,
+    AGENT_R0856: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
+    AGENT_R0857: {
+      ...dynamicError,
+      fix: "Read the message for the error that the provider or Driver sent. Check the provider credentials and the model of the Agent Definition, then send the request again.",
+    },
     AGENT_R0858: {
       ...dynamicError,
       fix: "Make the Agent result have toUIMessageStream(), return an async iterable or text, or use another stream output than \"ui-message-stream\".",
@@ -2769,6 +3296,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_B0019: {
       why: "[vitehub] Provider Agent Drivers (codexDriver() and claudeCodeDriver()) cannot run in a Cloudflare Worker. A server module in this Worker build calls one.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
+    },
+    AGENT_INVOCATIONS_NO_DEV_SERVER: {
+      why: ({ root }: { root: string }) => `[vitehub] No dev server is running for ${root}, so \`vitehub agent invocations\` has no app to read.`,
+      fix: "Start the dev server of this project, such as with pnpm dev. To read another app, pass --url with its app URL. To read the journal file without the app, pass --database .vitehub/data/agent-invocations.sqlite.",
     },
     AGENT_R0939: {
       why: "[vitehub] Observability is not configured.",
@@ -3086,6 +3617,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_REPLAY_TASK_OTHER_AGENT: {
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
+    },
+    AGENT_STORAGE_PREFIX_INVALID: {
+      why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,
+      fix: 'Pass a prefix such as "support:" for kv() or "reports/" for blob(), or remove the option to give the Agent the whole store.',
+    },
+    AGENT_STORAGE_PREFIX_OUTSIDE: {
+      why: ({ label, prefix, value }: { label: string, prefix: string, value: string }) => `[vitehub] ${label} ${JSON.stringify(value)} is outside the prefix ${JSON.stringify(prefix)} that this Capability allows.`,
+      fix: "Use a key or pathname that starts with the Capability prefix. To give the Agent more of the store, change the prefix option of the Capability.",
     },
     AGENT_UI_STREAM_MISSING: {
       why: "[vitehub] The Agent did not return a UI message stream.",
