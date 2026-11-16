@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { defineErrors, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import { connectionMcpServerConfig, mcpClientConfig, resolveMcpToolServer, withMcpInitializationCompatibility } from "./internal/mcp-tool-capability.ts"
@@ -142,7 +143,7 @@ async function callResolvedMcpTool(client: McpClient, name: string, args: Record
             const listing: unknown = await client.listTools({ options: requestOptions, params: cursor === undefined ? undefined : { cursor } })
             signal.throwIfAborted()
             if (!isRuntimeRecord(listing) || !Array.isArray(listing.tools)) {
-              throw new TypeError("[vitehub] MCP tools/list must return a tools array.")
+              throw agentDiagnostics.AGENT_MCP_TOOLS_LIST_INVALID()
             }
             found = listing.tools.some((tool: unknown) => isRuntimeRecord(tool) && tool.name === name)
             cursor = typeof listing.nextCursor === "string" ? listing.nextCursor : undefined
@@ -222,7 +223,7 @@ export async function callMcpTool(
 ): Promise<Result<unknown, CallMcpToolErrorCode>> {
   const retries = options.retries ?? 0
   if (!Number.isInteger(retries) || retries < 0) {
-    throw new TypeError("[vitehub] callMcpTool({ retries }) must be a non-negative integer.")
+    throw agentDiagnostics.AGENT_MCP_RETRIES_INVALID()
   }
   for (let attempt = 0; ; attempt++) {
     const result = await callMcpToolOnce(server, name, args, options)
