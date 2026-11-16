@@ -8,7 +8,7 @@ import process from "node:process"
 import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupExitCodes, setupFailure, type SetupFailure } from "../envelope.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
@@ -354,7 +354,7 @@ export function hostCli(name: string, npmPackage: string, root: string, env: Nod
       const npx = executableIn(folder, "npx", platform)
       if (npx) return [...npx, "--yes", npmPackage]
     }
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_FAILED({ exitCode: null, output: "Could not find a Node.js entrypoint for npx. Install Node.js with npm or install the host CLI locally.", step: "npx" }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_FAILED({ exitCode: null, output: "Could not find a Node.js entrypoint for npx. Install Node.js with npm or install the host CLI locally.", step: "npx" }), setupExitCodes.error)
   }
   return ["npx", "--yes", npmPackage]
 }
@@ -387,13 +387,13 @@ export function splitManifestCommand(command: string): string[] {
 }
 
 export function commandRejected(command: string): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command }), setupExitCodes.error)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command }), setupExitCodes.error)
 }
 
 /** A host CLI that exited with an error. Its last lines go into the reason, redacted. */
 export function hostCliFailed(step: string, result: DeployRunResult, secrets: readonly string[]): SetupFailure {
   const lines = redact(`${result.stderr}\n${result.stdout}`, secrets).split("\n").map(line => line.trimEnd()).filter(Boolean).slice(-6).join("\n")
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_FAILED({ exitCode: result.exitCode, output: lines, step }), setupExitCodes.error)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_FAILED({ exitCode: result.exitCode, output: lines, step }), setupExitCodes.error)
 }
 
 /** The last JSON object in `text`. Host CLIs may print a line before it. */

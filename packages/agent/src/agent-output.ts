@@ -1,7 +1,7 @@
 import { hostReadableStream, isResponse } from "./internal/response.ts"
 
 import { isRuntimeObject } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
+import { getViteHubErrorShape, isExecutionBudgetExceededError } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
@@ -944,9 +944,9 @@ function safeStreamErrorString(error: unknown): string {
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
 function isBudgetExhaustionEvent(event: StreamEvent): boolean {
-  // SAFETY: Stream events carry this private marker only when the runtime attached an ExecutionBudgetExceededError.
+  // SAFETY: Stream events carry this private marker only when the runtime attached a RUNTIME_EXECUTION_BUDGET_EXCEEDED error.
   return event.type === "error"
-    && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+    && isExecutionBudgetExceededError((event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol])
 }
 
 async function* streamChunksToEvents(

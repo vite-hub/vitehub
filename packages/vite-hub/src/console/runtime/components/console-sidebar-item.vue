@@ -2,6 +2,7 @@
 import { onMounted, useTemplateRef, watch } from "vue";
 
 import { consoleSidebarOpen } from "../client/sidebar";
+import Icon from "./console-icon.vue";
 
 /**
  * One row of the Console sidebar: an icon and a label, and a count such as open comments. It renders a link when it has
@@ -51,7 +52,7 @@ watch(() => props.current, reveal, { flush: "post" });
       @click="$emit('click', $event)"
     >
       <span class="vitehub-sidebar__icon" aria-hidden="true">
-        <slot name="icon"><UIcon v-if="icon" :name="icon" /></slot>
+        <slot name="icon"><Icon v-if="icon" :name="icon" /></slot>
       </span>
       <span class="vitehub-sidebar__label">{{ label }}</span>
       <span v-if="badge !== undefined" class="vitehub-sidebar__badge">{{ badge }}<span v-if="badgeLabel" class="sr-only"> {{ badgeLabel }}</span></span>

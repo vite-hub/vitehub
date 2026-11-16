@@ -282,6 +282,31 @@ const codes = {
     why: "The callback has no `state` cookie of this browser, or the cookie does not match.",
     fix: "Start the connection again in this browser. Each authorization link works one time, for 10 minutes.",
   },
+  // CLI errors. `vitehub connections` prints them with their fix. Keep these codes in alphabetical order.
+  CONNECTIONS_CLI_ARGUMENTS_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections --help` for the commands and their options, and pass the value that the message names.",
+  },
+  CONNECTIONS_CLI_CALLBACK_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections connect <name>` again, and finish the sign-in in the browser before the link expires.",
+  },
+  CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--file` a ChatGPT credential file that `vitehub connections export` wrote, of at most 60 KiB, that only your user can read (`chmod 600`).",
+  },
+  CONNECTIONS_CLI_REQUEST_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Follow the fix of the server error that the message shows, then run the command again.",
+  },
+  CONNECTIONS_CLI_SERVER_UNREACHABLE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Start the development server with `vite dev`, or pass `--url <origin>` of an app that uses Connections. A retry helps when the server was restarting.",
+  },
+  CONNECTIONS_CLI_TRANSPORT_INSECURE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--url` an HTTPS origin or a loopback host, and send credential files from Linux or macOS, where the file can be owner-only.",
+  },
 }
 
 export const connectionsErrorDiagnostics: ErrorCatalog<typeof codes> = /*#__PURE__*/ defineErrors({ docs, codes })

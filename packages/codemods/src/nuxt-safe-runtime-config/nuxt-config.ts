@@ -4,7 +4,7 @@ import { end, findProperty, keyName, line, start } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
 import { defaultExport, literalValue, objectProperty, unwrapExpression } from "../shared/nuxt-config.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { Node, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { LiteralValue, NuxtConfigFile } from "../shared/nuxt-config.ts"
@@ -141,6 +141,6 @@ export async function loadSchemaModule(cwd: string, specifier: string): Promise<
     return defaultExport(await jiti.import(jiti.esmResolve(specifier)))
   }
   catch (error) {
-    throw new CodemodError(`Cannot load the $schema module ${specifier}: ${error instanceof Error ? error.message : String(error)}`)
+    throw codemodError(`Cannot load the $schema module ${specifier}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
