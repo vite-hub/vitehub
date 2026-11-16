@@ -86,6 +86,7 @@ it("increments through the asynchronous unstorage Upstash client", async () => {
 function createFakeUpstash() {
   const data = new Map<string, string>()
   const sets: Array<{ key: string, options: unknown }> = []
+  const commands: Array<{ name: string, keys: number }> = []
   const glob = (pattern: string) => new RegExp(`^${pattern.replace(/\\(.)|([*?])|([^\\*?])/g, (_, escaped: string | undefined, wildcard: string | undefined, plain: string | undefined) => {
     if (wildcard) return wildcard === "*" ? ".*" : "."
     return (escaped ?? plain ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -93,7 +94,10 @@ function createFakeUpstash() {
   class FakeRedis {
     exists = async (key: string) => Number(data.has(key))
     get = async (key: string) => data.get(key) ?? null
-    mget = async (...keys: string[]) => keys.map(key => data.get(key) ?? null)
+    mget = async (...keys: string[]) => {
+      commands.push({ name: "mget", keys: keys.length })
+      return keys.map(key => data.get(key) ?? null)
+    }
     set = async (key: string, value: string, options?: { ex?: number, nx?: boolean }) => {
       sets.push({ key, options })
       if (options?.nx && data.has(key)) return null
@@ -101,7 +105,10 @@ function createFakeUpstash() {
       return "OK"
     }
     unlink = async (...keys: string[]) => keys.filter(key => data.delete(key)).length
-    del = async (...keys: string[]) => keys.filter(key => data.delete(key)).length
+    del = async (...keys: string[]) => {
+      commands.push({ name: "del", keys: keys.length })
+      return keys.filter(key => data.delete(key)).length
+    }
     getdel = async (key: string) => {
       const value = data.get(key) ?? null
       data.delete(key)
@@ -122,7 +129,7 @@ function createFakeUpstash() {
     const options = { base: "app", driver: "upstash" as const, token: "test", url: "https://example.com", lib: { Redis: FakeRedis }, ...store }
     return createUpstashKVDriver(options)
   }
-  return { create, data, sets }
+  return { commands, create, data, sets }
 }
 
 it("keeps each store under its base, so clear() leaves other keys alone", async () => {
@@ -172,4 +179,23 @@ it("continues a listing in another process from the cursor alone", async () => {
   const first = await upstash.create({ base: "app" }).listKeys!({ limit: 2 })
   expect(first.keys).toEqual(["a", "b"])
   await expect(upstash.create({ base: "app" }).listKeys!({ cursor: first.cursor, limit: 2 })).resolves.toEqual({ keys: ["c"] })
+})
+
+it("clears 2,500 keys with DEL commands of at most 1,000 keys", async () => {
+  const upstash = createFakeUpstash()
+  upstash.data.set("other:a:0", "keep")
+  for (let index = 0; index < 2500; index++) upstash.data.set(`app:a:${index}`, "v")
+  upstash.data.set("app:ab", "keep")
+  await createKVStorage(upstash.create({ base: "app" })).clear("a")
+  expect(upstash.commands).toEqual([{ name: "del", keys: 1000 }, { name: "del", keys: 1000 }, { name: "del", keys: 500 }])
+  expect([...upstash.data.keys()].sort()).toEqual(["app:ab", "other:a:0"])
+})
+
+it("reads 2,500 keys with MGET commands of at most 1,000 keys", async () => {
+  const upstash = createFakeUpstash()
+  const keys = Array.from({ length: 2500 }, (_, index) => `user:${index}`)
+  for (const key of keys) upstash.data.set(`app:${key}`, key)
+  const storage = createKVStorage(upstash.create({ base: "app" }))
+  await expect(storage.getMany(keys, { type: "text" })).resolves.toEqual(keys)
+  expect(upstash.commands).toEqual([{ name: "mget", keys: 1000 }, { name: "mget", keys: 1000 }, { name: "mget", keys: 500 }])
 })
