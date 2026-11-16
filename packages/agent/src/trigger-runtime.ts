@@ -198,9 +198,7 @@ async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>
   if (options.dryRun) throw agentDiagnostics.AGENT_DISPATCH_DRY_RUN_WITH_QUEUE({ channelId })
   const bound = context.request ? channelTriggerQueues.get(context.request) : undefined
   if (bound?.channelId !== channelId) {
-    throw agentDiagnostics.AGENT_R0931({
-      message: `[vitehub] Channel "${channelId}" can queue dispatched items only from its webhook route with a queue-capable State.`,
-    })
+    throw agentDiagnostics.AGENT_DISPATCH_QUEUE_UNAVAILABLE({ channelId })
   }
   // SAFETY: The queue admits items with the runtime context of the trigger that called dispatch().
   return await bound.admit(context as ResolvedAgentRuntimeContext, items, options)

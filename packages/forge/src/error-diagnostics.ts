@@ -25,6 +25,10 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
     /** A GitHub-only Forge helper received a reference that is not a numbered pull request, or an empty input. */
     FORGE_R0009: { ...dynamicError, fix: "Pass a pull request thread with a `number` and a nonempty base branch. For `forgeMerge({ bypassRules })`, also pass `method` and `sha`." },
     // Named errors. Keep these codes in alphabetical order.
+    FORGE_RESPONSE_INVALID: {
+      why: ({ problem }: { problem: string }) => problem,
+      fix: "Check that the GitHub App, the token, or the forge webhook can read the resource that the message names, then retry. A retry helps when the forge was only unavailable.",
+    },
     FORGE_UNSUPPORTED: {
       why: "Unsupported Forge.",
       fix: "Set `forge` of the Forge connection to `github`, `gitlab`, or `forgejo`.",

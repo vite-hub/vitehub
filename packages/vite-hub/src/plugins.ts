@@ -767,6 +767,7 @@ function deploymentNitroModule(
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
   envPlugin: () => EnvVitePlugin | undefined,
   contributedEnv: () => readonly DeploymentEnvEntry[],
+  envDir: () => string | false | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -804,7 +805,7 @@ function deploymentNitroModule(
       }
       const registry = envPlugin()?.api.getServerEnvRegistry()
       const env = mergeDeploymentEnv([...registry ? deploymentEnvEntries(registry) : [], ...contributedEnv()])
-      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), identity, outputDir, plan, rootDir, services })
+      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), envDir: envDir(), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -881,6 +882,8 @@ function deploymentPlugins(
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
   let resolvedPlugins: readonly unknown[] | undefined
+  // Vite's resolved envDir, for `deployment.json`. The CLI reads the stage env files there.
+  let resolvedEnvDir: string | false | undefined
   // The names that primitives read outside Server Env, for `deployment.json`. The Console belongs to this package.
   const contributedEnv = () => [
     ...collectDeploymentEnv(resolvedPlugins, { host: plan.host }),
@@ -1011,6 +1014,10 @@ function deploymentPlugins(
             const wasm = cloneRecord(nitro.wasm)
             if (wasm.lazy === undefined) wasm.lazy = true
             nitro.wasm = wasm
+            // workerd reads every export of the Worker entry as a handler and refuses to start on a shared value, such as
+            // a number that another chunk imports from the entry. Keep shared values in internal chunks.
+            const rollupConfig = cloneRecord(nitro.rollupConfig)
+            if (rollupConfig.preserveEntrySignatures === undefined) nitro.rollupConfig = { ...rollupConfig, preserveEntrySignatures: "strict" }
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
@@ -1072,7 +1079,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1142,6 +1149,7 @@ function deploymentPlugins(
       },
       configResolved(config) {
         resolvedPlugins = config.plugins
+        resolvedEnvDir = config.envDir
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const inspectionNitro = (config as ResolvedConfig & { nitro?: { rootDir?: string, output?: { dir?: string } } }).nitro
         deploymentRoot = resolve(inspectionNitro?.rootDir ?? config.root ?? process.cwd())
