@@ -293,7 +293,7 @@ index 7fe48b5f4ff9146259ca0cb4d5a19c22787a5e08..02498cdfdc1b18d31dc57f16b6149430
            el.textContent = text;
          }
 diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
-index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b877bdb2dd9 100644
+index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9c4f8b71036a34719242c0380b8c1ca163b6d829 100644
 --- a/dist/foundation/date/parse.js
 +++ b/dist/foundation/date/parse.js
 @@ -1,5 +1,5 @@
@@ -303,8 +303,13 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
  import { dateParts, isoDate } from "./plain-date.js";
  var directionMarks = /[‎‏؜]/g;
  var fieldLetters = { year: "Y", month: "M", day: "D" };
-@@ -64,11 +64,15 @@ function parseDate(text, locale, options = {}) {
-   if (dateParts(normalized)) {
+@@ -61,20 +61,27 @@ function parseDate(text, locale, options = {}) {
+   if (!normalized) {
+     return void 0;
+   }
+-  if (dateParts(normalized)) {
++  const { fields } = datePattern(locale);
++  if (dateParts(normalized) && !(fields[0] === "year" && fields[1] === "day")) {
      return normalized;
    }
 -  const { fields } = datePattern(locale);
@@ -313,15 +318,24 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
 +  if (written) {
 +    return written;
 +  }
-+  const { fields } = datePattern(locale);
    let namedMonth;
++  let era;
    const numbers = [];
 -  for (const token of normalized.toLocaleLowerCase(locale).match(/\p{N}+|\p{L}+/gu) ?? []) {
 +  for (const token of normalized.toLocaleLowerCase(locale).match(/\p{N}+|[\p{L}\p{M}]+/gu) ?? []) {
      if (/^\d+$/.test(token)) {
        numbers.push(token);
        continue;
-@@ -82,11 +86,11 @@ function parseDate(text, locale, options = {}) {
+     }
+     const month = monthFromName(token, locale);
+-    if (month !== void 0 && namedMonth === void 0) {
++    if (era === void 0 && erasOf(locale).offsets.has(token)) {
++      era = erasOf(locale).offsets.get(token);
++    } else if (month !== void 0 && namedMonth === void 0) {
+       namedMonth = month;
+     } else if (!isPatternWord(token, locale)) {
+       return void 0;
+@@ -82,11 +89,11 @@ function parseDate(text, locale, options = {}) {
    }
    const values = {};
    if (namedMonth !== void 0) {
@@ -331,23 +345,51 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
      }
 -    const order = numbers.length === 1 ? ["day"] : rest;
 +    const [first, second] = numbers;
-+    const order = second === void 0 ? ["day"] : first.length > 2 ? ["year", "day"] : second.length > 2 ? ["day", "year"] : namedMonthOrder(locale);
++    const order = second === void 0 ? ["day"] : first.length > 2 ? ["year", "day"] : second.length > 2 ? ["day", "year"] : styleOrder(locale, "long").filter((field) => field !== "month");
      order.forEach((field, index) => values[field] = numbers[index]);
      values.month = String(namedMonth);
    } else if (numbers.length === 1) {
-@@ -110,6 +114,93 @@ function parseDate(text, locale, options = {}) {
+@@ -96,20 +103,133 @@ function parseDate(text, locale, options = {}) {
+     }
+     const yearLength = digits.length - 4;
+     let offset2 = 0;
+-    for (const field of fields) {
++    for (const field of yearLength === 2 ? styleOrder(locale, "short") : fields) {
+       const length = field === "year" ? yearLength : 2;
+       values[field] = digits.slice(offset2, offset2 += length);
+     }
+   } else if (numbers.length === 2 || numbers.length === 3) {
+-    const order = numbers.length === 3 ? fields : fields.filter((field) => field !== "year");
+-    order.forEach((field, index) => values[field] = numbers[index]);
++    const short = styleOrder(locale, "short");
++    const year2 = numbers.findIndex((number) => number.length > 2);
++    const order = year2 === -1 || numbers.length === 2 ? short : [fields, short].find((order2) => order2[year2] === "year") ?? fields;
++    order.filter((field) => numbers.length === 3 || field !== "year").forEach((field, index) => values[field] = numbers[index]);
+   } else {
+     return void 0;
+   }
++  if (era !== void 0 && values.year !== void 0) {
++    for (const year2 of eraYears(values.year, era, referenceYear)) {
++      const date = isoDate(year2, Number(values.month), Number(values.day));
++      if (date && eraOf(date, locale) === era) {
++        return date;
++      }
++    }
++    return void 0;
++  }
+   const offset = yearOffset(locale);
    const year = values.year === void 0 ? referenceYear : fullYear(values.year, referenceYear + offset) - offset;
    return isoDate(year, Number(values.month), Number(values.day));
  }
-+var namedMonthOrders = /* @__PURE__ */ new Map();
-+function namedMonthOrder(locale) {
-+  const key = locale ?? "";
-+  let order = namedMonthOrders.get(key);
++var styleOrders = /* @__PURE__ */ new Map();
++function styleOrder(locale, dateStyle) {
++  const key = `${locale ?? ""}|${dateStyle}`;
++  let order = styleOrders.get(key);
 +  if (!order) {
-+    order = dateFormatter(locale, { dateStyle: "long" }).formatToParts(Date.UTC(2026, 9, 16)).flatMap(
-+      (part) => part.type === "day" || part.type === "year" ? [part.type] : []
++    order = dateFormatter(locale, { dateStyle }).formatToParts(Date.UTC(2026, 9, 16)).flatMap(
++      (part) => part.type === "day" || part.type === "month" || part.type === "year" ? [part.type] : []
 +    );
-+    namedMonthOrders.set(key, order);
++    styleOrders.set(key, order);
 +  }
 +  return order;
 +}
@@ -365,14 +407,20 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
 +    }
 +    const values = {};
 +    fields.forEach((field, index) => values[field] = match[index + 1]);
++    const { offsets, firstYears } = erasOf(locale);
++    const era = values.era === void 0 ? void 0 : offsets.get(values.era);
++    const written = firstYears.has(values.year ?? "") ? "1" : values.year ?? "";
 +    const offset = yearOffset(locale);
-+    const date = isoDate(
-+      fullYear(values.year ?? "", referenceYear + offset) - offset,
-+      months.get(values.month ?? "") ?? 0,
-+      Number(values.day)
-+    );
-+    if (date && compact(formatDate(date, locale, { dateStyle }), locale) === typed) {
-+      return date;
++    const years = era === void 0 ? [fullYear(written, referenceYear + offset) - offset] : eraYears(written, era, referenceYear);
++    for (const year of years) {
++      const date = isoDate(
++        year,
++        months.get(values.month ?? "") ?? 0,
++        Number(values.day)
++      );
++      if (date && compact(formatDate(date, locale, { dateStyle }), locale) === typed) {
++        return date;
++      }
 +    }
 +  }
 +  return void 0;
@@ -407,11 +455,20 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
 +      weekdays.add(compact(name, locale));
 +    }
 +  }
++  const { offsets, firstYears } = erasOf(locale);
 +  const fields = [];
 +  const source = formatter.formatToParts(Date.UTC(2026, 9, 16)).map((part) => {
-+    if (part.type === "day" || part.type === "year") {
-+      fields.push(part.type);
++    if (part.type === "day") {
++      fields.push("day");
 +      return "(\\d+)";
++    }
++    if (part.type === "year") {
++      fields.push("year");
++      return `(\\d+${firstYears.size ? `|${anyOf(firstYears)}` : ""})`;
++    }
++    if (part.type === "era" && offsets.size) {
++      fields.push("era");
++      return `(${anyOf(offsets.keys())})`;
 +    }
 +    if (part.type === "month") {
 +      fields.push("month");
@@ -429,7 +486,74 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b87
  var yearOffsets = /* @__PURE__ */ new Map();
  function yearOffset(locale) {
    const key = locale ?? "";
-@@ -192,7 +283,7 @@ function isPatternWord(word, locale) {
+@@ -133,6 +253,66 @@ function readYearOffset(locale) {
+   }
+   return year - 2026;
+ }
++var eraCache = /* @__PURE__ */ new Map();
++var eraWidths = ["narrow", "short", "long"];
++function erasOf(locale) {
++  const key = locale ?? "";
++  let eras = eraCache.get(key);
++  if (!eras) {
++    eras = { offsets: /* @__PURE__ */ new Map(), firstYears: /* @__PURE__ */ new Set() };
++    const writesEras = [
++      numericDate,
++      ...writtenStyles.map((dateStyle) => ({ dateStyle }))
++    ].some(
++      (options) => dateFormatter(locale, options).formatToParts(Date.UTC(2026, 9, 16)).some((part) => part.type === "era")
++    );
++    const partsOf = (era, time) => {
++      const parts = dateFormatter(locale, { year: "numeric", era }).formatToParts(time).map((part) => ({ ...part, value: compact(part.value, locale) }));
++      const valueOf = (type) => parts.find((part) => part.type === type)?.value ?? "";
++      return { era: valueOf("era"), year: valueOf("year") };
++    };
++    const found = /* @__PURE__ */ new Map();
++    for (let year = 1868; writesEras && year <= 2100; year++) {
++      const { era, year: value } = partsOf("short", Date.UTC(year, 0, 1));
++      if (!era) {
++        break;
++      }
++      const offset = year - Number(value);
++      const known = found.get(era);
++      found.set(era, {
++        offset: !known || known.offset === offset ? offset : null,
++        year: known?.year ?? year
++      });
++    }
++    for (const { offset, year } of found.values()) {
++      if (offset === null) {
++        continue;
++      }
++      for (const width of eraWidths) {
++        const name = partsOf(width, Date.UTC(year, 0, 1)).era;
++        if (name) {
++          eras.offsets.set(name, offset);
++        }
++        const first = partsOf(width, Date.UTC(offset + 1, 11, 31)).year;
++        if (!/\d/.test(first)) {
++          eras.firstYears.add(first);
++        }
++      }
++    }
++    eraCache.set(key, eras);
++  }
++  return eras;
++}
++function eraOf(date, locale) {
++  const { year, month, day } = dateParts(date);
++  const era = dateFormatter(locale, { year: "numeric", era: "short" }).formatToParts(Date.UTC(year, month - 1, day)).find((part) => part.type === "era")?.value;
++  return erasOf(locale).offsets.get(compact(era ?? "", locale));
++}
++function eraYears(text, offset, referenceYear) {
++  return [Number(text), fullYear(text, referenceYear - offset)].map(
++    (year) => year + offset
++  );
++}
+ function fullYear(text, referenceYear) {
+   const year = Number(text);
+   if (text.length > 2) {
+@@ -192,7 +372,7 @@ function isPatternWord(word, locale) {
          Date.UTC(2026, 9, 16)
        )) {
          if (part.type === "literal") {
@@ -736,8 +860,43 @@ index a77a2130326a1cbb673396b349184a0db52f17e2..2abfd78fe994287921343a319e023925
      );
    }
    return format.format(shown);
+diff --git a/dist/foundation/number/format.js b/dist/foundation/number/format.js
+index 99f2506ec4161bace0232da608b2d167c3ed1619..ec2c0c791d200f7b911dd5adb022740723a79b7a 100644
+--- a/dist/foundation/number/format.js
++++ b/dist/foundation/number/format.js
+@@ -39,7 +39,9 @@ function formatNumber(value, locale, format) {
+   if (typeof format === "function") {
+     return format(value);
+   }
+-  return numberFormatter(locale, format).format(value);
++  const formatter = numberFormatter(locale, format);
++  const text = formatter.format(value);
++  return /\p{Nd}/u.test(text) ? text : signedParts(formatter, value).map((part) => part.value).join("");
+ }
+ function formatNumberRange(start, end, locale, format) {
+   if (!Number.isFinite(start) || !Number.isFinite(end)) {
+@@ -60,7 +62,18 @@ function formatNumberToParts(value, locale, format) {
+       { type: "literal", value: format(value) }
+     ];
+   }
+-  return numberFormatter(locale, format).formatToParts(value);
++  return signedParts(numberFormatter(locale, format), value);
++}
++function signedParts(formatter, value) {
++  const parts = formatter.formatToParts(value);
++  if (value === 0 || parts.some((part) => part.type === "integer")) {
++    return parts;
++  }
++  const sample = formatter.formatToParts(Math.sign(value) * 12345.6);
++  const sign = sample.findIndex(
++    (part) => part.type === "minusSign" || part.type === "plusSign"
++  );
++  return sign !== -1 && sign < sample.findIndex((part) => part.type === "integer") ? [...sample.slice(0, sign + 1), ...parts] : parts;
+ }
+ export {
+   displayOptions,
 diff --git a/dist/foundation/number/parse.js b/dist/foundation/number/parse.js
-index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..cdbff2b0b0bebf705ebebff3c0c71c6455120129 100644
+index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..339925fcab2d1d4cf77f00712ba743dfd9348833 100644
 --- a/dist/foundation/number/parse.js
 +++ b/dist/foundation/number/parse.js
 @@ -14,12 +14,18 @@ function symbolsOf(locale, options) {
@@ -795,13 +954,16 @@ index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..cdbff2b0b0bebf705ebebff3c0c71c64
  var parenthesized = /^\s*\(.*\)\s*$/;
  function normalize(text, symbols) {
    let result = text.replace(formatCharacters, "").replace(minusSigns, "-").replace(plusSigns, "+");
-@@ -82,6 +106,10 @@ var complete = /^-?(\d+\.?\d*|\.\d+)$/;
+@@ -82,6 +106,13 @@ var complete = /^-?(\d+\.?\d*|\.\d+)$/;
  var partial = /^-?\d*\.?\d*$/;
  function parseNumber(text, locale, format) {
    const symbols = symbolsOf(locale, format ?? {});
-+  const word = symbols.words.get(wordKey(text));
++  const [, sign, key] = /^([-+]?)(.*)$/su.exec(
++    wordKey(text).replace(minusSigns, "-").replace(plusSigns, "+")
++  );
++  const word = symbols.words.get(key);
 +  if (word !== void 0) {
-+    return word;
++    return sign === "-" ? -word : word;
 +  }
    const normalized = normalize(text, symbols);
    if (!complete.test(normalized)) {
