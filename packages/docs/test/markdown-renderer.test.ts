@@ -120,7 +120,7 @@ describe("DocsMarkdown", () => {
     const render = async (map: Record<string, vue.Component>) => (await renderToString(vue.createSSRApp(renderer({}, {}, map), { document }))).replace(/\bv-[\d-]+/g, "v-id")
     const eager = await render(blocks)
     expect(eager).toContain('class="ct-tab"')
-    expect(eager).toContain('class="cgc" data-type="note"')
+    expect(eager).toMatch(/<div\b(?=[^>]*\bclass="cgc")(?=[^>]*\bdata-type="note")[^>]*>/)
     expect(await render(lazy)).toBe(eager)
   })
 

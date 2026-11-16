@@ -51,7 +51,7 @@ describe("comarkBlocksSource", () => {
     writeFileSync(join(dir, "blocks.mjs"), source)
     const { default: blocks } = await import(join(dir, "blocks.mjs")) as { default: Record<string, Component> }
     const html = await renderToString(createSSRApp({ render: () => h(blocks.GithubCallout!, { type: "tip", title: "Tip" }, () => "Body") }))
-    expect(html).toContain('class="cgc" data-type="tip"')
+    expect(html).toMatch(/<div\b(?=[^>]*\bclass="cgc")(?=[^>]*\bdata-type="tip")[^>]*>/)
     expect(html).toContain("Body")
   })
 })
