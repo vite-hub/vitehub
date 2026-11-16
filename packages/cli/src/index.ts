@@ -60,8 +60,9 @@ interface ViteHubCliLoadedConfig {
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
 /**
- * `vitehub env diff` and `vitehub env push` read the names of the last build and the variables of the linked host, so
- * they run before the project config loads. The other `env` features come from `hubEnv()`.
+ * `vitehub env diff` and `vitehub env push` read the names of the last build and the variables of the linked host, and
+ * `vitehub env pull` reads a Console with the key of `vitehub login`, so they run before the project config loads. The
+ * other `env` features come from `hubEnv()`.
  */
 const hostEnvFeatures: ViteHubCliCommandNamespace = {
   features: [
@@ -76,6 +77,12 @@ const hostEnvFeatures: ViteHubCliCommandNamespace = {
       name: "push",
       run: async (args, context) => await (await import("./setup/env.ts")).runEnvCommand({ ...hostEnvFeatures.features[1]!, name: "push" }, args, context),
       usage: "vitehub env push [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--only <NAME>]... [--yes] [--json]",
+    },
+    {
+      description: "Write the env values of a stage from a self-hosted Console to .env.<stage>. Needs `vitehub login` and the owner or admin role.",
+      name: "pull",
+      run: async (args, context) => await (await import("./setup/console-env.ts")).envPullFeature.run(args, context),
+      usage: "vitehub env pull --from console [--stage <name>] [--project <id>] [--console <url>] [--yes] [--json]",
     },
   ],
   name: "env",
@@ -326,7 +333,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     createProvisionNamespace(contribution.provision),
     ...runtimeNamespaces,
   ]
-  // Help lists `env diff` and `env push` next to the `env` features of `hubEnv()`.
+  // Help lists `env diff`, `env push`, and `env pull` next to the `env` features of `hubEnv()`.
   const envIndex = namespaces.findIndex(namespace => namespace.name === hostEnvFeatures.name)
   const envNamespace = namespaces[envIndex]
   if (envNamespace) namespaces[envIndex] = { ...envNamespace, features: [...envNamespace.features, ...hostEnvFeatures.features.filter(feature => !envNamespace.features.some(item => item.name === feature.name))] }
