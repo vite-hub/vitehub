@@ -1,6 +1,7 @@
-import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
+import type { WorkflowDefinition, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const defaultStepOptions = {
@@ -12,7 +13,7 @@ const defaultStepOptions = {
 } satisfies WorkflowStepOptions
 
 export async function runProviderStep<TResult>(
-  step: WorkflowProviderStep | undefined,
+  step: WorkflowProviderContext["step"],
   name: string,
   run: () => TResult | Promise<TResult>,
   options: WorkflowStepOptions = defaultStepOptions,
@@ -66,16 +67,102 @@ export function createWorkflowSteps(
   }))
 }
 
-/**
- * Gives every handler a step runner. Generated folder Workflows replace this
- * empty runner with their step files.
- */
-function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>): WorkflowExecutionContext<TPayload> {
-  return { ...context, steps: {} }
+/** The units of a sleep duration, in milliseconds. Cloudflare reads a month as 30 days and a year as 365.25 days. */
+const durationUnits = {
+  second: 1_000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+  month: 2_592_000_000,
+  year: 31_557_600_000,
+} satisfies Record<WorkflowDurationUnit, number>
+
+const durationPattern = /^(\d+(?:\.\d+)?) (second|minute|hour|day|week|month|year)s?$/
+
+/** A sleep target: a number of milliseconds, or a date. */
+function toSleepTarget(name: string, until: unknown): number | Date {
+  if (Object.prototype.toString.call(until) === "[object Date]") {
+    // SAFETY: The tag check above accepts a Date from any realm.
+    const date = new Date((until as Date).getTime())
+    if (Number.isFinite(date.getTime())) return date
+  }
+  else if (typeof until === "number") {
+    if (Number.isFinite(until) && until >= 0) return until
+  }
+  else if (typeof until === "string") {
+    const match = durationPattern.exec(until)
+    // SAFETY: The pattern only matches the unit names of `durationUnits`.
+    if (match) return Number(match[1]) * durationUnits[match[2] as WorkflowDurationUnit]
+  }
+  const value = typeof until === "string" ? JSON.stringify(until) : String(until)
+  throw workflowErrorDiagnostics.WORKFLOW_SLEEP_DURATION_INVALID({ name, value })
 }
 
-/** The root step result that says the handler called `context.step.sleep()`. A replay reads it and fails the same way. */
+/** Node fires a timer longer than this at once, so a longer wait uses more than one timer. */
+const maxTimerDelay = 2_147_483_647
+
+async function waitUntil(time: number): Promise<void> {
+  for (let left = time - Date.now(); left > 0; left = time - Date.now()) {
+    await new Promise<void>(resolve => setTimeout(resolve, Math.min(left, maxTimerDelay)))
+  }
+}
+
+/**
+ * `context.sleep()` of a folder Workflow. It names each sleep by call order (`sleep-1`, `sleep-2`), so the orchestrator
+ * must call it in the same order on each replay. Without a provider sleep, the run is inline and waits with a timer.
+ */
+function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext["sleep"] {
+  let count = 0
+  return async (until) => {
+    const target = toSleepTarget(context.name, until)
+    const name = `sleep-${++count}`
+    const step = context.step
+    if (step?.sleep) {
+      if (typeof target === "number") return await step.sleep(name, target)
+      if (step.sleepUntil) return await step.sleepUntil(name, target)
+      // A provider stores the wake time of a sleep and does not read the duration again on replay.
+      return await step.sleep(name, Math.max(0, target.getTime() - Date.now()))
+    }
+    const time = typeof target === "number" ? Date.now() + target : target.getTime()
+    await runProviderStep(undefined, name, async () => await waitUntil(time))
+  }
+}
+
+/**
+ * Gives every handler `context.sleep()` and a step runner. Generated folder Workflows replace this empty runner with
+ * their step files. The context keeps the provider step at runtime, so the generated step runner can use it.
+ */
+function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"]): WorkflowExecutionContext<TPayload> {
+  return { ...context, sleep, steps: {} }
+}
+
+/** The root step result that says the handler called `context.sleep()`. A replay reads it and fails the same way. */
 const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
+
+/**
+ * The step result that says the step threw a `NonRetryableError`. A provider that retries every error, such as
+ * OpenWorkflow, ends the step with it, so it does not run the step again. The caller throws the error outside the
+ * step, and a replay reads the stored result and throws the same error.
+ */
+export interface NonRetryableStepResult {
+  "~vitehubNonRetryableError": { code?: string, message: string, name: string }
+}
+
+export function toNonRetryableStepResult(error: unknown): NonRetryableStepResult | undefined {
+  if (!isNonRetryableError(error)) return undefined
+  const code: unknown = Reflect.get(error, "code")
+  return { "~vitehubNonRetryableError": { ...(typeof code === "string" ? { code } : {}), message: error.message, name: error.name } }
+}
+
+export function readNonRetryableStepResult(value: unknown): NonRetryableError | undefined {
+  if (typeof value !== "object" || value === null || !Object.hasOwn(value, "~vitehubNonRetryableError")) return undefined
+  // SAFETY: Only toNonRetryableStepResult writes this key.
+  const { code, message, name } = (value as NonRetryableStepResult)["~vitehubNonRetryableError"]
+  const error = new NonRetryableError(message)
+  error.name = name
+  return code === undefined ? error : Object.assign(error, { code })
+}
 
 /**
  * Runs the handler in its root step, or alone for a folder Workflow (`rootStep: false`). A sleep inside the root step
@@ -88,21 +175,18 @@ async function runInRootStep<TPayload, TResult, TOutput>(
   encode: (value: TResult) => TOutput | Promise<TOutput>,
 ): Promise<TOutput> {
   if (definition.options?.rootStep === false) {
-    return await encode(await definition.handler(context.payload, toExecutionContext(context)))
+    return await encode(await definition.handler(context.payload, toExecutionContext(context, createSleep(context))))
   }
 
   let slept = false
   const sleepError = () => workflowErrorDiagnostics.WORKFLOW_ROOT_STEP_SLEEP({ name: context.name })
-  const step: WorkflowProviderStep = {
-    ...context.step,
-    async sleep() {
-      slept = true
-      throw sleepError()
-    },
+  const sleep = async () => {
+    slept = true
+    throw sleepError()
   }
   const output = await runProviderStep(context.step, context.name, async () => {
     try {
-      const value = await encode(await definition.handler(context.payload, toExecutionContext({ ...context, step })))
+      const value = await encode(await definition.handler(context.payload, toExecutionContext(context, sleep)))
       return slept ? rootStepSleepResult : value
     }
     catch (error) {

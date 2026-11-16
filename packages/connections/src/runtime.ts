@@ -17,11 +17,14 @@ import { isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
 import { codeChallenge, randomToken } from "./internal/oauth-crypto.ts"
+import { clientRegistrations, discoverAuthorizationServer } from "./internal/oauth-discovery.ts"
+import type { AuthorizationServer } from "./internal/oauth-discovery.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, callerInheritedActors, decide, decisionActor, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
+import type { EnvStoreRotation } from "@vite-hub/env/database"
 import type { ConnectionState, ConnectionStore } from "./store.ts"
 import type {
   ConnectionAccount,
@@ -51,6 +54,8 @@ const FALLBACK_GRANT = "fallback"
 
 interface StoredToken {
   chatgpt?: v.InferOutput<typeof chatgptTokenMetadata>
+  /** The client that ViteHub registered for this grant. Refresh and revocation use the same client. */
+  client?: { id: string, key: string, secret?: string }
   grantId?: string
   accountId?: string
   accessToken: string
@@ -153,12 +158,19 @@ export interface ConnectionsRuntime {
   inspect: (name: string) => Promise<ConnectionInspection>
   list: () => Promise<ConnectionInspection[]>
   revoke: (input: { actor: string, name: string }) => Promise<ConnectionInspection>
+  /**
+   * Re-encrypt every stored token with the current key, the first of `VITEHUB_CONNECTIONS_KEYS`. Run it after you add
+   * a new current key, then remove the previous key. A token that a refresh replaces during the rotation keeps the
+   * refresh.
+   */
+  rotateKey: () => Promise<EnvStoreRotation>
   /** Store the key of an API key Connection. The provider `verify` check runs first. */
   setKey: (input: { actor: string, key: string, name: string }) => Promise<ConnectionInspection>
 }
 
 const storedTokenSchema = v.object({
   chatgpt: v.optional(chatgptTokenMetadata),
+  client: v.optional(v.object({ id: v.string(), key: v.string(), secret: v.optional(v.string()) })),
   grantId: v.optional(v.string()),
   accountId: v.optional(v.string()),
   accessToken: v.string(),
@@ -187,6 +199,29 @@ const approvalInputSchema = v.variant("kind", [
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
+
+/** A provider that ViteHub completes from its MCP endpoint's authorization server. */
+function isDiscovered(provider: ConnectionProvider): boolean {
+  return provider.mcp !== undefined && (!provider.authorizationEndpoint || !provider.tokenEndpoint || provider.clientId === undefined)
+}
+
+/** An OAuth provider with its endpoints and client, ready for one flow. */
+interface OAuthClient {
+  account?: ConnectionProvider["account"]
+  authorizationEndpoint: string
+  authorizationParams?: Readonly<Record<string, string>>
+  chatgpt?: true
+  clientId: string
+  clientSecret?: string
+  id: string
+  identityScopes?: readonly string[]
+  /** The secret key of the client that ViteHub registered. A rejection forgets it. */
+  registered?: string
+  /** The RFC 8707 resource of a discovered MCP server. Authorization and token requests name it. */
+  resource?: string
+  revocationEndpoint?: string
+  tokenEndpoint: string
+}
 
 /** The `state` of a flow that the Console started starts with this, so its callback knows it needs no app session. */
 const CONSOLE_STATE_PREFIX = "console_"
@@ -259,7 +294,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
+    // Fails alike on Workers and Node, where fetch with redirect: "error" throws a TypeError.
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "redirect", status: response.status })
     return response
   }
   const scheduler = createRequestScheduler()
@@ -389,24 +425,94 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     await (await getStore()).access.append(event)
   }
 
-  function oauthProvider(definition: ConnectionDefinition, name: string, clientId?: string): ConnectionProvider & { chatgpt?: true } {
+  const authorizationServers = new Map<string, Promise<AuthorizationServer>>()
+  const registrations = clientRegistrations({ now, request, secrets: async () => (await getStore()).secrets })
+
+  /** The authorization server of an MCP endpoint. Discovery runs once per process; a failed one runs again. */
+  function authorizationServer(mcp: string, name: string): Promise<AuthorizationServer> {
+    let pending = authorizationServers.get(mcp)
+    if (!pending) {
+      pending = discoverAuthorizationServer(mcp, request, name)
+      authorizationServers.set(mcp, pending)
+      pending.catch(() => {
+        if (authorizationServers.get(mcp) === pending) authorizationServers.delete(mcp)
+      })
+    }
+    return pending
+  }
+
+  /** The endpoints of an OAuth provider: the declared ones, then the ones that its authorization server publishes. */
+  async function oauthEndpoints(provider: ConnectionProvider, name: string, discover = false): Promise<{ authorizationEndpoint: string, revocationEndpoint?: string, server?: AuthorizationServer, tokenEndpoint: string }> {
+    const server = provider.mcp && (discover || !provider.authorizationEndpoint || !provider.tokenEndpoint) ? await authorizationServer(provider.mcp, name) : undefined
+    const revocationEndpoint = provider.revocationEndpoint ?? server?.revocationEndpoint
+    return {
+      // SAFETY: the definition check requires both endpoints, or an `mcp` endpoint whose metadata lists them.
+      authorizationEndpoint: (provider.authorizationEndpoint ?? server?.authorizationEndpoint)!,
+      tokenEndpoint: (provider.tokenEndpoint ?? server?.tokenEndpoint)!,
+      ...(revocationEndpoint ? { revocationEndpoint } : {}),
+      ...(server ? { server } : {}),
+    }
+  }
+
+  /**
+   * The endpoints and client of an OAuth flow. Without a `clientId`, the client is the one that ViteHub registered: the
+   * one in `token` for a grant, or for a new sign-in the one registered for `redirectUri`, which it registers first.
+   */
+  async function oauthClient(definition: ConnectionDefinition, name: string, input: { chatgptClientId?: string, pending?: { id: string, key: string }, redirectUri?: string, token?: StoredToken } = {}): Promise<OAuthClient> {
     const provider = definition.provider
     if (isChatGPTProvider(provider)) return {
-      id: "chatgpt", chatgpt: true, clientId: clientId ?? chatgptDynamicClientId,
+      id: "chatgpt", chatgpt: true, clientId: input.chatgptClientId ?? chatgptDynamicClientId,
       authorizationEndpoint: `${chatgptIssuer}/api/accounts/authorize`,
       tokenEndpoint: `${chatgptIssuer}/api/accounts/oauth/token`,
       identityScopes: chatgptScopes,
     }
     if (isApiKeyProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: name })
-    return provider
+    const clientId = await resolveValue(provider.clientId)
+    if (!clientId && !provider.mcp) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
+    const endpoints = await oauthEndpoints(provider, name, !clientId)
+    const declaredParams = Object.hasOwn(provider, "authorizationParams") ? provider.authorizationParams : undefined
+    // MCP authorization: requests to a discovered server name the MCP resource (RFC 8707), or the declared one.
+    const resource = endpoints.server ? declaredParams?.resource ?? endpoints.server.resource : undefined
+    const authorizationParams = resource ? { ...declaredParams, resource } : declaredParams
+    const base = {
+      ...(provider.account ? { account: provider.account } : {}),
+      authorizationEndpoint: endpoints.authorizationEndpoint,
+      ...(authorizationParams ? { authorizationParams } : {}),
+      id: provider.id,
+      ...(provider.identityScopes ? { identityScopes: provider.identityScopes } : {}),
+      ...(resource ? { resource } : {}),
+      ...(endpoints.revocationEndpoint ? { revocationEndpoint: endpoints.revocationEndpoint } : {}),
+      tokenEndpoint: endpoints.tokenEndpoint,
+    }
+    if (clientId) {
+      const clientSecret = await resolveValue(provider.clientSecret)
+      return { ...base, clientId, ...(clientSecret ? { clientSecret } : {}) }
+    }
+    if (input.pending) {
+      // The code belongs to the client that built the authorization URL, even when the shared registration changed since.
+      const current = await registrations.stored(input.pending.key)
+      const secret = current?.clientId === input.pending.id ? current.clientSecret : undefined
+      return { ...base, clientId: input.pending.id, ...(secret ? { clientSecret: secret } : {}), registered: input.pending.key }
+    }
+    if (input.token) {
+      // A grant from a client that is not stored, such as one of an earlier `clientId`, cannot refresh.
+      if (!input.token.client) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name, problem: "rejected" })
+      const { id, key, secret } = input.token.client
+      return { ...base, clientId: id, ...(secret ? { clientSecret: secret } : {}), registered: key }
+    }
+    // SAFETY: `oauthEndpoints()` discovers the server when the provider has no client id.
+    const server = endpoints.server!
+    if (!input.redirectUri) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name, problem: "rejected" })
+    const scopes = [...new Set([...(provider.identityScopes ?? []), ...(definition.scopes ?? [])])]
+    const client = await registrations.client(server, { clientName: provider.clientName ?? new URL(input.redirectUri).host, connection: name, redirectUri: input.redirectUri, scopes })
+    return { ...base, clientId: client.clientId, ...(client.clientSecret ? { clientSecret: client.clientSecret } : {}), registered: client.key }
   }
 
-  async function tokenRequest(provider: ConnectionProvider & { chatgpt?: true }, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void, connectionName?: string): Promise<ConnectionTokenResponse> {
-    const clientId = await resolveValue(provider.clientId)
-    const clientSecret = await resolveValue(provider.clientSecret)
-    if (!clientId) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
+  async function tokenRequest(provider: OAuthClient, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void, connectionName?: string): Promise<ConnectionTokenResponse> {
+    const { clientId, clientSecret } = provider
     const form = new URLSearchParams({ ...parameters, client_id: clientId })
     if (clientSecret) form.set("client_secret", clientSecret)
+    if (provider.resource) form.set("resource", provider.resource)
     if (provider.chatgpt) {
       chatgptCallbackClient(clientId)
       form.set("resource", chatgptResource)
@@ -430,7 +536,10 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       // prove that a ChatGPT grant was not changed; keep every other failure fenced.
       if (!provider.chatgpt || (response.status === 400 || response.status === 401)
         && error !== undefined && (error === "invalid_client" || chatgptTerminalRefreshErrors.has(error))) onResponse?.()
-      throw error === "invalid_grant" || provider.chatgpt && error !== undefined && chatgptTerminalRefreshErrors.has(error)
+      // A registered client that the server no longer knows cannot use its grants. The next Connect registers again.
+      const forgotten = provider.registered !== undefined && (error === "invalid_client" || error === "unauthorized_client")
+      if (forgotten) await registrations.forget(provider.registered!, clientId)
+      throw forgotten || error === "invalid_grant" || provider.chatgpt && error !== undefined && chatgptTerminalRefreshErrors.has(error)
         ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: connectionName ?? provider.id, problem: "rejected" })
         : connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: provider.chatgpt ? error === "invalid_client" ? "invalid_client" : undefined : error, problem: "token-request", provider: provider.id, status: response.status })
     }
@@ -454,6 +563,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return {
       chatgpt: previous?.chatgpt ? { ...previous.chatgpt, idToken: response.id_token ?? previous.chatgpt.idToken, earliestRefreshAt: response.earliest_refresh_at === undefined ? undefined : response.earliest_refresh_at * 1000 } : undefined,
       accountId: previous?.accountId,
+      ...(previous?.client ? { client: previous.client } : {}),
       grantId: previous?.grantId,
       accessToken: response.access_token,
       expiresAt: response.expires_in === undefined ? undefined : now() + response.expires_in * 1000,
@@ -549,7 +659,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let dispatched = false
     let responded = false
     try {
-      response = await tokenRequest(oauthProvider(definition, name, latest.chatgpt?.clientId), { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true }, name)
+      const client = await oauthClient(definition, name, { chatgptClientId: latest.chatgpt?.clientId, token: latest })
+      response = await tokenRequest(client, { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true }, name)
     }
     catch (error) {
       if (!dispatched) throw error
@@ -927,14 +1038,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     if (chatgpt && input.via === "console") throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_LOOPBACK()
     const connections = await getStore()
     const registration = chatgpt ? await connections.state.get(input.name) : undefined
-    const provider = oauthProvider(loaded, input.name, registration?.chatgpt?.clientId)
-    const clientId = await resolveValue(provider.clientId)
-    if (!clientId) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
     const redirect = new URL(input.redirectUri)
     if (chatgpt) assertChatGPTCallback(input.redirectUri)
     else if (redirect.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "redirect-uri" })
     }
+    const provider = await oauthClient(loaded, input.name, { chatgptClientId: registration?.chatgpt?.clientId, redirectUri: redirect.toString() })
+    const clientId = provider.clientId
     const state = input.via === "console" ? `${CONSOLE_STATE_PREFIX}${randomToken()}` : randomToken()
     const verifier = randomToken()
     const nonce = chatgpt ? randomToken() : undefined
@@ -946,12 +1056,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       name: input.name,
       redirectUri: redirect.toString(), state, verifier,
       ...(nonce ? { chatgpt: { clientId, nonce, subject: registration?.accountId } } : {}),
+      ...(provider.registered ? { client: { id: clientId, key: provider.registered } } : {}),
     })
     const url = new URL(provider.authorizationEndpoint)
     const scopes = [...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])])]
-    const authorizationParams = Object.hasOwn(provider, "authorizationParams") ? provider.authorizationParams : undefined
     for (const [parameter, value] of Object.entries({
-      ...authorizationParams,
+      ...provider.authorizationParams,
       client_id: clientId,
       code_challenge: await codeChallenge(verifier), code_challenge_method: "S256",
       redirect_uri: redirect.toString(), response_type: "code", scope: scopes.join(" "), state,
@@ -982,7 +1092,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const chatgpt = isChatGPTProvider(loaded.provider)
     if (chatgpt && !authorization.chatgpt) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_REGISTRATION()
     const clientId = authorization.chatgpt ? chatgptCallbackClient(authorization.chatgpt.clientId, input.clientId) : undefined
-    const provider = oauthProvider(loaded, name, clientId)
+    const provider = await oauthClient(loaded, name, { chatgptClientId: clientId, ...(authorization.client ? { pending: authorization.client } : {}), redirectUri: authorization.redirectUri })
     const owner = await claimMutationLease(name)
     let releaseLease = true
     let quarantine = false
@@ -1032,6 +1142,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const token = toStoredToken(response, previous?.success ? previous.output : undefined, chatgpt ? [] : [
         ...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])]),
       ])
+      if (provider.registered) token.client = { id: provider.clientId, key: provider.registered, ...(provider.clientSecret ? { secret: provider.clientSecret } : {}) }
+      else delete token.client
       if (chatgpt && clientId && response.id_token) token.chatgpt = {
         clientId, idToken: response.id_token,
         earliestRefreshAt: response.earliest_refresh_at === undefined ? undefined : response.earliest_refresh_at * 1000,
@@ -1098,7 +1210,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const connections = await getStore()
     const key = tokenKey(input.name)
     // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
-    const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
+    const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) ? undefined : (await oauthEndpoints(loaded.provider, input.name, isDiscovered(loaded.provider))).revocationEndpoint
     const owner = await claimMutationLease(input.name)
     let releaseLease = true
     let providerFailure: Error | undefined
@@ -1123,7 +1235,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             // A lost response can leave a grant-wide revoke running at the provider.
             releaseLease = false
             const response = await request(revocationEndpoint, {
-              body: new URLSearchParams({ token: token.refreshToken ?? token.accessToken, ...(token.chatgpt ? { client_id: token.chatgpt.clientId, token_type_hint: "refresh_token" } : {}) }),
+              body: new URLSearchParams({ token: token.refreshToken ?? token.accessToken, ...(token.chatgpt ? { client_id: token.chatgpt.clientId, token_type_hint: "refresh_token" } : {}), ...(token.client ? { client_id: token.client.id, ...(token.client.secret ? { client_secret: token.client.secret } : {}) } : {}) }),
               redirect: "error",
               headers: { "content-type": "application/x-www-form-urlencoded" },
               method: "POST",
@@ -1390,7 +1502,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)
-      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
+      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
       issuedAt = claims.iat * 1000
     }
     catch { throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY() }
@@ -1403,7 +1515,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const state = await connections.state.get(input.name)
       if (state?.status === "connected" || state?.chatgpt && (state.chatgpt.clientId !== credential.client_id || state.accountId !== account.id)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
       const current = await connections.secrets.inspect(tokenKey(input.name))
-      const response = await tokenRequest(oauthProvider(loaded, input.name, credential.client_id), {
+      const response = await tokenRequest(await oauthClient(loaded, input.name, { chatgptClientId: credential.client_id }), {
         grant_type: "refresh_token", refresh_token: credential.refresh_token,
       }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { releaseLease = false }, () => { releaseLease = true }, input.name)
       releaseLease = false
@@ -1488,6 +1600,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     inspect,
     list,
     revoke,
+    async rotateKey() {
+      const store = await getStore()
+      if (!store.rotate) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "rotation" })
+      return await store.rotate()
+    },
     setKey,
   }
   registerChatGPTCredentialUse(runtime, useChatGPT)

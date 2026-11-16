@@ -30,7 +30,9 @@ const icons: DocsIcons = {
   stroke: 1.5,
 }
 
-async function render(current: typeof section): Promise<string> {
+type Section = typeof section
+
+async function render(current: Section, options: { page?: Section["pages"][number], props?: Record<string, unknown> } = {}): Promise<string> {
   const exports: { default?: vue.Component } = {}
   runInNewContext(outputText, {
     ...vue,
@@ -42,10 +44,10 @@ async function render(current: typeof section): Promise<string> {
     },
     useDocsManifest: () => ({ ...manifest, sections: [current] }),
     useDocsSection: () => vue.ref(current),
-    useDocsPage: () => vue.ref(null),
+    useDocsPage: () => vue.ref(options.page ? { page: options.page, section: current } : null),
     useDocsIcons: () => ({ page: (item: typeof page) => docsPageIcon(icons, item) }),
   })
-  const app = vue.createSSRApp(exports.default!)
+  const app = vue.createSSRApp(exports.default!, options.props)
   app.component("NuxtLink", vue.defineComponent({
     props: ["to"],
     setup: (props, { slots }) => () => vue.h("a", { href: props.to }, slots.default?.()),
@@ -70,6 +72,18 @@ describe("PageList", () => {
     expect(html).toContain(`data-icon="${expected}"`)
   })
 
+  it("lists one group of the panel of a panel Overview, one line per page without icons", async () => {
+    const at = (id: string, fields: Partial<typeof page> = {}) => ({ ...page, id, path: `/docs/kv/${id}`, title: id, description: `About ${id}`, ...fields })
+    const overview = at("diagnostics", { panel: true })
+    const current = { ...section, pages: [at("api"), overview, at("diagnostics/kv_r0001", { group: "Runtime errors" }), at("diagnostics/kv_b0001", { group: "Build errors" })] }
+    const html = await render(current, { page: overview, props: { group: "Runtime errors", compact: true } })
+    expect(html).toContain('<a href="/docs/kv/diagnostics/kv_r0001">diagnostics/kv_r0001</a><span>About diagnostics/kv_r0001</span>')
+    expect(html).not.toContain("kv_b0001")
+    expect(html).not.toContain("/docs/kv/api")
+    expect(html).not.toContain("data-icon")
+    // The group heading is already the page's own heading.
+    expect(html).not.toContain("Runtime errors")
+  })
   it("lists a panel's Overview but not the pages inside the panel", async () => {
     const html = await render({ ...section, pages: [
       { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },

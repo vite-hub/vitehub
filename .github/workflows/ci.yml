@@ -658,14 +658,20 @@ jobs:
           echo "docs-demo.vitehub.dev did not answer after the deploy." >&2
           exit 1
 
-  # console.vitehub.dev runs the Console app, packages/console, on Cloudflare with D1. Pull requests check that it builds
-  # and that Wrangler accepts its configuration. Pushes to main keep the build for console-deploy.
+  # Every Console runs packages/console: console.vitehub.dev on Cloudflare with D1, and self-hosted ones on Node with
+  # SQLite (the Dockerfile) or on Vercel with libSQL. Each host builds from this commit and runs the same smoke checks
+  # against its running build (packages/console/scripts/host-smoke.mjs). The Cloudflare build also passes Wrangler's
+  # deploy check, and on pushes to main it is the build that console-deploy deploys.
   console:
-    name: hosted console
+    name: hosted console (${{ matrix.host }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [cloudflare, node, vercel]
     env:
-      VITEHUB_HOST: cloudflare
+      VITEHUB_HOST: ${{ matrix.host }}
       VITEHUB_CONSOLE_D1_ID: 8d505e03-74c1-4565-9e0d-984292802d42
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -681,15 +687,20 @@ jobs:
       - run: vp run --filter vite-hub build:console-account
       # The app bundles the page, so the marker goes in before the app build.
       - name: Identify Console build
+        if: ${{ matrix.host == 'cloudflare' }}
         run: |
           marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
           sed -i "s|</head>|${marker}</head>|" packages/vite-hub/.vitehub/console-account/index.html
       - run: vp run --filter @vite-hub/console build
       - name: Verify Worker configuration
+        if: ${{ matrix.host == 'cloudflare' }}
         run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/console/.output/server/wrangler.json --name vitehub-console
+      - name: Smoke-test the running Console
+        working-directory: packages/console
+        run: node scripts/host-smoke.mjs "$VITEHUB_HOST"
       # The page goes along, so console-deploy reads the marker from it.
       - name: Upload Console
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ matrix.host == 'cloudflare' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vitehub-console

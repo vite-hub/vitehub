@@ -38,6 +38,7 @@ interface Answer {
     contents?: unknown
     instructions?: string
     isError: boolean
+    _meta?: Record<string, string[]>
     messages?: unknown
     prompts?: unknown
     resourceTemplates?: unknown
@@ -249,6 +250,137 @@ describe("app MCP prompts, resources, and server info", () => {
     expect((await rpc({ resources }, "resources/read", { uri: "a://broken" })).body.error).toMatchObject({ code: -32603, message: "broken failed on the server." })
     expect(error).toHaveBeenCalledOnce()
     error.mockRestore()
+  })
+})
+
+describe("MCP Apps metadata", () => {
+  const playerUri = "ui://lessons/player.html"
+  const html = "<!doctype html><title>Player</title>"
+  const showLesson = defineMcpTool({
+    description: "Play a lesson.",
+    input: z.object({ id: z.string() }),
+    _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } },
+    handler: ({ id }) => ({ content: [{ text: `Playing ${id}.`, type: "text" }], structuredContent: { id }, _meta: { audio: `/audio/${id}.mp3` } }),
+  })
+  const player = {
+    uri: playerUri,
+    mimeType: "text/html;profile=mcp-app",
+    _meta: { ui: { csp: { connectDomains: ["https://app.example.com"] }, prefersBorder: false } },
+    handler: () => html,
+  } satisfies McpResourceDefinition
+  const options = { resources: { player }, tools: { show_lesson: showLesson } }
+
+  it("lists the _meta of a tool, so the client knows which UI shows its result", async () => {
+    const { body } = await rpc(options, "tools/list")
+    expect(body.result.tools).toEqual([expect.objectContaining({ _meta: { "openai/outputTemplate": playerUri, "ui": { resourceUri: playerUri } }, name: "show_lesson" })])
+  })
+
+  it("sends the _meta of a tool result to the client", async () => {
+    const { body } = await rpc(options, "tools/call", { arguments: { id: "l1" }, name: "show_lesson" })
+    expect(body.result).toEqual({ _meta: { audio: "/audio/l1.mp3" }, content: [{ text: "Playing l1.", type: "text" }], isError: false, structuredContent: { id: "l1" } })
+  })
+
+  it("lists and reads the HTML resource with its _meta", async () => {
+    const meta = player._meta
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", name: "player", uri: playerUri }])
+    expect((await rpc(options, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: meta, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+
+  it("sends the _meta of contents that a handler returns", async () => {
+    const domains = { uri: playerUri, handler: (uri: string) => ({ contents: [{ uri, mimeType: "text/html;profile=mcp-app", text: html, _meta: { ui: { domain: "https://app.example.com" } } }] }) } satisfies McpResourceDefinition
+    expect((await rpc({ resources: { player: domains } }, "resources/read", { uri: playerUri })).body.result.contents).toEqual([{ _meta: { ui: { domain: "https://app.example.com" } }, mimeType: "text/html;profile=mcp-app", text: html, uri: playerUri }])
+  })
+})
+
+describe("optional sign-in on one route", () => {
+  const missing = async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+  const signedIn = { clientId: "client", clientName: "ChatGPT", scopes: ["lessons:read"], user: { id: "u1", name: "Ada" } }
+  const showLesson = defineMcpTool({ description: "Play a lesson.", public: true, scopes: ["lessons:read"], handler: (_input, { caller }) => caller ? `Hello ${caller.user.name}` : "Hello guest" })
+  const createHandler = vi.fn(() => "created")
+  const createLesson = defineMcpTool({ description: "Create a lesson.", input: z.object({ title: z.string() }), scopes: ["lessons:write"], handler: createHandler })
+  const player = { uri: "ui://lessons/player.html", public: true, handler: () => "<html>" } satisfies McpResourceDefinition
+  const notes = { uri: "notes://mine", handler: () => "private" } satisfies McpResourceDefinition
+  const options = { optional: true, resources: { notes, player }, tools: { create_lesson: createLesson, show_lesson: showLesson }, verify: missing }
+
+  it("lists every tool without a token, with the securitySchemes that say which need sign-in", async () => {
+    const { body, response } = await rpc(options, "tools/list")
+    expect(response.status).toBe(200)
+    const oauth = (scopes: string[]) => ({ scopes, type: "oauth2" })
+    expect(body.result.tools).toEqual([
+      expect.objectContaining({ _meta: { securitySchemes: [oauth(["lessons:write"])] }, name: "create_lesson", securitySchemes: [oauth(["lessons:write"])] }),
+      expect.objectContaining({ _meta: { securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }, name: "show_lesson", securitySchemes: [{ type: "noauth" }, oauth(["lessons:read"])] }),
+    ])
+  })
+
+  it("runs a public tool without a token and asks for sign-in before any other tool runs", async () => {
+    expect((await rpc(options, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    const { body } = await rpc(options, "tools/call", { arguments: {}, name: "create_lesson" })
+    expect(body.result).toEqual({
+      _meta: { "mcp/www_authenticate": ["Bearer resource_metadata=\"https://app.example.com/.well-known/oauth-protected-resource/mcp\", error=\"insufficient_scope\", error_description=\"Sign in to call create_lesson. Ask the user to connect their account.\", scope=\"lessons:write\""] },
+      content: [{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }],
+      isError: true,
+    })
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("serves only public resources without a token", async () => {
+    expect((await rpc(options, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect((await rpc(options, "resources/read", { uri: "notes://mine" })).body.error?.code).toBe(-32002)
+  })
+
+  it("rejects an invalid token with a 401", async () => {
+    const invalid = async () => [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: expired" }, undefined] as const
+    expect((await rpc({ ...options, verify: invalid }, "tools/list")).response.status).toBe(401)
+  })
+
+  it("asks a signed-in caller without the scopes of a tool to approve them, in a tool result", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    expect((await rpc({ ...options, verify }, "tools/list")).body.result.tools).toHaveLength(2)
+    expect((await rpc({ ...options, verify }, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello Ada", type: "text" }])
+    const { body, response } = await rpc({ ...options, verify }, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(200)
+    expect(body.result).toMatchObject({ content: [{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }], isError: true })
+    expect(body.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("hides a tool from a caller without its scopes and answers a call with 403 when sign-in is required", async () => {
+    const verify = async () => [undefined, signedIn] as const
+    const required = { tools: { create_lesson: createLesson }, verify }
+    expect((await rpc(required, "tools/list")).body.result.tools).toEqual([])
+    const { body, response } = await rpc(required, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })
+    expect(response.status).toBe(403)
+    expect(body.error?.code).toBe(-32001)
+    expect(response.headers.get("www-authenticate")).toContain("scope=\"lessons:write\"")
+  })
+
+  it("leaves a request without a token anonymous and accepts another bearer token through verifyToken", async () => {
+    const notOAuth = async (request: Request) => request.headers.has("authorization")
+      ? [{ code: "AUTH_MCP_TOKEN_INVALID", message: "The access token is not valid: Invalid Compact JWS" }, undefined] as const
+      : [{ code: "AUTH_MCP_TOKEN_MISSING", message: "The request has no access token." }, undefined] as const
+    const keyCaller = { clientId: undefined, clientName: "Lesson script", scopes: ["lessons:read"], user: { id: "u2", name: "Grace" } }
+    const verifyToken = vi.fn(async ({ token }: { token: string }) => token === "key_valid" ? keyCaller : undefined)
+    const keyed = { ...options, hooks: { verifyToken }, verify: notOAuth }
+
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" })).body.result.content).toEqual([{ text: "Hello guest", type: "text" }])
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" })).body.result.content).toEqual([{ text: "Sign in to call create_lesson. Ask the user to connect their account.", type: "text" }])
+    expect((await rpc(keyed, "resources/list")).body.result.resources).toEqual([{ name: "player", uri: "ui://lessons/player.html" }])
+    expect(verifyToken).not.toHaveBeenCalled()
+
+    const key = { authorization: "Bearer key_valid" }
+    expect((await rpc(keyed, "tools/call", { name: "show_lesson" }, key)).body.result.content).toEqual([{ text: "Hello Grace", type: "text" }])
+    expect((await rpc(keyed, "resources/list", undefined, key)).body.result.resources).toHaveLength(2)
+    expect((await rpc(keyed, "tools/call", { arguments: { title: "Tides" }, name: "create_lesson" }, key)).body.result.content).toEqual([{ text: "Sign in again and approve lessons:write to call create_lesson. Ask the user to reconnect their account.", type: "text" }])
+    expect(verifyToken).toHaveBeenCalledWith({ event: expect.objectContaining({ req: expect.any(Request) }), token: "key_valid" })
+
+    const revoked = await rpc(keyed, "tools/list", undefined, { authorization: "Bearer key_revoked" })
+    expect(revoked.response.status).toBe(401)
+    expect(revoked.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
+    expect(createHandler).not.toHaveBeenCalled()
+  })
+
+  it("still answers 401 without a token when sign-in is required", async () => {
+    expect((await rpc({ ...options, optional: false, tools: { create_lesson: createLesson } }, "tools/list")).response.status).toBe(401)
   })
 })
 

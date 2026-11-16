@@ -1,5 +1,5 @@
 import { defineEventHandler } from 'h3'
-import { runSchedule } from '@vite-hub/schedule'
+import { runSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async () => {
   const run = await runSchedule('daily-report')
