@@ -172,10 +172,14 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
     return outage ?? false
   }
 
+  const isAdmin = (user: Record<string, unknown> | null) => {
+    const role = user?.role
+    return Boolean(adminRole && typeof role === "string" && role.split(",").some(name => name.trim() === adminRole))
+  }
+
   const check = async (context: AuthContext, user: MemberUser): Promise<Result<void, AuthMemberErrorCode>> => {
     if (user.emailVerified && emailListed(user.email)) return [undefined, undefined]
-    const role = user.role
-    if (adminRole && typeof role === "string" && role.split(",").some(name => name.trim() === adminRole)) return [undefined, undefined]
+    if (isAdmin(user)) return [undefined, undefined]
     const linked = await context.internalAdapter.findAccounts(user.id)
     if (linked.some(accountListed)) return [undefined, undefined]
     let outage: GitHubUnavailable | undefined
@@ -203,7 +207,8 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
         create: {
           // Better Auth creates the user before its first account, so an account or organization entry decides then.
           before: async (user) => {
-            if (!emailListed(user.email) && !accounts.length && !orgs.length) throw notMember()
+            // The app's own hooks run after this one and can give the admin role, so with `admin()` the account decides.
+            if (!emailListed(user.email) && !adminRole && !accounts.length && !orgs.length) throw notMember()
           },
         },
       },
@@ -214,7 +219,7 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
           before: async (account) => {
             if ((await context.internalAdapter.findAccounts(account.userId)).length) return
             const user = await context.internalAdapter.findUserById(account.userId)
-            const answer = Boolean(user && emailListed(user.email)) || accountListed(account) || await orgMember(context, account)
+            const answer = Boolean(user && (emailListed(user.email) || isAdmin(user))) || accountListed(account) || await orgMember(context, account)
             if (answer === true) return
             // Without a transaction, Better Auth would keep the user of a refused sign-up.
             if (user) await context.internalAdapter.deleteUser(user.id)

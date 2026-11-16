@@ -198,6 +198,21 @@ describe("VITEHUB_MEMBERS", () => {
     expect((await githubSignIn(auth())).error).toBeNull()
   })
 
+  it("lets a user sign up when an app hook gives the admin role", async () => {
+    vi.stubEnv("VITEHUB_MEMBERS", "ada@example.com")
+    const db: Record<string, Row[]> = { account: [], session: [], user: [], verification: [] }
+    const definition = defineFixedAuth({
+      database: memoryAdapter(db),
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+      databaseHooks: { user: { create: { before: async user => ({ data: { ...user, role: user.email === "boss@example.com" ? "admin" : "user" } }) } } },
+    })
+    const auth = () => createAuthForRequest(definition, new Request(origin))
+
+    expect((await signUp(auth(), "boss@example.com")).status).toBe(200)
+    expect((await signUp(auth(), "eve@example.com")).status).toBe(403)
+  })
+
   it("shows the list in the Auth Console without the emails", async () => {
     vi.stubEnv("VITEHUB_MEMBERS", "github:22072217, @acme.com, ada@example.com, grace@example.com")
     const { auth } = createMembersAuth()
