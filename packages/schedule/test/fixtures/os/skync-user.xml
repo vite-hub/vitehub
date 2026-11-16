@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>skync (ViteHub schedule). Managed by ViteHub. sha256:48678c3e73348cc7c97fce252c48817cbc99b73ae2ebbb646c2f4184923f096e</Description>
+    <Description>skync (ViteHub schedule). Managed by ViteHub (user scope). sha256:b9c816c706cec21e9f3a9345ab9b493acd5a1aeb7baa875245690f4de873c269</Description>
     <URI>\skync</URI>
   </RegistrationInfo>
   <Triggers>

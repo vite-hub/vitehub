@@ -24,5 +24,7 @@
     "SCHEDULE_R0037",
     "SCHEDULE_R0038"
   ],
-  "invariants": {}
+  "invariants": {
+    "packages/schedule/src/os/systemd.ts": 1
+  }
 }

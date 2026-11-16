@@ -1,23 +1,27 @@
 import { createHash } from "node:crypto"
 
-import { arithmeticStep, isDayRestricted, isMonthRestricted, isWeekdayRestricted, timesOfDay } from "./cron.ts"
+import { arithmeticStep, isDayRestricted, isMonthRestricted, isWeekdayRestricted, range, runsEveryDay, timesOfDay } from "./cron.ts"
 import { osScheduleErrors } from "./errors.ts"
 import { commandOutput, generatedHeader, pathsFor } from "./host.ts"
-import { machineFieldsOrError } from "./time-zone.ts"
+import { clockChanges, machineFieldsOrError } from "./time-zone.ts"
 
 import type { Result } from "@vite-hub/runtime"
 import type { CronFields } from "./cron.ts"
 import type { OsScheduleErrorCode, OsScheduleScope } from "./errors.ts"
 import type { ExecResult, OsDriver, OsHost, OsScheduleStatus, OsTimerSpec } from "./host.ts"
+import type { ClockChange } from "./time-zone.ts"
 
 /** One time of day of a trigger, with an optional repetition inside the day. */
 export interface TimeTrigger {
   /** Minute of the day. */
   start: number
-  repetition?: { interval: string, duration: string }
+  /** Without `duration`, the repetition does not end. */
+  repetition?: { interval: string, duration?: string }
 }
 
 export type DaySchedule =
+  /** One start that repeats without end, for a cron that runs all day, every day, at equal gaps. */
+  | { kind: "always" }
   | { kind: "day" }
   | { kind: "week", weekdays: number[] }
   | { kind: "month", days: number[], months: number[] }
@@ -43,27 +47,61 @@ function taskDuration(seconds: number): string {
   return `PT${hours ? `${hours}H` : ""}${minutes ? `${minutes}M` : ""}${rest || !seconds ? `${rest}S` : ""}`
 }
 
-/** `count` runs from `start`, `step` minutes apart. The duration ends half a step after the last run. */
-function repeated(start: number, step: number, count: number): TimeTrigger {
+/** `count` runs from `start`, `step` minutes apart, in minutes of the day. */
+interface Runs {
+  start: number
+  step: number
+  count: number
+}
+
+/** One trigger for the runs. The duration ends half a step after the last run. */
+function trigger({ start, step, count }: Runs): TimeTrigger {
   if (count < 2) return { start }
   return { start, repetition: { interval: taskDuration(step * 60), duration: taskDuration((count - 1) * step * 60 + step * 30) } }
 }
 
-/** The fewest triggers that start at every time of the day of the cron. */
-function timeTriggers(fields: CronFields): TimeTrigger[] {
-  const times = timesOfDay(fields)
-  const candidates: TimeTrigger[][] = [times.map(start => ({ start }))]
-  const step = arithmeticStep(times)
-  if (step !== undefined) candidates.push([repeated(times[0]!, step, times.length)])
-  const minuteStep = arithmeticStep(fields.minutes)
-  if (minuteStep !== undefined) candidates.push(fields.hours.map(hour => repeated(hour * 60 + fields.minutes[0]!, minuteStep, fields.minutes.length)))
-  const hourStep = arithmeticStep(fields.hours)
-  if (hourStep !== undefined) candidates.push(fields.minutes.map(minute => repeated(fields.hours[0]! * 60 + minute, hourStep * 60, fields.hours.length)))
-  return candidates.reduce((best, candidate) => candidate.length < best.length ? candidate : best)
+/**
+ * Task Scheduler repeats a trigger in elapsed time. When the clocks change between the first and the last run, the
+ * later runs move by the change, and the duration ends at another time of day. Such runs need one trigger per time.
+ */
+function crossesChange(runs: Runs, changes: readonly ClockChange[]): boolean {
+  const last = runs.start + (runs.count - 1) * runs.step
+  return runs.count > 1 && changes.some(change => runs.start < change.end && last >= change.start)
 }
 
-/** Triggers for the cron, or why Task Scheduler cannot run it exactly. */
-export function taskTriggers(fields: CronFields): TaskTriggers | string {
+/** The fewest triggers that start at every time of the day of the cron, and keep their times across `changes`. */
+function timeTriggers(fields: CronFields, changes: readonly ClockChange[]): TimeTrigger[] {
+  const times = timesOfDay(fields)
+  const single = (start: number): Runs => ({ start, step: 0, count: 1 })
+  const candidates: Runs[][] = [times.map(single)]
+  const step = arithmeticStep(times)
+  if (step !== undefined) candidates.push([{ start: times[0]!, step, count: times.length }])
+  const minuteStep = arithmeticStep(fields.minutes)
+  if (minuteStep !== undefined) candidates.push(fields.hours.map(hour => ({ start: hour * 60 + fields.minutes[0]!, step: minuteStep, count: fields.minutes.length })))
+  const hourStep = arithmeticStep(fields.hours)
+  if (hourStep !== undefined) candidates.push(fields.minutes.map(minute => ({ start: fields.hours[0]! * 60 + minute, step: hourStep * 60, count: fields.hours.length })))
+  const exact = candidates.map(candidate => candidate.flatMap(runs => crossesChange(runs, changes) ? range(0, runs.count - 1).map(index => single(runs.start + index * runs.step)) : [runs]))
+  return exact.reduce((best, candidate) => candidate.length < best.length ? candidate : best).map(trigger)
+}
+
+function onDay(schedule: DaySchedule, change: ClockChange): boolean {
+  switch (schedule.kind) {
+    case "always":
+    case "day": return true
+    case "week": return schedule.weekdays.includes(change.weekday)
+    case "month": return schedule.days.includes(change.day) && schedule.months.includes(change.month)
+  }
+}
+
+function wallClock(minute: number): string {
+  return `${pad(Math.floor(minute / 60) % 24)}:${pad(minute % 60)}`
+}
+
+/**
+ * Triggers for the cron, or why Task Scheduler cannot run it exactly. `clock` has the clock changes of the machine
+ * time zone, which Task Scheduler uses.
+ */
+export function taskTriggers(fields: CronFields, clock: { timeZone: string, changes: readonly ClockChange[] } = { timeZone: "UTC", changes: [] }): TaskTriggers | string {
   const dayRestricted = isDayRestricted(fields)
   const weekdayRestricted = isWeekdayRestricted(fields)
   const monthRestricted = isMonthRestricted(fields)
@@ -72,10 +110,24 @@ export function taskTriggers(fields: CronFields): TaskTriggers | string {
   if (weekdayRestricted) days.push({ kind: "week", weekdays: fields.weekdays })
   if (dayRestricted || monthRestricted) days.push({ kind: "month", days: fields.days, months: fields.months })
   if (!days.length) days.push({ kind: "day" })
-  const times = timeTriggers(fields)
-  const count = times.length * days.length
-  if (count > maxTriggers) return `it needs ${count} triggers, and the limit is ${maxTriggers}. Use times of day with equal gaps, such as "*/20 9-17 * * *".`
-  return { times, days }
+  // Only a change on a day that the cron runs can move its runs.
+  const changes = clock.changes.filter(change => days.some(schedule => onDay(schedule, change)))
+  const times = timesOfDay(fields)
+  const step = arithmeticStep(times)
+  // A cron that runs all day at equal gaps keeps its times across a change of a multiple of the gap, when its
+  // repetition does not end each day.
+  if (changes.length && runsEveryDay(fields) && step && times.length * step === 24 * 60 && changes.every(change => change.delta % step === 0)) {
+    return { times: [{ start: times[0]!, repetition: { interval: taskDuration(step * 60) } }], days: [{ kind: "always" }] }
+  }
+  const triggers = timeTriggers(fields, changes)
+  const count = triggers.length * days.length
+  if (count <= maxTriggers) return { times: triggers, days }
+  const change = changes[0]
+  if (change && timeTriggers(fields, []).length * days.length <= maxTriggers) {
+    const [from, to] = change.delta > 0 ? [change.start, change.end] : [change.end, change.start]
+    return `the clocks in ${clock.timeZone} change from ${wallClock(from)} to ${wallClock(to)} on ${change.year}-${pad(change.month)}-${pad(change.day)}, and Task Scheduler repeats a trigger in elapsed time, so the cron needs ${count} triggers to keep its times. The limit is ${maxTriggers}. Use fewer times of day, or times away from the clock change.`
+  }
+  return `it needs ${count} triggers, and the limit is ${maxTriggers}. Use times of day with equal gaps, such as "*/20 9-17 * * *".`
 }
 
 function xml(value: string): string {
@@ -93,6 +145,7 @@ function pad(value: number): string {
 
 function renderDaySchedule(schedule: DaySchedule): string[] {
   switch (schedule.kind) {
+    case "always": return []
     case "day": return ["      <ScheduleByDay>", "        <DaysInterval>1</DaysInterval>", "      </ScheduleByDay>"]
     case "week": return [
       "      <ScheduleByWeek>",
@@ -146,14 +199,23 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
     "  </RegistrationInfo>",
     "  <Triggers>",
     ...triggers.days.flatMap(days => triggers.times.flatMap(time => [
-      "    <CalendarTrigger>",
-      ...(time.repetition ? ["      <Repetition>", `        <Interval>${time.repetition.interval}</Interval>`, `        <Duration>${time.repetition.duration}</Duration>`, "        <StopAtDurationEnd>false</StopAtDurationEnd>", "      </Repetition>"] : []),
+      // A time trigger starts once, and its repetition without a duration never ends.
+      days.kind === "always" ? "    <TimeTrigger>" : "    <CalendarTrigger>",
+      ...(time.repetition
+        ? [
+            "      <Repetition>",
+            `        <Interval>${time.repetition.interval}</Interval>`,
+            ...(time.repetition.duration ? [`        <Duration>${time.repetition.duration}</Duration>`] : []),
+            "        <StopAtDurationEnd>false</StopAtDurationEnd>",
+            "      </Repetition>",
+          ]
+        : []),
       // A fixed date in the past. Task Scheduler reads it in the machine's local time, with daylight saving time.
       `      <StartBoundary>2026-01-01T${pad(Math.floor(time.start / 60))}:${pad(time.start % 60)}:00</StartBoundary>`,
       "      <Enabled>true</Enabled>",
       ...(spec.randomDelaySeconds ? [`      <RandomDelay>${taskDuration(spec.randomDelaySeconds)}</RandomDelay>`] : []),
       ...renderDaySchedule(days),
-      "    </CalendarTrigger>",
+      days.kind === "always" ? "    </TimeTrigger>" : "    </CalendarTrigger>",
     ])),
     "  </Triggers>",
     "  <Principals>",
@@ -181,9 +243,16 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
     "</Task>",
     "",
   ].join("\n")
-  const managed = `${spec.description}. Managed by ViteHub.`
+  // The marker names the scope: user and system tasks share the root folder, and each scope owns only its own tasks.
+  const managed = `${spec.description}. Managed by ViteHub (${options.scope} scope).`
   const hash = createHash("sha256").update(render(managed)).update("\n").update(options.wrapperText).digest("hex")
   return render(`${managed} sha256:${hash}`)
+}
+
+/** The scope in the marker that `renderTaskXml()` put at the end of a task description, else `undefined`. */
+export function taskOwnerScope(description: string | null | undefined): OsScheduleScope | undefined {
+  const scope = description?.match(/Managed by ViteHub \((user|system) scope\)\. sha256:[0-9a-f]{64}$/)?.[1]
+  return scope === "user" || scope === "system" ? scope : undefined
 }
 
 /** The hash that `renderTaskXml()` put in a task description. */
@@ -237,6 +306,13 @@ function taskInfoScript(name: string): string {
 
 /** Task Scheduler tasks in the root folder, run as the current user or as SYSTEM. */
 export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
+  /** A task of this name that ViteHub did not install in this scope. */
+  const foreign = (task: TaskInfo) => task.installed && taskOwnerScope(task.description) !== scope
+  const taskResource = (name: string, task: TaskInfo) => {
+    const owner = taskOwnerScope(task.description)
+    return owner ? `the ${owner}-scope task \\${name}` : `the task \\${name}`
+  }
+
   const root = scope === "user"
     ? host.env.LOCALAPPDATA || join(host.homedir, "AppData", "Local")
     : host.env.ProgramData || host.env.PROGRAMDATA || "C:\\ProgramData"
@@ -275,7 +351,7 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
       }
       const [zoneError, fields] = machineFieldsOrError("win32", spec, host)
       if (zoneError) return [zoneError, undefined]
-      const triggers = taskTriggers(fields)
+      const triggers = taskTriggers(fields, { timeZone: host.machineTimeZone, changes: clockChanges(host.machineTimeZone, host.now()) })
       if (typeof triggers === "string") return [osScheduleErrors.SCHEDULE_OS_CRON_UNSUPPORTED({ platform: "win32", cron: spec.cron, reason: triggers }), undefined]
       const wrapper = wrapperPath(spec.name)
       const logDir = spec.logDir ?? defaultLogDir(spec.name)
@@ -285,6 +361,7 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
       const files = [wrapper, logFile]
       const [infoError, current] = await info(spec.name)
       if (infoError) return [infoError, undefined]
+      if (foreign(current)) return [osScheduleErrors.SCHEDULE_OS_NAME_TAKEN({ platform: "win32", name: spec.name, scope, resource: taskResource(spec.name, current) }), undefined]
       const unchanged = current.installed && current.state !== "Disabled" && taskDescriptionHash(current.description ?? undefined) === taskDescriptionHash(taskXml) && await host.fs.readFile(wrapper) === wrapperText
       if (unchanged) return [undefined, { files, changed: false }]
       await host.fs.mkdir(logDir)
@@ -308,6 +385,7 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
     async status(name) {
       const [error, task] = await info(name)
       if (error) return [error, undefined]
+      if (foreign(task)) return [undefined, { name, platform: "win32", scope, installed: false, running: false }]
       const running = task.state === "Running"
       const lastRunAt = date(task.lastRunTime)
       const nextRunAt = date(task.nextRunTime)
@@ -330,20 +408,22 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
     },
 
     async uninstall(name) {
+      const [infoError, task] = await info(name)
+      if (infoError) return [infoError, undefined]
+      if (foreign(task)) return [undefined, { name, platform: "win32", scope, removed: [], existed: false }]
       const wrapper = wrapperPath(name)
       const wrapperText = await host.fs.readFile(wrapper)
-      const [error, result] = await run(`Unregister-ScheduledTask -TaskName ${name}`, [
-        `$task = Get-ScheduledTask -TaskName ${powerShellString(name)} -TaskPath '\\' -ErrorAction SilentlyContinue`,
-        `if ($task) { Unregister-ScheduledTask -TaskName ${powerShellString(name)} -TaskPath '\\' -Confirm:$false; 'removed' } else { 'missing' }`,
-      ].join("\n"))
-      if (error) return [error, undefined]
+      if (task.installed) {
+        const [error] = await run(`Unregister-ScheduledTask -TaskName ${name}`, `Unregister-ScheduledTask -TaskName ${powerShellString(name)} -TaskPath '\\' -Confirm:$false`)
+        if (error) return [error, undefined]
+      }
       const logFile = wrapperText === undefined ? undefined : parseTaskWrapperLog(wrapperText)
       const removed: string[] = []
       for (const path of [wrapper, ...(logFile ? [logFile] : [])]) {
         if (await host.fs.rm(path)) removed.push(path)
       }
       for (const directory of [defaultLogDir(name), join(root, name), join(root, "ViteHub", "schedules"), join(root, "ViteHub")]) await host.fs.rmdirIfEmpty(directory)
-      return [undefined, { name, platform: "win32", scope, removed, existed: result.stdout.trim() === "removed" || wrapperText !== undefined }]
+      return [undefined, { name, platform: "win32", scope, removed, existed: task.installed || wrapperText !== undefined }]
     },
   }
 }

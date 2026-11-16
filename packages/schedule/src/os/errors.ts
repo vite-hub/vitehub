@@ -10,6 +10,7 @@ export type OsScheduleScope = "user" | "system"
 type CommandFailed = { command: string, exitCode: number, output: string }
 type CronUnsupported = { platform: OsSchedulePlatform, cron: string, reason: string }
 type InvalidOptions = { problem: string }
+type NameTaken = { platform: OsSchedulePlatform, name: string, scope: OsScheduleScope, resource: string }
 type OptionUnsupported = { platform: OsSchedulePlatform, option: string, reason: string }
 type PermissionRequired = { scope: OsScheduleScope }
 type PlatformUnsupported = { platform: string }
@@ -23,6 +24,7 @@ type OsScheduleErrorCodes = {
   SCHEDULE_OS_COMMAND_FAILED: Code<CommandFailed>
   SCHEDULE_OS_CRON_UNSUPPORTED: Code<CronUnsupported>
   SCHEDULE_OS_INVALID_OPTIONS: Code<InvalidOptions>
+  SCHEDULE_OS_NAME_TAKEN: Code<NameTaken>
   SCHEDULE_OS_OPTION_UNSUPPORTED: Code<OptionUnsupported>
   SCHEDULE_OS_PERMISSION_REQUIRED: Code<PermissionRequired>
   SCHEDULE_OS_PLATFORM_UNSUPPORTED: Code<PlatformUnsupported>
@@ -50,6 +52,11 @@ export const osScheduleErrors: ErrorCatalog<OsScheduleErrorCodes> = /*#__PURE__*
       why: ({ problem }: InvalidOptions) => `The OS timer options are invalid: ${problem}`,
       fix: "Pass a name of letters, digits, \".\", \"_\" and \"-\", a Schedule with a five-field `cron`, and `{ command }` with an absolute program path.",
       data: (data: InvalidOptions) => data,
+    },
+    SCHEDULE_OS_NAME_TAKEN: {
+      why: ({ platform, name, scope, resource }: NameTaken) => `${platformNames[platform]} already has ${resource}, and ViteHub did not install it as the ${scope} timer "${name}". ViteHub replaces and removes only the timers that it installed.`,
+      fix: "Pick another name, or remove the existing unit, plist, or task that `error.data.resource` names yourself, then install again.",
+      data: (data: NameTaken) => data,
     },
     SCHEDULE_OS_OPTION_UNSUPPORTED: {
       why: ({ platform, option, reason }: OptionUnsupported) => `${platformNames[platform]} does not support \`${option}\`: ${reason}`,

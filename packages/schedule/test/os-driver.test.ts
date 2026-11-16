@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { osScheduleErrors } from "../src/os/errors.ts"
+import { generatedHeader } from "../src/os/host.ts"
 import { createOsSchedules } from "../src/os/schedules.ts"
 
 import type { ExecResult, OsHost } from "../src/os/host.ts"
@@ -54,6 +55,7 @@ const command: InstallOsScheduleOptions["command"] = ["/usr/bin/node", "/home/ma
 // captured on a real machine, before the first run, during a run, and after a run that exited with code 3.
 const showBefore = `Id=skync.timer
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.timer
 ActiveState=active
 SubState=waiting
 NextElapseUSecRealtime=@1794842700
@@ -62,6 +64,7 @@ Result=success
 
 Id=skync.service
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.service
 ActiveState=inactive
 SubState=dead
 Result=success
@@ -72,6 +75,7 @@ ExecMainStatus=0
 `
 const showRunning = `Id=skync.timer
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.timer
 ActiveState=active
 SubState=running
 NextElapseUSecRealtime=
@@ -80,6 +84,7 @@ Result=success
 
 Id=skync.service
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.service
 ActiveState=activating
 SubState=start
 Result=success
@@ -90,6 +95,7 @@ ExecMainStatus=0
 `
 const showAfter = `Id=skync.timer
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.timer
 ActiveState=active
 SubState=waiting
 NextElapseUSecRealtime=@1794842760
@@ -98,6 +104,7 @@ Result=success
 
 Id=skync.service
 LoadState=loaded
+FragmentPath=/home/maxi/.config/systemd/user/skync.service
 ActiveState=failed
 SubState=failed
 Result=exit-code
@@ -108,6 +115,7 @@ ExecMainStatus=3
 `
 const showMissing = `Id=skync.timer
 LoadState=not-found
+FragmentPath=
 ActiveState=inactive
 SubState=dead
 NextElapseUSecRealtime=
@@ -116,6 +124,7 @@ Result=success
 
 Id=skync.service
 LoadState=not-found
+FragmentPath=
 ActiveState=inactive
 SubState=dead
 Result=success
@@ -156,6 +165,7 @@ describe("systemd driver", () => {
     expect(machine.files.get(timer)).toContain("OnCalendar=Mon..Fri *-*-* 09:00:00 Europe/Madrid\n")
     expect(machine.files.get(service)).toContain("WorkingDirectory=/home/maxi\n")
     expect(machine.commands()).toEqual([
+      "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath",
       "systemctl --user daemon-reload",
       "systemctl --user enable skync.timer",
       "systemctl --user restart skync.timer",
@@ -166,7 +176,7 @@ describe("systemd driver", () => {
 
     const [, again] = await installOsSchedule("skync", { cron: "0 9 * * 1-5", timeZone: "Europe/Madrid" }, { command })
     expect(again?.changed).toBe(false)
-    expect(machine.commands()).toEqual(["systemctl --user is-enabled skync.timer", "systemctl --user is-active skync.timer", "loginctl show-user maxi -p Linger --value"])
+    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath", "systemctl --user is-enabled skync.timer", "systemctl --user is-active skync.timer", "loginctl show-user maxi -p Linger --value"])
 
     const [, changed] = await installOsSchedule("skync", { cron: "0 10 * * 1-5", timeZone: "Europe/Madrid" }, { command })
     expect(changed?.changed).toBe(true)
@@ -195,7 +205,7 @@ describe("systemd driver", () => {
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", installed: true, running: true, lastRunAt: new Date("2026-11-16T15:25:00Z"), linger: true })
     machine.setShow(showAfter)
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", installed: true, running: false, lastRunAt: new Date("2026-11-16T15:25:00Z"), lastExitCode: 3, nextRunAt: new Date("2026-11-16T15:26:00Z"), linger: true })
-    expect(machine.commands()[0]).toBe("systemctl --user show skync.timer skync.service --timestamp=unix -p Id,LoadState,ActiveState,SubState,NextElapseUSecRealtime,LastTriggerUSec,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainCode,ExecMainStatus,Result")
+    expect(machine.commands()[0]).toBe("systemctl --user show skync.timer skync.service --timestamp=unix -p Id,LoadState,FragmentPath,ActiveState,SubState,NextElapseUSecRealtime,LastTriggerUSec,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainCode,ExecMainStatus,Result")
   })
 
   it("removes the units and the log file, and succeeds when nothing is installed", async () => {
@@ -209,6 +219,7 @@ describe("systemd driver", () => {
     expect(removal).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [timer, service, "/home/maxi/.local/state/skync/skync.log"], existed: true })
     expect([...machine.files.keys()]).toEqual([])
     expect(machine.commands()).toEqual([
+      "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath",
       "systemctl --user disable --now skync.timer",
       "systemctl --user stop skync.service",
       "systemctl --user clean --what=state skync.timer",
@@ -431,6 +442,8 @@ function taskScheduler(overrides: Partial<OsHost> = {}) {
   }, { uid: undefined, user: "DESKTOP-1\\maxi", homedir: "C:\\Users\\maxi", env: { LOCALAPPDATA: "C:\\Users\\maxi\\AppData\\Local" }, ...overrides })
   return { ...machine, scripts, disable: () => {
     task!.state = "Disabled"
+  }, setTask: (description: string) => {
+    task = { description, state: "Ready" }
   }, setInfo: (output: string) => {
     info = output
   } }
@@ -468,13 +481,14 @@ describe("Task Scheduler driver", () => {
   })
 
   it("reads the status JSON of Get-ScheduledTaskInfo", async () => {
+    const ours = `skync (ViteHub schedule). Managed by ViteHub (user scope). sha256:${"0".repeat(64)}`
     const machine = taskScheduler()
     const { installOsSchedule, osScheduleStatus } = createOsSchedules(machine.host)
     await installOsSchedule("skync", { cron: "* * * * *" }, { command: windowsCommand })
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "win32", scope: "user", installed: true, running: false, nextRunAt: new Date("2026-11-16T16:00:00Z"), logFile })
-    machine.setInfo("{\"lastTaskResult\":1,\"nextRunTime\":\"2026-11-16T15:25:00.0000000Z\",\"installed\":true,\"description\":\"skync (ViteHub schedule). Managed by ViteHub.\",\"state\":\"Ready\",\"lastRunTime\":\"2026-11-16T15:24:00.5310000Z\"}\r\n")
+    machine.setInfo(`{"lastTaskResult":1,"nextRunTime":"2026-11-16T15:25:00.0000000Z","installed":true,"description":"${ours}","state":"Ready","lastRunTime":"2026-11-16T15:24:00.5310000Z"}\r\n`)
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "win32", scope: "user", installed: true, running: false, lastRunAt: new Date("2026-11-16T15:24:00.531Z"), lastExitCode: 1, nextRunAt: new Date("2026-11-16T15:25:00Z"), logFile })
-    machine.setInfo("{\"lastTaskResult\":267009,\"nextRunTime\":null,\"installed\":true,\"description\":\"\",\"state\":\"Running\",\"lastRunTime\":\"2026-11-16T15:25:00.1000000Z\"}")
+    machine.setInfo(`{"lastTaskResult":267009,"nextRunTime":null,"installed":true,"description":"${ours}","state":"Running","lastRunTime":"2026-11-16T15:25:00.1000000Z"}`)
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "win32", scope: "user", installed: true, running: true, lastRunAt: new Date("2026-11-16T15:25:00.1Z"), logFile })
   })
 
@@ -552,5 +566,92 @@ describe("options", () => {
     const [error, unit] = await install("skync", defineSchedule({ cron: "0 9 * * *", timeZone: "Europe/Madrid", handler: () => {} }), { command })
     expect(error).toBeUndefined()
     expect(unit?.files).toHaveLength(2)
+  })
+})
+
+describe("a name that ViteHub did not install", () => {
+  const service = "/home/maxi/.config/systemd/user/skync.service"
+  const timer = "/home/maxi/.config/systemd/user/skync.timer"
+  const handMade = "[Unit]\nDescription=My own job\n\n[Service]\nType=oneshot\nExecStart=/bin/true\n"
+
+  it("systemd: leaves a unit file without the ViteHub header at our path", async () => {
+    const machine = systemd()
+    machine.setShow(showBefore)
+    machine.files.set(service, handMade)
+    const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "linux", name: "skync", scope: "user", resource: service })
+    expect(machine.commands()).toEqual([])
+    expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [], existed: false })
+    expect(machine.commands()).toEqual([])
+    expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", installed: false, running: false, linger: true })
+    expect([...machine.files]).toEqual([[service, handMade]])
+  })
+
+  it("systemd: leaves a unit that systemd loads from another directory", async () => {
+    const elsewhere = `Id=skync.service\nLoadState=loaded\nFragmentPath=/usr/lib/systemd/user/skync.service\n\nId=skync.timer\nLoadState=not-found\nFragmentPath=\n`
+    const machine = fakeHost("linux", line => line.includes(" show skync.service skync.timer -p Id,LoadState,FragmentPath") ? { stdout: elsewhere } : undefined)
+    const { installOsSchedule } = createOsSchedules(machine.host)
+    const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "linux", name: "skync", scope: "user", resource: "/usr/lib/systemd/user/skync.service" })
+    expect(machine.files.size).toBe(0)
+    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
+  })
+
+  it("systemd: does not stop a unit of another file that shadows our files", async () => {
+    // A transient unit, as `systemd-run --user --unit=skync` makes, wins over ~/.config/systemd/user.
+    const transient = "/run/user/1000/systemd/transient/skync.service"
+    const show = (properties: string) => `Id=skync.timer\nLoadState=loaded\nFragmentPath=${timer}\n${properties}\nId=skync.service\nLoadState=loaded\nFragmentPath=${transient}\nActiveState=active\n`
+    const machine = fakeHost("linux", line => line.includes(" show ") ? { stdout: show("") } : undefined)
+    const ours = `# ${generatedHeader}\n[Unit]\n`
+    machine.files.set(service, ours)
+    machine.files.set(timer, ours)
+    const { osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [], existed: false })
+    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
+    expect(machine.files.size).toBe(2)
+    expect((await osScheduleStatus("skync"))[1]).toMatchObject({ installed: false, running: false })
+  })
+
+  it("launchd: leaves a plist without the ViteHub header", async () => {
+    const plist = "/Users/maxi/Library/LaunchAgents/skync.plist"
+    const machine = launchd()
+    machine.files.set(plist, "<plist><dict><key>Label</key><string>skync</string></dict></plist>")
+    const { installOsSchedule, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "darwin", name: "skync", scope: "user", resource: plist })
+    expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "darwin", scope: "user", removed: [], existed: false })
+    expect(machine.commands().every(line => line.startsWith("launchctl print "))).toBe(true)
+    expect(machine.files.get(plist)).toBe("<plist><dict><key>Label</key><string>skync</string></dict></plist>")
+  })
+
+  it("launchd: leaves a job with our label that launchd loaded from another plist", async () => {
+    const other = "/Users/maxi/Library/LaunchAgents/com.example.skync.plist"
+    const machine = launchd({}, line => line === "launchctl print gui/501/skync" ? { stdout: launchctlPrint.replace("/Users/maxi/Library/LaunchAgents/skync.plist", other) } : undefined)
+    const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "darwin", name: "skync", scope: "user", resource: other })
+    expect(machine.files.size).toBe(0)
+    expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "darwin", scope: "user", removed: [], existed: false })
+    expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "darwin", scope: "user", installed: false, running: false })
+    expect(machine.commands()).toEqual(["launchctl print gui/501/skync", "launchctl print gui/501/skync", "launchctl print gui/501/skync"])
+  })
+
+  const windowsCommand: InstallOsScheduleOptions["command"] = ["C:\\node.exe", "C:\\skync\\bin.mjs"]
+
+  it.each([
+    ["a task without the ViteHub marker", "Backs up my photos", "user", "the task \\skync"],
+    ["a system task", `skync (ViteHub schedule). Managed by ViteHub (system scope). sha256:${"0".repeat(64)}`, "user", "the system-scope task \\skync"],
+    ["a user task", `skync (ViteHub schedule). Managed by ViteHub (user scope). sha256:${"0".repeat(64)}`, "system", "the user-scope task \\skync"],
+  ] as const)("Task Scheduler: leaves %s", async (_, description, scope, resource) => {
+    const machine = taskScheduler({ env: { LOCALAPPDATA: "C:\\Users\\maxi\\AppData\\Local", ProgramData: "C:\\ProgramData" } })
+    machine.setTask(description)
+    const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command: windowsCommand, scope })
+    expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "win32", name: "skync", scope, resource })
+    expect((await uninstallOsSchedule("skync", { scope }))[1]).toEqual({ name: "skync", platform: "win32", scope, removed: [], existed: false })
+    expect((await osScheduleStatus("skync", { scope }))[1]).toEqual({ name: "skync", platform: "win32", scope, installed: false, running: false })
+    expect(machine.scripts.some(script => /\b(?:Unr|R)egister-ScheduledTask\b/.test(script))).toBe(false)
+    expect(machine.files.size).toBe(0)
   })
 })

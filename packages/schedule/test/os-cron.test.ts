@@ -6,12 +6,13 @@ import { parseCronFields, timesOfDay } from "../src/os/cron.ts"
 import { launchdIntervals, nextLaunchdRun } from "../src/os/launchd.ts"
 import { systemdCalendars } from "../src/os/systemd.ts"
 import { taskTriggers } from "../src/os/task-scheduler.ts"
-import { machineCronFields } from "../src/os/time-zone.ts"
-import { isScheduleDue } from "../src/runtime/due.ts"
+import { clockChanges, machineCronFields } from "../src/os/time-zone.ts"
+import { isScheduleDue, timeZoneOffsetMinutes } from "../src/runtime/due.ts"
 
 import type { CronFields } from "../src/os/cron.ts"
 import type { CalendarInterval } from "../src/os/launchd.ts"
-import type { TaskTriggers } from "../src/os/task-scheduler.ts"
+import type { DaySchedule, TaskTriggers } from "../src/os/task-scheduler.ts"
+import type { ClockChange } from "../src/os/time-zone.ts"
 
 const minuteMs = 60_000
 // Far from any daylight saving change, so the runs below do not depend on how an OS handles a skipped or repeated hour.
@@ -61,20 +62,85 @@ function launchdRuns(intervals: readonly CalendarInterval[], machineTimeZone: st
   return runs
 }
 
+function seconds(duration: string): number {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration)!
+  return Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)
+}
+
 /** The minutes of the day where the triggers start a run, as Task Scheduler repeats them inside the duration. */
 function taskTimes(triggers: TaskTriggers): number[] {
-  const seconds = (duration: string) => {
-    const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration)!
-    return Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)
-  }
   const times = new Set<number>()
   for (const trigger of triggers.times) {
     times.add(trigger.start)
     if (!trigger.repetition) continue
     const interval = seconds(trigger.repetition.interval)
-    for (let offset = interval; offset < seconds(trigger.repetition.duration); offset += interval) times.add(trigger.start + offset / 60)
+    // A repetition without a duration runs on through the day.
+    const duration = trigger.repetition.duration ? seconds(trigger.repetition.duration) : 24 * 3600 - trigger.start * 60
+    for (let offset = interval; offset < duration; offset += interval) times.add(trigger.start + offset / 60)
   }
   return [...times].sort((left, right) => left - right)
+}
+
+const dayMs = 24 * 60 * minuteMs
+
+/** `2027-03-28T02:30`: the wall clock of `time` in `timeZone`. */
+function wallClock(time: number, timeZone: string): string {
+  return new Date(time + timeZoneOffsetMinutes(new Date(time), timeZone) * minuteMs).toISOString().slice(0, 16)
+}
+
+function onCronDay(cron: CronFields, date: Date): boolean {
+  const day = cron.days.includes(date.getUTCDate())
+  const weekday = cron.weekdays.includes(date.getUTCDay())
+  const restricted = cron.days.length !== 31 && cron.weekdays.length !== 7
+  return cron.months.includes(date.getUTCMonth() + 1) && (restricted ? day || weekday : day && weekday)
+}
+
+function onTaskDay(schedule: DaySchedule, date: Date): boolean {
+  if (schedule.kind === "week") return schedule.weekdays.includes(date.getUTCDay())
+  if (schedule.kind === "month") return schedule.days.includes(date.getUTCDate()) && schedule.months.includes(date.getUTCMonth() + 1)
+  return true
+}
+
+/**
+ * Wall-clock runs in `timeZone` on the local days before, of, and after `change`. `expected` has each time of the cron
+ * that exists on the clock. `runs` has the starts of the triggers when Task Scheduler repeats a trigger in elapsed time,
+ * and a start in the hour that the clocks skip does not run.
+ */
+function aroundChange(cron: CronFields, triggers: TaskTriggers, timeZone: string, change: ClockChange): { expected: string[], runs: string[] } {
+  const day = Date.UTC(change.year, change.month - 1, change.day)
+  const dates = [day - dayMs, day, day + dayMs].map(date => new Date(date).toISOString().slice(0, 10))
+  const inRange = (wall: string) => dates.includes(wall.slice(0, 10))
+  // The first instant of each wall-clock minute. A repeated minute keeps its first instant.
+  const first = new Map<string, number>()
+  for (let time = day - 3 * dayMs; time < day + 3 * dayMs; time += minuteMs) {
+    const wall = wallClock(time, timeZone)
+    if (!first.has(wall)) first.set(wall, time)
+  }
+  const expected = [...first.keys()].filter((wall) => {
+    const date = new Date(`${wall}Z`)
+    return inRange(wall) && onCronDay(cron, date) && cron.hours.includes(date.getUTCHours()) && cron.minutes.includes(date.getUTCMinutes())
+  })
+  // A day that matches the weekday trigger and the day-of-month trigger starts both at the same instant: one run.
+  const instants = new Set<number>()
+  for (const schedule of triggers.days) {
+    for (const trigger of triggers.times) {
+      const interval = trigger.repetition ? seconds(trigger.repetition.interval) * 1000 : 0
+      const duration = trigger.repetition?.duration ? seconds(trigger.repetition.duration) * 1000 : 6 * dayMs
+      const startDays = schedule.kind === "always" ? [day - 2 * dayMs] : [-2, -1, 0, 1].map(offset => day + offset * dayMs)
+      for (const startDay of startDays) {
+        if (!onTaskDay(schedule, new Date(startDay))) continue
+        const start = first.get(`${new Date(startDay).toISOString().slice(0, 10)}T${new Date(trigger.start * minuteMs).toISOString().slice(11, 16)}`)
+        if (start === undefined) continue
+        instants.add(start)
+        for (let offset = interval; interval && offset < duration; offset += interval) instants.add(start + offset)
+      }
+    }
+  }
+  return { expected, runs: [...instants].sort((left, right) => left - right).map(time => wallClock(time, timeZone)).filter(inRange) }
+}
+
+function machineTriggers(cron: string, timeZone: string): TaskTriggers | string {
+  return taskTriggers(fields(cron), { timeZone, changes: clockChanges(timeZone, base) })
 }
 
 describe("parseCronFields()", () => {
@@ -221,5 +287,83 @@ describe("machineCronFields()", () => {
     expect(machineCronFields(fields("0 * * * *"), "Asia/Kolkata", "Europe/Madrid", base)).toEqual(fields("30 * * * *"))
     // An hourly cron on Mondays moves across midnight at a different hour in summer.
     expect(machineCronFields(fields("0 * * * 1"), "Europe/Madrid", "UTC", base)).toBeUndefined()
+  })
+})
+
+describe("clockChanges()", () => {
+  it("finds the skipped and the repeated hour of each change in two years", () => {
+    const madrid = clockChanges("Europe/Madrid", base)
+    expect(madrid).toHaveLength(4)
+    expect(madrid.slice(0, 2)).toEqual([
+      { year: 2027, month: 3, day: 28, weekday: 0, start: 120, end: 180, delta: 60 },
+      { year: 2027, month: 10, day: 31, weekday: 0, start: 120, end: 180, delta: -60 },
+    ])
+    // Los Angeles goes back from 02:00 to 01:00.
+    expect(clockChanges("America/Los_Angeles", base)[1]).toEqual({ year: 2027, month: 11, day: 7, weekday: 0, start: 60, end: 120, delta: -60 })
+    expect(clockChanges("UTC", base)).toEqual([])
+  })
+})
+
+describe("Task Scheduler across the clock changes of the machine zone", () => {
+  const madrid = "Europe/Madrid"
+
+  it("splits a repetition that a clock change would move", () => {
+    // The reviewer's case: one trigger every 6 hours ran at 00:00, 07:00, 13:00 and 19:00 on the spring Sunday.
+    expect(machineTriggers("0 0,6,12,18 * * 0", "America/Los_Angeles")).toEqual({ times: [{ start: 0 }, { start: 360 }, { start: 720 }, { start: 1080 }], days: [{ kind: "week", weekdays: [0] }] })
+    expect(machineTriggers("0 */6 * * *", madrid)).toEqual({ times: [{ start: 0 }, { start: 360 }, { start: 720 }, { start: 1080 }], days: [{ kind: "day" }] })
+  })
+
+  it("keeps one trigger when no clock change falls between its runs", () => {
+    expect(machineTriggers("0 9,10,11 * * *", madrid)).toEqual({ times: [{ start: 540, repetition: { interval: "PT1H", duration: "PT2H30M" } }], days: [{ kind: "day" }] })
+    // Madrid changes the clocks on Sundays.
+    expect(machineTriggers("* * * * 1-5", madrid)).toEqual(taskTriggers(fields("* * * * 1-5")))
+  })
+
+  it("repeats an all-day cron without end when its gap divides the change", () => {
+    expect(machineTriggers("*/15 * * * *", madrid)).toEqual({ times: [{ start: 0, repetition: { interval: "PT15M" } }], days: [{ kind: "always" }] })
+    // Lord Howe moves its clocks by 30 minutes, so an hourly cron needs one trigger per hour.
+    expect(machineTriggers("*/30 * * * *", "Australia/Lord_Howe")).toEqual({ times: [{ start: 0, repetition: { interval: "PT30M" } }], days: [{ kind: "always" }] })
+    expect((machineTriggers("0 * * * *", "Australia/Lord_Howe") as TaskTriggers).times).toHaveLength(24)
+  })
+
+  it("runs the repeated hour twice with an all-day repetition, and once with a split trigger", () => {
+    const [, autumn] = clockChanges(madrid, base)
+    const repeated = (cron: string) => aroundChange(fields(cron), machineTriggers(cron, madrid) as TaskTriggers, madrid, autumn!).runs.filter(run => run === "2027-10-31T02:00")
+    expect(repeated("*/15 * * * *")).toHaveLength(2)
+    expect(repeated("*/15 0-5 * * *")).toHaveLength(1)
+  })
+
+  it("splits only the hour that a change crosses", () => {
+    const triggers = machineTriggers("*/15 0-5 * * *", madrid) as TaskTriggers
+    expect(triggers.times).toHaveLength(9)
+    expect(taskTimes(triggers)).toEqual(timesOfDay(fields("*/15 0-5 * * *")))
+  })
+
+  it("keeps the output of a machine zone without clock changes", () => {
+    for (const cron of ["* * * * *", "*/15 9-17 * * 1-5", "0 0,6,12,18 * * 0", "5,7,40 */6 * * *"]) expect(machineTriggers(cron, "UTC")).toEqual(taskTriggers(fields(cron)))
+  })
+
+  it("names the clock change when the split needs more than 48 triggers", () => {
+    expect(taskTriggers(fields("* 0-5 * * *"))).not.toBeTypeOf("string")
+    expect(machineTriggers("* 0-5 * * *", madrid)).toBe("the clocks in Europe/Madrid change from 02:00 to 03:00 on 2027-03-28, and Task Scheduler repeats a trigger in elapsed time, so the cron needs 65 triggers to keep its times. The limit is 48. Use fewer times of day, or times away from the clock change.")
+  })
+
+  it("drifted before: one repetition every 6 hours runs at 07:00 after the spring change", () => {
+    const [spring] = clockChanges("America/Los_Angeles", base)
+    const { runs } = aroundChange(fields("0 0,6,12,18 * * 0"), taskTriggers(fields("0 0,6,12,18 * * 0")) as TaskTriggers, "America/Los_Angeles", spring!)
+    expect(runs).toEqual(["2027-03-14T00:00", "2027-03-14T07:00", "2027-03-14T13:00", "2027-03-14T19:00"])
+  })
+
+  const zones = [madrid, "America/Los_Angeles", "Australia/Lord_Howe", "America/Santiago"]
+  const crons = ["0 0,6,12,18 * * 0", "*/15 * * * *", "* * * * *", "0 */6 * * *", "0 */2 * * *", "0 * * * *", "*/30 * * * *", "0 9,10,11 * * *", "*/15 0-5 * * *", "*/20 * * * 1-5", "30 1-3 * * *", "0,30 0-3 1 * 0"]
+  it.each(zones.flatMap(zone => crons.map(cron => [cron, zone])))("starts %s in %s at its wall-clock times around each clock change", (cron, zone) => {
+    const triggers = machineTriggers(cron, zone)
+    if (typeof triggers === "string") throw new Error(triggers)
+    for (const change of clockChanges(zone, base)) {
+      const { expected, runs } = aroundChange(fields(cron), triggers, zone, change)
+      // An all-day repetition runs the repeated hour twice; every other trigger runs it once.
+      expect([...new Set(runs)]).toEqual(expected)
+      if (triggers.days[0]?.kind !== "always") expect(runs).toEqual(expected)
+    }
   })
 })

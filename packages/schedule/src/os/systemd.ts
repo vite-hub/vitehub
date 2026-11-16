@@ -113,9 +113,26 @@ function unixTimestamp(value: string | undefined): Date | undefined {
   return value && Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000) : undefined
 }
 
-const statusProperties = ["Id", "LoadState", "ActiveState", "SubState", "NextElapseUSecRealtime", "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "ExecMainCode", "ExecMainStatus", "Result"]
+const statusProperties = ["Id", "LoadState", "FragmentPath", "ActiveState", "SubState", "NextElapseUSecRealtime", "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "ExecMainCode", "ExecMainStatus", "Result"]
 // `ExecMainCode` values from `siginfo`: 1 exited, 2 killed, 3 dumped core.
 const exitedCode = "1"
+
+const marker = `# ${generatedHeader}`
+
+/**
+ * The unit or file that holds `name` when ViteHub did not install it: a file at our path without our header, or a
+ * loaded unit that systemd reads from another file, such as /usr/lib/systemd/user/<name>.service or a transient unit.
+ */
+function foreignResource(paths: { service: string, timer: string }, texts: { service?: string, timer?: string }, units: Map<string, Map<string, string>>, name: string): string | undefined {
+  for (const kind of ["service", "timer"] as const) {
+    const text = texts[kind]
+    if (text !== undefined && !text.startsWith(marker)) return paths[kind]
+    const unit = units.get(`${name}.${kind}`)
+    const state = unit?.get("LoadState")
+    if (state && state !== "not-found" && unit?.get("FragmentPath") !== paths[kind]) return unit?.get("FragmentPath") || `${name}.${kind}`
+  }
+  return undefined
+}
 
 /** systemd timers, as `systemctl --user` units or system units in /etc/systemd/system. */
 export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
@@ -145,10 +162,25 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     return result.code === 0 && result.stdout.trim() === "yes"
   }
 
-  async function logFileOf(service: string): Promise<string | undefined> {
-    const text = await host.fs.readFile(service)
-    const value = text?.match(/^StandardOutput=append:(.*)$/m)?.[1]
+  function logFileOf(service: string | undefined): string | undefined {
+    const value = service?.match(/^StandardOutput=append:(.*)$/m)?.[1]
     return value?.replaceAll("%%", "%")
+  }
+
+  async function readUnits(name: string): Promise<{ service?: string, timer?: string }> {
+    const files = paths(name)
+    const [service, timer] = [await host.fs.readFile(files.service), await host.fs.readFile(files.timer)]
+    return { ...(service === undefined ? {} : { service }), ...(timer === undefined ? {} : { timer }) }
+  }
+
+  /** The resource that holds `name` when ViteHub did not install it in this scope. */
+  async function foreign(name: string, texts: { service?: string, timer?: string }): Promise<Result<string | undefined, OsScheduleErrorCode>> {
+    const files = paths(name)
+    const fileOwner = foreignResource(files, texts, new Map(), name)
+    if (fileOwner) return [undefined, fileOwner]
+    const [error, result] = await run("show", `${name}.service`, `${name}.timer`, "-p", "Id,LoadState,FragmentPath")
+    if (error) return [error, undefined]
+    return [undefined, foreignResource(files, texts, parseSystemctlShow(result.stdout), name)]
   }
 
   return {
@@ -156,7 +188,11 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const files = paths(spec.name)
       const service = renderSystemdService(spec)
       const timer = renderSystemdTimer(spec)
-      const changed = await host.fs.readFile(files.service) !== service || await host.fs.readFile(files.timer) !== timer
+      const current = await readUnits(spec.name)
+      const [foreignError, resource] = await foreign(spec.name, current)
+      if (foreignError) return [foreignError, undefined]
+      if (resource) return [osScheduleErrors.SCHEDULE_OS_NAME_TAKEN({ platform: "linux", name: spec.name, scope, resource }), undefined]
+      const changed = current.service !== service || current.timer !== timer
       const logFile = systemdLogFile(spec)
       if (spec.logDir !== undefined) await host.fs.mkdir(spec.logDir)
       const unit = `${spec.name}.timer`
@@ -191,6 +227,11 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const [error, result] = await run(...args)
       if (error) return [error, undefined]
       const units = parseSystemctlShow(result.stdout)
+      const texts = await readUnits(name)
+      const lingering = await linger()
+      if (foreignResource(paths(name), texts, units, name)) {
+        return [undefined, { name, platform: "linux", scope, installed: false, running: false, ...(lingering === undefined ? {} : { linger: lingering }) }]
+      }
       const timer = units.get(`${name}.timer`)
       const service = units.get(`${name}.service`)
       const installed = timer?.get("LoadState") === "loaded"
@@ -199,8 +240,7 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const exitStatus = Number(service?.get("ExecMainStatus"))
       const lastRunAt = unixTimestamp(service?.get("ExecMainStartTimestamp"))
       const nextRunAt = unixTimestamp(timer?.get("NextElapseUSecRealtime"))
-      const logFile = await logFileOf(paths(name).service)
-      const lingering = await linger()
+      const logFile = logFileOf(texts.service)
       const status: OsScheduleStatus = {
         name,
         platform: "linux",
@@ -219,28 +259,32 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
 
     async uninstall(name) {
       const files = paths(name)
-      const logFile = await logFileOf(files.service)
-      const existed = await host.fs.readFile(files.timer) !== undefined || await host.fs.readFile(files.service) !== undefined
-      const removed: string[] = []
-      if (existed) {
-        // A unit that systemd never loaded has nothing to stop.
-        const notLoaded = /not loaded|does not exist|not found/i
-        for (const args of [["disable", "--now", `${name}.timer`], ["stop", `${name}.service`]]) {
-          const result = await systemctl(...args)
-          if (result.code !== 0 && !notLoaded.test(commandOutput(result))) return failed(args, result)
-        }
-        // Persistent=true keeps the time of the last run in a stamp file. A later install with the same name would read
-        // it and start a catch-up run at once. systemd before 243 has no `clean`, and then keeps the stamp.
-        await systemctl("clean", "--what=state", `${name}.timer`)
-        for (const file of [files.timer, files.service, ...(logFile ? [logFile] : [])]) {
-          if (await host.fs.rm(file)) removed.push(file)
-        }
-        const [reloadError] = await run("daemon-reload")
-        if (reloadError) return [reloadError, undefined]
-        // Forget a failed last run, so `systemctl list-units --failed` does not show a unit that no longer exists.
-        await systemctl("reset-failed", `${name}.service`, `${name}.timer`)
+      const texts = await readUnits(name)
+      const logFile = logFileOf(texts.service)
+      const nothing = { name, platform: "linux" as const, scope, removed: [], existed: false }
+      // Without our files there is nothing of ours to stop, and a unit of the same name is not ours.
+      if (texts.service === undefined && texts.timer === undefined) return [undefined, nothing]
+      const [foreignError, resource] = await foreign(name, texts)
+      if (foreignError) return [foreignError, undefined]
+      if (resource) return [undefined, nothing]
+      // A unit that systemd never loaded has nothing to stop.
+      const notLoaded = /not loaded|does not exist|not found/i
+      for (const args of [["disable", "--now", `${name}.timer`], ["stop", `${name}.service`]]) {
+        const result = await systemctl(...args)
+        if (result.code !== 0 && !notLoaded.test(commandOutput(result))) return failed(args, result)
       }
-      return [undefined, { name, platform: "linux", scope, removed, existed }]
+      // Persistent=true keeps the time of the last run in a stamp file. A later install with the same name would read
+      // it and start a catch-up run at once. systemd before 243 has no `clean`, and then keeps the stamp.
+      await systemctl("clean", "--what=state", `${name}.timer`)
+      const removed: string[] = []
+      for (const file of [files.timer, files.service, ...(logFile ? [logFile] : [])]) {
+        if (await host.fs.rm(file)) removed.push(file)
+      }
+      const [reloadError] = await run("daemon-reload")
+      if (reloadError) return [reloadError, undefined]
+      // Forget a failed last run, so `systemctl list-units --failed` does not show a unit that no longer exists.
+      await systemctl("reset-failed", `${name}.service`, `${name}.timer`)
+      return [undefined, { name, platform: "linux", scope, removed, existed: true }]
     },
   }
 }

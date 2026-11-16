@@ -42,6 +42,49 @@ function offsetChanges(timeZone: string, from: number, to: number): number[] {
   return changes
 }
 
+/** The wall-clock times of one local day that a clock change skips or repeats. */
+export interface ClockChange {
+  year: number
+  /** 1 to 12. */
+  month: number
+  day: number
+  /** 0 to 6, Sunday 0. */
+  weekday: number
+  /** First minute of the day that the change skips or repeats. */
+  start: number
+  /** Minute after the last one that the change skips or repeats. */
+  end: number
+  /** New offset minus old offset, in minutes: positive when the clocks go forward. */
+  delta: number
+}
+
+/** The clock changes of `timeZone` in the two years from `from`, as windows of local days. */
+export function clockChanges(timeZone: string, from: Date): ClockChange[] {
+  const start = Math.floor(from.getTime() / minuteMs) * minuteMs
+  const changes: ClockChange[] = []
+  for (const instant of offsetChanges(timeZone, start, start + sampledDays * dayMs)) {
+    const before = timeZoneOffsetMinutes(new Date(instant - minuteMs), timeZone)
+    const after = timeZoneOffsetMinutes(new Date(instant), timeZone)
+    // Local times as UTC milliseconds: the clock reads `low` and `high` at `instant`, before and after the change.
+    const low = instant + Math.min(before, after) * minuteMs
+    const high = instant + Math.max(before, after) * minuteMs
+    // A change at midnight can touch two local days.
+    for (let day = Math.floor(low / dayMs) * dayMs; day < high; day += dayMs) {
+      const date = new Date(day)
+      changes.push({
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+        weekday: date.getUTCDay(),
+        start: (Math.max(low, day) - day) / minuteMs,
+        end: (Math.min(high, day + dayMs) - day) / minuteMs,
+        delta: after - before,
+      })
+    }
+  }
+  return changes
+}
+
 /** Every value of `offset(timeZone) - offset(machineTimeZone)`, in minutes, in the two years from `from`. */
 function offsetDifferences(timeZone: string, machineTimeZone: string, from: Date): number[] {
   const start = Math.floor(from.getTime() / minuteMs) * minuteMs

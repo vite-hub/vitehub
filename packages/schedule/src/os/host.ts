@@ -58,7 +58,10 @@ export interface OsScheduleStatus {
   name: string
   platform: OsSchedulePlatform
   scope: OsScheduleScope
-  /** The OS knows the timer. */
+  /**
+   * The OS knows the timer, and ViteHub installed it in this scope. `false` for a timer, unit, plist, or task of the
+   * same name that ViteHub did not install: it is not this timer.
+   */
   installed: boolean
   /** A run is in progress. */
   running: boolean
@@ -80,7 +83,10 @@ export interface OsScheduleRemoval {
   scope: OsScheduleScope
   /** Files that the uninstall deleted. */
   removed: string[]
-  /** The timer or one of its files existed. */
+  /**
+   * The timer or one of its files existed. `false` also when the name belongs to a timer that ViteHub did not install
+   * in this scope: the uninstall leaves it as it is.
+   */
   existed: boolean
 }
 

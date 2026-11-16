@@ -159,6 +159,12 @@ export function nextLaunchdRun(intervals: readonly CalendarInterval[], timeZone:
 }
 
 const notFound = /could not find|no such process|not found/i
+const marker = `<!-- ${generatedHeader} -->`
+
+interface LoadedJob {
+  domain: string
+  output: string
+}
 
 /** launchd jobs: a LaunchAgent in the user's `gui` domain, or a LaunchDaemon in the `system` domain. */
 export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
@@ -171,7 +177,7 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
   }
 
   /** The domain that has the job loaded, and its `launchctl print` output. */
-  async function loaded(name: string): Promise<{ domain: string, output: string } | undefined> {
+  async function loaded(name: string): Promise<LoadedJob | undefined> {
     for (const domain of domains) {
       const result = await host.exec("launchctl", ["print", `${domain}/${name}`])
       if (result.code === 0) return { domain, output: result.stdout }
@@ -179,8 +185,22 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     return undefined
   }
 
-  async function bootout(name: string): Promise<Result<boolean, OsScheduleErrorCode>> {
+  /**
+   * The plist and the loaded job of `name`, and the resource that holds the name when ViteHub did not install it: a
+   * plist at our path without our header, or a job with this label that launchd loaded from another plist.
+   */
+  async function owner(name: string): Promise<{ plist?: string, job?: LoadedJob, foreign?: string }> {
+    const path = plistPath(name)
+    const plist = await host.fs.readFile(path)
     const job = await loaded(name)
+    const loadedFrom = job?.output.match(/^\tpath = (.+)$/m)?.[1]?.trim()
+    let foreign: string | undefined
+    if (plist !== undefined && !plist.includes(marker)) foreign = path
+    else if (job && loadedFrom !== path) foreign = loadedFrom ?? `${job.domain}/${name}`
+    return { ...(plist === undefined ? {} : { plist }), ...(job ? { job } : {}), ...(foreign ? { foreign } : {}) }
+  }
+
+  async function bootout(name: string, job: LoadedJob | undefined): Promise<Result<boolean, OsScheduleErrorCode>> {
     if (!job) return [undefined, false]
     const args = ["bootout", `${job.domain}/${name}`]
     const result = await host.exec("launchctl", args)
@@ -219,8 +239,10 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const logFile = launchdLogFile(spec, scope, host.homedir)
       const plist = renderLaunchdPlist(spec, intervals, logFile)
       const files = [file, logFile]
-      if (await host.fs.readFile(file) === plist && await loaded(spec.name)) return [undefined, { files, changed: false }]
-      const [bootoutError] = await bootout(spec.name)
+      const current = await owner(spec.name)
+      if (current.foreign) return [osScheduleErrors.SCHEDULE_OS_NAME_TAKEN({ platform: "darwin", name: spec.name, scope, resource: current.foreign }), undefined]
+      if (current.plist === plist && current.job) return [undefined, { files, changed: false }]
+      const [bootoutError] = await bootout(spec.name, current.job)
       if (bootoutError) return [bootoutError, undefined]
       await host.fs.mkdir(spec.logDir ?? defaultLogDir(spec.name, scope, host.homedir))
       await host.fs.writeFile(file, plist)
@@ -233,8 +255,8 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     },
 
     async status(name) {
-      const job = await loaded(name)
-      const plist = await host.fs.readFile(plistPath(name))
+      const { plist, job, foreign } = await owner(name)
+      if (foreign) return [undefined, { name, platform: "darwin", scope, installed: false, running: false }]
       const parsed = plist === undefined ? undefined : parseLaunchdPlist(plist)
       const state = job ? parseLaunchctlPrint(job.output) : { running: false }
       const nextRunAt = job && parsed?.intervals.length ? nextLaunchdRun(parsed.intervals, host.machineTimeZone, host.now()) : undefined
@@ -252,8 +274,9 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
 
     async uninstall(name) {
       const file = plistPath(name)
-      const plist = await host.fs.readFile(file)
-      const [bootoutError, wasLoaded] = await bootout(name)
+      const { plist, job, foreign } = await owner(name)
+      if (foreign) return [undefined, { name, platform: "darwin", scope, removed: [], existed: false }]
+      const [bootoutError, wasLoaded] = await bootout(name, job)
       if (bootoutError) return [bootoutError, undefined]
       const logFile = plist === undefined ? undefined : parseLaunchdPlist(plist).logFile
       const removed: string[] = []

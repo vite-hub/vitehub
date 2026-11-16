@@ -8,7 +8,8 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import { parseCronFields } from "../src/os/cron.ts"
 import { launchdIntervals, parseLaunchdPlist, renderLaunchdPlist } from "../src/os/launchd.ts"
 import { renderSystemdService, renderSystemdTimer } from "../src/os/systemd.ts"
-import { parseTaskWrapperLog, renderTaskWrapper, renderTaskXml, taskDescriptionHash, taskTriggers } from "../src/os/task-scheduler.ts"
+import { parseTaskWrapperLog, renderTaskWrapper, renderTaskXml, taskDescriptionHash, taskOwnerScope, taskTriggers } from "../src/os/task-scheduler.ts"
+import { clockChanges } from "../src/os/time-zone.ts"
 
 import type { OsTimerSpec } from "../src/os/host.ts"
 
@@ -126,6 +127,23 @@ describe("Task Scheduler task", () => {
     const job = spec("5 4 1,15 1-3 *", { name: "report" })
     const wrapperText = renderTaskWrapper(job, "C:\\Users\\me\\AppData\\Local\\report\\Logs\\report.log")
     await expect(renderTaskXml(job, triggers(job.cron), { scope: "user", userId: "DESKTOP-1\\me", wrapper: userWrapper, wrapperText })).toMatchFileSnapshot(join(fixtures, "report-user.xml"))
+  })
+
+  it("writes a time trigger that repeats without end on a machine with clock changes", async () => {
+    const job = spec("*/15 * * * *", { name: "pulse" })
+    const result = taskTriggers(job.fields, { timeZone: "Europe/Madrid", changes: clockChanges("Europe/Madrid", new Date("2027-01-04T00:00:00Z")) })
+    if (typeof result === "string") throw new Error(result)
+    const wrapperText = renderTaskWrapper(job, "C:\\Users\\me\\AppData\\Local\\pulse\\Logs\\pulse.log")
+    await expect(renderTaskXml(job, result, { scope: "user", userId: "DESKTOP-1\\me", wrapper: userWrapper, wrapperText })).toMatchFileSnapshot(join(fixtures, "pulse-user.xml"))
+  })
+
+  it("marks the task with its scope", () => {
+    const job = spec("0 * * * *")
+    const description = (scope: "user" | "system") => /<Description>(.*)<\/Description>/.exec(renderTaskXml(job, triggers(job.cron), { scope, userId: "DESKTOP-1\\me", wrapper: userWrapper, wrapperText: "" }))![1]
+    expect(taskOwnerScope(description("user"))).toBe("user")
+    expect(taskOwnerScope(description("system"))).toBe("system")
+    expect(taskOwnerScope("Backs up my photos. Managed by ViteHub.")).toBeUndefined()
+    expect(taskOwnerScope(undefined)).toBeUndefined()
   })
 
   it("writes a PowerShell wrapper that sets the environment and appends the output to the log", async () => {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>report (ViteHub schedule). Managed by ViteHub. sha256:dc16bc5d9a84084c500cd4c63b5eb683f98981b449e71b3cd21af19a3980b3f8</Description>
+    <Description>report (ViteHub schedule). Managed by ViteHub (user scope). sha256:c7515ef603f15afed00f8b019679d6b38cd17095cb6195d3bb3f122bb6d1d169</Description>
     <URI>\report</URI>
   </RegistrationInfo>
   <Triggers>

@@ -51,6 +51,7 @@ if (process.argv[2] === 'install') {
 - `env` sets the environment of each run. Nothing comes from the shell that installs the timer.
 - `logDir` gets `photo-sync.log` with the output of each run.
 - Run `install` again after each change. When nothing changed, it changes no file and returns `changed: false`.
+- The install replaces only a timer that it installed itself, in the same scope. When the OS already has a timer, unit, plist, or task with that name, it returns `SCHEDULE_OS_NAME_TAKEN` and changes nothing.
 
 The function returns `[error, unit]`. It does not throw when the OS cannot run the Schedule exactly. See [Rejections](#rejections).
 
@@ -101,11 +102,11 @@ console.log(status.installed, status.lastExitCode, status.nextRunAt)
 | `linger` | User scope | No | No |
 | `logFile` | With `logDir` | Yes | Yes |
 
-Pass `{ scope: 'system' }` for a system timer.
+Pass `{ scope: 'system' }` for a system timer. `installed` is `false` for a timer of that name that ViteHub did not install in that scope.
 
 ## Remove the timer
 
-Call `unit.uninstall()`, or `uninstallOsSchedule('photo-sync')` from another process. It stops the timer, removes the files that the install wrote and the log file, and returns `existed: false` when there was nothing to remove.
+Call `unit.uninstall()`, or `uninstallOsSchedule('photo-sync')` from another process. It stops the timer, removes the files that the install wrote and the log file, and returns `existed: false` when there was nothing to remove. A timer of the same name that ViteHub did not install in that scope stays as it is, and the result is `existed: false`.
 
 ## Time zones
 
@@ -119,14 +120,21 @@ The cron of a Schedule uses UTC unless it sets `timeZone`.
 
 Other cases return `SCHEDULE_OS_TIME_ZONE_UNSUPPORTED`, with the computer's zone in `error.data.machineTimeZone`. Set `timeZone` to that zone, or pick a cron that gives the same runs in both zones.
 
-On the nights the clocks change, the OS decides, not ViteHub. A time that falls in the hour the clocks skip, such as `30 2 * * *` in Madrid on the last Sunday of March, does not run that night. A time in the hour that repeats runs once. The Process Runtime and the host crons run a skipped time once, at the next valid minute.
+On the nights the clocks change, the OS decides, not ViteHub:
+
+- Linux: a time in the hour that the clocks skip, such as `30 2 * * *` in Madrid on the last Sunday of March, does not run that night. A time in the hour that repeats runs once.
+- macOS: a time in the hour that repeats runs once. launchd does not document what it does with a skipped time.
+- Windows: fixed times run as on Linux. A cron that repeats all day at equal gaps, such as `*/15 * * * *`, runs in the repeated hour twice.
+
+The Process Runtime and the host crons run a skipped time once, at the next valid minute.
 
 ## Rejections
 
 | Code | When |
 | --- | --- |
 | `SCHEDULE_OS_INVALID_OPTIONS` | The name, cron, time zone, or an option is not valid, or `command[0]` is not an absolute path. |
-| `SCHEDULE_OS_CRON_UNSUPPORTED` | The OS cannot run the cron exactly. Windows rejects a cron that limits both the weekday and the month, and a cron that needs more than 48 triggers. macOS rejects a cron that needs more than 1000 calendar entries. |
+| `SCHEDULE_OS_CRON_UNSUPPORTED` | The OS cannot run the cron exactly. Windows rejects a cron that limits both the weekday and the month, and a cron that needs more than 48 triggers. Task Scheduler repeats a trigger in elapsed time, so a repetition that a clock change of the computer's zone would move becomes one trigger per time. macOS rejects a cron that needs more than 1000 calendar entries. |
+| `SCHEDULE_OS_NAME_TAKEN` | The OS has a timer, unit, plist, or task with that name that ViteHub did not install in that scope. `error.data.resource` names it. |
 | `SCHEDULE_OS_OPTION_UNSUPPORTED` | macOS gets `catchUp: false` or `randomDelaySeconds`. |
 | `SCHEDULE_OS_TIME_ZONE_UNSUPPORTED` | macOS or Windows cannot run the cron in `timeZone`. |
 | `SCHEDULE_OS_PERMISSION_REQUIRED` | System scope without root or an Administrator. |

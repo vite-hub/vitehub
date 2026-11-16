@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>backup-db (ViteHub schedule). Managed by ViteHub. sha256:c66179245b952858caa481a6e7781de353eacce9a73653aca3a1025053d88d0a</Description>
+    <Description>backup-db (ViteHub schedule). Managed by ViteHub (system scope). sha256:a6a306d92f580d35e3b88e0c225ac8588f7db26a27038a0d77aad70e7e20ca35</Description>
     <URI>\backup-db</URI>
   </RegistrationInfo>
   <Triggers>
