@@ -9,7 +9,7 @@ import { listDenoDeployments } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { listNetlifyDeployments } from "./deploy/netlify.ts"
 import { listVercelDeployments } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { isSetupFailure, setupExitCodes, setupFailure, table, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 
@@ -95,7 +95,7 @@ function readDeploymentsArgs(args: readonly string[]) {
     return { help: values.help, host: readLinkHostOption(values.host), json: values.json, limit: readLimit(values.limit) }
   }
   catch (error: unknown) {
-    if (error instanceof SetupFailure || (error instanceof Error && "why" in error)) throw error
+    if (isSetupFailure(error) || (error instanceof Error && "why" in error)) throw error
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
@@ -120,10 +120,10 @@ async function runDeployments(host: SetupLinkHost | undefined, limit: number, js
   const selected = selectSetupLink(await readSetupLinks(project.root), host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, "vitehub deployments")
   const link = selected.link
-  if (!link) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
+  if (!link) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
   const credentials = await resolveHostCredentials(link.host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   if (!credentials.ok) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),
     })
   }
