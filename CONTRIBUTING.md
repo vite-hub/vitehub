@@ -145,6 +145,7 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
 5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
+6. Every thrown error is a diagnostic. For a state that only a ViteHub bug can reach, call `invariant(condition, what)` or throw `invariantError(what)` from `@vite-hub/internal/invariant`. Both raise `INTERNAL_INVARIANT_FAILED`, whose fix asks for a bug report. When a developer can cause the error or fix it, throw a code from the package catalog instead.
 
 ### Documentation structure
 
