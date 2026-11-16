@@ -18,6 +18,10 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
       fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
     },
+    BLOB_INVALID_CURSOR: {
+      why: "The Blob list cursor is not valid. It is not a cursor that a `list()` result of this store returned.",
+      fix: "Pass the `cursor` of the last `list()` result of the same store, with the same `prefix` and `folded` options. Omit `cursor` to read the first page.",
+    },
     BLOB_NOT_FOUND: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation found no object in the "${store}" store.`,
       fix: "Check the pathname and the store. A route that throws this error answers 404.",
@@ -27,7 +31,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
     },
     BLOB_PATHNAME_TOO_LONG: {
-      why: ({ detail, store }: BlobErrorParams) => detail ?? `The pathname is longer than the "${store}" store accepts.`,
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The pathname is ${bytes} bytes in UTF-8. Cloudflare R2 accepts object keys of at most ${limit} bytes.`,
       fix: "Use a shorter pathname. Cloudflare R2 accepts object keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`.",
     },
   },
@@ -45,6 +49,58 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/blob/diagnostics",
   codes: {
+    // Operation errors. The CLI, the Console, and Agents call the `blob.*` operations. `runBlobOperation()` gives each code an HTTP status.
+    BLOB_DISABLED: {
+      why: "Blob is disabled in this runtime.",
+      fix: "Set `blob` in `vitehub()` to `true` or to a Blob config. With `@vite-hub/blob` alone, add `hubBlob()` to the Vite plugins and do not pass `false` to it.",
+    },
+    BLOB_DOWNLOAD_TOO_LARGE: {
+      why: ({ limit, pathname, size }: { limit: number, pathname: string, size: number }) => `Blob ${pathname} is ${size} bytes. The blob operations return at most ${limit} bytes.`,
+      fix: "Download larger files with `blob.get()` in the app or with the tools of the provider.",
+    },
+    BLOB_EXISTS: {
+      why: ({ pathname, store }: { pathname: string, store: string }) => `Blob ${pathname} already exists in store ${store}.`,
+      fix: "Pass `overwrite: true` to `blob.put` to replace it, or use another pathname.",
+    },
+    BLOB_FS_WRITE_STALLED: {
+      why: "Multipart output write made no progress.",
+      fix: "Check that the disk of the `fs` store folder, `.vitehub/data/blob` by default, has free space and accepts writes. Then complete the multipart upload again.",
+    },
+    BLOB_INVALID_INPUT: {
+      why: ({ limit, operation, problem }: { limit?: number, operation?: string, problem: "base64" | "data" | "limit" | "pathname" | "pathname-length" | "prefix-length" }) => ({
+        base64: "The file data is not valid base64.",
+        data: "The put operation requires file data.",
+        limit: `limit must be at most ${limit}.`,
+        pathname: `The ${operation} operation requires a pathname.`,
+        "pathname-length": "The pathname is too long.",
+        "prefix-length": "The prefix is too long.",
+      })[problem],
+      fix: "Pass a `pathname` of at most 1,024 characters, a `prefix` of at most 1,024 characters, a `limit` of at most 250, and, for `blob.put`, the file as base64 in `data`.",
+    },
+    BLOB_OBJECT_CHANGED_DURING_READ: {
+      why: ({ step }: { step: "contents" | "metadata" | "response" }) => step === "response"
+        ? "Blob changed repeatedly while preparing its response."
+        : `Blob changed while reading its filesystem ${step}.`,
+      fix: "Retry the call when the other writes to the same pathname end. Another request or process wrote the object while ViteHub read it.",
+    },
+    BLOB_RESERVED_PATH: {
+      why: ({ operation, pathname }: { operation: string, pathname: string }) => `The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`,
+      fix: "Use another pathname. Read access (get, head) stays open.",
+    },
+    BLOB_STORE_NOT_FOUND: {
+      why: ({ name, stores }: { name: string, stores: string }) => `Blob store "${name}" was not found. Stores: ${stores}.`,
+      fix: "Pass `store` with one of the store names that the message lists, or add the store to `blob.stores` in the Vite config.",
+    },
+    BLOB_UPLOAD_TOO_LARGE: {
+      why: ({ limit, size }: { limit: number, size: number }) => `The file is ${size} bytes. The blob operations accept at most ${limit} bytes.`,
+      fix: "Upload larger files from the application or with the tools of the provider.",
+    },
+    // Option errors. `handleUpload()` throws them before it reads the request.
+    BLOB_UPLOAD_MAX_FILES_INVALID: {
+      why: ({ maxFiles }: { maxFiles: number }) => `\`maxFiles\` of \`handleUpload()\` is ${maxFiles}. It must be a positive integer.`,
+      fix: "Pass `maxFiles` as a whole number of 1 or more, such as `blob.handleUpload(event, { maxFiles: 5 })`, or omit it to accept any number of files.",
+    },
+    // Published numbered errors.
     BLOB_R0027: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_C0001: withFix("Set `blob.driver` to a supported driver, for example `\"fs\"`, `\"cloudflare-r2\"`, `\"vercel-blob\"`, `\"netlify-blobs\"`, `\"minio\"`, or `\"s3\"`. Check the spelling."),
     BLOB_C0002: withFix("Set `blob.serve.headers` to an object of header names and string values, for example `{ \"Cache-Control\": \"public, max-age=300\" }`."),
@@ -92,11 +148,11 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0014: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Vite config."),
     BLOB_R0015: withFix("This is a ViteHub bug. Report it at https://github.com/vite-hub/vitehub/issues with the message and your Vite config."),
     BLOB_R0017: withFix("Retry the list call. If it fails again, report it at https://github.com/vite-hub/vitehub/issues with the driver name and the message."),
-    BLOB_R0018: withFix("Run `vitehub provision run --provider cloudflare` or `vitehub provision run --provider vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
-    BLOB_R0019: withFix("Run `vitehub provision run --provider vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
-    BLOB_R0020: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --provider vercel` again."),
-    BLOB_R0021: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --provider vercel` again."),
-    BLOB_R0022: withFix("Run `vitehub provision run --provider vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
+    BLOB_R0018: withFix("Run `vitehub provision run --host cloudflare` or `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
+    BLOB_R0019: withFix("Run `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
+    BLOB_R0020: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --host vercel` again."),
+    BLOB_R0021: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --host vercel` again."),
+    BLOB_R0022: withFix("Run `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
     BLOB_R0023: withFix("Remove `blob: false` from the Vite config, or remove the `blob` calls from server code."),
     BLOB_R0024: withFix("Pass `expiresIn` in seconds as a positive integer, for example `blob.sign(pathname, { method: \"GET\", expiresIn: 300 })`."),
     BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare-r2` binds `createOnly`, `fs` binds `maxSize`, `vercel-blob` binds both, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
@@ -109,7 +165,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0033: withFix("Use a pathname or folder outside `_vitehub/derived` and `_vitehub/media`, where ViteHub keeps image variants and media records. If the message is about an R2 list page, retry, and report it at https://github.com/vite-hub/vitehub/issues if it fails again."),
     BLOB_R0034: withFix("For a pathname, pass a non-empty pathname that names an object. For a pathname or prefix, remove control characters, broken Unicode, `%` followed by two hex digits after decoding, and `.` or `..` segments. For an image transformer, install the package that the message names, for example `pnpm add sharp` or `pnpm add @cf-wasm/photon`, or add the Cloudflare Images binding to the Worker. Its name is `IMAGES`, or the value of `blob.images.binding`."),
     BLOB_R0035: withFix("Change the argument of the `media` call as the message says. For example, a crop name has letters, digits, `_`, or `-`, and a crop aspect looks like `\"16:9\"`."),
-    BLOB_R0036: withFix("Use a JPEG, PNG, WebP, or GIF image within the limits that the message names, and request `webp`, `jpeg`, or `png`, not AVIF. For larger images, set `blob.images.transformer` to `\"sharp\"` or `\"cloudflare-images\"`."),
+    BLOB_R0036: withFix("Use a JPEG, PNG, WebP, or GIF image within the limits that the message names, and request `webp`, `jpeg`, or `png`, not AVIF. For larger images, raise `blob.images.maxPixels` when the host has the memory, or set `blob.images.transformer` to `\"sharp\"` or `\"cloudflare-images\"`."),
     BLOB_R0037: withFix("Call `sign()` with `method: \"PUT\"` on a writable handle from `blob.store(name)`. A handle from `blob.store(name, { mode: \"read\" })` signs `GET` requests only."),
     BLOB_R0038: withFix("Pass `{ mode: \"read\" }` or `{ mode: \"write\" }` to `blob.store(name, options)`, or omit `mode` for a writable handle."),
     BLOB_R0039: withFix("Pass `maxSize` as a whole number and a unit, for example `\"8MB\"`. The units are `B`, `KB`, `MB`, and `GB`."),

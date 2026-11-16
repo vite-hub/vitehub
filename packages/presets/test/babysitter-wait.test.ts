@@ -376,11 +376,11 @@ describe("Babysitter required checks", () => {
 describe("Babysitter stacked PRs", () => {
   const pr = { number: 7, base: { ref: "feat/parent", repo: { full_name: repository, default_branch: "main", owner: { login: "acme" } } } };
   const parent = (state: string, merged: boolean, base: string) => ({ state, merged_at: merged ? "2026-10-01T00:00:00Z" : null, head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: base } });
-  it("retargets only after the parent merged into the default branch", () => {
+  it("retargets only after the parent merged", () => {
     expect(stackRetargetBase(pr, [parent("closed", true, "main")])).toBe("main");
     expect(stackRetargetBase(pr, [parent("open", false, "main")])).toBeUndefined();
     expect(stackRetargetBase(pr, [parent("closed", false, "main")])).toBeUndefined();
-    expect(stackRetargetBase(pr, [parent("closed", true, "feat/grandparent")])).toBeUndefined();
+    expect(stackRetargetBase(pr, [parent("closed", true, "feat/grandparent")])).toBe("feat/grandparent");
     expect(stackRetargetBase({ ...pr, base: { ...pr.base, ref: "main" } }, [parent("closed", true, "main")])).toBeUndefined();
   });
 });

@@ -87,6 +87,12 @@ export async function sync(event: ViteHubContext) {
 }
 ```
 
+## Set the values on the host
+
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+
+To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/development/cli#encrypted-env-files).
+
 ## Derive secrets from one root secret
 
 `deriveSecret(purpose)` from `@vite-hub/env` derives a 32-byte hex secret from `VITEHUB_SECRET` with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
@@ -109,7 +115,7 @@ export async function uploadUrl(userId: string) {
 
 export async function readTicket(ticket: string) {
   const [error, upload] = await unseal("my-app:upload", ticket, { schema: Upload });
-  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, or ENV_SEAL_WRONG_PURPOSE
+  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, ENV_SEAL_USED_UP, or ENV_SEAL_WRONG_PURPOSE
   return upload;
 }
 ```
@@ -117,6 +123,43 @@ export async function readTicket(ticket: string) {
 Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
 A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [App secret](https://vitehub.dev/docs/env/app-secret#seal-a-value).
+
+### Single-use values
+
+Pass `uses` and a `db` to make a share link that opens once, or N times, and then is gone. Pass the same `db` to `unseal()`. Each read takes one use with one conditional `UPDATE`, so of two reads of the last use on any instances, one gets the value and the other gets `ENV_SEAL_USED_UP`.
+
+```ts
+// server/api/share/[token].get.ts
+import { defineEventHandler, getRouterParam, HTTPError } from "h3";
+import { unseal } from "vite-hub/env";
+import { db } from "vite-hub/database";
+
+// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: 3600, db })
+export default defineEventHandler(async (event) => {
+  const [error, shared] = await unseal("my-app:share", getRouterParam(event, "token")!, { db });
+  if (error) throw new HTTPError({ status: 410, message: error.why }); // ENV_SEAL_USED_UP, ENV_SEAL_EXPIRED, ...
+  return shared;
+});
+```
+
+The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry, so a leak of the database does not leak values. `db` is a SQLite, libSQL, or D1 Drizzle database; KV cannot take a use atomically. A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
+
+## Protect a machine route
+
+`requireServiceToken(event, name)` from `vite-hub/env` checks that a request carries `Authorization: Bearer <token>` with a token from the server variable `name`. Use it for routes that scripts, CI runners, and webhooks call. It needs no Auth setup.
+
+```ts
+// server/api/runs.post.ts
+import { defineEventHandler } from "h3";
+import { requireServiceToken } from "vite-hub/env";
+
+export default defineEventHandler((event) => {
+  requireServiceToken(event, "INGEST_TOKEN");
+  return { ok: true };
+});
+```
+
+It compares in constant time. A wrong or missing token throws a `401` HTTP error with `ENV_SERVICE_TOKEN_INVALID`. When the variable has no token, every request fails with `503` and `ENV_SERVICE_TOKEN_UNSET`. The variable holds one token, or a comma-separated list while you rotate. `checkServiceToken(event, name)` returns the same result as `[error, undefined]`. See [Service tokens](https://vitehub.dev/docs/env/service-tokens).
 
 ## Typed server values
 
@@ -331,7 +374,7 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 
 ### Declaration inventory
 
-`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the canonical variable name of env declarations, source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults, conventional host variable names and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
+`describeServerEnv()` from `@vite-hub/env` returns declaration metadata without reading host values or calling providers. It includes the declaration path, the `names` an env declaration reads in read order (the canonical name first unless `canonical: false` or `prefix: false` turns it off, then the `env.source()` names or the unprefixed path name), source kind, provider alias, secret and required flags, default presence, and the parsed value type. Values, defaults and provider storage keys are omitted. Use `inspectServerEnv()` only when a status check that loads providers is intended. Its entries add the provider alias, required flag, `names`, the `name` that supplied an env value, and `available`, `defaulted`, `missing`, `invalid`, or `error` status, and never include values. Env entries also report `via: "canonical" | "conventional"` and `conflict: true` when the canonical and a conventional name hold different values. `isBlockingServerEnvEntry(entry)` from `@vite-hub/env` returns `true` when the entry makes `loadServerEnv()` fail.
 
 `hubEnv()` contributes two CLI commands:
 
@@ -340,11 +383,27 @@ vitehub env inspect [--stage <name>] [--json]
 vitehub env check [--stage <name>] [--json]
 ```
 
-Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. `--json` also lists the host variable `names` of each env declaration. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
+
+`hubEnv()` also contributes the `env.inspect` operation. It asks the running app, not a local stage, so the CLI and the Console can check that a deployed app has its env. It answers on the signed `POST /_vitehub/rpc` endpoint like every other operation, and needs the `env` Console section (`env:read` is enough).
+
+```bash
+vitehub env status --url https://my-app.example.com
+```
+
+The result has `ok`, the `host` that the app runs on when it is known, and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
 
 ### Managed credentials
 
-`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption key in host configuration and back it up separately from the database.
+`createEnvBridge` from `@vite-hub/env/bridge` adapts a secret store to Env with credential-scoped permissions and durable activity. `createDatabaseEnvStore` from `@vite-hub/env/database` supplies encrypted storage, grants, and activity using a ViteHub SQLite/Drizzle database. Use `await store.revisionCondition(key, revision)` to build a SQL predicate that updates related metadata only while that secret revision is current. A `null` revision requires the secret to be absent. Keep its 32-byte encryption keys in host configuration and back them up separately from the database.
+
+`encryptionKeys` is a keyring: the current key first, then previous keys. Each value is stored as `v2:<keyId>:<iv>:<ciphertext>`, where `keyId` is `sealKeyId()` of the key that sealed it. A read picks the key by its id. A value from an older store, `<iv>:<ciphertext>` without a key id, reads with the current key, then each previous key. The AES-GCM additional data binds each value to its namespace, key, and revision, so a value moved to another row does not decrypt.
+
+To rotate the key:
+
+1. Pass `encryptionKeys: [newKey, oldKey]`. New writes use `newKey`.
+2. Call `await store.rotate()`. It re-encrypts each value that another key sealed and returns `{ rotated, skipped }`. Revisions stay the same, so `revisionCondition()` and `expectedRevision` stay valid. A value that a write replaces during the rotation keeps the new write.
+3. Pass `encryptionKeys: [newKey]`.
 
 `@vite-hub/env/seal` exports the AES-GCM helpers that the database store uses: `importSealKey`, `sealWithKey`, `unsealWithKey`, and `sealKeyId`. Other owner packages use them to store sealed values in the same format. To seal an app value with a key derived from `VITEHUB_SECRET`, use [`seal()` and `unseal()`](#seal-a-value).
 

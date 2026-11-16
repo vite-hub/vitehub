@@ -1,18 +1,24 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createAgentDatabase, type AgentDatabaseHandle } from "../src/runtime/agent.ts"
 
-type DatabaseCatalogCode = keyof typeof databaseErrorDiagnostics
+type DatabaseCatalogCode = InferDiagnosticCodes<typeof databaseErrorDiagnostics>
 
 describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {
     expectTypeOf<DatabaseCatalogCode>().toEqualTypeOf<
       | "DATABASE_BINDING_CONFLICT"
+      | "DATABASE_CHUNK_INVALID_COUNT"
+      | "DATABASE_CHUNK_VALUE_TOO_LARGE"
       | "DATABASE_D1_INVALID_RESPONSE"
+      | "DATABASE_D1_MIGRATIONS_DIR_INVALID"
+      | "DATABASE_D1_MIGRATIONS_DIR_OVERLAP"
+      | "DATABASE_D1_MIGRATION_FAILED"
       | "DATABASE_D1_MIGRATION_INVALID"
       | "DATABASE_D1_REQUEST_FAILED"
       | "DATABASE_D1_STATEMENT_TOO_LONG"
@@ -23,6 +29,7 @@ describe("Database error types", () => {
       | "DATABASE_DUPLICATE_DEFINITION"
       | "DATABASE_DUPLICATE_TABLE"
       | "DATABASE_EXPORT_FAILED"
+      | "DATABASE_GENERATE_AMBIGUOUS_CHANGE"
       | "DATABASE_INVALID_CONTRIBUTION"
       | "DATABASE_INVALID_CONTRIBUTION_TARGET"
       | "DATABASE_INVALID_D1_HTTP_URL"
@@ -53,9 +60,11 @@ describe("Database error types", () => {
       | "DATABASE_NO_D1_BINDING"
       | "DATABASE_NOT_CONNECTED"
       | "DATABASE_NOT_FOUND"
+      | "DATABASE_NUXT_CONTENT_D1_MISSING"
       | "DATABASE_OPAQUE_CLOUDFLARE_CONFIG"
       | "DATABASE_PGLITE_IN_BUILD"
       | "DATABASE_PGLITE_NOT_INSTALLED"
+      | "DATABASE_POSTGRES_DRIVER_MISSING"
       | "DATABASE_PROVISION_FAILED"
       | "DATABASE_REMOTE_CONFLICT"
       | "DATABASE_RESERVED_SCHEMA_KEY"

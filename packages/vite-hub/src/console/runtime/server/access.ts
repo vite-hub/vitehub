@@ -5,7 +5,11 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleAuthorizedGrants, consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { checkConsoleSignature } from "./console-signature.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleSignatureHeader } from "@vite-hub/internal/console-signature"
+
+import { checkConsoleSignature, consoleKeysMissing } from "./console-signature.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
@@ -55,6 +59,8 @@ export interface ConsoleAccess {
   readonly surface?: "mcp"
   /** The person agreed to this destructive MCP call. The signature covers it. */
   readonly confirmed?: boolean
+  /** The signed caller limits this request to operations that only read. The RPC refuses a write or destructive call. */
+  readonly readOnly?: boolean
   /**
    * The signed request: the name of its key, and the SHA-256 of the body that the signature covers. The reader of the
    * body compares the digest before it acts on the body.
@@ -106,20 +112,32 @@ export function consoleRequest(event: ConsoleRequestEvent | Request): Request {
 }
 
 function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if (!(routeScope instanceof Object)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_SCOPE_INVALID()
   if ("section" in routeScope) {
     const section = routeScope.section
     if (typeof section === "function" || (typeof section === "string" && section.length > 0)) return
   }
   if ("anySection" in routeScope && routeScope.anySection === true) return
-  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_SCOPE_INVALID()
+}
+
+/**
+ * The access mode of one request. A development server with `console: true` and no `VITEHUB_CONSOLE_KEY_<NAME>` cannot
+ * verify a signature, so it treats an unsigned request like `console: { auth: false }`: it answers this machine, such as
+ * the `vitehub` CLI, and refuses others. A signed request, and every request once a key is set, needs the signature.
+ */
+function requestAccessMode(policy: ConsoleAccessPolicy, event: ConsoleRequestEvent): ConsoleAccessMode {
+  if (policy.mode !== "token" || !isConsoleDevelopmentBuild()) return policy.mode
+  if (consoleRequest(event).headers.has(consoleSignatureHeader)) return "token"
+  return consoleKeysMissing(event) ? "open" : "token"
 }
 
 async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
   const policy = installedConsoleAccessPolicy()
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  const mode = requestAccessMode(policy, event)
   // Every Console route and Realtime room reads its access here, so none can skip this rule.
-  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: policy.mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
+  if (!await isConsoleLoopbackRequest(consoleRequest(event), { access: mode, remoteAddress: getStandardContext(event).runtime?.clientAddress })) {
     return rejection(403, "CONSOLE_LOOPBACK_ONLY")
   }
   let user: ConsoleUser | undefined
@@ -127,11 +145,12 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   let team: ConsoleAccess["team"]
   let surface: ConsoleAccess["surface"]
   let confirmed: ConsoleAccess["confirmed"]
+  let readOnly: ConsoleAccess["readOnly"]
   let signature: ConsoleAccess["signature"]
-  if (policy.mode === "local") {
+  if (mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
-  else if (policy.mode === "token") {
+  else if (mode === "token") {
     // A signature is the only way in. A cookie, a session, or a bearer token never counts.
     const signed = await checkConsoleSignature(consoleRequest(event), event)
     if (!signed.ok) return signed.response
@@ -142,6 +161,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       team = signed.caller.team
       surface = signed.caller.surface
       confirmed = signed.caller.confirmed
+      readOnly = signed.caller.readOnly
     }
   }
   let sections: ConsoleAccess["sections"] = "all"
@@ -167,7 +187,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       grants = roles
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(signature ? { signature } : {}) })
+  return consoleAccessGrant.issue(mode, { mode, sections, ...(grants ? { grants } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}), ...(team ? { team } : {}), ...(surface ? { surface } : {}), ...(confirmed ? { confirmed } : {}), ...(readOnly ? { readOnly } : {}), ...(signature ? { signature } : {}) })
 }
 
 /** The page tool roles of a checked access, from `grants` of `console.authorize`, or `undefined` for every role. */
@@ -316,7 +336,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
   routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
-  if (typeof handler !== "function") throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
+  if (typeof handler !== "function") throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ACCESS_HANDLER_INVALID()
   assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {

@@ -8,7 +8,8 @@ import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ResultError } from "@vite-hub/runtime"
 import type { EmailClient, EmailDefinition, EmailErrorCode, EmailProviderError, EmailProviderErrorCode } from "./types.ts"
 
-const errorCodes: Record<Exclude<EmailProviderErrorCode, "NOT_CONFIGURED">, EmailErrorCode> = {
+// Only `email.send({ template })` returns `EMAIL_TEMPLATE_RENDER_FAILED`. No driver failure maps to it.
+const errorCodes: Record<Exclude<EmailProviderErrorCode, "NOT_CONFIGURED">, Exclude<EmailErrorCode, "EMAIL_TEMPLATE_RENDER_FAILED">> = {
   AUTH: "EMAIL_AUTHENTICATION",
   CANCELLED: "EMAIL_PROVIDER_FAILED",
   INVALID_OPTIONS: "EMAIL_INVALID_MESSAGE",
@@ -37,7 +38,7 @@ const removedFields: Record<string, string> = {
   react: renderFirst,
   sandbox: "Use a test recipient or a test account of the provider.",
   stream: "Remove it.",
-  template: renderFirst,
+  template: "`createEmail()` clients do not render templates. Send it with `email.send({ template })`, or render it and pass `html` or `text`.",
   tracking: "Set tracking in the provider dashboard.",
 }
 

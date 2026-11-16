@@ -85,7 +85,7 @@ if (error) showFieldErrors(error.issues)
 
 ## Vue
 
-`@vite-hub/forms/vue` needs `vue` and `@formisch/vue`. `AutoForm` draws a whole form from the Valibot object schema of the form: a label and a control for each field, the help text of `v.description()`, the honeypot, the error of each field, and the message after it is sent. It draws plain elements with `data-*` attributes, so the app styles them.
+`@vite-hub/forms/vue` needs only `vue`. `AutoForm` draws a whole form from the Valibot object schema of the form: a label and a control for each field, the help text of `v.description()`, the honeypot, the error of each field, and the message after it is sent. It draws plain elements with `data-*` attributes, so the app styles them.
 
 ```vue fragment
 <script setup lang="ts">
@@ -124,14 +124,14 @@ const { submit, errors, sent, clear } = useFormAction("contact")
 </template>
 ```
 
-`@vite-hub/forms/vue` still loads `@formisch/vue` for `AutoForm`, so install it too.
+`AutoForm` uses the same internals: it checks the schema in the browser on the values that the server reads, then sends the controls as form data.
 
-With Formisch, use `useFormSubmit()`. It sends the values and puts each server issue under its field:
+With Formisch, use `useFormSubmit()` from `@vite-hub/forms/formisch`. Only this entry needs `@formisch/vue`. It sends the values and puts each server issue under its field:
 
 ```vue fragment
 <script setup lang="ts">
 import { Field, Form, useForm } from "@formisch/vue"
-import { useFormSubmit } from "@vite-hub/forms/vue"
+import { useFormSubmit } from "@vite-hub/forms/formisch"
 
 const form = useForm({ schema: ContactSchema })
 const { send, sent } = useFormSubmit("contact", form)

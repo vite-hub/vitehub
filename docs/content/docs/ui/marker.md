@@ -13,16 +13,16 @@ icon: i-lucide-flag
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";
+import { Marker, MarkerContent, MarkerIcon } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";
+import { Marker, MarkerContent, MarkerIcon } from "vite-hub/ui";
 ```
 
 ```vue
@@ -48,7 +48,7 @@ Marker
 - `MarkerIcon` is hidden from assistive technology.
 - `as` renders a link or button.
 - Text and lines use your app's Nuxt UI tokens.
-- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so utility classes override them.
+- Default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Variants
 

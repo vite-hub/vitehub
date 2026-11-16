@@ -25,7 +25,7 @@ This block combines [`AvatarStack`](/docs/ui/avatar-stack), [`ConnectionStatus`]
 ```vue [DocumentEditor.vue]
 <script setup lang="ts">
 import { EditorContent, useEditor } from "@tiptap/vue-3";
-import type { SyncStatusValue } from "@vite-hub/ui";
+import type { SyncStatusValue } from "vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 import { computed, ref } from "vue";
 

@@ -1,4 +1,5 @@
 import type { ViteHubHost, DeploymentService } from "./deployment.ts"
+import { invariant } from "./invariant.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -453,8 +454,8 @@ export default defineRealtime({
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
       dev: unsupported("The default Node host has no Sandbox Provider. Development with the Vercel host uses Vercel Sandbox when Vercel credentials are set. The Vite or Nuxt dev server cannot host a Cloudflare Container: build, then run `wrangler dev` on the build output."),
-      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
-      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      netlify: explicit("sandboxTask.provider", "Vercel Sandbox", "The Netlify host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
+      node: explicit("sandboxTask.provider", "Vercel Sandbox", "The Node host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -554,13 +555,25 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
-  // A Sandbox Task host loads its provider SDK at build time (Cloudflare) or at run time (Vercel).
-  if (id === "sandboxTask" && (host === "vercel" || host === "cloudflare")) selected.push(sandboxProviderPackages[host])
+  // A Sandbox Task loads its provider SDK at build time (Cloudflare) or at run time (Vercel). An explicit `provider` wins over the host's.
+  const sandboxProvider = typeof options?.provider === "string" ? options.provider : host
+  if (id === "sandboxTask" && (sandboxProvider === "vercel" || sandboxProvider === "cloudflare")) selected.push(sandboxProviderPackages[sandboxProvider])
+  // On Vercel, Queue and Workflow use the Vercel provider unless the app sets another `provider`.
+  if ((id === "queue" || id === "workflow") && host === "vercel" && (options?.provider ?? "vercel") === "vercel") selected.push(...vercelProviderPackages[id])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
 
 const sandboxProviderPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
+
+/**
+ * The SDKs of the Vercel provider. Native Vercel Workflows also need `workflow` and `@workflow/builders`, but only
+ * `@vite-hub/workflow` knows when a Workflow is native, so it checks those two itself.
+ */
+const vercelProviderPackages = {
+  queue: ["@vercel/queue", "@vercel/functions"],
+  workflow: ["@vercel/functions"],
+} as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
@@ -573,7 +586,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost: ViteHu
 export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteHubHost): HostSupport {
   const definition = features[id]
   if (host !== "dev") return definition.hosts[host]
-  if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
+  invariant(appHost, "every caller of featureSupport() for the dev host passes the configured ViteHub host")
   if (id === "workflow" && appHost === "deno") return native("vercel", "Inline", "Development runs each Workflow inline unless OpenWorkflow storage or a provider is configured.", "process-local")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
 }

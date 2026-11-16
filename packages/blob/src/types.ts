@@ -1,4 +1,5 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { H3Event } from "h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -58,9 +59,10 @@ export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | Array
 export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
  * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
+ * `BLOB_INVALID_CURSOR` reports a list `cursor` that no `list()` result of the store returned.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
-export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
@@ -164,8 +166,13 @@ export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
   formKey?: string
-  /** Accept more than one file. Defaults to `true`. */
+  /** Accept more than one file. Defaults to `true`. `false` is the same as `maxFiles: 1`. */
   multiple?: boolean
+  /**
+   * The most files that `formKey` accepts. A request with more files gets an H3 400 error before the extra files are
+   * read. Defaults to no limit.
+   */
+  maxFiles?: number
   /** Validate each file with `ensureBlob()` before it is stored. */
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */
@@ -605,10 +612,10 @@ export interface BlobAuthorizedServeOptions extends BlobServeRouteOptions {
 export type BlobServeOptions = BlobPublicServeOptions | BlobAuthorizedServeOptions
 
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
-export type BlobServeAuthorize = AccessAuthorize
+export type BlobServeAuthorize = AccessAuthorize<H3Event>
 
 /** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
-export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>
 
 export interface BlobServeConfig {
   access?: "public"

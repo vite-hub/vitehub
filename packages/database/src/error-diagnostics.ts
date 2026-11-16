@@ -8,6 +8,35 @@ function fileList(files: readonly string[]): string {
   return files.map(file => `\n  - ${file}`).join("")
 }
 
+interface AmbiguousChange {
+  entity: readonly string[]
+  kind: string
+}
+
+function changeName({ entity, kind }: AmbiguousChange): string {
+  return `${kind.replaceAll("_", " ")} ${entity.join(".")}`
+}
+
+interface AmbiguousChangeRetry {
+  command: string
+  hints: readonly unknown[]
+  hintsFile?: string
+}
+
+function changeAnswers(change: AmbiguousChange, { command, hints, hintsFile }: AmbiguousChangeRetry): string {
+  const id = change.entity
+  const answers = {
+    rename: { type: "rename", kind: change.kind, from: [...id.slice(0, -1), "<old_name>"], to: id },
+    create: { type: "create", kind: change.kind, entity: id },
+  }
+  const write = (answer: object) => hintsFile ? JSON.stringify(answer) : `${command} --hints '${JSON.stringify([...hints, answer])}'`
+  return [
+    `\n  ${changeName(change)}:`,
+    `\n    rename: ${write(answers.rename)}`,
+    `\n    create: ${write(answers.create)}`,
+  ].join("")
+}
+
 interface LayerOptionsProblem {
   database: string
   files: readonly string[]
@@ -54,6 +83,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/database/diagnostics",
   codes: {
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
+    DATABASE_CHUNK_INVALID_COUNT: {
+      why: ({ min, name, value }: { min: number, name: string, value: number }) => `chunkParameters() needs \`${name}\` to be an integer of ${min} or more, not ${value}.`,
+      fix: "Pass whole numbers to `chunkParameters(values, { per, reserved, limit })`: `per` and `limit` of 1 or more, and `reserved` of 0 or more.",
+    },
+    DATABASE_CHUNK_VALUE_TOO_LARGE: {
+      why: ({ limit, per, reserved }: { limit: number, per: number, reserved: number }) => `chunkParameters() cannot fit one value: it takes ${per} bound parameters and the statement has ${reserved} more, over the limit of ${limit}.`,
+      fix: "Make `per` plus `reserved` of `chunkParameters()` at most `limit`: bind fewer parameters in the statement, or split each value over more statements.",
+    },
     DATABASE_D1_INVALID_RESPONSE: {
       why: "Cloudflare D1 returned an invalid response shape, such as a different number of results than the number of queries or malformed rows.",
       fix: "Retry the query. If it fails again, open a ViteHub issue with the query and the D1 HTTP response.",
@@ -123,7 +160,23 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: ({ choices }: { choices: readonly string[] }) => `Pass the database name, for example \`useDatabase(${JSON.stringify(choices[0])})\`.`,
     },
 
+    // Generate errors. `vitehub database generate` prints them and exits with code 2.
+    DATABASE_GENERATE_AMBIGUOUS_CHANGE: {
+      why: ({ changes, database }: { changes: readonly AmbiguousChange[], database: string }) => `The Definitions of the database "${database}" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, \`vitehub database generate\` cannot ask, so it wrote no migration.${changes.length ? `\nThe changes to answer:${fileList(changes.map(changeName))}` : " Drizzle Kit lists the changes above."}`,
+      fix: ({ changes, ...retry }: AmbiguousChangeRetry & { changes: readonly AmbiguousChange[] }) => [
+        "Answer each change with a hint and run the command again. A rename keeps the data. A create adds an empty column or table, and the migration drops the removed one with its data.",
+        changes.length
+          ? `Replace <old_name> with the removed name. ${retry.hintsFile ? `Add one answer per change to the array in ${retry.hintsFile}, then run ${retry.command} --hints-file ${retry.hintsFile}:` : "With several changes, put one answer per change in the same array:"}${changes.map(change => changeAnswers(change, retry)).join("")}`
+          : `Copy the answers that Drizzle Kit printed into ${retry.command} --hints '[...]'.`,
+        "In a terminal without CI or --non-interactive, the command asks instead.",
+      ].join("\n"),
+    },
+
     // Migration errors. `vitehub database migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
+    DATABASE_D1_MIGRATION_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `D1 migration failed for the database "${database}". ${problem}`,
+      fix: "Fix the SQL of the failed migration, or set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` and `cloudflare.databaseId` (or the `url` and `authToken` of object-form `cloudflare.http`) to values that can edit D1. Then run `vitehub database migrate` again.",
+    },
     DATABASE_D1_MIGRATION_INVALID: {
       why: ({ problem }: { problem: string }) => `D1 migration history is invalid. ${problem}`,
       fix: "Restore the migration folders and d1-migrations.json from version control. Keep the Wrangler file names of applied migrations, and give each new migration a unique file name before generating, building, or migrating again.",
@@ -258,7 +311,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
-      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
+      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
       why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
@@ -280,7 +333,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: "database" | "list" }) => problem === "list"
         ? "Cloudflare returned an invalid D1 database list during provisioning."
         : "Cloudflare returned an invalid D1 database during provisioning.",
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
     DATABASE_INVALID_RELATIONS: {
       why: ({ database, field, reason, table }: { database: string, field?: string, reason: "missing" | "replaced", table: string }) => {
@@ -306,6 +359,24 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_WRANGLER_BINDING_CONFLICT: {
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
       fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
+    },
+
+    // Setup errors. ViteHub throws them when the Wrangler config or the project packages do not fit the Database.
+    DATABASE_D1_MIGRATIONS_DIR_INVALID: {
+      why: "D1 migrations_dir must be a relative directory inside Nitro's server output.",
+      fix: "Set `migrations_dir` of the D1 binding in the Wrangler config to a relative folder, such as `migrations`, or remove it so that ViteHub picks the folder.",
+    },
+    DATABASE_D1_MIGRATIONS_DIR_OVERLAP: {
+      why: ({ first, second }: { first: string, second: string }) => `D1 migration directories overlap for bindings ${first} and ${second}; configure an exclusive migrations_dir for each binding.`,
+      fix: "Give each D1 binding in the Wrangler config its own `migrations_dir` folder, so that no folder is the same as another or inside it.",
+    },
+    DATABASE_NUXT_CONTENT_D1_MISSING: {
+      why: "Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.",
+      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_id` in the Wrangler config, or add a Database Definition in `server/databases/`.",
+    },
+    DATABASE_POSTGRES_DRIVER_MISSING: {
+      why: ({ name }: { name: "pg" | "postgres" }) => `Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`,
+      fix: "Install the Postgres driver that the message names in the project: `pnpm add postgres`, or `pnpm add pg` for a Database with `driver: \"node-postgres\"`.",
     },
   },
 })

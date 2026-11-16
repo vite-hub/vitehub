@@ -105,6 +105,7 @@
     "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
     "happy-dom": "21.0.3",
+    "linkedom": "^0.18.13",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
@@ -122,7 +123,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "comark": "^0.8.1 || ^0.9.0",
-    "comark-ui": "^0.9.1 || ^0.10.0",
+    "comark-ui": "^0.12.0",
     "nuxt": "catalog:nuxt-compat",
     "vue": "catalog:vue-compat"
   },

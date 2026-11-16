@@ -23,6 +23,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 | `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
+| `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 
@@ -280,6 +281,35 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 
 Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
 
+## The ui-sdk set
+
+The styled parts render a few Nuxt UI components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, and `UDropdownMenu`. `uiSdkComponents` holds the same names built on [ui-sdk](https://ui-sdk.dev), styled by the `@vite-hub/kit` style family. Give it to `createViteHubUI()`, and a page with these parts loads no Nuxt UI component:
+
+```ts
+// src/main.ts
+import { createViteHubUI, uiSdkComponents } from "@vite-hub/ui";
+import { createApp } from "vue";
+import App from "./App.vue";
+import "./assets/main.css";
+
+createApp(App).use(createViteHubUI({ components: uiSdkComponents })).mount("#app");
+```
+
+```css
+/* src/assets/main.css */
+@layer theme, base, comark, ui-sdk, components, utilities;
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+@import "@vite-hub/ui/styles.css";
+```
+
+- `UIcon` draws the Lucide icons that the parts use. To show other names, such as your own in `createViteHubUI({ icons })`, pass your own `UIcon` too: `{ ...uiSdkComponents, UIcon: MyIcon }`.
+- The buttons and fields keep the kit's `data-slot` (`button`, `input`), so a part's own name moves to `data-part`, for example `data-part="copy-button"`.
+- The parts still import Nuxt UI with `import()` for a name that no component replaces, so the build must resolve `@nuxt/ui`. Install it, or resolve `@nuxt/ui/*` to an empty module. The page never loads it.
+- The editor parts of `@vite-hub/ui/markdown-editor` have no ui-sdk version yet.
+
+`pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard.
+
 ## Verify the setup
 
 Render a public component directly:
@@ -309,7 +339,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 ## Documentation
 
-- [UI overview and layer ownership](https://vitehub.dev/docs/ui)
+- [AI components overview and layer ownership](https://vitehub.dev/docs/ui/ai-components)
 - [Installation and package defaults](https://vitehub.dev/docs/ui/installation)
 - [Icons](https://vitehub.dev/docs/ui/installation#icons): the parts read Nuxt UI's `appConfig.ui.icons` and, for names Nuxt UI does not have, `appConfig.viteHubUI.icons`
 - [Chat and transport boundary](https://vitehub.dev/docs/ui/chat)

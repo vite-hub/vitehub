@@ -165,7 +165,7 @@ When the Channel declares message methods, also return `message`: JSON that iden
 
 ### Ignore a webhook
 
-Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts.
+Return `ignored(reason)` for an event that the Channel does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry and no Invocation starts. The `completed` or `rejected` event of the Channel delivery record keeps the `reason`.
 
 ```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
@@ -178,6 +178,8 @@ defineChannelTrigger({
   },
 })
 ```
+
+The GitHub Channel uses the same answer for code that runs on pull request comments and reviews. See [Run code on pull request comments and reviews](/docs/agents/channels#run-code-on-pull-request-comments-and-reviews).
 
 Two other helpers answer `{ accepted: false, ok: false, reason }` and start no Invocation.
 
@@ -346,7 +348,7 @@ The queue or the Agent State store failed while it queued or cancelled the task.
 
 #### CHANNEL_TASK_REJECTED
 
-The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
+The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem. `error.cause` is the Agent error, such as `AGENT_CHANNEL_TASK_UNDECLARED`, and its `fix` says what to change.
 
 ### Report a failed webhook delivery
 

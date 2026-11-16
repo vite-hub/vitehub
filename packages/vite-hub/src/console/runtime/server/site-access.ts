@@ -1,11 +1,12 @@
 import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
-import { viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
+import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { readConsoleAccessGrants, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
 
 import type { ViteHubPageGrant } from "@vite-hub/internal/runtime/page-tools"
+import { siteStateCookie } from "../site-access.ts"
 import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
 
 /**
@@ -75,14 +76,27 @@ function targetPath(record: ConsoleTicketRecord): string | undefined {
   return url.origin === record.origin ? url.href : undefined
 }
 
+/** The page with `?vitehub`, which opens the pill, before its hash. A page that already has the query keeps it. */
+export function withPageTools(page: string): string {
+  const hash = page.indexOf("#")
+  const path = hash === -1 ? page : page.slice(0, hash)
+  const query = path.indexOf("?")
+  if (query !== -1 && new URLSearchParams(path.slice(query)).has(viteHubPageToolsQuery)) return page
+  return `${path}${query === -1 ? "?" : "&"}${viteHubPageToolsQuery}${hash === -1 ? "" : page.slice(hash)}`
+}
+
 /**
  * Redeem a `page.member` or `page.guest` ticket: find or make the user, add the roles, start a Better Auth session for
- * the browser, and go to the page. The `vitehub_session` marker and the reset page tools hint make the next page ask
- * the session route again, as after a sign-in.
+ * the browser, and go to the page with `?vitehub`, which opens the pill. The `vitehub_session` marker and the reset page
+ * tools hint make the next page ask the session route again, as after a sign-in.
  */
 export async function openSiteSession(record: ConsoleTicketRecord, request: Request, event: ConsoleRequestEvent): Promise<Response> {
   const location = targetPath(record)
   if (!location) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
+  const bound = record.target.state
+  if (bound && bound !== await stateHash(readCookie(request, siteStateCookie) ?? "")) {
+    return ticketProblem(403, "CONSOLE_TICKET_MISMATCH", "This link was made for another browser.", "Open /_vitehub of the app in this browser.")
+  }
   const guest = record.purpose === "page.guest"
   const name = guest ? record.target.name : record.person.name ?? record.person.email
   if (!name) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
@@ -97,7 +111,7 @@ export async function openSiteSession(record: ConsoleTicketRecord, request: Requ
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
-  return seeOther(location, headers)
+  return seeOther(withPageTools(location), headers)
 }
 
 /** A page path of the app, such as `/runs/42`. */
@@ -107,11 +121,24 @@ function pagePath(path: string | undefined): string {
   return path
 }
 
+function readCookie(request: Request, name: string): string | undefined {
+  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+    const [key, ...value] = part.trim().split("=")
+    if (key === name) return value.join("=")
+  }
+  return undefined
+}
+
+async function stateHash(state: string): Promise<string> {
+  return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(state))))
+}
+
 /**
  * `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. The roles
- * are the `grants` that `console.authorize` returned for this call, or every page tool role.
+ * are the `grants` that `console.authorize` returned for this call, or every page tool role. With `state`, from
+ * `GET /_vitehub`, it works only in the browser that has that state cookie.
  */
-export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean }): Promise<ConsoleTicket> {
+export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean, state?: string }): Promise<ConsoleTicket> {
   await auth(contextRequest(context), context.event)
   const grants = readConsoleAccessGrants(context.access)
   if (grants) {
@@ -119,7 +146,7 @@ export async function linkSite(context: SiteContext, input: { path?: string, qr?
     const unknown = grants.filter(grant => !known.has(grant))
     if (unknown.length) throw consoleRequestError(500, `console.authorize returned grants that no page tool of this app gives: ${unknown.join(", ")}. Read the roles with site.grants.`)
   }
-  const target = { path: pagePath(input.path).slice(1), ...(grants ? { grants: grants.join(",") } : {}) }
+  const target = { path: pagePath(input.path).slice(1), ...(grants ? { grants: grants.join(",") } : {}), ...(input.state ? { state: await stateHash(input.state) } : {}) }
   return await issueConsoleTicket(context, "page.member", target, input.qr ? { lifetime: qrLinkLifetime } : {})
 }
 

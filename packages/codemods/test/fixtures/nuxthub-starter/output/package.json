@@ -16,11 +16,11 @@
     "@nuxt/eslint": "^1.13.0",
     "@upstash/redis": "^1.36.2",
     "@vercel/blob": "^2.0.1",
-    "@vite-hub/database": "^0.1.0",
-    "drizzle-kit": "^1.0.0-rc.5",
-    "drizzle-orm": "^1.0.0-rc.5",
+    "@vite-hub/database": "^<version>",
+    "drizzle-kit": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "nuxt": "^4.3.0",
-    "vite-hub": "^0.1.0"
+    "vite-hub": "^<version>"
   },
   "devDependencies": {
     "@nuxt/eslint-config": "^1.13.0",

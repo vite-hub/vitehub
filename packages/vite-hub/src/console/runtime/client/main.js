@@ -8,6 +8,7 @@ import { createApp, watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
+const ConsoleAppSettings = () => import("../components/console-app-settings.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleCache = () => import("../components/console-cache.vue");
@@ -35,9 +36,9 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
-import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
+import { consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
 // their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
@@ -68,13 +69,15 @@ if (account) {
         view("shell", () => import("../components/console-account-shell.vue")),
         // A page with its own data starts that load too, so the first paint after the frame is the whole page.
         ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue")), import("./account").then(module => module.earlyConsoleTeam.start(), () => undefined)] : []),
+        ...(/^\/team-settings\/?$/.test(window.location.pathname) ? [view("teamSettings", () => import("../components/console-account-team-settings.vue"))] : []),
+        ...(/^\/env\/?$/.test(window.location.pathname) ? [view("env", () => import("../components/console-account-env.vue"))] : []),
         ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue")), import("./account").then(module => module.earlyConsoleSignInState.start(), () => undefined)] : []),
       ]
     : boot === "sign-in" || boot === "invite"
       ? [view("signIn", () => import("../components/console-account-sign-in.vue")), import("./account").then(module => module.loadConsoleSignInMethods(), () => undefined)]
       : [];
   const [address] = await Promise.all([
-    startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
+    startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, hash: window.location.hash, showPath: (path) => {
       if (window.location.pathname !== path) window.history.pushState(null, "", path);
     } }),
     ...views,
@@ -82,8 +85,18 @@ if (account) {
   const projects = useConsoleProjects();
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
   // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
-  if (projects.gate.value.kind === "opening") {
-    await Promise.race([openConsoleProject().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 2_500))]);
+  // A `/_vitehub` link returns to the app as soon as it answers.
+  if (projects.gate.value.kind === "site") void openConsoleSite();
+  else if (projects.gate.value.kind === "opening") {
+    const opening = openConsoleProject().catch(() => undefined);
+    // While the app answers, the code of its first frame loads: the team menu and the app switcher of the rail, and the
+    // Overview on the home path. The timer lets the request to the app go out first.
+    setTimeout(() => {
+      void import("../components/console-account-menu.vue").catch(() => undefined);
+      void import("../components/console-account-link.vue").catch(() => undefined);
+      if (window.location.pathname === consoleBase) void ConsoleHome().catch(() => undefined);
+    });
+    await Promise.race([opening, new Promise(resolve => setTimeout(resolve, 2_500))]);
   }
   // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
   watch(() => projects.gate.value.kind, (kind) => {
@@ -110,7 +123,7 @@ else {
     storage: memoryProjectStorage(),
   });
 }
-const sectionsBase = "/_vitehub/api/sections";
+const sectionsBase = consoleSectionsPath;
 const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 
 const router = createRouter({
@@ -157,6 +170,13 @@ const router = createRouter({
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
+    },
+    {
+      component: ConsoleAppSettings,
+      name: "vitehub-console-app-settings",
+      path: "/app-settings/:section(primitives|connection|danger)?",
+      meta: { title: "Settings · ViteHub Console" },
+      props: { sectionsBase },
     },
     {
       component: ConsoleApp,

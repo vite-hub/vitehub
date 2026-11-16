@@ -50,7 +50,7 @@ A provider failure is usually missing credentials, missing Provision State
 for the host). Dry-run provisioning, then build and inspect the output.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 pnpm build
 pnpm vitehub inspect output
 ```

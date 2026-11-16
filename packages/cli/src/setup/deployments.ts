@@ -9,8 +9,8 @@ import { listDenoDeployments } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { listNetlifyDeployments } from "./deploy/netlify.ts"
 import { listVercelDeployments } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { readSetupLink } from "./link.ts"
+import { isSetupFailure, setupExitCodes, setupFailure, table, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -18,7 +18,7 @@ import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { DeployCommit, DeployRun, DeploymentsContext, HostDeployment, ListDeployments } from "./deploy/host.ts"
 import type { SetupLink, SetupLinkHost } from "./link.ts"
 
-const usage = "vitehub deployments [--limit <n>] [--json]"
+const usage = "vitehub deployments [--host <host>] [--limit <n>] [--json]"
 
 const listers: Record<SetupLinkHost, ListDeployments> = {
   cloudflare: listCloudflareDeployments,
@@ -86,15 +86,16 @@ function readDeploymentsArgs(args: readonly string[]) {
       args: [...args],
       options: {
         help: { short: "h", type: "boolean", default: false },
+        host: { type: "string" },
         json: { type: "boolean", default: false },
         limit: { type: "string" },
       },
       strict: true,
     })
-    return { help: values.help, json: values.json, limit: readLimit(values.limit) }
+    return { help: values.help, host: readLinkHostOption(values.host), json: values.json, limit: readLimit(values.limit) }
   }
   catch (error: unknown) {
-    if (error instanceof Error && "why" in error) throw error
+    if (isSetupFailure(error) || (error instanceof Error && "why" in error)) throw error
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
@@ -114,13 +115,15 @@ function writeDeployments(output: SetupDeploymentsOutput, context: ViteHubCliCon
   ])}\n`)
 }
 
-async function runDeployments(limit: number, json: boolean, context: ViteHubCliContext): Promise<number> {
+async function runDeployments(host: SetupLinkHost | undefined, limit: number, json: boolean, context: ViteHubCliContext): Promise<number> {
   const project = await readSetupProject(context.rootDir, context.env)
-  const link = await readSetupLink(project.root)
-  if (!link) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED(), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: "vitehub link" })
+  const selected = selectSetupLink(await readSetupLinks(project.root), host)
+  if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, "vitehub deployments")
+  const link = selected.link
+  if (!link) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
   const credentials = await resolveHostCredentials(link.host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   if (!credentials.ok) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),
     })
   }
@@ -133,7 +136,7 @@ async function runDeployments(limit: number, json: boolean, context: ViteHubCliC
 }
 
 export const deploymentsCommand: ViteHubCliCommand = {
-  description: "List the deployments of the linked project, read from the host each time. Marks the one that receives production traffic.",
+  description: "List the deployments of the linked project, read from the host each time. Marks the one that receives production traffic. --host picks a linked host other than the default.",
   name: "deployments",
   run: async (args, context) => {
     const json = args.includes("--json")
@@ -143,7 +146,7 @@ export const deploymentsCommand: ViteHubCliCommand = {
         context.stdout.write(`Usage: ${usage}\n\n${deploymentsCommand.description}\n`)
         return setupExitCodes.done
       }
-      return await runDeployments(parsed.limit, parsed.json, context)
+      return await runDeployments(parsed.host, parsed.limit, parsed.json, context)
     }
     catch (error: unknown) {
       return writeSetupError(context, json, error)

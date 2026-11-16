@@ -229,14 +229,14 @@ describe("vitehub-options transform", () => {
   })
 
   it.each([
-    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n"],
-    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub()], sandboxTask: { provider: 'cloudflare' } }\n"],
-    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { provider: 'cloudflare' } } })\n"],
-    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', {}]], vite: { sandboxTask: taskOptions } })\n"],
-  ])("reports Sandbox Task options for manual migration in %s", (file, input) => {
+    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n", "import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({host:'cloudflare',sandboxTask:{provider:'cloudflare'},})]}"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { provider: 'cloudflare' } } })\n", "exportdefaultdefineNuxtConfig({modules:['vite-hub/nuxt'],vitehub:{sandboxTask:{provider:'cloudflare'},},vite:{}})"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', {}]], vite: { sandboxTask: taskOptions } })\n", "exportdefaultdefineNuxtConfig({modules:[['vite-hub/nuxt',{sandboxTask:taskOptions,}]],vite:{}})"],
+  ])("moves Sandbox Task options into the framework options in %s", (file, input, output) => {
     const result = migrateViteHubOptions(file, input)
-    expect(result).toMatchObject({ changed: false, code: input })
-    expect(result.followUps).toEqual([expect.objectContaining({ file, message: expect.stringContaining("hubSandboxTask()") })])
+    expect(result.changed).toBe(true)
+    expect(result.code.replace(/\s+/g, "")).toBe(output)
+    expect(result.followUps).toEqual([])
   })
 
   it.each(["true", "false"])("migrates boolean Sandbox Task enablement: %s", (value) => {
@@ -291,6 +291,42 @@ describe("vitehub-options transform", () => {
     expect(result.followUps.map(followUp => followUp.message)).toEqual([
       expect.stringContaining("logs is an expression"),
       expect.stringContaining("vitehub({ env: false }) turns Env off"),
+    ])
+  })
+
+  it("renames preset to host in a Nuxt config and keeps an expression value", () => {
+    const input = lines(
+      "export default defineNuxtConfig({",
+      "  modules: ['vite-hub/nuxt', 'nuxt-og-image'],",
+      "  vitehub: { preset: process.env.VERCEL ? 'vercel' : 'cloudflare' },",
+      "})",
+    )
+    expect(migrateViteHubOptions("nuxt.config.ts", input)).toMatchObject({
+      changed: true,
+      code: input.replace("preset:", "host:"),
+      followUps: [],
+    })
+  })
+
+  it.each([
+    ["vitehub({ preset: 'cloudflare' })", "vitehub({ host: 'cloudflare' })"],
+    ["vitehub({ preset })", "vitehub({ host: preset })"],
+    ["vitehub({ 'preset': 'vercel', sandbox: true })", "vitehub({ host: 'vercel', sandboxTask: true })"],
+    ["vitehub({ host: 'node', devtools: true })", "vitehub({ host: 'node' })"],
+    ["vitehub({ ['preset']: 'node', ['sandbox']: true })", "vitehub({ host: 'node', sandboxTask: true })"],
+  ])("renames the removed vitehub() options in %s", (from, to) => {
+    const input = `import { vitehub } from 'vite-hub'\nconst preset = 'node'\nexport default { plugins: [${from}] }\n`
+    expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: true, code: input.replace(from, to), followUps: [] })
+  })
+
+  it("reports preset next to host, sandbox options, and cloudflare", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'node', host: 'node', sandbox: { cpu: 2 }, cloudflare: { secretsFile: '.env.prod' } })] }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(false)
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([
+      expect.stringContaining("Both preset and host are set"),
+      expect.stringContaining("sandbox is now sandboxTask"),
+      expect.stringContaining("cloudflare.secretsFile was removed"),
     ])
   })
 

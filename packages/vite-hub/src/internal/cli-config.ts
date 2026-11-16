@@ -4,6 +4,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
 import type { ConfigEnv, InlineConfig, ResolvedConfig } from "vite"
 
@@ -81,7 +82,9 @@ export async function loadViteHubCliConfig(
   const options: Parameters<LoadNuxt>[0] = {
     cwd: rootDir,
     dev: command === "serve",
-    ...(mode ? { envName: mode } : {}),
+    // Nuxt reads `$development` and `$production` from NODE_ENV, which `nuxt dev` and `nuxt build` set and a CLI command
+    // does not. Without it, discovery would resolve another config than the dev server and rewrite its generated files.
+    envName: resolvedMode,
     overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
   }
@@ -93,7 +96,7 @@ export async function loadViteHubCliConfig(
     const viteRoot = resolve(nuxtRoot, config.vite?.root || nuxtRoot)
     const envDir = config.vite?.envDir === false ? false : resolve(viteRoot, config.vite?.envDir || ".")
     const { loadEnv } = await import("vite")
-    Object.assign(process.env, loadEnv(mode, envDir, ""))
+    Object.assign(process.env, loadAllEnv(loadEnv, mode, envDir))
     options.dotenv = false
   }
   const nuxt = await loadNuxt(options)

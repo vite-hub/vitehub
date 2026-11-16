@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
 | `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization` from `vite-hub/auth/server` | Check the session inside a handler. They return the checked session or throw an HTTP error. |
+| `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
 | `useAbility`, `Can`, `Cannot` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
@@ -241,7 +242,7 @@ export default defineAuth({
 })
 ```
 
-The callback receives the signed-in `user`, `session`, and request. ViteHub defines no admin role, so check your own roles or permissions here.
+The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no admin role, so check your own roles or permissions here.
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 

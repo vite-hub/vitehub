@@ -10,8 +10,8 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
-import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
+import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
+import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -27,7 +27,7 @@ interface ViteHubCliContext {
   env?: NodeJS.ProcessEnv
   fetch?: typeof fetch
   rootDir: string
-  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
+  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdin?: "ignore" | "inherit", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null, stdout?: string }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -57,6 +57,11 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
     "                     of the previous one, for SQL that changes only data.",
     "  --schema-snapshot  With --custom, write the snapshot of the current Database",
     "                     Definitions instead, for SQL that changes the tables to them.",
+    "  --hints <json>     Answer the rename or create questions of Drizzle Kit ahead of",
+    "                     time, as a JSON array. --hints-file <file> reads it from a file.",
+    "  --non-interactive  Never ask. Without a terminal, or with CI set, this is the default.",
+    "                     A question that has no hint fails with",
+    "                     DATABASE_GENERATE_AMBIGUOUS_CHANGE and exit code 2.",
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
@@ -110,6 +115,8 @@ function writeUpUsage(context: ViteHubCliContext): void {
     "migration. It runs `drizzle-kit up` on the migrations folder of each Database",
     "Definition. Folders that already use the 1.0 layout stay as they are. Applied",
     "migrations stay applied: `vitehub database migrate` and Wrangler keep their ledger rows.",
+    "On SQLite, the snapshots record the unique indexes of 0.x `.unique()` columns as",
+    "the UNIQUE constraints of the Definitions, so the next generate keeps the tables.",
     "",
     "Options:",
     "  -h, --help         Show this help.",
@@ -141,7 +148,7 @@ function writeSeedUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]]"
+const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]] [--hints <json> | --hints-file <file>] [--non-interactive]"
 
 const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
 
@@ -195,7 +202,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
   let env = context.env ?? process.env
   if (parsed.stage) {
     const { loadEnv } = await import("vite")
-    env = { ...loadEnv(parsed.stage, projectRoot, ""), ...env }
+    env = { ...loadAllEnv(loadEnv, parsed.stage, projectRoot), ...env }
   }
   const { describeExportTarget, exportDatabase } = await import("./internal/export.ts")
   const time = new Date().toISOString().replaceAll(":", "").replaceAll(".", "")
@@ -209,7 +216,8 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
     }
     catch (error) {
       const problem = error instanceof Error ? error.message : String(error)
-      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem }))}\n`)
+      const failure = isRuntimeDiagnostic(error) && error.code === "DATABASE_EXPORT_FAILED" ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
+      context.stderr.write(`${formatRuntimeDiagnosticError(failure)}\n`)
       return 1
     }
   }
@@ -227,7 +235,7 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
   return await withViteStageEnvironment(env, async () => {
     if (parsed.stage) {
       const { loadEnv } = await import("vite")
-      env = { ...loadEnv(parsed.stage, context.rootDir, ""), ...env }
+      env = { ...loadAllEnv(loadEnv, parsed.stage, context.rootDir), ...env }
       Object.assign(process.env, env)
     }
     const config = await getConfig?.({ strict: false })
@@ -264,7 +272,7 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
   })
 }
 
-const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--schema-snapshot"])
+const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--non-interactive", "--schema-snapshot"])
 
 function forwardDrizzleArgs(args: string[]) {
   return args.filter(arg => arg !== "-h" && arg !== "--help" && !viteHubFlags.has(arg))
@@ -430,13 +438,12 @@ async function runDrizzleKit(
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
-    const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
-    const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
+    const foldersBefore = feature === "generate" && migrationsDir ? await listMigrationFolders(migrationsDir) : []
+    const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), database: run.database?.name ?? "default", projectRoot })
     if (result !== 0) return result
-    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && run.database.cloudflare) {
-      // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
-      const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
-      recordD1MigrationNames(migrationsDir)
+    if (feature === "generate" && migrationsDir) {
+      const { orderGeneratedMigrations } = await import("./internal/contributed-migrations.ts")
+      orderGeneratedMigrations(migrationsDir, foldersBefore)
     }
     if (schemaSnapshot) {
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
@@ -448,6 +455,22 @@ async function runDrizzleKit(
       const folder = (await listMigrationFolders(migrationsDir)).find(name => !foldersBefore.includes(name))
       const snapshot = await writeSchemaSnapshot(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), folder, migrationsDir, projectRoot })
       if (snapshot !== 0) return snapshot
+    }
+    if (feature === "generate" && migrationsDir && run.database) {
+      // Contributed SQL goes after the migrations that Drizzle Kit just wrote, so their order never changes.
+      const contributed = config?.migrationContributionsByDatabase?.[run.database.name] ?? []
+      if (contributed.length) {
+        const { describeContributedMigration, planContributedMigrations, writeContributedMigrations } = await import("./internal/contributed-migrations.ts")
+        const { pending } = planContributedMigrations(migrationsDir, contributed, run.database.dialect)
+        writeContributedMigrations(migrationsDir, pending).forEach((folder, index) => {
+          context.stdout.write(`[vitehub] Database "${run.database!.name}": added the migration ${relative(projectRoot, join(migrationsDir, folder))} from ${describeContributedMigration(pending[index]!)}.\n`)
+        })
+      }
+      if (run.database.dialect === "sqlite" && run.database.cloudflare) {
+        // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
+        const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
+        recordD1MigrationNames(migrationsDir)
+      }
     }
   }
   return 0
@@ -520,6 +543,10 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
       return result.exitCode || 1
     }
     context.stdout.write(`[vitehub] Database "${database.name}": converted ${folder} to the layout of Drizzle Kit 1.0. Commit the new folders.\n`)
+    if (dialect === "sqlite") {
+      const configFile = config.databaseNames.length > 1 ? config.generatedDrizzleConfigFilesByDatabase[database.name]! : config.generatedDrizzleConfigFile
+      await recordConvertedUniques(context, { bin, configFile: resolve(projectRoot, configFile), database: database.name, migrationsDir: dir, projectRoot })
+    }
   }
   return 0
 }
@@ -530,17 +557,13 @@ async function listMigrationFolders(migrationsDir: string): Promise<string[]> {
 }
 
 /**
- * Drizzle Kit copies the previous snapshot into a custom migration, because it expects SQL that changes only data.
- * For SQL that changes the tables, such as the Comments upgrade, this replaces that copy with the snapshot of the
- * current Database Definitions. Drizzle Kit writes the full snapshot only for a first migration, so it runs once more
- * into an empty directory. The new snapshot keeps its `id` and `prevIds`, so the migration history stays one chain.
+ * The snapshot of the current Database Definitions. Drizzle Kit writes the full snapshot only for a first migration, so
+ * it runs once more into an empty directory. Undefined when Drizzle Kit fails.
  */
-async function writeSchemaSnapshot(
+async function readSchemaSnapshot(
   context: ViteHubCliContext,
-  { bin, configFile, folder, migrationsDir, projectRoot }: { bin: string, configFile: string, folder: string | undefined, migrationsDir: string, projectRoot: string },
-): Promise<number> {
-  // Drizzle Kit writes each snapshot beside its migration, in `folder` for the custom migration.
-  const target = join(migrationsDir, folder ?? "", "snapshot.json")
+  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+): Promise<Record<string, unknown> | undefined> {
   await mkdir(resolve(projectRoot, ".vitehub/database"), { recursive: true })
   const dir = await mkdtemp(resolve(projectRoot, ".vitehub/database/schema-snapshot-"))
   try {
@@ -553,18 +576,60 @@ async function writeSchemaSnapshot(
       stdout: "pipe",
     })
     const generated = (await listMigrationFolders(join(dir, "out")))[0]
-    if (result.exitCode !== 0 || !folder || !generated) {
-      context.stderr.write(`[vitehub] drizzle-kit could not write the snapshot of the current Database Definitions for ${relative(projectRoot, target)}. See the drizzle-kit output above.\n`)
-      return result.exitCode || 1
-    }
-    const copied = JSON.parse(await readFile(target, "utf8")) as { id: string, prevIds: string[] }
-    const current = JSON.parse(await readFile(join(dir, "out", generated, "snapshot.json"), "utf8")) as Record<string, unknown>
-    await writeFile(target, JSON.stringify({ ...current, id: copied.id, prevIds: copied.prevIds }, null, 2))
-    return 0
+    if (result.exitCode !== 0 || !generated) return undefined
+    return JSON.parse(await readFile(join(dir, "out", generated, "snapshot.json"), "utf8")) as Record<string, unknown>
   }
   finally {
     await rm(dir, { force: true, recursive: true })
   }
+}
+
+/**
+ * Drizzle Kit copies the previous snapshot into a custom migration, because it expects SQL that changes only data.
+ * For SQL that changes the tables, such as the Comments upgrade, this replaces that copy with the snapshot of the
+ * current Database Definitions. The new snapshot keeps its `id` and `prevIds`, so the migration history stays one chain.
+ */
+async function writeSchemaSnapshot(
+  context: ViteHubCliContext,
+  { bin, configFile, folder, migrationsDir, projectRoot }: { bin: string, configFile: string, folder: string | undefined, migrationsDir: string, projectRoot: string },
+): Promise<number> {
+  // Drizzle Kit writes each snapshot beside its migration, in `folder` for the custom migration.
+  const target = join(migrationsDir, folder ?? "", "snapshot.json")
+  const current = folder ? await readSchemaSnapshot(context, { bin, configFile, projectRoot }) : undefined
+  if (!current) {
+    context.stderr.write(`[vitehub] drizzle-kit could not write the snapshot of the current Database Definitions for ${relative(projectRoot, target)}. See the drizzle-kit output above.\n`)
+    return 1
+  }
+  const copied = JSON.parse(await readFile(target, "utf8")) as { id: string, prevIds: string[] }
+  await writeFile(target, JSON.stringify({ ...current, id: copied.id, prevIds: copied.prevIds }, null, 2))
+  return 0
+}
+
+/**
+ * After `drizzle-kit up` on a SQLite folder, records the unique indexes that Drizzle Kit 0.x wrote for `.unique()`
+ * columns as the UNIQUE constraints of the current Definitions, so the next `generate` does not rebuild these tables.
+ */
+async function recordConvertedUniques(
+  context: ViteHubCliContext,
+  { bin, configFile, database, migrationsDir, projectRoot }: { bin: string, configFile: string, database: string, migrationsDir: string, projectRoot: string },
+): Promise<void> {
+  const schema = await readSchemaSnapshot(context, { bin, configFile, projectRoot })
+  if (!Array.isArray(schema?.ddl)) {
+    context.stderr.write(`[vitehub] Database "${database}": drizzle-kit could not read the current Database Definitions, so the converted snapshots keep each \`.unique()\` column of Drizzle Kit 0.x as a unique index. If the next \`vitehub database generate\` rebuilds tables only to add UNIQUE constraints, declare these columns with \`uniqueIndex()\` and the index names of the old migrations.\n`)
+    return
+  }
+  const { recordUniqueIndexesAsConstraints } = await import("./internal/snapshot-uniques.ts")
+  let replaced = 0
+  for (const folder of await listMigrationFolders(migrationsDir)) {
+    const file = join(migrationsDir, folder, "snapshot.json")
+    if (!existsSync(file)) continue
+    const snapshot = JSON.parse(await readFile(file, "utf8")) as { ddl: Parameters<typeof recordUniqueIndexesAsConstraints>[0]["ddl"] }
+    const count = recordUniqueIndexesAsConstraints(snapshot, schema as typeof snapshot)
+    if (!count) continue
+    replaced = Math.max(replaced, count)
+    await writeFile(file, JSON.stringify(snapshot, null, 2))
+  }
+  if (replaced) context.stdout.write(`[vitehub] Database "${database}": the snapshots record ${replaced} unique ${replaced === 1 ? "index" : "indexes"} of \`.unique()\` columns as UNIQUE constraints, as Drizzle Kit 1.0 declares them. The database keeps its indexes.\n`)
 }
 
 function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
@@ -613,7 +678,9 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
     name => context.stdout.write(`[vitehub] Database "${database.name}": applied ${name}.\n`),
   )
   if (problem) {
-    context.stderr.write(`[vitehub] D1 migration failed for the database "${database.name}". ${problem}\n`)
+    context.stderr.write(isRuntimeDiagnostic(problem)
+      ? `${formatRuntimeDiagnosticError(problem)}\n`
+      : `[vitehub] D1 migration failed for the database "${database.name}". ${problem instanceof Error ? problem.message : String(problem)}\n`)
     return 1
   }
   context.stdout.write(`[vitehub] Database "${database.name}": D1 migrations are up to date.\n`)
@@ -667,11 +734,57 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
+// Drizzle Kit asks rename-or-create questions only when its stdin is a terminal.
+function generateCanAsk(args: string[], env: NodeJS.ProcessEnv): boolean {
+  if (args.includes("--non-interactive")) return false
+  if (env.CI && env.CI !== "0" && env.CI !== "false") return false
+  return !!process.stdin.isTTY
+}
+
+function generateRetry(args: string[]): { command: string, hints: unknown[], hintsFile?: string } {
+  const command = ["vitehub database generate"]
+  let hints: unknown[] = []
+  let hintsFile: string | undefined
+  for (let index = 0; index < args.length; index++) {
+    const [, option, inline] = /^(--hints(?:-file)?)(?:=(.*))?$/s.exec(args[index]!) ?? []
+    if (!option) {
+      const arg = args[index]!
+      command.push(/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`)
+      continue
+    }
+    const value = inline ?? args[++index] ?? ""
+    if (option === "--hints-file") hintsFile = value
+    else hints = JSON.parse(value) as unknown[]
+  }
+  return { command: command.join(" "), hints, ...(hintsFile ? { hintsFile } : {}) }
+}
+
+const drizzleKitMissingHintsExitCode = 2
+
+// `--explain --output json` writes no migration and prints the unanswered questions as JSON.
+async function readAmbiguousChanges(
+  args: string[],
+  context: ViteHubCliContext,
+  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+): Promise<Array<{ entity: string[], kind: string }>> {
+  const result = await context.spawn(process.execPath, [bin, "generate", "--config", configFile, ...forwardDrizzleArgs(args), "--explain", "--output", "json"], {
+    cwd: projectRoot,
+    env: context.env ?? process.env,
+    stderr: "pipe",
+    stdin: "ignore",
+    stdout: "pipe",
+  })
+  const line = result.stdout?.split("\n").findLast(line => line.startsWith("{"))
+  if (!line) return []
+  const output = JSON.parse(line) as { status?: string, unresolved?: Array<{ entity?: string[], kind?: string, type?: string }> }
+  return (output.unresolved ?? []).flatMap(item => item.type === "rename_or_create" && item.kind && item.entity ? [{ entity: item.entity, kind: item.kind }] : [])
+}
+
 async function runDrizzleKitWithConfig(
   feature: "generate" | "migrate",
   args: string[],
   context: ViteHubCliContext,
-  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+  { bin, configFile, database, projectRoot }: { bin: string, configFile: string, database: string, projectRoot: string },
 ): Promise<number> {
   const drizzleArgs = [
     bin,
@@ -685,9 +798,15 @@ async function runDrizzleKitWithConfig(
     cwd: projectRoot,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
     stderr: "inherit",
+    ...(feature === "generate" && !generateCanAsk(args, env) ? { stdin: "ignore" as const } : {}),
     stdout: "inherit",
   })
   const exitCode = result.exitCode ?? 1
+  if (feature === "generate" && exitCode === drizzleKitMissingHintsExitCode) {
+    const changes = await readAmbiguousChanges(args, context, { bin, configFile, projectRoot })
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_GENERATE_AMBIGUOUS_CHANGE({ changes, database, ...generateRetry(args) }))}\n`)
+    return exitCode
+  }
   if (exitCode !== 0) {
     context.stderr.write(`[vitehub] drizzle-kit ${feature} failed for ${configFile} (exit code ${exitCode}). See the drizzle-kit output above.\n`)
   }
