@@ -112,15 +112,14 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     // The inline run keeps the function alive through `waitUntil` until it settles.
     expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(1)
     expect(settled.status).toBe("completed")
-    expect(settled.result).toBeInstanceOf(Response)
-    await expect((settled.result as Response).json()).resolves.toEqual({ greeting: "Hello Ada" })
+    expect(settled.result).toEqual({ greeting: "Hello Ada" })
   }
   finally {
     Reflect.deleteProperty(globalThis, "__vitehubWaitUntil")
   }
 })
 
-it("gives a native entry in Nitro's server bundle the ID of the native Workflow build", async () => {
+it.each(["vite", "nitro"])("gives a native entry in %s the ID of the native Workflow build", async (pipeline) => {
   const definition = [
     "import { defineWorkflow } from '@vite-hub/workflow'",
     "",
@@ -139,8 +138,8 @@ it("gives a native entry in Nitro's server bundle the ID of the native Workflow 
   expect(startup).toContain("setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)")
   const transform = plugin.transform
   if (!transform || typeof transform === "function") throw new TypeError("Expected the hubWorkflow transform hook to be an object hook.")
-  const context = { environment: { config: { consumer: "server" } } }
-  const transformed = await transform.handler.call(context as never, definition, join(root, "server/workflows/onboard.ts"))
+  const context = pipeline === "vite" ? { environment: { config: { consumer: "server" } } } : {}
+  const transformed = await transform.handler.call(context as never, definition, join(root, "server/workflows/onboard.ts"), { moduleType: "ts", ssr: pipeline === "nitro" })
   expect(transformed).toMatchObject({ code: expect.stringContaining("workflow//./server/workflows/onboard//durableOnboard") })
 })
 

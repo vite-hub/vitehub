@@ -7,6 +7,8 @@ import { createImportPath } from "@vite-hub/internal/build/paths"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createWorkflowRegistryContents, workflowPackageName } from "./vite-build.ts"
 
+import { defaultOpenWorkflowSqlitePath } from "./openworkflow-defaults.ts"
+
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../types.ts"
 
 // Provider servers install the discovered Workflow registry in production. In
@@ -34,21 +36,33 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 
-/** `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`. */
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false): string {
+/**
+ * `dev` turns on the run history of `vite dev`. A build that installs the registry at startup passes `false`.
+ * With OpenWorkflow, the plugin also loads OpenWorkflow from the server bundle and starts its worker in this server
+ * unless `workflow.worker` is `false`.
+ */
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false, databaseImport?: string): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
+  const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
+  const runtimeConfig = dev && workflow !== false ? localDevWorkflowOptions(workflow) : workflow
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
     // Only this import brings the run history into the app, so a build never includes it.
     ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`] : []),
+    ...(openWorkflow ? [`import { installOpenWorkflow } from ${JSON.stringify(workflowRuntimeModule("openworkflow-worker"))}`] : []),
+    ...(openWorkflow && databaseImport ? [`import { getPostgresConnectionUrl } from ${JSON.stringify(databaseImport)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
-    "export default definePlugin(() => {",
-    `  setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`,
+    `export default definePlugin((${openWorkflow ? "nitroApp" : ""}) => {`,
+    `  setWorkflowRuntimeConfig(${JSON.stringify(runtimeConfig)})`,
     "  setWorkflowRuntimeRegistry(registry)",
     ...(dev ? ["  enableWorkflowDevRuns()"] : []),
+    // OpenWorkflow reads the runtime config and registry, so it is installed after them.
+    ...(openWorkflow ? [databaseImport
+      ? "  installOpenWorkflow(nitroApp, { databaseUrl: () => getPostgresConnectionUrl(\"default\") })"
+      : "  installOpenWorkflow(nitroApp)"] : []),
     "})",
     "",
   ].join("\n")
@@ -89,6 +103,17 @@ export interface WorkflowVercelNitroRegistry {
   registryFile: string
 }
 
+/**
+ * `vite dev` stays local: without `remote: true` or configured storage, OpenWorkflow uses the local SQLite file, not
+ * the Postgres of `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL`. A dev server must not run the runs of a shared database
+ * with local code.
+ */
+function localDevWorkflowOptions(workflow: ResolvedWorkflowOptions): ResolvedWorkflowOptions {
+  if (workflow.provider !== "openworkflow" || workflow.remote === true) return workflow
+  if (workflow.postgres?.url !== undefined || workflow.sqlite?.path !== undefined) return workflow
+  return { ...workflow, sqlite: { ...workflow.sqlite, path: defaultOpenWorkflowSqlitePath } }
+}
+
 async function writeIfChanged(file: string, contents: string): Promise<boolean> {
   const current = await readFile(file, "utf8").catch(() => undefined)
   if (current === contents) return false
@@ -97,6 +122,8 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 }
 
 export interface WorkflowDevRegistryFilesOptions {
+  /** The module that exports `getPostgresConnectionUrl()`, when the app has a Postgres Default Database. */
+  databaseImport?: string
   definitions: DiscoveredWorkflowDefinition[]
   /** True in `vite dev`: the plugin turns on the run history. */
   dev?: boolean
@@ -131,7 +158,7 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
     [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
     [plugin, options.vercel && options.workflow
       ? createWorkflowVercelNitroPluginModule(plugin, options.vercel, options.workflow)
-      : createWorkflowDevPluginModule(options.workflow, options.dev)],
+      : createWorkflowDevPluginModule(options.workflow, options.dev, options.databaseImport)],
   ]
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [

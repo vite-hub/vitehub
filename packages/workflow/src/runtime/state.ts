@@ -26,6 +26,8 @@ export interface WorkflowRunState<TResult = unknown> {
   payload?: unknown
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>
   result?: TResult
+  /** Set while a delayed inline run waits for its start time, in milliseconds. The run reports `queued` until then. */
+  startAt?: number
   status: "running" | "completed" | "failed"
 }
 
@@ -236,14 +238,16 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
       ?? (generation === runtimeRegistryGeneration ? consumeInlineWorkflowDefinition(name) : undefined)
     if (registeredInlineDefinition) {
       consumeInlineWorkflowDefinition(name, registeredInlineDefinition)
-      return registeredInlineDefinition
     }
+    // Generated folder entries wrap the inline handler with step runners and options.
+    // Cache that resolved entry in preference to the handler captured during its import.
     // SAFETY: Registry module exports are validated as WorkflowDefinitions at this boundary.
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
       assertWorkflowDefinitionName(name, definition)
       return definition
     }
+    if (registeredInlineDefinition) return registeredInlineDefinition
     const exportedInlineDefinition = findExportedInlineWorkflowDefinition(name, loaded, loadingInlineDefinitions)
     if (!exportedInlineDefinition) return undefined
     consumeInlineWorkflowDefinition(exportedInlineDefinition.name, exportedInlineDefinition.definition)

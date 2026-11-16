@@ -23,6 +23,7 @@ import type { Plugin } from "esbuild"
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
+import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
@@ -134,9 +135,14 @@ interface VercelWorkflowBuilders {
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
-export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
+/**
+ * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
+ * fails on import, as the missing package would.
+ */
+export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
-  const namespace = "vitehub-optional-vite-devtools"
+  const namespace = "vitehub-optional-package"
   return {
     name: namespace,
     setup(build) {
@@ -151,7 +157,17 @@ export function createOptionalViteDevtoolsPlugin(rootDir: string): Plugin {
           return { namespace, path: args.path }
         }
       })
-      build.onLoad({ filter: /.*/, namespace }, () => ({ contents: "export {}", loader: "js" }))
+      build.onResolve({ filter: /^@vite-hub\/kv$/ }, async (args) => {
+        if (args.pluginData === namespace) return
+        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
+        return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onLoad({ filter: /.*/, namespace }, args => ({
+        contents: optionalViteDevtoolsPattern.test(args.path)
+          ? "export {}"
+          : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${args.path}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`,
+        loader: "js",
+      }))
     },
   }
 }
@@ -963,6 +979,9 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
   return `${getCloudflareWorkflowClassName(definition.name)}Native`
 }
 
+/** `@workflow/core` keeps the `sleep()` implementation of the Workflow VM on `globalThis` under this registered symbol. */
+export const vercelWorkflowSleepSymbol = "WORKFLOW_SLEEP"
+
 function createVercelNativeWorkflowContents(
   definition: DiscoveredWorkflowDefinition,
 ): string {
@@ -978,7 +997,11 @@ function createVercelNativeWorkflowContents(
     workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
     return name
   })
-  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
+  // Workflow DevKit `start()` has no delay, so a delayed run sleeps until its start time before the first step. Every
+  // host bundles this file through the registry, so it does not import `workflow`: it calls the function that
+  // Workflow DevKit `sleep()` itself calls inside the Workflow VM.
+  const startAt = `context[${JSON.stringify(workflowStartAtKey)}]`
+  workflows.push(`export async function ${workflowExport}(context) {\n  "use workflow"\n  if (typeof ${startAt} === "number") await globalThis[Symbol.for(${JSON.stringify(vercelWorkflowSleepSymbol)})](new Date(${startAt}))\n  let value = context.payload\n${stepNames.map(name => `  value = await ${name}(value)`).join("\n")}\n  return value\n}`)
   return [...imports, "", ...workflows, ""].join("\n")
 }
 
@@ -1007,7 +1030,7 @@ function renderWorkflowRegistryEntry(
   const nativeExport = getGeneratedVercelWorkflowExport(definition)
   const vercelNativeFile = vercelNativeFiles[definition.name]
   const nativeImport = nativeExport && vercelNativeFile
-    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}`
+    ? `const native = (await import(${JSON.stringify(createImportPath(registryFile, vercelNativeFile))})).${nativeExport}\n    native.workflowId ||= ${JSON.stringify(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)}\n    native[${JSON.stringify(generatedNativeEntryKey)}] = true`
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
@@ -1064,7 +1087,10 @@ export function createWorkflowRegistryContents(
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime ? importBases.workspaceDependencies : undefined
+  // Import the Workspace runtime only to install a loader. A Workflow-only app does not install `@vite-hub/workspace`.
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && Object.values(importBases.workspaceDependencies ?? {}).some(Boolean)
+    ? importBases.workspaceDependencies
+    : undefined
   const agent = importBases.agent
   if (needsAgentRuntime && !agent) throw workflowErrorDiagnostics.WORKFLOW_B0003()
   const imports = [
@@ -1380,7 +1406,7 @@ function createCloudflareOutput(
       ],
       format: "esm",
       platform: "neutral",
-      plugins: [createOptionalViteDevtoolsPlugin(rootDir)],
+      plugins: [createOptionalPackagesPlugin(rootDir)],
     },
     bundleOutfileName: "worker.mjs",
     files: { "index.js": createCloudflareWorkflowWrapper(artifacts) },
@@ -1440,7 +1466,7 @@ function createVercelOutput(
       format: "esm",
       platform: "node",
       plugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
+        createOptionalPackagesPlugin(rootDir),
         ...(workflowTransformPlugin ? [workflowTransformPlugin] : []),
       ],
     },

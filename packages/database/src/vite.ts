@@ -15,6 +15,7 @@ import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { createDbCliContributor } from "./cli.ts"
+import { databaseDeploymentEnv } from "./deployment-env.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
@@ -23,7 +24,7 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderDatabaseConfigExpression, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, dbPackageName, supportsHostedDatabaseRuntime, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy } from "./internal/migrate-on-deploy.ts"
@@ -36,6 +37,7 @@ import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DBProvider } from "./internal/vite-build.ts"
 import type { DatabaseBundleStartupRule } from "./internal/bundle-startup.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
@@ -85,6 +87,8 @@ const DB_REGISTRY_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dis
 const DB_ROOT_ENTRY_PATTERN = /(?:^|\/)(?:(?:@vite-hub\/database|database)\/dist\/index|vite-hub\/dist\/database)\.js$/
 
 export interface DBVitePluginAPI {
+  /** The variables that the Database Definitions read on the deployed host. See `databaseDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedDBViteConfig | undefined
   /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
   getProjectRoot: () => string
@@ -196,9 +200,9 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     // and a WebContainer's `@libsql/client` does not export.
     ...(usesSqlite(config) ? [`import { ${dev ? "resolveDevRemoteConfig, " : ""}resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
     ...(usesPostgres(config)
-      ? [dev
-          ? `import { createDevPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/pglite"))}`
-          : `import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`]
+      ? dev
+        ? [`import { createDevPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/pglite"))}`]
+        : renderPostgresRuntimeImports(config, module => resolveRuntimeModule(computePackageDir(import.meta.url), module))
       : []),
     ...imports,
     "",
@@ -487,6 +491,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     name: DB_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: context => databaseDeploymentEnv(runtimeConfig, context),
       getConfig: () => runtimeConfig,
       getProjectRoot: databaseRoot,
       isEnabled: () => resolvedOptions() !== false,

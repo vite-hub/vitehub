@@ -125,6 +125,10 @@ export const CommentPanel = defineComponent({
     );
     const opened = computed(() => (threadId.value ? state.threads.value.find((thread) => thread.id === threadId.value) : undefined));
 
+    watch(opened, (thread, _previous, onCleanup) => {
+      if (thread) onCleanup(state.retainMark(thread.id));
+    }, { immediate: true, flush: "sync" });
+
     const body = ref("");
     const mentions = ref<string[]>([]);
     const files = ref<File[]>([]);

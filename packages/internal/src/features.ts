@@ -1,5 +1,4 @@
 import type { ViteHubHost, DeploymentService } from "./deployment.ts"
-import { isPlainObject } from "./object.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -185,7 +184,7 @@ export default defineAgent({
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno", "node"] }],
+    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
@@ -453,9 +452,9 @@ export default defineRealtime({
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Cloudflare or Vercel host uses that host's Sandbox."),
-      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
-      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Vercel host uses Vercel Sandbox when Vercel credentials are set. The Vite or Nuxt dev server cannot host a Cloudflare Container: build, then run `wrangler dev` on the build output."),
+      netlify: explicit("sandboxTask.provider", "Vercel Sandbox", "The Netlify host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
+      node: explicit("sandboxTask.provider", "Vercel Sandbox", "The Node host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { provider: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -496,20 +495,24 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   return { id: payload.id }
 })
 `, { folder: "index", suffix: "workflow" }),
-    developmentOverrides: ["deno"],
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
       deno: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
-      dev: native("vercel", "Inline", "`vite dev` runs each Workflow inline in the dev server, unless `workflow.provider` or OpenWorkflow storage selects a provider.", "process-local"),
+      dev: native("openworkflow", "OpenWorkflow", "The Node host runs OpenWorkflow and its worker in the dev server, on .vitehub/data/openworkflow.sqlite.db. workflow.remote lets it use the Postgres Default Database or OPENWORKFLOW_POSTGRES_URL."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: explicit("workflow.provider", "OpenWorkflow", "Set `workflow.provider` to \"openworkflow\" with `workflow.sqlite.path` or `workflow.postgres.url`, and start its worker. A build without a provider fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
+      node: {
+        ...native("openworkflow", "OpenWorkflow", "OpenWorkflow is the default, and each server runs its worker. It uses OPENWORKFLOW_POSTGRES_URL or the Postgres Default Database. Without them, runs use a SQLite file on one host.", "single-host"),
+        envOverrides: ["OPENWORKFLOW_POSTGRES_URL"].map(env => ({
+          env,
+          support: native("openworkflow", "OpenWorkflow (Postgres)", `${env} selects Postgres. Several servers can run the worker on the same database, and each run executes once.`),
+        })),
+      },
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
     packages: ["@vite-hub/workflow"],
-    providerPackages: { provider: { openworkflow: ["openworkflow"] } },
-    summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
+    summary: "Durable Workflows in `server/workflows/` with steps and provider retries.",
     title: "Workflow",
   }),
   workspace: feature({
@@ -536,20 +539,6 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   }),
 }
 
-/** Match the storage values that select OpenWorkflow during Workflow normalization. */
-function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean {
-  const path = isPlainObject(options.sqlite) ? options.sqlite.path : undefined
-  const url = isPlainObject(options.postgres) ? options.postgres.url : undefined
-  return [path, url].some(value => {
-    if (typeof value === "string") return !!value.trim()
-    if (!isPlainObject(value) || value.kind !== "env-variable") return false
-    if (!("source" in value)) return true
-    const source = value.source
-    return isPlainObject(source) && source.kind === "env" && typeof source.name === "string"
-      && (!("names" in source) || Array.isArray(source.names) && source.names.every(name => typeof name === "string"))
-  })
-}
-
 /** Packages needed by a feature, its provider, and its enabled feature integrations. */
 export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost | "unknown", enabled: readonly FeatureId[] = []): string[] {
   const definition = features[id]
@@ -564,12 +553,15 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   }))
   // `observability.service` installs `useObservability()`, which `@vite-hub/agent` provides.
   if (id === "observability" && typeof options?.service === "string") selected.push("@vite-hub/agent")
-  // Node and Deno select OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && (host === "node" || host === "deno") && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   if (id === "observability" && options?.posthog) selected.push("posthog-node")
+  // A Sandbox Task loads its provider SDK at build time (Cloudflare) or at run time (Vercel). An explicit `provider` wins over the host's.
+  const sandboxProvider = typeof options?.provider === "string" ? options.provider : host
+  if (id === "sandboxTask" && (sandboxProvider === "vercel" || sandboxProvider === "cloudflare")) selected.push(sandboxProviderPackages[sandboxProvider])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
+
+const sandboxProviderPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
@@ -583,6 +575,7 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   const definition = features[id]
   if (host !== "dev") return definition.hosts[host]
   if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
+  if (id === "workflow" && appHost === "deno") return native("vercel", "Inline", "Development runs each Workflow inline unless OpenWorkflow storage or a provider is configured.", "process-local")
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
 }
 

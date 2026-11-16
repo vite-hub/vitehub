@@ -14,12 +14,14 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { normalizeWorkflowOptions } from "./config.ts"
+import { workflowDeploymentEnv } from "./deployment-env.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
-import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
@@ -47,6 +49,8 @@ interface WorkflowNitroConfigOptions {
 export { workflowRuntimeModule }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
+  /** The variables that Workflow reads on the deployed host. See `workflowDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
@@ -95,6 +99,8 @@ interface ScheduledWorkflowBuildConfig {
 }
 
 interface InternalWorkflowModuleOptions {
+  /** The module that exports `getPostgresConnectionUrl()`. Default `@vite-hub/database`. */
+  databaseImport?: string
   hosting?: string
   implicitlyEnabled?: boolean
   importBase?: string
@@ -114,6 +120,35 @@ interface InternalWorkflowModuleOptions {
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
+}
+
+const databaseVitePluginName = "@vite-hub/database/vite"
+
+/** The part of the Database Vite plugin that Workflow reads: its resolved configuration. */
+interface DatabaseVitePlugin {
+  api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
+}
+
+function findDatabasePlugin(plugins: readonly unknown[] | undefined): DatabaseVitePlugin | undefined {
+  for (const plugin of plugins ?? []) {
+    if (Array.isArray(plugin)) {
+      const found = findDatabasePlugin(plugin)
+      if (found) return found
+    }
+    // SAFETY: The plugin name identifies the Database integration, whose `api` has this shape.
+    else if (plugin && typeof plugin === "object" && "name" in plugin && plugin.name === databaseVitePluginName) return plugin as DatabaseVitePlugin
+  }
+  return undefined
+}
+
+/**
+ * Whether the Database integration resolved the Default Database on Postgres, with its layers, contributions, and
+ * server directories. OpenWorkflow then keeps its runs there. `undefined` while the Database is not resolved yet.
+ */
+function readPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean | undefined {
+  if (!plugin) return false
+  const config = plugin.api?.getConfig?.()
+  return config ? config.databases.default?.dialect === "postgresql" : undefined
 }
 
 export function hubWorkflow(options?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
@@ -215,7 +250,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    if (!config) throw workflowErrorDiagnostics.WORKFLOW_B0001({ message: "[vitehub] Workflow runtime preparation requires resolved Vite config." })
+    // Internal invariant: the Schedule plugin calls this during the build, after configResolved() sets `resolved`.
+    if (!config) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
     if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
@@ -262,7 +298,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
           : {}),
       },
       bundlePlugins: [
-        createOptionalViteDevtoolsPlugin(rootDir),
+        createOptionalPackagesPlugin(rootDir),
         ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
       ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
       native,
@@ -294,6 +330,19 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   function addVercelWorkflowWebhookRoute(): void {
     if (startupBuild && vercelNativeEntry && nitroOptions) addVercelWorkflowNitroRoutes(nitroOptions)
   }
+  let databasePlugin: DatabaseVitePlugin | undefined
+  let postgresDatabaseImport: string | undefined
+
+  /** The Workflow configuration that the startup plugin installs: a build installs it only without a Provider Output server. */
+  function startupWorkflow(): false | ResolvedWorkflowOptions | undefined {
+    return startupBuild
+      ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
+      : devWorkflow ?? false
+  }
+
+  function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
+    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
+  }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
 
@@ -309,6 +358,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
 
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined, vercel?: WorkflowVercelNitroRegistry) {
     return await writeWorkflowDevRegistryFiles({
+      databaseImport: postgresDatabaseImport,
       definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
       dev: !startupBuild,
       importBase: internalOptions.importBase,
@@ -348,6 +398,9 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
 
   return {
     name: "@vite-hub/workflow/vite",
+    api: {
+      deploymentEnv: context => workflowDeploymentEnv(normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? context.host, inline: allowsInline() })),
+    },
     // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
     enforce: "pre",
     config: {
@@ -472,6 +525,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
+        databasePlugin = findDatabasePlugin(config.plugins)
+        postgresDatabaseImport = postgresDatabaseImportFor(readPostgresDefaultDatabase(databasePlugin))
         const vercel = startupBuild && devWorkflow && nitroOwnsVercelServer(config, workflow)
           ? await prepareVercelNitroRegistry(config)
           : undefined
@@ -494,8 +549,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
     transform: {
       filter: { code: /use (?:step|workflow)/, id: /\.(?:c|m)?[jt]sx?$/ },
-      async handler(code, id) {
-        if (!vercelModuleTransform || id.startsWith("\0") || id.includes("?") || this.environment?.config.consumer !== "server") return
+      async handler(code, id, options) {
+        if (!vercelModuleTransform || id.startsWith("\0") || id.includes("?") || (this.environment?.config.consumer !== "server" && !options?.ssr)) return
         return await vercelModuleTransform(code, id)
       },
     },
@@ -505,6 +560,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         if (!options) return []
         const input = {
           provider: options.provider,
+          defaultDatabase: options.provider === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
           ...(options.provider === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
           ...(options.provider === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
         }
@@ -568,7 +624,17 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         addVercelWorkflowWebhookRoute()
       },
     },
-    buildStart() {
+    async buildStart() {
+      // The Database integration can resolve its Definitions after this plugin wrote the startup plugin. Read them again,
+      // and write the startup plugin again when the Default Database moved to or from Postgres.
+      if (devRootDir) {
+        const postgres = readPostgresDefaultDatabase(databasePlugin)
+        const next = postgres === undefined ? postgresDatabaseImport : postgresDatabaseImportFor(postgres)
+        if (next !== postgresDatabaseImport) {
+          postgresDatabaseImport = next
+          await writeDevRegistry(devRootDir, startupWorkflow())
+        }
+      }
       if (shouldSkipProviderOutputEnvironment(this)) return
       const context = buildEnvironment(this)
       rejectedBuilds.delete(context)

@@ -77,7 +77,7 @@ async function consoleKey(args: string[], context: Pick<SecretCliContext, "stder
     context.stdout.write([
       `Usage: ${consoleKeyUsage}`,
       "",
-      "Print a new key pair for signed Console requests. Set the first line on the app (console: { auth: \"token\" }),",
+      "Print a new key pair for signed Console requests. Set the first line on the app (console: true),",
       "and the second line where the CLI runs, such as a CI secret. The name defaults to CLI.",
       "",
     ].join("\n"))
