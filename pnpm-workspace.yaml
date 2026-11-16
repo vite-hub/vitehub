@@ -273,7 +273,9 @@ patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
   # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
+  # Also 12 core bug fixes and 3 Vue bug fixes, each on its own onmax/ui-sdk branch (see the PR that added them).
   "@ui-sdk/core@0.1.0-beta.2": patches/@ui-sdk__core@0.1.0-beta.2.patch
+  "@ui-sdk/vue@0.1.0-beta.2": patches/@ui-sdk__vue@0.1.0-beta.2.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).

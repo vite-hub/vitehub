@@ -696,6 +696,7 @@
     "packages/vite-hub/src/console/runtime/client/shiki-wasm.ts": 1,
     "packages/vite-hub/src/console/runtime/server/access-policy.ts": 2,
     "packages/vite-hub/src/console/runtime/server/attachment-cleanup.ts": 1,
-    "packages/vite-hub/src/nuxt.ts": 1
+    "packages/vite-hub/src/nuxt.ts": 1,
+    "packages/web-container/src/snapshot.ts": 2
   }
 }
