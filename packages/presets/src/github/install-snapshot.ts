@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { chmod, cp, lstat, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { isRuntimeRecord } from "../internal/runtime-type.ts";
+import { outputChangedMessage, publishOutputScript, yarnOutputChangedMessage, yarnOutputInvalidMessage } from "./install-snapshot-publish.injected.ts";
 
 const exec = promisify(execFile);
 const yarnOutputs = new Set(["cache", "unplugged", "install-state.gz"]);
@@ -40,7 +43,7 @@ export async function createGitHubInstallSnapshot(target: string): Promise<GitHu
           if (basename(source) === ".git"
             || rootOutputs.has(path) || parts[0] === ".yarn" && yarnOutputs.has(parts[1]!)) return false;
           const info = await lstat(source, { bigint: true });
-          if (path === ".yarn" && !info.isDirectory()) throw new Error("Yarn installation output must use a regular checkout directory.");
+          if (path === ".yarn" && !info.isDirectory()) throw presetsErrorDiagnostics.PRESETS_YARN_OUTPUT_INVALID();
           if (info.isDirectory()) identities.set(path, { dev: String(info.dev), ino: String(info.ino) });
           return true;
         },
@@ -68,39 +71,20 @@ export async function publishGitHubInstallSnapshot(snapshot: GitHubInstallSnapsh
   }
   async function publish(path: string, names: string[], yarn = false) {
     const identity = snapshot.identities.get(path);
-    if (!identity) throw new Error("Dependency output directory changed during installation.");
+    if (!identity) throw presetsErrorDiagnostics.PRESETS_INSTALL_OUTPUT_CHANGED();
     // Starting a child pins cwd before checking its identity. All destination
     // operations stay relative to that inode even if the provider renames it.
-    await exec(process.execPath, ["--input-type=module", "--eval", `
-      import { lstat, mkdir, rename, rm } from "node:fs/promises";
-      import { join } from "node:path";
-      const [dev, ino, source, names, yarn] = process.argv.slice(1);
-      const info = await lstat(".", { bigint: true });
-      if (String(info.dev) !== dev || String(info.ino) !== ino) throw new Error("Dependency output directory changed during installation.");
-      const outputs = JSON.parse(names);
-      const present = await Promise.all(outputs.map(name => lstat(join(source, name)).then(() => true, error => {
-        if (error.code === "ENOENT") return false;
-        throw error;
-      })));
-      if (yarn === "true") {
-        if (!present.some(Boolean) && !await lstat(".yarn").catch(error => {
-          if (error.code === "ENOENT") return undefined;
-          throw error;
-        })) process.exit(0);
-        await mkdir(".yarn").catch(error => { if (error.code !== "EEXIST") throw error; });
-        const expected = await lstat(".yarn", { bigint: true });
-        if (!expected.isDirectory()) throw new Error("Yarn output directory must not be a symbolic link.");
-        process.chdir(".yarn");
-        const actual = await lstat(".", { bigint: true });
-        if (actual.dev !== expected.dev || actual.ino !== expected.ino) throw new Error("Yarn output directory changed during installation.");
-      }
-      for (const [index, name] of outputs.entries()) {
-        await rm(name, { recursive: true, force: true });
-        if (present[index]) await rename(join(source, name), name);
-      }
-    `, identity.dev, identity.ino, join(outputDirectory, path, yarn ? ".yarn" : ""), JSON.stringify(names), String(yarn)], {
-      cwd: join(snapshot.checkout, path), signal,
-    });
+    try {
+      await exec(process.execPath, ["--input-type=module", "--eval", publishOutputScript, identity.dev, identity.ino, join(outputDirectory, path, yarn ? ".yarn" : ""), JSON.stringify(names), String(yarn)], {
+        cwd: join(snapshot.checkout, path), signal,
+      });
+    } catch (error) {
+      // A failed execFile() call carries the child's stderr.
+      const stderr = isRuntimeRecord(error) ? String(error.stderr ?? "") : "";
+      if (stderr.includes(yarnOutputInvalidMessage)) throw presetsErrorDiagnostics.PRESETS_YARN_OUTPUT_INVALID({ cause: error });
+      if (stderr.includes(outputChangedMessage) || stderr.includes(yarnOutputChangedMessage)) throw presetsErrorDiagnostics.PRESETS_INSTALL_OUTPUT_CHANGED({ cause: error });
+      throw error;
+    }
   }
   const managedDirectories = new Set(snapshot.managedDirectories);
   async function visit(path: string) {
