@@ -1,4 +1,4 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { canRetryCloudflareRequest, cloudflareRetryDelays, readCloudflareFailure } from '../../internal/cloudflare-failure.ts'
 import { sleep } from '../internal/shared/utils'
 import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import { executeSandboxTaskDefinition } from './execute'
@@ -29,7 +29,6 @@ import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 import type { SandboxTaskDefinitionName, SandboxTaskPayload, SandboxTaskRegistryDefinition, SandboxTaskResult } from './registry-types'
 
 const cloudflareRunQueues = new Map<string, Promise<void>>()
-const CLOUDFLARE_EXEC_DEADLINE_RE = /cloudflare sandbox exec timed out after \d+ms/i
 
 async function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
@@ -82,10 +81,16 @@ async function serializeCloudflareRun<TResult>(id: string | undefined, run: () =
   }
 }
 
-function isRetriableCloudflareSandboxError(error: unknown) {
+/**
+ * A new run repeats every command of the failed one. After a command may have reached the Container, only a cold start
+ * proves that it did not run, so only a cold start reruns the Task.
+ */
+function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
   // A cleanup failure must not decide whether the primary failure can retry.
   if (isSandboxTaskError(error) && error.cause instanceof AggregateError)
     error = error.cause.errors[0]
+  if (error instanceof AggregateError)
+    error = error.errors[0]
   const metadata = readSandboxTaskErrorMetadata(error)
 
   const provider = metadata?.provider
@@ -94,13 +99,11 @@ function isRetriableCloudflareSandboxError(error: unknown) {
   if (metadata?.code === 'SANDBOX_TASK_TIMEOUT')
     return false
 
-  const extraMessage = metadata?.cause instanceof Error ? metadata.cause.message : ''
-  const messages = collectCloudflareErrorMessages(error, extraMessage)
-  // provider-message-match: an exec deadline has no code. The command reached the Container and may
-  // still have run, such as a package install, so a new attempt could repeat it.
-  if (CLOUDFLARE_EXEC_DEADLINE_RE.test(messages))
-    return false
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(messages)
+  const failure = readCloudflareFailure(error)
+  // Before the Task starts a command, its requests are safe to repeat, so a request deadline also reruns it.
+  if (!commandMayHaveRun && failure.timedOut)
+    return true
+  return canRetryCloudflareRequest(failure, !commandMayHaveRun)
 }
 
 export interface SandboxTaskRunner {
@@ -169,14 +172,14 @@ async function createSandboxTaskRunner(
       // A per-run Cloudflare Sandbox, or one the provider asks to close, ends with the run.
       const closesAfterRun = provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)
       const attempts = provider.provider === 'cloudflare'
-        ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
+        ? cloudflareRetryDelays.length + 1
         : 1
 
       options.signal?.throwIfAborted()
       const run = serializeCloudflareRun(cloudflareSandboxId, async () => {
         for (let attempt = 0; attempt < attempts; attempt++) {
           let taskSandbox: TaskSandbox | undefined
-          let handlerMayHaveStarted = false
+          let commandMayHaveRun = false
           let runError: Error | undefined
           let executionSettled: Promise<void> | undefined
           try {
@@ -188,8 +191,8 @@ async function createSandboxTaskRunner(
               onExecution(execution: Promise<unknown>) {
                 executionSettled = execution.then(() => undefined, () => undefined)
               },
-              onHandlerStart() {
-                handlerMayHaveStarted = true
+              onCommandStart() {
+                commandMayHaveRun = true
               },
             }
             const result = options.signal
@@ -203,18 +206,17 @@ async function createSandboxTaskRunner(
               throw options.signal.reason ?? error
             const sandboxTaskError = toSandboxTaskError(error)
             runError = sandboxTaskError
-            const shouldRetry = !handlerMayHaveStarted
-              && provider.provider === 'cloudflare'
-              && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
-              && isRetriableCloudflareSandboxError(error)
+            const shouldRetry = provider.provider === 'cloudflare'
+              && attempt < cloudflareRetryDelays.length
+              && canRerunCloudflareTask(error, commandMayHaveRun)
 
             if (!shouldRetry)
               throw sandboxTaskError
 
             if (options.signal)
-              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt], options.signal)
+              await sleep(cloudflareRetryDelays[attempt], options.signal)
             else
-              await sleep(CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS[attempt])
+              await sleep(cloudflareRetryDelays[attempt])
           }
           finally {
             await executionSettled
