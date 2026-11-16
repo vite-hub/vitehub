@@ -95,6 +95,42 @@ describe("CI merge gate", () => {
     expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
   })
 
+  it("reads current pixel acceptance on every rerun and fails closed on API errors", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-pixels-"))
+    const pixels = workflow.jobs["console-pixels"]
+    expect(pixels?.permissions).toEqual({ contents: "read", "pull-requests": "read" })
+    const compare = pixels?.steps.find(step => step.name === "Compare")
+    if (!compare?.run) throw new Error("The pixel job must compare captures")
+    const run = (accepted: boolean, apiStatus = "0") => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", compare.run!], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        GITHUB_OUTPUT: join(directory, "output"),
+        GITHUB_REPOSITORY: "vite-hub/vitehub",
+        PR_NUMBER: "4593",
+        RUNNER_TEMP: directory,
+        EXPECTED: "false", // The original event was unlabeled, even after the label is added.
+        LIVE_EXPECTED: String(accepted),
+        API_STATUS: apiStatus,
+      },
+    })
+    try {
+      writeFileSync(join(directory, "gh"), '#!/bin/sh\n[ "$1" = "api" ] && [ "$2" = "repos/vite-hub/vitehub/pulls/4593" ] || exit 2\nprintf "%s\\n" "$LIVE_EXPECTED"\nexit "$API_STATUS"\n')
+      writeFileSync(join(directory, "node"), "#!/bin/sh\nexit 1\n") // A changed shot on every attempt.
+      for (const name of ["gh", "node"]) chmodSync(join(directory, name), 0o755)
+      expect(run(false).status).toBe(1)
+      const added = run(true)
+      expect(added.status, added.stderr).toBe(0)
+      expect(added.stdout).toContain("::warning::")
+      expect(run(false).status, "Removing acceptance must reject the same shots again").toBe(1)
+      expect(run(true, "1").status, "An API failure must not accept changes").not.toBe(0)
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it("rejects a stale Console with the same entry script, including workflow reruns", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-"))
     const output = join(directory, "packages/vite-hub/.vitehub/console-account")
@@ -204,6 +240,7 @@ describe("CI merge gate", () => {
     "docs-snippets",
     "docs-demo",
     "console",
+    "console-pixels",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {

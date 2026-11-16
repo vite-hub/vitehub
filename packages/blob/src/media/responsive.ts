@@ -1,4 +1,5 @@
 // Framework-neutral `<picture>` and `<img>` attributes for a media record.
+import { blobBrowserDiagnostics } from "../browser-diagnostics.ts"
 import { defaultResponsiveWidths, focalCropRegion, focalPointToObjectPosition, imageVariantUrl, parseAspectRatio, snapImageSize } from "./variant.ts"
 
 import type { MediaCrop, MediaCropReplacement } from "./types.ts"
@@ -132,8 +133,7 @@ function candidates(input: ResponsiveImageInput, url: string, crop: string | und
  */
 export function responsiveImage(input: ResponsiveImageInput, options: ResponsiveImageOptions = {}): ResponsiveImage {
   const url = options.url ?? input.url
-  // Internal invariant: @vite-hub/blob/media runs in the browser without nostics, and callers check for TypeError.
-  if (!url) throw new TypeError("[vitehub] responsiveImage() needs the served URL of the image. Read the record from the served Blob Store or pass `url`.")
+  if (!url) throw blobBrowserDiagnostics.BLOB_RESPONSIVE_IMAGE_URL_MISSING()
   const sizes = options.sizes ?? "100vw"
   const style = [
     input.focal ? `object-position: ${focalPointToObjectPosition(input.focal)}` : undefined,

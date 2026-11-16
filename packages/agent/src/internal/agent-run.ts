@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import type { StreamEvent } from "../messages.ts"
 import type { RunAgentOptions } from "../index.ts"
 import type {
@@ -60,7 +61,7 @@ export interface AgentRunners {
 }
 
 function notLoaded(): never {
-  throw new Error("[vitehub] Import @vite-hub/agent before its internal Agent runners.")
+  throw invariantError("every Agent entry point imports @vite-hub/agent, which installs the internal Agent runners first")
 }
 
 // The root entry of @vite-hub/agent installs these runners when it loads. Every module that calls them also
