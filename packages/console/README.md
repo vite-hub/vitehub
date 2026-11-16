@@ -163,3 +163,11 @@ corepack pnpm --dir packages/console exec vitehub database migrate
 VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=true corepack pnpm --dir packages/console run dev
 corepack pnpm --dir packages/console run test
 ```
+
+CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Run them for one host after you build the page:
+
+```sh
+cd packages/console
+VITEHUB_HOST=node vp build && node scripts/host-smoke.mjs node    # or cloudflare, vercel
+node scripts/smoke.mjs https://console.example.com                # only the checks, against a running Console
+```
