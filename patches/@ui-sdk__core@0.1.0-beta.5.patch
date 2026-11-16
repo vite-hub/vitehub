@@ -11,8 +11,136 @@ index 8273f5b7e26e1b74d4006a18d41664fd82cc38ab..00e9fbb0523878e6368b8a456edee65a
          disabled: months && (!!first && month < first || !!last && month > last)
        };
      }),
+diff --git a/dist/components/combobox/combobox-api.d.ts b/dist/components/combobox/combobox-api.d.ts
+index 5e33831350fcc7f67c8ab8c1db7724a53439318c..fcc5ef5c70a25611999d928eb6475544efd10690 100644
+--- a/dist/components/combobox/combobox-api.d.ts
++++ b/dist/components/combobox/combobox-api.d.ts
+@@ -30,6 +30,7 @@ type ComboboxState = PopupState & {
+     error: unknown;
+     labels: number;
+     icons: number;
++    pageLocale: string | null;
+     mounts: number;
+     settled: boolean;
+     presentation: "popover" | "sheet";
+diff --git a/dist/components/combobox/combobox-api.js b/dist/components/combobox/combobox-api.js
+index a877fbec7e2e593a0880d945eb38eb33fd61e1bb..d369639a951cf86e398cffadf868dc134e91f981 100644
+--- a/dist/components/combobox/combobox-api.js
++++ b/dist/components/combobox/combobox-api.js
+@@ -87,6 +87,7 @@ function initialComboboxState(options) {
+     error: void 0,
+     labels: 0,
+     icons: 0,
++    pageLocale: null,
+     mounts: 0,
+     settled: false,
+     presentation: "popover",
+diff --git a/dist/components/combobox/combobox-parts.js b/dist/components/combobox/combobox-parts.js
+index 87dd500bb6c7859189f6dcef46cea58dee0c847a..cf4da267c9e45af2847da313fd9f5e61baa720b1 100644
+--- a/dist/components/combobox/combobox-parts.js
++++ b/dist/components/combobox/combobox-parts.js
+@@ -42,6 +42,7 @@ import {
+ import { selectAllFeature } from "../../foundation/lists/listbox-select-all.js";
+ import { idPart, openAttrs } from "../../foundation/kernel/attrs.js";
+ import { formatLabels, listOf } from "../../foundation/lists/listbox-value.js";
++import { bindPageLocale, localeOf } from "../../foundation/text/locale.js";
+ import { selects } from "../../foundation/kernel/selects.js";
+ import { direct, live } from "../../foundation/kernel/live.js";
+ import { pressKeepsFocus } from "../../foundation/focus/press-keeps-focus.js";
+@@ -80,6 +81,7 @@ var unreadByItems = {
+   error: [],
+   labels: [],
+   icons: [],
++  pageLocale: [],
+   mounts: [],
+   settled: [],
+   presentation: [],
+@@ -193,6 +195,7 @@ var comboboxSlots = (slot) => ({
+       api.internal.show({ event, by: openerOf(event), reason: "trigger-press" });
+     },
+     bind(el, { api, id, store }) {
++      bindPageLocale(el, (pageLocale) => store.set({ pageLocale }));
+       const { items, itemToLabel } = api.internal.options();
+       if (!items && !itemToLabel) {
+         queueMicrotask(
+@@ -252,7 +255,8 @@ var comboboxSlots = (slot) => ({
+       }
+       const by = openerOf(event);
+       api.internal.show({ event, by, reason: "trigger-press" });
+-    }
++    },
++    bind: (el, { store }) => bindPageLocale(el, (pageLocale) => store.set({ pageLocale }))
+   }),
+   content: slot({
+     ...listContentPart(),
+@@ -348,7 +352,7 @@ var comboboxSlots = (slot) => ({
+     props: { maxLabels: "number", getMoreLabel: "value" },
+     state: (state, { api, props }) => {
+       const labels = api.internal.selection.labels();
+-      return { value: state.value, labels, label: formatLabels(labels, props) };
++      return { value: state.value, labels, label: formatLabels(labels, props, localeOf(state)) };
+     }
+   }),
+   arrow: slot(arrowPart()),
+diff --git a/dist/components/date-input/date-input-parts.js b/dist/components/date-input/date-input-parts.js
+index d6f18d1cecae29d15a827dea3185179409d5c9ba..e37edf4e54e2b33c27d39b6445f9f8aeecabc34f 100644
+--- a/dist/components/date-input/date-input-parts.js
++++ b/dist/components/date-input/date-input-parts.js
+@@ -6,6 +6,7 @@ import {
+   segmentsFor
+ } from "./date-input-api.js";
+ import {
++  bindFieldPart,
+   bindInternals,
+   bindValueInput,
+   formInternals,
+@@ -257,8 +258,10 @@ var dateInputSlots = (slot) => ({
+       input.addEventListener("input", onInput);
+       input.addEventListener("focus", select);
+       const unsubscribe = store.subscribe(write);
++      const release = bindFieldPart(input, store);
+       return () => {
+         unsubscribe();
++        release();
+         cancelAnimationFrame(frame);
+         input.removeEventListener("beforeinput", onBeforeInput);
+         input.removeEventListener("input", onInput);
+diff --git a/dist/components/listbox/listbox-root-keyboard.js b/dist/components/listbox/listbox-root-keyboard.js
+index e8185750ed9eb60d57198e0f755d8a894ff9cd47..7e0658a676a379f92e40baaf9d0f55d983f9e4b6 100644
+--- a/dist/components/listbox/listbox-root-keyboard.js
++++ b/dist/components/listbox/listbox-root-keyboard.js
+@@ -4,6 +4,7 @@ import { sourceOf } from "../../foundation/kernel/modality.js";
+ import { isRTL } from "../../foundation/platform/env.js";
+ import { isTypeaheadKey } from "../../foundation/text/typeahead.js";
+ import "../../foundation/lists/listbox.js";
++import { pageStep } from "../../foundation/lists/listbox-keyboard.js";
+ import { isDisabled } from "../../foundation/lists/listbox-parts.js";
+ var withModifier = (event) => event.ctrlKey || event.metaKey;
+ function createListboxKeyboard({
+@@ -102,7 +103,7 @@ function createListboxKeyboard({
+       event.preventDefault();
+       return toggleAll({ reason: "list-navigation", event });
+     }
+-    const step = stepFor(event.key, state.orientation, isRTL(root));
++    const step = stepFor(event.key, state.orientation, isRTL(root)) ?? pageStep(event.key);
+     if (step !== void 0) {
+       return navigate(event, step, current);
+     }
+diff --git a/dist/components/listbox/listbox-root-parts.js b/dist/components/listbox/listbox-root-parts.js
+index 4a4b85fc3350e556e9ff818dcb9e5b8a0e05b500..4c6a0ac1d3024384c9ed17c8f48885c11b687f6f 100644
+--- a/dist/components/listbox/listbox-root-parts.js
++++ b/dist/components/listbox/listbox-root-parts.js
+@@ -57,6 +57,8 @@ var listboxSlots = (slot) => ({
+       ...state.orientation === "horizontal" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"],
+       "Home",
+       "End",
++      "PageUp",
++      "PageDown",
+       "Enter",
+       " ",
+       "typeahead",
 diff --git a/dist/components/number-input/number-input-api.js b/dist/components/number-input/number-input-api.js
-index 7beec62bbba9d9a9a9c296d9fc140eb5d2640956..2aabb7dead2c65a07c3090961dc6652f821b2a98 100644
+index 7beec62bbba9d9a9a9c296d9fc140eb5d2640956..1973c032ecad20ab687c8f3226302791bdeb42d0 100644
 --- a/dist/components/number-input/number-input-api.js
 +++ b/dist/components/number-input/number-input-api.js
 @@ -20,6 +20,7 @@ import {
@@ -32,12 +160,160 @@ index 7beec62bbba9d9a9a9c296d9fc140eb5d2640956..2aabb7dead2c65a07c3090961dc6652f
      format: options.format,
      locale: options.locale,
      wheel: !!options.wheel,
+@@ -57,6 +58,7 @@ var rangeOf = (state) => ({
+   step: state.step
+ });
+ var display = (value, state) => formatNumber(value, localeOf(state), displayOptions(state.format, state.step));
++var parseText = (text, state) => parseNumber(text, localeOf(state), displayOptions(state.format, state.step));
+ var isLocked = (state) => isDisabled(state) || state.readOnly;
+ function inputMode(state) {
+   const negative = state.min < 0;
+@@ -103,7 +105,7 @@ function numberInputApiBody(context) {
+     if (state.text.trim() === "") {
+       return null;
+     }
+-    return parseNumber(state.text, localeOf(state), state.format) ?? state.value;
++    return parseText(state.text, state) ?? state.value;
+   };
+   const showValue = () => store.set({ text: display(store.get().value, store.get()) });
+   function setValue(value, reason, event) {
+@@ -180,7 +182,7 @@ function numberInputApiBody(context) {
+         const start = el.selectionStart ?? el.value.length;
+         const end = el.selectionEnd ?? start;
+         const next = el.value.slice(0, start) + event.data + el.value.slice(end);
+-        if (!isPartialNumber(next, localeOf(state), state.format, {
++        if (!isPartialNumber(next, localeOf(state), displayOptions(state.format, state.step), {
+           allowNegative: state.min < 0
+         })) {
+           event.preventDefault();
+@@ -195,7 +197,7 @@ function numberInputApiBody(context) {
+         if (text.trim() === "") {
+           return setValue(null, "input-change", event);
+         }
+-        const parsed = parseNumber(text, localeOf(state), state.format);
++        const parsed = parseText(text, state);
+         if (parsed !== null && parsed >= state.min && parsed <= state.max) {
+           setValue(parsed, "input-change", event);
+         }
+@@ -213,7 +215,7 @@ function numberInputApiBody(context) {
+         }
+         edited = false;
+         if (state.text.trim() !== "") {
+-          const parsed = parseNumber(state.text, localeOf(state), state.format);
++          const parsed = parseText(state.text, state);
+           if (parsed !== null) {
+             setValue(
+               snapToStep(clamp(parsed, state.min, state.max), rangeOf(state)),
+@@ -392,7 +394,7 @@ function numberInputApiBody(context) {
+       return;
+     }
+     const next = { ...state, ...synced };
+-    const typed = next.text.trim() === "" ? null : parseNumber(next.text, localeOf(next), next.format);
++    const typed = next.text.trim() === "" ? null : parseText(next.text, next);
+     if (!sameValue(typed, next.value)) {
+       return { text: display(next.value, next) };
+     }
+@@ -415,7 +417,7 @@ function numberInputApiBody(context) {
+       return;
+     }
+     shown = state.value;
+-    const typed = state.text.trim() === "" ? null : parseNumber(state.text, localeOf(state), state.format);
++    const typed = state.text.trim() === "" ? null : parseText(state.text, state);
+     if (!sameValue(typed, state.value)) {
+       store.set({ text: display(state.value, state) });
+     }
+diff --git a/dist/components/select/select-api.d.ts b/dist/components/select/select-api.d.ts
+index 42e561a33ef8abcc4c753dc643ffec0cddce1733..6d3299582469b1b7d74fe34db6f6a1b1056c2eaf 100644
+--- a/dist/components/select/select-api.d.ts
++++ b/dist/components/select/select-api.d.ts
+@@ -25,6 +25,7 @@ type SelectState = PopupState & {
+     items: ListData<unknown> | undefined;
+     labels: number;
+     icons: number;
++    pageLocale: string | null;
+     query: string;
+     searchable: boolean;
+     focusInList: boolean;
+diff --git a/dist/components/select/select-api.js b/dist/components/select/select-api.js
+index 963a3ff49d7ba0a908700e8031a71630899c5a57..bf58d996223138a7aa261068fcd6b8fb550ba5eb 100644
+--- a/dist/components/select/select-api.js
++++ b/dist/components/select/select-api.js
+@@ -60,6 +60,7 @@ function initialSelectState(options) {
+     items: options.items,
+     labels: 0,
+     icons: 0,
++    pageLocale: null,
+     query: options.query ?? options.defaultQuery ?? "",
+     searchable: false,
+     focusInList: false,
+diff --git a/dist/components/select/select-parts.js b/dist/components/select/select-parts.js
+index 7fe48b5f4ff9146259ca0cb4d5a19c22787a5e08..02498cdfdc1b18d31dc57f16b6149430d76d605e 100644
+--- a/dist/components/select/select-parts.js
++++ b/dist/components/select/select-parts.js
+@@ -39,6 +39,7 @@ import {
+ import { selectAllFeature } from "../../foundation/lists/listbox-select-all.js";
+ import { idPart, openAttrs } from "../../foundation/kernel/attrs.js";
+ import { formatLabels, listOf } from "../../foundation/lists/listbox-value.js";
++import { bindPageLocale, localeOf } from "../../foundation/text/locale.js";
+ import { selects } from "../../foundation/kernel/selects.js";
+ import { direct, live } from "../../foundation/kernel/live.js";
+ var hasValue = (state) => listOf(state.value).length > 0;
+@@ -88,6 +89,7 @@ var unreadByItems = {
+   items: [],
+   labels: [],
+   icons: [],
++  pageLocale: [],
+   query: [],
+   searchable: [],
+   focusInList: [],
+@@ -167,6 +169,7 @@ var selectSlots = (slot) => ({
+     },
+     bind(el, { api, id, store }) {
+       settleFlag(store, "labeled");
++      bindPageLocale(el, (pageLocale) => store.set({ pageLocale }));
+       if (!store.get().items && !api.internal.options().itemToLabel) {
+         queueMicrotask(
+           () => api.internal.selection.needsItems(api.internal.hasValueIcon()) && api.internal.prepare()
+@@ -194,7 +197,7 @@ var selectSlots = (slot) => ({
+       const labels = api.internal.selection.labels();
+       return {
+         value: state.value,
+-        label: formatLabels(labels, props),
++        label: formatLabels(labels, props, localeOf(state)),
+         labels,
+         placeholder: labels.length === 0
+       };
+@@ -209,7 +212,7 @@ var selectSlots = (slot) => ({
+       }
+       const write = () => {
+         const labels = api.internal.selection.labels();
+-        const text = labels.length ? formatLabels(labels, props) : props.placeholder ?? store.get().placeholder ?? "";
++        const text = labels.length ? formatLabels(labels, props, localeOf(store.get())) : props.placeholder ?? store.get().placeholder ?? "";
+         if (el.textContent !== text) {
+           el.textContent = text;
+         }
 diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
-index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0ea863bc61 100644
+index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..9bcc1395d117d63d4acb46c108ce5b877bdb2dd9 100644
 --- a/dist/foundation/date/parse.js
 +++ b/dist/foundation/date/parse.js
-@@ -68,7 +68,7 @@ function parseDate(text, locale, options = {}) {
+@@ -1,5 +1,5 @@
+ // src/foundation/date/parse.ts
+-import { dateFormatter, monthNames, weekdayNames } from "./format.js";
++import { dateFormatter, formatDate, monthNames, weekdayNames } from "./format.js";
+ import { dateParts, isoDate } from "./plain-date.js";
+ var directionMarks = /[‎‏؜]/g;
+ var fieldLetters = { year: "Y", month: "M", day: "D" };
+@@ -64,11 +64,15 @@ function parseDate(text, locale, options = {}) {
+   if (dateParts(normalized)) {
+     return normalized;
+   }
+-  const { fields } = datePattern(locale);
    const referenceYear = Number((options.referenceDate ?? "").slice(0, 4)) || (/* @__PURE__ */ new Date()).getFullYear();
++  const written = parseWrittenDate(normalized, locale, referenceYear);
++  if (written) {
++    return written;
++  }
++  const { fields } = datePattern(locale);
    let namedMonth;
    const numbers = [];
 -  for (const token of normalized.toLocaleLowerCase(locale).match(/\p{N}+|\p{L}+/gu) ?? []) {
@@ -45,7 +321,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0e
      if (/^\d+$/.test(token)) {
        numbers.push(token);
        continue;
-@@ -82,11 +82,11 @@ function parseDate(text, locale, options = {}) {
+@@ -82,11 +86,11 @@ function parseDate(text, locale, options = {}) {
    }
    const values = {};
    if (namedMonth !== void 0) {
@@ -59,7 +335,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0e
      order.forEach((field, index) => values[field] = numbers[index]);
      values.month = String(namedMonth);
    } else if (numbers.length === 1) {
-@@ -110,6 +110,18 @@ function parseDate(text, locale, options = {}) {
+@@ -110,6 +114,93 @@ function parseDate(text, locale, options = {}) {
    const year = values.year === void 0 ? referenceYear : fullYear(values.year, referenceYear + offset) - offset;
    return isoDate(year, Number(values.month), Number(values.day));
  }
@@ -75,10 +351,85 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0e
 +  }
 +  return order;
 +}
++var writtenStyles = ["full", "long", "medium"];
++var writtenDates = /* @__PURE__ */ new Map();
++function compact(text, locale) {
++  return toLatinDigits(text.replace(directionMarks, ""), locale).replace(/[\s\u200c\u200d]/gu, "").replace(/[’ʼ׳]/gu, "'").toLocaleLowerCase(locale);
++}
++function parseWrittenDate(text, locale, referenceYear) {
++  const typed = compact(text, locale);
++  for (const { dateStyle, pattern, fields, months } of writtenDatesOf(locale)) {
++    const match = pattern.exec(typed);
++    if (!match) {
++      continue;
++    }
++    const values = {};
++    fields.forEach((field, index) => values[field] = match[index + 1]);
++    const offset = yearOffset(locale);
++    const date = isoDate(
++      fullYear(values.year ?? "", referenceYear + offset) - offset,
++      months.get(values.month ?? "") ?? 0,
++      Number(values.day)
++    );
++    if (date && compact(formatDate(date, locale, { dateStyle }), locale) === typed) {
++      return date;
++    }
++  }
++  return void 0;
++}
++function writtenDatesOf(locale) {
++  const key = locale ?? "";
++  let dates = writtenDates.get(key);
++  if (!dates) {
++    writtenDates.set(
++      key,
++      dates = writtenStyles.map(
++        (dateStyle) => readWrittenDate(locale, dateStyle)
++      )
++    );
++  }
++  return dates;
++}
++function readWrittenDate(locale, dateStyle) {
++  const formatter = dateFormatter(locale, { dateStyle });
++  const partOf = (type, month, day) => formatter.formatToParts(Date.UTC(2026, month, day)).find((part) => part.type === type)?.value;
++  const months = /* @__PURE__ */ new Map();
++  for (let month = 0; month < 12; month++) {
++    const name = partOf("month", month, 16);
++    if (name) {
++      months.set(compact(name, locale), month + 1);
++    }
++  }
++  const weekdays = /* @__PURE__ */ new Set();
++  for (let day = 11; day < 18; day++) {
++    const name = partOf("weekday", 9, day);
++    if (name) {
++      weekdays.add(compact(name, locale));
++    }
++  }
++  const fields = [];
++  const source = formatter.formatToParts(Date.UTC(2026, 9, 16)).map((part) => {
++    if (part.type === "day" || part.type === "year") {
++      fields.push(part.type);
++      return "(\\d+)";
++    }
++    if (part.type === "month") {
++      fields.push("month");
++      return `(${anyOf(months.keys())})`;
++    }
++    if (part.type === "weekday") {
++      return `(?:${anyOf(weekdays)})`;
++    }
++    return escapeRegExp(compact(part.value, locale));
++  }).join("");
++  return { dateStyle, pattern: new RegExp(`^${source}$`, "u"), fields, months };
++}
++var anyOf = (names) => [...names].map(escapeRegExp).join("|");
++var escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  var yearOffsets = /* @__PURE__ */ new Map();
  function yearOffset(locale) {
    const key = locale ?? "";
-@@ -192,7 +204,7 @@ function isPatternWord(word, locale) {
+@@ -192,7 +283,7 @@ function isPatternWord(word, locale) {
          Date.UTC(2026, 9, 16)
        )) {
          if (part.type === "literal") {
@@ -88,44 +439,86 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0e
            }
          }
 diff --git a/dist/foundation/focus/tabbable.js b/dist/foundation/focus/tabbable.js
-index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..7a4b45a68d42e7d930fd108f02fa15179d94ef39 100644
+index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..204452971b19c1254285bb26882619f79057b11c 100644
 --- a/dist/foundation/focus/tabbable.js
 +++ b/dist/foundation/focus/tabbable.js
-@@ -46,6 +46,33 @@ function radioGroup(el) {
+@@ -1,5 +1,4 @@
+ // src/foundation/focus/tabbable.ts
+-import { isAfter } from "../kernel/order.js";
+ var candidates = [
+   "a[href]",
+   "area[href]",
+@@ -46,6 +45,45 @@ function radioGroup(el) {
  function tabbables(root) {
    return Array.from(root.querySelectorAll(candidates)).filter(isTabbable);
  }
-+function composedTabbables(root) {
-+  const stops = [];
-+  const visit = (scope) => {
++function walkComposed(root, visit, skip) {
++  const walk = (scope) => {
 +    for (const el of scope.children) {
-+      visitElement(el);
++      if (walkElement(el)) {
++        return true;
++      }
 +    }
++    return false;
 +  };
-+  const visitElement = (el) => {
-+    if (el.matches(candidates) && isTabbable(el)) {
-+      stops.push(el);
++  const walkElement = (el) => {
++    if (el === skip) {
++      return false;
++    }
++    if (visit(el)) {
++      return true;
 +    }
 +    if (el.shadowRoot) {
-+      visit(el.shadowRoot);
-+    } else if (el.localName === "slot") {
++      return walk(el.shadowRoot);
++    }
++    if (el.localName === "slot") {
 +      const assigned = el.assignedNodes({ flatten: true });
 +      if (assigned.length) {
-+        assigned.filter(node => node.nodeType === 1).forEach(visitElement);
-+      } else {
-+        visit(el);
++        return assigned.filter(node => node.nodeType === 1).some(walkElement);
 +      }
-+    } else {
-+      visit(el);
 +    }
++    return walk(el);
 +  };
-+  visit(root);
++  walk(root);
++}
++var isStop = (el) => el.matches(candidates) && isTabbable(el);
++function composedTabbables(root) {
++  const stops = [];
++  walkComposed(root, (el) => {
++    if (isStop(el)) {
++      stops.push(el);
++    }
++  });
 +  return stops;
 +}
  function positiveTabStops(stops, root) {
    const slotted = (el) => {
      for (let node = el; node && node !== root; node = node.parentElement) {
-@@ -139,6 +166,7 @@ function bindTabStop(el, wanted, {
+@@ -58,10 +96,20 @@ function positiveTabStops(stops, root) {
+   return stops.filter((el) => el.tabIndex > 0 && !slotted(el)).sort((a, b) => a.tabIndex - b.tabIndex);
+ }
+ function nextTabbable(node, skip) {
+-  const doc = node.ownerDocument ?? document;
+-  return tabbables(doc.body).find(
+-    (el) => !el.contains(node) && !skip?.contains(el) && isAfter(node, el)
++  let passed = false;
++  let next;
++  walkComposed(
++    node.ownerDocument.body,
++    (el) => {
++      if (passed && isStop(el)) {
++        next = el;
++        return true;
++      }
++      passed ||= el === node;
++    },
++    skip
+   );
++  return next;
+ }
+ var focusables = 'a[href],button,input:not([type="hidden"]),select,textarea,iframe,summary,[contenteditable]:not([contenteditable="false"]),[tabindex]';
+ var ownTabStops = /* @__PURE__ */ new WeakSet();
+@@ -139,6 +187,7 @@ function bindTabStop(el, wanted, {
  }
  export {
    bindTabStop,
@@ -133,6 +526,87 @@ index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..7a4b45a68d42e7d930fd108f02fa1517
    focusables,
    isTabbable,
    nextTabbable,
+diff --git a/dist/foundation/forms/form.js b/dist/foundation/forms/form.js
+index 86bdee3c42edcd97bb8e13b58fe56d981e75b0cf..3e3fcd172fbd355ca9d7298171c34c9756de23df 100644
+--- a/dist/foundation/forms/form.js
++++ b/dist/foundation/forms/form.js
+@@ -100,27 +100,61 @@ var blocksImplicitSubmission = /* @__PURE__ */ new Set([
+   "datetime-local",
+   "number"
+ ]);
++var fieldParts = /* @__PURE__ */ new WeakMap();
++var partsListening = /* @__PURE__ */ new Map();
++var blocksSubmission = (el) => el instanceof HTMLInputElement && blocksImplicitSubmission.has(el.type) && !fieldParts.has(el);
++var isSubmitButton = (el) => el instanceof HTMLButtonElement && el.type === "submit" || el instanceof HTMLInputElement && (el.type === "submit" || el.type === "image");
+ function submitImplicitly(form) {
+   if (!form) {
+     return;
+   }
+   const elements = Array.from(form.elements);
+-  const button = elements.find(
+-    (el) => el instanceof HTMLButtonElement && el.type === "submit" || el instanceof HTMLInputElement && (el.type === "submit" || el.type === "image")
+-  );
++  const button = elements.find(isSubmitButton);
+   if (button) {
+     if (!button.disabled) {
+       button.click();
+     }
+     return;
+   }
+-  const blocking = elements.filter(
+-    (el) => el instanceof HTMLInputElement && blocksImplicitSubmission.has(el.type)
+-  );
+-  if (blocking.length <= 1) {
++  if (submissionBlockers(elements) <= 1) {
+     form.requestSubmit();
+   }
+ }
++function submissionBlockers(elements) {
++  return elements.filter(blocksSubmission).length + new Set(
++    elements.filter((el) => fieldParts.has(el)).map((el) => fieldParts.get(el))
++  ).size;
++}
++function submitPastParts(event) {
++  const field = event.target;
++  if (event.key !== "Enter" || event.defaultPrevented || event.isComposing || !(field instanceof HTMLInputElement) || !field.form || !(fieldParts.has(field) || blocksSubmission(field))) {
++    return;
++  }
++  const elements = Array.from(field.form.elements);
++  if (elements.some((el) => fieldParts.has(el)) && !elements.some(isSubmitButton) && submissionBlockers(elements) <= 1) {
++    event.preventDefault();
++    field.form.requestSubmit();
++  }
++}
++function bindFieldPart(input, group = input) {
++  const doc = input.ownerDocument;
++  const count = partsListening.get(doc) ?? 0;
++  if (!count) {
++    doc.addEventListener("keydown", submitPastParts);
++  }
++  partsListening.set(doc, count + 1);
++  fieldParts.set(input, group);
++  return () => {
++    fieldParts.delete(input);
++    const left = partsListening.get(doc) - 1;
++    if (left) {
++      partsListening.set(doc, left);
++    } else {
++      partsListening.delete(doc);
++      doc.removeEventListener("keydown", submitPastParts);
++    }
++  };
++}
+ function dispatchChange(el, types = ["input", "change"]) {
+   if (!el || writingFromScript(el)) {
+     return;
+@@ -332,6 +366,7 @@ function labelledBy(el, findLabels, watch = el) {
+ export {
+   associate,
+   attachFormInternals,
++  bindFieldPart,
+   bindHiddenInput,
+   bindInternals,
+   bindValueInput,
 diff --git a/dist/foundation/lists/listbox-engine.js b/dist/foundation/lists/listbox-engine.js
 index e4779f5ab005bc250263fdfee05cf667f1703e0e..79a8c40f63c3a78d58a83fe641350d529934f075 100644
 --- a/dist/foundation/lists/listbox-engine.js
@@ -156,6 +630,48 @@ index e4779f5ab005bc250263fdfee05cf667f1703e0e..79a8c40f63c3a78d58a83fe641350d52
      }
      return list[step > 0 ? 0 : list.length - 1].key;
    }
+diff --git a/dist/foundation/lists/listbox-keyboard.js b/dist/foundation/lists/listbox-keyboard.js
+index c3e4ea9ff914d382d01533e23b134c61b403ff05..664736cad1945ae9b6ee268042eb6a780b501ca7 100644
+--- a/dist/foundation/lists/listbox-keyboard.js
++++ b/dist/foundation/lists/listbox-keyboard.js
+@@ -3,6 +3,14 @@ import { isApple } from "../platform/platform.js";
+ import { isTypeaheadKey } from "../text/typeahead.js";
+ import "./listbox.js";
+ var PAGE = 10;
++function pageStep(key) {
++  if (key === "PageDown") {
++    return PAGE;
++  }
++  if (key === "PageUp") {
++    return -PAGE;
++  }
++}
+ function listStep(event, { apple }) {
+   const { key } = event;
+   if (key === "ArrowDown") {
+@@ -11,11 +19,9 @@ function listStep(event, { apple }) {
+   if (key === "ArrowUp") {
+     return event.metaKey ? "first" : -1;
+   }
+-  if (key === "PageDown") {
+-    return PAGE;
+-  }
+-  if (key === "PageUp") {
+-    return -PAGE;
++  const page = pageStep(key);
++  if (page !== void 0) {
++    return page;
+   }
+   const emacs = apple && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+   if (emacs && key === "n") {
+@@ -53,5 +59,6 @@ function listKeyDown(event, {
+ }
+ export {
+   listKeyDown,
+-  listStep
++  listStep,
++  pageStep
+ };
 diff --git a/dist/foundation/lists/listbox-parts.js b/dist/foundation/lists/listbox-parts.js
 index 04989ee69eb32ff5a52ca4ec4bc5c2e86ef1f136..b47a9de1f3039053139a3ff166179c0fe7fbfdfd 100644
 --- a/dist/foundation/lists/listbox-parts.js
@@ -168,17 +684,40 @@ index 04989ee69eb32ff5a52ca4ec4bc5c2e86ef1f136..b47a9de1f3039053139a3ff166179c0f
          name: state.multiple ? void 0 : state.name,
          value: state.multiple ? keys.join(",") : keys[0] ?? "",
          form: state.form,
+diff --git a/dist/foundation/lists/listbox-value.d.ts b/dist/foundation/lists/listbox-value.d.ts
+index c7acc6630bce9361c1d863b1581d3189f1aba2ec..5eee662c9c0358778d74ae4384da3b2ec5669a69 100644
+--- a/dist/foundation/lists/listbox-value.d.ts
++++ b/dist/foundation/lists/listbox-value.d.ts
+@@ -5,10 +5,10 @@ import { type Store } from "../kernel/store.js";
+  * `maxLabels` and a count of the rest, joined the way the page's language joins a
+  * list: "Apple, Banana and 2 more".
+  */
+-declare function formatLabels(labels: readonly string[], { maxLabels, getMoreLabel, }?: {
++declare function formatLabels(labels: readonly string[], { maxLabels, getMoreLabel, }: {
+     maxLabels?: number;
+     getMoreLabel?: (count: number) => string;
+-}): string;
++}, locale: string): string;
+ declare function listOf(value: unknown): any[];
+ declare function createValueSelection(config: {
+     store: Store<{
 diff --git a/dist/foundation/lists/listbox-value.js b/dist/foundation/lists/listbox-value.js
-index a77a2130326a1cbb673396b349184a0db52f17e2..88a2a290454a6b7602a4faf0c047b388b812f1d2 100644
+index a77a2130326a1cbb673396b349184a0db52f17e2..2abfd78fe994287921343a319e023925a2b620df 100644
 --- a/dist/foundation/lists/listbox-value.js
 +++ b/dist/foundation/lists/listbox-value.js
-@@ -6,16 +6,18 @@ import { sameValue } from "../kernel/store.js";
+@@ -1,26 +1,27 @@
+ // src/foundation/lists/listbox-value.ts
+ import "./listbox.js";
+-import { pageLocale } from "../text/locale.js";
+ import { deriveFromOptions } from "../kernel/derive.js";
+ import { sameValue } from "../kernel/store.js";
  var listFormats = /* @__PURE__ */ new Map();
  function formatLabels(labels, {
    maxLabels,
 -  getMoreLabel = (count) => `${count} more`
+-} = {}) {
 +  getMoreLabel
- } = {}) {
++}, locale) {
    if (maxLabels === void 0) {
      return labels.join(", ");
    }
@@ -190,17 +729,27 @@ index a77a2130326a1cbb673396b349184a0db52f17e2..88a2a290454a6b7602a4faf0c047b388
      return shown.join(", ");
    }
 -  const locale = pageLocale();
-+  const locale = hidden > 0 && !getMoreLabel ? "en-US" : pageLocale() ?? "en-US";
-   let format = listFormats.get(locale);
+-  let format = listFormats.get(locale);
++  const listLocale = hidden > 0 && !getMoreLabel ? "en-US" : locale;
++  let format = listFormats.get(listLocale);
    if (!format) {
      listFormats.set(
+-      locale,
+-      format = new Intl.ListFormat(locale, { type: "conjunction" })
++      listLocale,
++      format = new Intl.ListFormat(listLocale, { type: "conjunction" })
+     );
+   }
+   return format.format(shown);
 diff --git a/dist/foundation/number/parse.js b/dist/foundation/number/parse.js
-index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..7fdca8d83f055bc3b3a4d1a8400b03119aefd89d 100644
+index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..cdbff2b0b0bebf705ebebff3c0c71c6455120129 100644
 --- a/dist/foundation/number/parse.js
 +++ b/dist/foundation/number/parse.js
-@@ -15,11 +15,10 @@ function symbolsOf(locale, options) {
+@@ -14,12 +14,18 @@ function symbolsOf(locale, options) {
+     return cached;
    }
    const formatter = numberFormatter(locale, options);
++  const words = /* @__PURE__ */ new Map();
    const parts = [
 -    ...formatter.formatToParts(-12345.6),
 -    ...formatter.formatToParts(12345.6),
@@ -210,11 +759,24 @@ index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..7fdca8d83f055bc3b3a4d1a8400b0311
 +    -12345.6,
 +    12345.6,
 +    ...pluralSamples(locale, formatter)
-+  ].flatMap((sample) => formatter.formatToParts(sample));
++  ].flatMap((sample) => {
++    const sampleParts = formatter.formatToParts(sample);
++    if (!sampleParts.some((part) => part.type === "integer")) {
++      words.set(wordKey(formatter.format(sample)), sample);
++    }
++    return sampleParts;
++  });
    const find = (type) => parts.find((part) => part.type === type)?.value;
    const numbering = formatter.resolvedOptions().numberingSystem;
    const separators = numberFormatter(locale, {
-@@ -51,6 +50,22 @@ function symbolsOf(locale, options) {
+@@ -46,11 +52,29 @@ function symbolsOf(locale, options) {
+     // Longest first, so "US$" goes before "$".
+     strip: [...new Set(strip)].sort((a, b) => b.length - a.length),
+     digits,
+-    divisor: options.style === "percent" ? 100 : 1
++    divisor: options.style === "percent" ? 100 : 1,
++    words
+   };
    symbolCache.set(key, symbols);
    return symbols;
  }
@@ -234,14 +796,94 @@ index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..7fdca8d83f055bc3b3a4d1a8400b0311
 +  }
 +  return samples.values();
 +}
++var wordKey = (text) => text.replace(formatCharacters, "").replace(spaces, "");
  var parenthesized = /^\s*\(.*\)\s*$/;
  function normalize(text, symbols) {
    let result = text.replace(formatCharacters, "").replace(minusSigns, "-").replace(plusSigns, "+");
+@@ -82,6 +106,10 @@ var complete = /^-?(\d+\.?\d*|\.\d+)$/;
+ var partial = /^-?\d*\.?\d*$/;
+ function parseNumber(text, locale, format) {
+   const symbols = symbolsOf(locale, format ?? {});
++  const word = symbols.words.get(wordKey(text));
++  if (word !== void 0) {
++    return word;
++  }
+   const normalized = normalize(text, symbols);
+   if (!complete.test(normalized)) {
+     return null;
+diff --git a/dist/foundation/platform/layers.js b/dist/foundation/platform/layers.js
+index 0a5024561ec68097c6885e44c11131584ab1248b..09699752b7e832cd97fbca5511a0ee0a1d3b7257 100644
+--- a/dist/foundation/platform/layers.js
++++ b/dist/foundation/platform/layers.js
+@@ -115,6 +115,17 @@ function insideTreeAt(layer, hops, event) {
+ }
+ function listen(doc, win) {
+   let swallowClick = false;
++  let offLeftover;
++  const forgetClick = () => {
++    swallowClick = false;
++    offLeftover?.();
++    offLeftover = void 0;
++  };
++  const forgetAfterRelease = () => {
++    if (swallowClick) {
++      win.setTimeout(forgetClick);
++    }
++  };
+   let touch;
+   let pending;
+   function plan(event, target, point) {
+@@ -199,6 +210,7 @@ function listen(doc, win) {
+     win,
+     "pointerup",
+     (event) => {
++      forgetAfterRelease();
+       const press = pending;
+       pending = void 0;
+       if (!press || !press.layer.active()) {
+@@ -262,9 +274,12 @@ function listen(doc, win) {
+     if (!swallowClick) {
+       return offClick();
+     }
+-    const off = () => (offClick(), offNext(), offSwallowed());
+-    const offNext = on(win, "pointerdown", off, { capture: true });
+-    const offSwallowed = on(win, "click", off, { capture: true });
++    const offNext = on(win, "pointerdown", forgetClick, { capture: true });
++    const offSwallowed = on(win, "click", forgetClick, { capture: true });
++    const offRelease = on(win, "pointerup", forgetAfterRelease, {
++      capture: true
++    });
++    offLeftover = () => (offClick(), offNext(), offSwallowed(), offRelease());
+   };
+ }
+ function layerContains(layer, target) {
+diff --git a/dist/foundation/popups/popup-features.js b/dist/foundation/popups/popup-features.js
+index eab2beaa42b085f926aaec23c80926950fc2d0d3..3af3f600c9afc33fbbcc610873020e4133d24a02 100644
+--- a/dist/foundation/popups/popup-features.js
++++ b/dist/foundation/popups/popup-features.js
+@@ -9,7 +9,7 @@ import {
+   preparePosition
+ } from "../platform/position.js";
+ import "../platform/sides.js";
+-import { tabbables } from "../focus/tabbable.js";
++import { composedTabbables, tabbables } from "../focus/tabbable.js";
+ import { accessibleName } from "../text/accessible-name.js";
+ import { createHoverIntent } from "./hover.js";
+ import {
+@@ -101,7 +101,7 @@ function pressOpening(core) {
+         return content;
+       }
+       if (setting === "auto") {
+-        return preferred?.() ?? tabbables(content)[0] ?? content;
++        return preferred?.() ?? composedTabbables(content)[0] ?? content;
+       }
+       if (typeof setting === "function") {
+         return setting() ?? content;
 diff --git a/dist/foundation/popups/popup.js b/dist/foundation/popups/popup.js
-index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..11a1cfaf387ef71a20aa99c2df5a5e8c4c8874b7 100644
+index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..f211ae0b4f666ee14b7782601e34f95c2305971f 100644
 --- a/dist/foundation/popups/popup.js
 +++ b/dist/foundation/popups/popup.js
-@@ -35,6 +35,7 @@ import {
+@@ -35,11 +35,61 @@ import {
  import { registerPopupElement } from "./popup-elements.js";
  import { animateIn, animateOut, writeOpen } from "../motion/presence.js";
  import {
@@ -249,7 +891,69 @@ index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..11a1cfaf387ef71a20aa99c2df5a5e8c
    nextTabbable,
    positiveTabStops,
    radioGroup,
-@@ -776,8 +777,9 @@ function createPopupLayer(options) {
+   tabbables
+ } from "../focus/tabbable.js";
++var frameGuardStyle = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;outline:none";
++function guardFrames(popup, trapping) {
++  const doc = popup.ownerDocument;
++  let frame;
++  let guards = [];
++  const remove = () => {
++    guards.forEach((guard2) => guard2.remove());
++    guards = [];
++    frame = void 0;
++  };
++  const guard = () => {
++    const el = doc.createElement("span");
++    el.tabIndex = 0;
++    el.setAttribute("aria-hidden", "true");
++    el.style.cssText = frameGuardStyle;
++    return el;
++  };
++  const offBlur = on(
++    doc.defaultView ?? window,
++    "blur",
++    () => setTimeout(() => {
++      const active = activeElement(doc);
++      if (guards.length || !trapping() || !(active instanceof HTMLIFrameElement) || !composedContains(popup, active)) {
++        return;
++      }
++      frame = active;
++      guards = [guard(), guard()];
++      active.before(guards[0]);
++      active.after(guards[1]);
++    })
++  );
++  const offFocus = on(doc, "focusin", (event) => {
++    const side = guards.indexOf(event.composedPath()[0]);
++    const from = frame;
++    remove();
++    if (side < 0 || !from) {
++      return;
++    }
++    const stops = composedTabbables(popup);
++    const step = side === 0 ? -1 : 1;
++    const next = stops.at((stops.indexOf(from) + step) % stops.length);
++    (next ?? popup).focus({ preventScroll: true });
++  });
++  return () => {
++    offBlur();
++    offFocus();
++    remove();
++  };
++}
+ function modalTriple(modal) {
+   return {
+     consumeOutsidePress: modal === true || modal === "pointer",
+@@ -679,6 +729,7 @@ function createPopupLayer(options) {
+         })
+       );
+     }
++    cleanups.push(guardFrames(el, () => tabMode() === "trap"));
+     if (behavior.closeWatcher) {
+       const stop = watchClose(
+         (event) => options.close("back", { event, focus: true })
+@@ -776,8 +827,9 @@ function createPopupLayer(options) {
        return options.close("focus-out", { event, focus: false });
      }
      const list = tabbables(popup);
