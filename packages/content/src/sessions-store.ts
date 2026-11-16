@@ -2,7 +2,7 @@ import { and, eq, gt, inArray, lt, ne, sql } from "drizzle-orm"
 
 import { contentSessionsSchema } from "./database.ts"
 
-import type { BlobDatabaseWorkspaceStoreOptions } from "@vite-hub/workspace/blob-database"
+import type { BlobDatabaseWorkspaceStoreTarget } from "@vite-hub/workspace/blob-database"
 import type { SQL } from "drizzle-orm"
 
 const { contentSessions: table } = contentSessionsSchema
@@ -58,7 +58,7 @@ export interface ReportInput extends SessionKey {
   takeover: boolean
 }
 
-type Database = BlobDatabaseWorkspaceStoreOptions["database"]
+type Database = BlobDatabaseWorkspaceStoreTarget["database"]
 
 const selection = {
   collection: table.collection,

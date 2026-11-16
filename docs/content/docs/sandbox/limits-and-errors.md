@@ -19,10 +19,6 @@ icon: i-lucide-circle-alert
 | Vercel Pro and Enterprise | 5 minutes | 23 hours 59 minutes 30 seconds (the 24 hour plan limit minus 30 seconds) |
 | Cloudflare | 5 minutes | `2_147_483_647` milliseconds |
 
-## SANDBOX_TASK_R0077
-
-Vercel rejected the Sandbox session timeout, because it is above the plan maximum. The message has the limit from Vercel, for example `` `timeout` restricted to <= 45m on Hobby plans``. Set a lower `timeout` on the Sandbox Task. Remember that the session gets the task timeout plus 30 seconds.
-
 ## Limits
 
 - To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
@@ -38,6 +34,12 @@ The runtime cannot send the requested process signal. On Crabbox, pass `SIGTERM`
 `runSandboxTask()` returns a non-2xx response when Cloudflare cannot remove the run's files from a Sandbox that stays open, even when the handler succeeds. The files can then stay in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing removes the files. A failed session cleanup also returns a non-2xx response.
 
 If execution and cleanup both fail, the response keeps the first error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()`, the thrown error keeps both failures in an `AggregateError` in its cause chain, with provider details. JSON responses omit causes.
+
+## Error responses
+
+A failed `runSandboxTask()` returns a JSON body with `error.code`, `error.message`, and `error.details`. Your route can send this body to the client, so outside `vite dev` the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `outputPreview`, `cause`, `cwd`, or `args`. These fields can hold source paths, environment values, or user data from the Sandbox process. The body keeps facts such as `provider`, `exitCode`, and `timeout`. In `vite dev`, the body keeps all details.
+
+To read the full details on the server, call `resolveSandboxTaskRunner(name).run()`. It throws the error with every detail and its cause. Log it on the server. Do not send it to the client.
 
 ## Cloudflare retries
 
@@ -56,6 +58,6 @@ const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)
 ```
 
-Use provider controls such as Vercel `networkPolicy`. Keep secrets in the server environment or provider config. A container alone does not make untrusted code safe to run.
+Set `networkPolicy` to `'deny-all'` or to an allowlist of hostnames to limit outbound traffic on Vercel and Cloudflare. See [Network policy](/docs/sandbox/hosts#network-policy). Keep secrets in the server environment or provider config. A container alone does not make untrusted code safe to run.
 
 Run `vitehub inspect definitions` to list Sandbox Tasks without starting a server.

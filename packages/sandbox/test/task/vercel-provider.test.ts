@@ -47,6 +47,18 @@ describe("resolveTaskSandbox", () => {
     )
   })
 
+  it.each([
+    "deny-all" as const,
+    { allow: ["registry.npmjs.org", "*.github.com"] },
+  ])("passes networkPolicy %j to the Vercel runtime", async (networkPolicy) => {
+    const provider = await resolveVercelTaskSandbox({
+      local: {},
+      provider: { provider: "vercel", networkPolicy },
+    })
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ networkPolicy }), ["node"])
+  })
+
   it("uses config credentials without process", async () => {
     vi.stubGlobal("process", undefined)
 
@@ -67,6 +79,18 @@ describe("resolveTaskSandbox", () => {
         teamId: "team-from-config",
         projectId: "project-from-config",
       }),
+      ["node"],
+    )
+  })
+
+  it("leaves the runtime to the Sandbox runtime, which omits it for a snapshot source", async () => {
+    const provider = await resolveVercelTaskSandbox({
+      local: {},
+      provider: { provider: "vercel", source: { snapshotId: "snap_123", type: "snapshot" } },
+    })
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtime: undefined, source: { snapshotId: "snap_123", type: "snapshot" } }),
       ["node"],
     )
   })

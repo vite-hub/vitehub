@@ -16,15 +16,42 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0006: dynamicError,
     SANDBOX_TASK_R0007: dynamicError,
     SANDBOX_TASK_R0008: dynamicError,
-    SANDBOX_TASK_C0001: dynamicError,
-    SANDBOX_TASK_C0002: dynamicError,
-    SANDBOX_TASK_C0003: dynamicError,
-    SANDBOX_TASK_C0004: dynamicError,
-    SANDBOX_TASK_C0005: dynamicError,
-    SANDBOX_TASK_C0006: dynamicError,
-    SANDBOX_TASK_C0007: dynamicError,
-    SANDBOX_TASK_C0008: dynamicError,
-    SANDBOX_TASK_C0009: dynamicError,
+    SANDBOX_TASK_C0001: {
+      ...dynamicError,
+      fix: "Write each array item in the `defineSandboxTask()` options as a literal value, without spread items or empty slots.",
+    },
+    SANDBOX_TASK_C0002: {
+      ...dynamicError,
+      fix: "Write each object in the `defineSandboxTask()` options with `key: value` pairs only, without spread, shorthand properties, methods, or accessors.",
+    },
+    SANDBOX_TASK_C0003: {
+      ...dynamicError,
+      fix: "Write each key in the `defineSandboxTask()` options as a name or a string literal, such as `env: { API_URL: \"https://example.com\" }`. Do not use computed or numeric keys.",
+    },
+    SANDBOX_TASK_C0004: {
+      ...dynamicError,
+      fix: "Write each option value in `defineSandboxTask()` as a literal: a string, number, boolean, `null`, array, or object. Do not use variables, calls, or `process.env` reads.",
+    },
+    SANDBOX_TASK_C0005: {
+      ...dynamicError,
+      fix: "Pass one object literal to `defineSandboxTask()` in the default export, such as `export default defineSandboxTask({ handler })`.",
+    },
+    SANDBOX_TASK_C0006: {
+      ...dynamicError,
+      fix: "Write each option of `defineSandboxTask()` as `key: value` with a name or string key, without spread, computed keys, or accessors. Only `handler` can be a shorthand property or a method.",
+    },
+    SANDBOX_TASK_C0007: {
+      ...dynamicError,
+      fix: "Write `timeout`, `env`, and `project` in `defineSandboxTask()` as `key: value` with a literal value. Only `handler` can be a method.",
+    },
+    SANDBOX_TASK_C0008: {
+      ...dynamicError,
+      fix: "Set `project` in `defineSandboxTask()` to the literal `true` or `false`, or remove it to detect project use automatically.",
+    },
+    SANDBOX_TASK_C0009: {
+      ...dynamicError,
+      fix: "Add a `handler` function to `defineSandboxTask()`, such as `defineSandboxTask({ handler: async (payload) => { ... } })`.",
+    },
     SANDBOX_TASK_R0009: dynamicError,
     SANDBOX_TASK_R0010: dynamicError,
     SANDBOX_TASK_R0011: dynamicError,
@@ -63,10 +90,22 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0044: dynamicError,
     SANDBOX_TASK_R0045: dynamicError,
     SANDBOX_TASK_R0046: dynamicError,
-    SANDBOX_TASK_C0010: dynamicError,
-    SANDBOX_TASK_C0011: dynamicError,
-    SANDBOX_TASK_C0012: dynamicError,
-    SANDBOX_TASK_C0013: dynamicError,
+    SANDBOX_TASK_C0010: {
+      ...dynamicError,
+      fix: "Set `handler` in `defineSandboxTask()` to a function, such as `handler: async (payload) => { ... }`.",
+    },
+    SANDBOX_TASK_C0011: {
+      ...dynamicError,
+      fix: "Pass one options object to `defineSandboxTask()`, such as `defineSandboxTask({ handler })`.",
+    },
+    SANDBOX_TASK_C0012: {
+      ...dynamicError,
+      fix: "Use only the `handler`, `timeout`, `env`, and `project` options in `defineSandboxTask()`. Remove the other keys that the message lists.",
+    },
+    SANDBOX_TASK_C0013: {
+      ...dynamicError,
+      fix: "Install TypeScript in the app, for example with `pnpm add -D typescript`.",
+    },
     SANDBOX_TASK_C0014: {
       ...dynamicError,
       fix: "Rename `run` to `handler`: `defineSandboxTask({ handler })`. Run `npx @vite-hub/codemods define-forms` to rename it in every Sandbox Task.",
@@ -100,7 +139,24 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0074: dynamicError,
     SANDBOX_TASK_R0075: dynamicError,
     SANDBOX_TASK_R0076: dynamicError,
-    SANDBOX_TASK_R0077: {
+    // Named errors. Keep these codes in alphabetical order.
+    SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL: {
+      why: ({ className, instanceType, size }: { className: string, instanceType: string, size: string }) => `[vitehub] The Cloudflare containers entry of class ${className} sets the instance type ${instanceType}, which is smaller than the Sandbox Task size (${size}).`,
+      fix: "Remove `instance_type` from your `containers` entry so that ViteHub writes the size from `cpu` and `memory`, or set a larger `instance_type`, or lower `cpu` and `memory`. ViteHub never changes an instance type that you wrote.",
+    },
+    SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT: {
+      why: ({ className, configured, requested }: { className: string, configured: number, requested: number }) => `[vitehub] The Cloudflare containers entry of class ${className} sets max_instances ${configured}, but the Sandbox Task option maxInstances is ${requested}.`,
+      fix: "Set the instance limit in one place: remove `maxInstances` from the Sandbox Task options, or remove `max_instances` from your `containers` entry.",
+    },
+    SANDBOX_TASK_SIZE_INVALID: {
+      why: ({ key, value }: { key: string, value: string }) => `[vitehub] Sandbox Task option ${key} must be a positive number${key === 'maxInstances' ? ' and a whole number' : ''}. Received ${value}.`,
+      fix: "Set `cpu` to a number of vCPUs, such as `2` or `0.5`, `memory` to a number of MiB, such as `4096`, and `maxInstances` to a whole number, such as `20`.",
+    },
+    SANDBOX_TASK_SIZE_TOO_LARGE: {
+      why: ({ max, provider, size }: { max: string, provider: string, size: string }) => `[vitehub] ${provider} has no Sandbox size for ${size}. The largest size is ${max}.`,
+      fix: "Lower `cpu` or `memory` in the Sandbox Task options. On Cloudflare the largest Container has 4 vCPU and 12288 MiB memory. On Vercel the largest Sandbox has 32 vCPU and 65536 MiB memory, and your plan can allow fewer.",
+    },
+    SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT: {
       why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,
       fix: "Set a lower Sandbox Task `timeout`. Vercel allows up to 45 minutes on Hobby and 24 hours on Pro. The Vercel session gets the task timeout plus 30 seconds.",
     },

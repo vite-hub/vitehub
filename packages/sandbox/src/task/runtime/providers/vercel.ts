@@ -1,6 +1,7 @@
 import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
 import { loadVercelSandbox, type VercelSandboxCreateOptions, type VercelSandboxInstance } from '../../../vercel.ts'
+import { resolveVercelSandboxTaskVcpus } from '../../size.ts'
 import { readEnv } from '@vite-hub/internal/env'
 import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
 import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
@@ -53,9 +54,9 @@ function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
 export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const credentials = resolveCredentials(options.provider)
   const sandboxOptions = {
-    runtime: options.provider.runtime || 'node24',
+    runtime: options.provider.runtime,
     timeout: (options.local.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS) + VERCEL_TASK_SANDBOX_HEADROOM_MS,
-    cpu: options.provider.cpu,
+    cpu: resolveVercelSandboxTaskVcpus(options.provider),
     ports: options.provider.ports,
     source: options.provider.source,
     networkPolicy: options.provider.networkPolicy,
@@ -79,7 +80,7 @@ function withPlanLimitError(create: (options: VercelSandboxCreateOptions) => Pro
     catch (error) {
       const limit = error instanceof Error ? vercelTimeoutLimit(error.message) : undefined
       if (limit && createOptions.timeout !== undefined)
-        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0077({ cause: error, limit, timeout: createOptions.timeout })
+        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT({ cause: error, limit, timeout: createOptions.timeout })
       throw error
     }
   }

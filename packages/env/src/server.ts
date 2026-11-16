@@ -528,7 +528,8 @@ async function inspectRegistryEntry(
   }
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    entries.push({ masked: value.secret, ...inspectionNames(value), ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found, path), ...runtimeSourceOrigin(value, env, source) })
+    const name = source.name !== undefined && hostVariableName.test(source.name) ? { name: source.name } : {}
+    entries.push({ masked: value.secret, ...inspectionNames(value), ...name, ...inspectionPath(path), required: value.required, source: "env", status: inspectionStatus(value, source.value, source.found, path), ...runtimeSourceOrigin(value, env, source) })
     return
   }
   if (isRuntimeProviderEntry(value)) {

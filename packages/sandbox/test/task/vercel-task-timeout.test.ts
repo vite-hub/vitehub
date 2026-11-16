@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const vercel = vi.hoisted(() => ({
   createOptions: [] as Array<{ timeout?: number }>,
   setupLatency: 0,
+  handlerStarted: false,
 }))
 
 /**
@@ -25,6 +26,7 @@ vi.mock("@vercel/sandbox", () => ({
         async readFileToBuffer() { return null },
         async runCommand({ args }: { args: string[] }) {
           const handler = args[1]?.includes("import(process.argv[1])")
+          if (handler) vercel.handlerStarted = true
           const exit = handler ? stopped().then(() => ({ exitCode: 143 })) : delay(vercel.setupLatency).then(() => ({ exitCode: 0 }))
           return {
             async closeStdin() {},
@@ -66,6 +68,7 @@ afterEach(() => {
   resetSandboxTaskRuntimeState()
   vercel.createOptions.length = 0
   vercel.setupLatency = 0
+  vercel.handlerStarted = false
 })
 
 describe("Vercel Sandbox Task timeout", () => {
@@ -87,11 +90,10 @@ describe("Vercel Sandbox Task timeout", () => {
 
     let response: Response | undefined
     const pending = runSandboxTaskRuntime("slow").then(result => (response = result))
-    // Setup awaits real I/O between fake timers, so let the event loop turn on every step.
-    for (let elapsed = 0; !response && elapsed < 400_000; elapsed += 1_000) {
-      await new Promise(resolve => setImmediate(resolve))
-      await vi.advanceTimersByTimeAsync(1_000)
-    }
+    // Wait for real setup I/O before advancing the execution deadline.
+    await vi.waitFor(() => expect(vercel.handlerStarted).toBe(true), { timeout: 3_000 })
+    expect(response).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(300_000)
     await pending
 
     expect(response?.status).toBe(504)
@@ -106,7 +108,7 @@ describe("Vercel Sandbox Task timeout", () => {
 
     expect(response.status).toBe(500)
     expect(await response.json()).toMatchObject({ error: {
-      code: "SANDBOX_TASK_R0077",
+      code: "SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT",
       message: expect.stringContaining("Vercel rejected the Sandbox session timeout of 3630000ms: `timeout` restricted to <= 45m on Hobby plans."),
     } })
   })

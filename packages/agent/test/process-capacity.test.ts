@@ -252,17 +252,20 @@ describe("process Agent capacity", () => {
     await expect(sample({ active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal })).resolves.toMatchObject({ concurrency: 2 });
   });
 
-  it("reserves no local memory for invocations running on other hosts", async () => {
+  it("reserves no local memory for invocations running on other hosts, but counts their slots", async () => {
     resources.cgroupAvailable = false
     resources.availableMemory = 5 * GiB
     let remote = 0
     const sample = createBuiltInSample({ concurrency: 10, memory: { perInvocationBytes: GiB, reserveBytes: GiB }, remoteActive: () => remote })
-    const context = { active: 4, concurrency: 10, pending: 1, signal: new AbortController().signal }
-    // Four local invocations reserve all four available GiB.
+    // One local invocation; memory admits three more.
+    const context = { active: 1, concurrency: 10, pending: 1, signal: new AbortController().signal }
     await expect(sample(context)).resolves.toMatchObject({ concurrency: 4 })
-    // Three of them run remotely, so three local slots are free again.
+    // Remote invocations outside this queue leave local memory alone.
     remote = 3
-    await expect(sample(context)).resolves.toMatchObject({ concurrency: 7 })
+    await expect(sample(context)).resolves.toMatchObject({ concurrency: 4 })
+    // They still hold their concurrency slots.
+    remote = 8
+    await expect(sample(context)).resolves.toMatchObject({ concurrency: 2 })
   })
 
   it("bounds admission by host MemAvailable even when Node reports more", async () => {
