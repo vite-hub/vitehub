@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
 import type { HostCliRun } from "./host-credentials.ts"
-import type { ProvisionStep } from "./provision.ts"
+import type { ProvisionProvider, ProvisionStep } from "./provision.ts"
 
 import { isPlainObject } from "./object.ts"
 
@@ -37,12 +37,23 @@ export interface ViteHubCliContext extends ViteHubCliStreams {
   env: NodeJS.ProcessEnv
   /** Replaces `fetch` for commands that call a running app, so tests need no server. */
   fetch?: typeof fetch
+  /**
+   * Loads the project config for a build on `host` and returns the Provision Steps of its plugins, with the config root
+   * that holds `.vitehub/provision.json`. Setup commands, such as `vitehub deploy`, call it only when they need the
+   * steps, so they still run on a config that throws.
+   */
+  loadProvision?: (host: ProvisionProvider) => Promise<ViteHubCliProvision>
   /** The deployed app's public origin from `vitehub({ publicUrl })`, when it is one string. */
   publicUrl?: string
   rootDir: string
   /** Replaces the host CLI runner, such as for `wrangler auth token`, so tests need no real host CLI. */
   runHostCli?: HostCliRun
   spawn: ViteHubCliSpawn
+}
+
+export interface ViteHubCliProvision {
+  rootDir: string
+  steps: readonly ProvisionStep[]
 }
 
 export interface ViteHubCliFeature {

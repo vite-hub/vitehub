@@ -74,7 +74,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
       ref="frame"
       class="vitehub-media-focal relative w-full touch-none rounded-md select-none"
       :class="disabled ? '' : 'cursor-crosshair'"
-      :style="{ aspectRatio: String(ratio), background: color ?? 'var(--ui-bg-elevated)' }"
+      :style="{ aspectRatio: String(ratio), background: color ?? 'var(--muted)' }"
       @pointerdown="down"
       @pointermove="move"
       @pointerup="up"
@@ -94,7 +94,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
     </div>
     <div class="grid grid-cols-4 items-end gap-2" aria-label="Crop previews">
       <figure v-for="preview in previews" :key="preview.aspect" class="grid gap-1">
-        <div class="overflow-hidden rounded-md ring-1 ring-(--ui-border) ring-inset" :style="{ aspectRatio: String(preview.ratio), background: color ?? 'var(--ui-bg-elevated)' }">
+        <div class="overflow-hidden rounded-md ring-1 ring-(--border) ring-inset" :style="{ aspectRatio: String(preview.ratio), background: color ?? 'var(--muted)' }">
           <img :src="src" alt="" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(point, { width, height }, preview.ratio) }" draggable="false">
         </div>
         <figcaption class="text-xs text-dimmed tabular-nums">{{ preview.aspect }}</figcaption>

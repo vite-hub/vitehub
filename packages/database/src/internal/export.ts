@@ -8,6 +8,7 @@ import { createClient } from "@libsql/client"
 import { basename, dirname, join, resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { createD1Query } from "./d1-migrations.ts"
@@ -24,6 +25,9 @@ export type ExportTarget =
   | { kind: "d1-proxy", token?: string, url?: string }
   | { kind: "pglite", path: string }
   | { kind: "postgres", url?: string }
+
+/** Makes `DATABASE_EXPORT_FAILED` for the database that `vitehub database export` reads. */
+type ExportFailure = (problem: string) => Error
 
 interface ExportOptions {
   env: NodeJS.ProcessEnv
@@ -87,39 +91,40 @@ export function describeExportTarget(target: ExportTarget, projectRoot: string):
  * `wrangler d1 export`, so `wrangler d1 execute --file` and `sqlite3` can both restore them. Throws with the problem.
  */
 export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, options: ExportOptions): Promise<ExportTarget> {
+  const fail: ExportFailure = problem => databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ database: database.name, problem })
   const target = resolveExportTarget(database, options)
   const description = describeExportTarget(target, options.projectRoot)
   if (target.kind === "pglite") {
-    throw new Error(`It uses ${description}, which \`vitehub database export\` cannot read yet. To export a Postgres server, set \`connection.url\` or the PG* variables, and add \`--remote\`.`)
+    throw fail(`It uses ${description}, which \`vitehub database export\` cannot read yet. To export a Postgres server, set \`connection.url\` or the PG* variables, and add \`--remote\`.`)
   }
   if (target.kind === "local" && options.remote) {
-    throw new Error(`It uses ${description}, which is not remote. Remove \`--remote\`, or set the remote \`connection.url\` in the environment or with \`--stage\`.`)
+    throw fail(`It uses ${description}, which is not remote. Remove \`--remote\`, or set the remote \`connection.url\` in the environment or with \`--stage\`.`)
   }
   if (target.kind !== "local" && !options.remote) {
-    throw new Error(`It uses ${description}. Add \`--remote\` to export a database that is not a local file.`)
+    throw fail(`It uses ${description}. Add \`--remote\` to export a database that is not a local file.`)
   }
-  if (existsSync(options.output)) throw new Error(`The output file exists: ${options.output}`)
+  if (existsSync(options.output)) throw fail(`The output file exists: ${options.output}`)
   await mkdir(dirname(options.output), { recursive: true })
   const partialDirectory = await mkdtemp(join(dirname(options.output), `.${basename(options.output)}.partial-`))
   const partial = join(partialDirectory, basename(options.output))
   try {
     switch (target.kind) {
       case "local":
-        if (target.path === ":memory:") throw new Error("It uses an in-memory SQLite URL, which a separate process cannot read. Use a file-backed SQLite URL.")
-        if (!existsSync(target.path)) throw new Error(`The local SQLite file does not exist: ${target.path}. Run \`vitehub database migrate\` to create it.`)
-        await dumpLibsql({ url: `file:${target.path}` }, partial)
+        if (target.path === ":memory:") throw fail("It uses an in-memory SQLite URL, which a separate process cannot read. Use a file-backed SQLite URL.")
+        if (!existsSync(target.path)) throw fail(`The local SQLite file does not exist: ${target.path}. Run \`vitehub database migrate\` to create it.`)
+        await dumpLibsql({ url: `file:${target.path}` }, partial, fail)
         break
       case "libsql":
-        await dumpLibsql({ authToken: target.authToken, url: target.url }, partial)
+        await dumpLibsql({ authToken: target.authToken, url: target.url }, partial, fail)
         break
       case "d1-proxy":
-        await writeSqliteDump(createD1Query({ proxy: { token: target.token, url: target.url } }, options.fetch), partial)
+        await writeSqliteDump(createD1Query({ proxy: { token: target.token, url: target.url } }, fail, options.fetch), partial, fail)
         break
       case "d1":
-        await exportD1(target, partial, options)
+        await exportD1(target, partial, options, fail)
         break
       case "postgres":
-        await exportPostgres(target, partial, options)
+        await exportPostgres(target, partial, options, fail)
         break
     }
     // Linking publishes the completed file atomically and refuses an existing destination.
@@ -127,7 +132,7 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
       await link(partial, options.output)
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`The output file exists: ${options.output}`)
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw fail(`The output file exists: ${options.output}`)
       throw error
     }
   }
@@ -137,13 +142,13 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
   return target
 }
 
-async function dumpLibsql(config: { authToken?: string, url: string }, file: string) {
+async function dumpLibsql(config: { authToken?: string, url: string }, file: string, fail: ExportFailure) {
   const client = createClient(config)
   try {
     // One read transaction gives a consistent snapshot while the app keeps writing.
     const transaction = await client.transaction("read")
     try {
-      await writeSqliteDump(async sql => (await transaction.execute(sql)).rows, file, true)
+      await writeSqliteDump(async sql => (await transaction.execute(sql)).rows, file, fail, true)
     }
     finally {
       transaction.close()
@@ -157,7 +162,7 @@ async function dumpLibsql(config: { authToken?: string, url: string }, file: str
 const pageSize = 500
 
 /** Writes a dump like `wrangler d1 export`: no transaction, foreign keys deferred, data before indexes and triggers. */
-async function writeSqliteDump(query: D1Query, file: string, inTransaction = false): Promise<void> {
+async function writeSqliteDump(query: D1Query, file: string, fail: ExportFailure, inTransaction = false): Promise<void> {
   const handle = await open(file, "wx")
   try {
     const write = async (text: string) => { await handle.write(text) }
@@ -172,7 +177,7 @@ async function writeSqliteDump(query: D1Query, file: string, inTransaction = fal
     for (const object of objects) {
       if (object.type !== "table" || skipped(object.name)) continue
       if (kinds.get(object.name)?.type === "virtual" && isContentlessFts5(object.sql)) {
-        throw new Error(`Cannot export contentless FTS5 table ${quoteIdentifier(object.name)} without losing its search index. Use a SQLite backup that preserves FTS shadow tables.`)
+        throw fail(`Cannot export contentless FTS5 table ${quoteIdentifier(object.name)} without losing its search index. Use a SQLite backup that preserves FTS shadow tables.`)
       }
       await write(`${object.sql};\n`)
       await writeRows(query, object.name, kinds.get(object.name), write, inTransaction)
@@ -267,7 +272,7 @@ interface D1ExportPoll {
 type CloudflareApi = (path: string, init?: { body?: unknown, method?: string }) => Promise<unknown>
 
 /** Calls the Cloudflare API of the target account. Throws with the HTTP status and the API messages, without the token. */
-export function cloudflareApi(target: Pick<Extract<ExportTarget, { kind: "d1" }>, "accountId" | "token">, request: typeof fetch = fetch): CloudflareApi {
+export function cloudflareApi(target: Pick<Extract<ExportTarget, { kind: "d1" }>, "accountId" | "token">, request: typeof fetch = fetch, fail: ExportFailure = problem => new Error(problem)): CloudflareApi {
   return async (path, init = {}) => {
     const response = await request(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}${path}`, {
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -277,18 +282,18 @@ export function cloudflareApi(target: Pick<Extract<ExportTarget, { kind: "d1" }>
     const payload = await response.json().catch(() => undefined) as CloudflareEnvelope | undefined
     if (!response.ok || payload?.success !== true) {
       const messages = (payload?.errors ?? []).map(error => error.message).filter(Boolean)
-      throw new Error(`The Cloudflare API returned HTTP ${response.status}${messages.length ? `: ${messages.join("; ")}` : ""}.`)
+      throw fail(`The Cloudflare API returned HTTP ${response.status}${messages.length ? `: ${messages.join("; ")}` : ""}.`)
     }
     return payload.result
   }
 }
 
 /** The D1 database id of the target: `cloudflare.databaseId`, or the id of the D1 database named `cloudflare.databaseName`. */
-export async function resolveD1DatabaseId(target: Extract<ExportTarget, { kind: "d1" }>, api: CloudflareApi): Promise<string> {
+export async function resolveD1DatabaseId(target: Extract<ExportTarget, { kind: "d1" }>, api: CloudflareApi, fail: ExportFailure = problem => new Error(problem)): Promise<string> {
   if (target.databaseId) return target.databaseId
   const listed = await api(`/d1/database?name=${encodeURIComponent(target.databaseName!)}`)
   const match = (Array.isArray(listed) ? listed as Array<{ name?: string, uuid?: string }> : []).find(database => database.name === target.databaseName)
-  if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --provider cloudflare\` or set \`cloudflare.databaseId\`.`)
+  if (!match?.uuid) throw fail(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --host cloudflare\` or set \`cloudflare.databaseId\`.`)
   return match.uuid
 }
 
@@ -302,12 +307,12 @@ export function missingD1Credentials(target: Extract<ExportTarget, { kind: "d1" 
 }
 
 /** Exports a D1 database with Cloudflare's export API, like `wrangler d1 export --remote`. */
-async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: string, options: ExportOptions) {
+async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: string, options: ExportOptions, fail: ExportFailure) {
   const missing = missingD1Credentials(target)
-  if (missing.length) throw new Error(`ViteHub exports D1 with the Cloudflare API, which needs ${missing.join(" and ")}.`)
+  if (missing.length) throw fail(`ViteHub exports D1 with the Cloudflare API, which needs ${missing.join(" and ")}.`)
   const request = options.fetch ?? fetch
-  const api = cloudflareApi(target, request)
-  const databaseId = await resolveD1DatabaseId(target, api)
+  const api = cloudflareApi(target, request, fail)
+  const databaseId = await resolveD1DatabaseId(target, api, fail)
   let bookmark: string | undefined
   let signedUrl: string | undefined
   const maxPolls = 600
@@ -316,25 +321,25 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
       body: { current_bookmark: bookmark, dump_options: { no_data: false, no_schema: false }, output_format: "polling" },
       method: "POST",
     }) as D1ExportPoll | undefined
-    if (poll?.status === "error") throw new Error(`Cloudflare D1 export failed: ${poll.error ?? "unknown error"}.`)
+    if (poll?.status === "error") throw fail(`Cloudflare D1 export failed: ${poll.error ?? "unknown error"}.`)
     if (poll?.status === "complete") {
       signedUrl = poll.result?.signed_url
-      if (!signedUrl) throw new Error("Cloudflare D1 export completed without a download URL.")
+      if (!signedUrl) throw fail("Cloudflare D1 export completed without a download URL.")
       break
     }
-    if (typeof poll?.at_bookmark !== "string" || !poll.at_bookmark.trim()) throw new Error("Cloudflare D1 export returned a continuation without a bookmark.")
+    if (typeof poll?.at_bookmark !== "string" || !poll.at_bookmark.trim()) throw fail("Cloudflare D1 export returned a continuation without a bookmark.")
     bookmark = poll.at_bookmark
     if (attempt < maxPolls - 1) await sleep(1000)
   }
-  if (!signedUrl) throw new Error(`Cloudflare D1 export did not complete after ${maxPolls} polls.`)
+  if (!signedUrl) throw fail(`Cloudflare D1 export did not complete after ${maxPolls} polls.`)
   // The signed URL authorizes the download by itself. Do not send the API token to it.
   const download = await request(signedUrl)
-  if (!download.ok || !download.body) throw new Error(`The D1 export download returned HTTP ${download.status}.`)
+  if (!download.ok || !download.body) throw fail(`The D1 export download returned HTTP ${download.status}.`)
   await pipeline(Readable.fromWeb(download.body), createWriteStream(file, { flags: "wx" }))
 }
 
 /** Exports Postgres with `pg_dump`. The password goes in `PGPASSWORD`, so it is not in the process arguments. */
-async function exportPostgres(target: Extract<ExportTarget, { kind: "postgres" }>, file: string, options: ExportOptions) {
+async function exportPostgres(target: Extract<ExportTarget, { kind: "postgres" }>, file: string, options: ExportOptions, fail: ExportFailure) {
   const env = { ...options.env }
   const args = ["--no-owner", "--no-privileges", "--file", file]
   if (target.url) {
@@ -348,8 +353,8 @@ async function exportPostgres(target: Extract<ExportTarget, { kind: "postgres" }
     ({ exitCode } = await options.spawn("pg_dump", args, { cwd: options.projectRoot, env, stderr: "inherit", stdout: "inherit" }))
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("ViteHub exports Postgres with `pg_dump`, which is not on PATH. Install the PostgreSQL client tools.")
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw fail("ViteHub exports Postgres with `pg_dump`, which is not on PATH. Install the PostgreSQL client tools.")
     throw error
   }
-  if (exitCode !== 0) throw new Error(`\`pg_dump\` failed with exit code ${exitCode ?? "unknown"}. See its output above.`)
+  if (exitCode !== 0) throw fail(`\`pg_dump\` failed with exit code ${exitCode ?? "unknown"}. See its output above.`)
 }

@@ -262,7 +262,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
                 abortSignal: bootstrapSignal,
                 command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
               })
-              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0099({ message: "Git command failed." })
+              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0120({ message: `[vitehub] Sandbox checkout Git command exited with code ${result.exitCode}.` })
               return { stdout: result.stdout }
             },
           })
