@@ -650,9 +650,7 @@ async function createTrustedHostSession(options: {
       } finally {
         if (timeout) clearTimeout(timeout);
       }
-      if (timedOut)
-        // Internal invariant: the operating system did not end processes after SIGKILL. No app setting changes it.
-        throw new Error("Timed out waiting for trusted-host processes to exit after SIGKILL.");
+      if (timedOut) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_KILL_TIMED_OUT();
       processes.clear();
       processGroups.clear();
     },

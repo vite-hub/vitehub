@@ -49,8 +49,8 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   for (const key of keys) {
     if (!Reflect.has(parsed, key)) continue
     const position = Reflect.get(parsed, key)
-    if (position !== null && String(position) !== position) throw invalidCursor()
-    cursor[key] = position === null ? null : String(position)
+    if (position !== null && typeof position !== "string") throw invalidCursor()
+    cursor[key] = position
   }
   return cursor
 }

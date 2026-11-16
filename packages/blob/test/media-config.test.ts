@@ -19,6 +19,7 @@ describe("blob.images configuration", () => {
     })
     expect(normalizeBlobOptions({ images: { transformer: "sharp" }, stores: { default: { driver: "fs" } } })).toMatchObject({ images: { transformer: "sharp" } })
     expect(normalizeBlobOptions({ driver: "fs", images: { transformer: "photon" } })).toMatchObject({ images: { transformer: "photon" } })
+    expect(normalizeBlobOptions({ driver: "fs", images: { maxPixels: 8_000_000, transformer: "photon" } })).toMatchObject({ images: { maxPixels: 8_000_000, transformer: "photon" } })
   })
 
   it.each([
@@ -27,6 +28,10 @@ describe("blob.images configuration", () => {
     [{ sizes: [] }, "`blob.images.sizes` must be a non-empty array"],
     [{ sizes: [1.5] }, "`blob.images.sizes` must be a non-empty array"],
     [{ binding: "" }, "`blob.images.binding` must be a non-empty"],
+    [{ maxPixels: 8_000_000 }, "Set `blob.images.transformer` to \"photon\", or remove `maxPixels`."],
+    [{ maxPixels: 8_000_000, transformer: "sharp" }, "Set `blob.images.transformer` to \"photon\", or remove `maxPixels`."],
+    [{ maxPixels: 0, transformer: "photon" }, "`blob.images.maxPixels` must be a positive integer"],
+    [{ maxPixels: 1.5, transformer: "photon" }, "`blob.images.maxPixels` must be a positive integer"],
     ["on", "`blob.images` must be false or a plain object."],
   ])("rejects %j", (images, message) => {
     expect(() => normalizeBlobOptions({ driver: "fs", images: images as never })).toThrow(message)
@@ -77,11 +82,16 @@ describe("generated Nitro plugin", () => {
     await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
     await writeFile(join(root, "node_modules/@cf-wasm/photon/index.js"), "export {}")
     expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
-    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
-      const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
-      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
-      expect(source).not.toContain("sharp")
-    }
+    const node = await generatePlugin({ driver: "fs", images: { transformer: "photon" } })
+    expect(node).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+    expect(node).not.toContain("sharp")
+    // The Worker gets the compiled module itself, so Photon loads with and without `wasm.lazy`.
+    const previousHost = process.env.VITEHUB_HOST
+    process.env.VITEHUB_HOST = "cloudflare"
+    const worker = await generatePlugin({ bucketName: "assets", driver: "cloudflare-r2", images: { transformer: "photon" } })
+      .finally(() => previousHost === undefined ? Reflect.deleteProperty(process.env, "VITEHUB_HOST") : process.env.VITEHUB_HOST = previousHost)
+    expect(worker).toContain("setBlobPhotonLoader(() => loadWorkerPhoton(import('@cf-wasm/photon/others'), import('@cf-wasm/photon/photon.wasm')))")
+    expect(worker).not.toContain("sharp")
   })
 
   it("finds Photon in node_modules when the Nuxt Nitro build replays the hook without a resolver", async () => {

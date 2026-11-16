@@ -176,5 +176,9 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.step.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
       fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.step.sleep()` between the steps.",
     },
+    WORKFLOW_START_DELAY_INVALID: {
+      why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a number of milliseconds of 0 or more, a duration such as \`"30 minutes"\` or \`"3 days"\`, or a valid \`Date\`.`,
+      fix: "Pass `{ delay: 60_000 }`, `{ delay: \"1 hour\" }`, or `{ delay: new Date(\"2026-12-01T09:00:00Z\") }`. The duration units are ms, seconds, minutes, hours, days, and weeks. For a month or a calendar time, pass a `Date`.",
+    },
   },
 })

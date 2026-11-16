@@ -7023,18 +7023,32 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("times out a provider turn and releases its resources", async () => {
-    const threadId = "thread-timeout"
-    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 250 },
-    }) as never)
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-timeout"
+      let reportTurnStarted!: () => void
+      const turnStarted = new Promise<void>((resolve) => { reportTurnStarted = resolve })
+      const provider = runtime(threadId, [], {
+        afterEvents: () => new Promise(() => {}),
+        onSendTurn: async () => { reportTurnStarted() },
+      })
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = adapter.generate(context(threadId, {
+        input: { prompt: "hello", timeout: 250 },
+      }) as never)
 
-    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
-    expect(provider.close).toHaveBeenCalledOnce()
+      const rejected = expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+      // Finish filesystem setup before advancing the turn's deadline.
+      await turnStarted
+      await vi.advanceTimersByTimeAsync(250)
+      await rejected
+      expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+      expect(provider.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps a completed turn successful when provider cleanup stalls", async () => {

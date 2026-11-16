@@ -1,10 +1,10 @@
 ---
 title: Installation
-description: "Install ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup with server rendering."
-seo.title: Install ViteHub UI
+description: "Install the AI components of ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup."
+seo.title: Install the ViteHub UI AI components
 navigation.title: Installation
-navigation.order: 3
-navigation.group: Start
+navigation.order: 7
+navigation.group: AI components
 icon: i-lucide-package
 ---
 
@@ -129,7 +129,7 @@ Start your application and open it in the browser. You should see
 **ViteHub UI is ready.** in bold. If the component is missing, check the Nuxt
 modules or the Vue import. If it appears without styles, check the CSS imports.
 
-Next, follow the [UI tutorial](/docs/ui/get-started) to show a chat message,
+Next, follow the [chat tutorial](/docs/ui/chat-tutorial) to show a chat message,
 or pick a [Console block](/docs/ui/blocks/chat-app). Connecting a model or chat
 endpoint is a separate step.
 
@@ -277,6 +277,8 @@ The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-m
 | `--radius` | `--ui-radius` | `0.25rem` | `0.25rem` |
 
 `--radius` is Nuxt UI's smallest step (`rounded-sm`), as in `@vite-hub/kit`. It is not the card radius of shadcn/ui. Nuxt UI multiplies it: buttons get 1.5 times, cards 2 times, and menus 3 times.
+
+Do not load `@vite-hub/kit/styles/default.css` in an app with Nuxt UI. That style family is ui-sdk's `web.css`, which is only for apps without Nuxt UI. It styles plain `a`, `kbd`, and `button`, shares 8 `data-slot` names with Nuxt UI, and sets Nuxt UI's own `--ui-border`, `--ui-primary`, and `--ui-radius`, with `--ui-radius` as the whole radius. Loaded together, the two restyle each other.
 
 The other Nuxt UI steps have no shadcn/ui name, so you set them on the token itself, in both blocks: `--ui-text`, `--ui-text-toned`, `--ui-text-dimmed`, `--ui-bg-muted`, `--ui-bg-accented`, `--ui-border-muted`, and `--ui-border-accented`. The status colors, such as `--ui-error`, come from the `colors` of the Nuxt UI app config. The theme does not set other shadcn/ui names, such as `--card` or `--input`, because no token reads them.
 

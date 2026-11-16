@@ -108,6 +108,17 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
         `,
       },
       await sourceModule("src/console/runtime/server/usage-index.ts"),
+      {
+        type: "ESModule",
+        path: resolve(root, "src/console/runtime/server/@vite-hub/internal/invariant"),
+        contents: (await build({
+          bundle: true,
+          format: "esm",
+          platform: "neutral",
+          stdin: { contents: 'export { invariant } from "@vite-hub/internal/invariant"', resolveDir: root },
+          write: false,
+        })).outputFiles[0]!.text,
+      },
       await sourceModule("src/console/runtime/server/usage.ts"),
       await sourceModule("src/error-diagnostics.ts"),
       ...await consoleHttpErrorModules(),

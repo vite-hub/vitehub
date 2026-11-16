@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -110,6 +110,47 @@ describe("vitehub agent invocations --url is the app URL", () => {
       expect(app.calls.at(-1)).toEqual({ method: "POST", url: "http://localhost:5173/__vitehub/agent/invocations/dev" })
       expect(result.stderr).toContain("AGENT_R1053")
       expect(result.stderr).toContain("--server http://localhost:5173")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("vitehub agent invocations without --url", () => {
+  async function project(devServer?: string) {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-dev-server-"))
+    if (devServer) {
+      await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+      await writeFile(join(rootDir, ".vitehub/dev-server.json"), `${JSON.stringify({ root: rootDir, url: devServer })}\n`)
+    }
+    return rootDir
+  }
+
+  it("lists through the Console of the dev server of this project, like every vitehub command", async () => {
+    const rootDir = await project("http://localhost:4741/")
+    try {
+      const app = localApp({ console: () => ({ invocations: [] }) })
+      const result = await run(["list"], app.fetch, rootDir)
+
+      expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "" })
+      expect(app.calls).toEqual([{ method: "POST", operation: "invocations.list", url: "http://localhost:4741/_vitehub/rpc" }])
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("names the fix and reads nothing when no dev server runs for this project", async () => {
+    const rootDir = await project()
+    try {
+      const app = localApp({ console: () => ({ invocations: [] }) })
+      const result = await run(["list"], app.fetch, rootDir)
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("AGENT_INVOCATIONS_NO_DEV_SERVER")
+      expect(result.stderr).toContain("--database .vitehub/data/agent-invocations.sqlite")
+      expect(app.calls).toEqual([])
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
