@@ -1009,6 +1009,46 @@ describe("gmail() Channel", () => {
     finally { await state.disconnect() }
   })
 
+  it("migrates unfinished legacy syncs and retries archived dispatches", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const progress = {
+        startHistoryId: "100", historyId: "200", mode: "history", pageLoaded: false, done: true,
+        pendingIds: [], retryIds: ["m1"], attempts: { m1: { attempts: 1, error: "The Invocation failed." } },
+      }
+      await state.set("mail:history-id", "100")
+      await state.set("mail:sync-progress", progress)
+      await state.set("mail:sync-seen-ids", ["m1"])
+      const client: GmailClient = async request => {
+        if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: [{ message: { id: "m1" } }] }] }
+        if (request.query?.format === "minimal") return { labelIds: [] }
+        return { ...apiMessage("m1", "Archived failed dispatch"), labelIds: [] }
+      }
+      let failed = true
+      const dispatch = vi.fn(async () => {
+        expect(await state.get("mail:history-id")).toBeNull()
+        expect(await state.get("mail:sync-progress")).toBeNull()
+        expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"], attempts: progress.attempts })
+        expect(await state.get("mail:sync-seen-ids")).toEqual(["m1"])
+        return { failed: failed ? 1 : 0, items: [], nextCursor: null, processed: failed ? 0 : 1, skipped: 0 }
+      })
+      const sync = { bodyLimit: 1000, client, dispatch, notificationHistoryId: "200", state: { keyPrefix: "mail:", state } }
+      await syncGmailMailbox(sync)
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("100")
+      expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"], attempts: { m1: { attempts: 2 } } })
+      failed = false
+      dispatch.mockImplementation(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+      await syncGmailMailbox(sync)
+      expect(dispatch).toHaveBeenCalledTimes(2)
+      expect(await storedCursor(state)).toBe("200")
+      expect(await storedProgress(state)).toBeNull()
+      expect(await state.get("mail:sync-seen-ids")).toBeNull()
+    }
+    finally { await state.disconnect() }
+  })
+
   it("ignores seen IDs without a checkpoint and retries archived recovery failures", async () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
