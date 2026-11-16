@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import type { AgentStateCacheMutation, AtomicAgentStateLockAdapter } from "../../internal/state-lock.ts"
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
@@ -65,10 +66,7 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
   }
 
   async mutateWithLock(lock: Lock, mutations: readonly AgentStateCacheMutation[]): Promise<boolean> {
-    if (this.shardKey && this.shardKey(lock.threadId) !== this.defaultName) {
-      // Internal invariant: only a ViteHub caller that skips forCacheLocks() on a sharded State reaches this.
-      throw new Error("[vitehub] Cache lease mutations require forCacheLocks() when State locks are sharded.")
-    }
+    invariant(!this.shardKey || this.shardKey(lock.threadId) === this.defaultName, "ViteHub calls forCacheLocks() before cache lease mutations on a sharded State")
     return await this.stub().cacheMutateWithLock(lock.threadId, lock.token, mutations)
   }
 

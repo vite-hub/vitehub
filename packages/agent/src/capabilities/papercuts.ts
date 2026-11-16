@@ -112,13 +112,11 @@ function createPapercutId(): string {
 
 function normalizePapercutMessage(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
-    // Internal invariant: an input error of the report_papercut tool or CLI; the model or CLI user reads the message and sends a message.
-    throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
+    throw agentDiagnostics.AGENT_PAPERCUT_MESSAGE_MISSING()
   }
   const message = value.trim()
   if (message.length > maxMessageLength) {
-    // Internal invariant: an input error of the report_papercut tool or CLI; the model or CLI user reads the message and shortens it.
-    throw new TypeError(`[vitehub] report_papercut message must be at most ${maxMessageLength} characters.`)
+    throw agentDiagnostics.AGENT_PAPERCUT_MESSAGE_TOO_LONG({ max: maxMessageLength })
   }
   return message
 }

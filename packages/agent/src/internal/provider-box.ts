@@ -240,10 +240,15 @@ async function handleRelayConnection(
   socket.once("close", () => {
     disconnected = true
   })
+  if (!sandboxWorkingDirectory) {
+    const message = "[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout."
+    await writeDiagnostic(options.diagnosticPath, { exitCode: 127, spawnError: message })
+    socket.write(frame(frameStderr, Buffer.from(`${message}\n`)))
+    socket.end(exitFrame(127))
+    return
+  }
   let child: SandboxProcess
   try {
-    // Internal invariant: the catch below writes this message to the provider stderr with exit code 127.
-    if (!sandboxWorkingDirectory) throw new Error("[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout.")
     const environment = Object.fromEntries(Object.entries(options.environment(env)).map(([name, value]) => [name, mapText(value)]))
     child = await options.sandbox.spawn(options.command, selectedArgs.map(mapText), {
       cwd: sandboxWorkingDirectory,

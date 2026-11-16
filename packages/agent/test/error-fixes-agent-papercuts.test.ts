@@ -26,6 +26,8 @@ const codes = [
   "AGENT_PAPERCUT_INDEX_OPTION_INVALID",
   "AGENT_PAPERCUT_INDEX_SIMILARITY_INVALID",
   "AGENT_PAPERCUT_INVALID",
+  "AGENT_PAPERCUT_MESSAGE_MISSING",
+  "AGENT_PAPERCUT_MESSAGE_TOO_LONG",
   "AGENT_PAPERCUT_NOT_PERSISTED",
   "AGENT_PAPERCUT_REPORTER_CLOSED",
   "AGENT_PAPERCUTS_BACKEND_MISSING",
@@ -49,7 +51,7 @@ const codes = [
   "AGENT_WORKSPACE_GIT_INIT_FAILED",
 ] as const
 
-const params = { ancestors: true, arch: true, explicit: true, files: ["a.ts"], key: "k", name: "windowMs", option: "evlog deliveryTimeoutMs", path: "/tmp/cache", status: 401, step: "report" } as const
+const params = { ancestors: true, arch: true, explicit: true, files: ["a.ts"], key: "k", max: 1000, name: "windowMs", option: "evlog deliveryTimeoutMs", path: "/tmp/cache", status: 401, step: "report" } as const
 
 it("gives each papercut, browser, budget, observability, and provider code a fix and its own docs page", () => {
   for (const code of codes) {
@@ -98,4 +100,24 @@ it("reports a bad createPapercutIndex() similarity and a bad posthog() host with
     code: "AGENT_POSTHOG_HOST_INVALID",
     fix: expect.stringContaining("posthog({ host })"),
   }))
+})
+
+it("gives each Channels operation code a fix and its own docs page", () => {
+  const errors = [
+    agentDiagnostics.AGENT_CHANNELS_ADAPTER_MISSING(),
+    agentDiagnostics.AGENT_CHANNELS_CURSOR_INVALID(),
+    agentDiagnostics.AGENT_CHANNELS_EXPORT_TOO_LARGE({ archive: "export" }),
+    agentDiagnostics.AGENT_CHANNELS_FORBIDDEN({ problem: "participant" }),
+    agentDiagnostics.AGENT_CHANNELS_HOST_UNAVAILABLE({ read: "host" }),
+    agentDiagnostics.AGENT_CHANNELS_NO_CONVERSATIONS({ channel: "\"gmail\"" }),
+    agentDiagnostics.AGENT_CHANNELS_NO_STATUS({ channel: "\"slack\"" }),
+    agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: "\"slack\"", problem: "unknown" }),
+    agentDiagnostics.AGENT_CHANNELS_PROVIDER_FAILED({ detail: "down" }),
+    agentDiagnostics.AGENT_CHANNELS_THREAD_UNKNOWN({ thread: "\"t\"" }),
+  ]
+  for (const error of errors) {
+    expect(error.message, error.code).toMatch(/\S/)
+    expect(error.fix, error.code).toMatch(/\S/)
+    expect(error.docs, error.code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${error.code.toLowerCase()}`)
+  }
 })

@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { randomBytes } from "node:crypto"
 import { once } from "node:events"
 import { createServer, request as httpRequest } from "node:http"
@@ -102,8 +103,7 @@ export async function startChatGPTTransport(credential: ChatGPTCredential, signa
     signal?.addEventListener("abort", abort, { once: true })
     signal?.throwIfAborted()
     const address = server.address()
-    // Internal invariant: a TCP server that listens on 127.0.0.1 always reports an address object.
-    if (!address || typeof address === "string") throw new Error("ChatGPT transport did not bind a loopback port.")
+    invariant(address && typeof address !== "string", "a TCP server that listens on 127.0.0.1 reports an address object")
     return { url: `http://127.0.0.1:${address.port}`, key, close }
   }
   catch (error) {

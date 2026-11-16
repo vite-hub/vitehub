@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -21,11 +22,9 @@ export async function protectGeneratedProviderGitFiles(root: string, paths: read
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1" },
   })).stdout
   const top = (await git(["rev-parse", "--show-toplevel"])).trim()
-  // Internal invariant: ViteHub passes the root of the pull request checkout that it prepared.
-  if (await realpath(top) !== await realpath(root)) throw new Error("Generated provider files require the pull request repository root.")
+  invariant(await realpath(top) === await realpath(root), "ViteHub passes the root of the pull request checkout that it prepared")
   const names = [...new Set(paths.map(path => relative(root, path).replaceAll("\\", "/")))]
-  // Internal invariant: ViteHub names the generated provider files, and their paths have no line breaks.
-  if (names.some(name => /[\r\n]/.test(name))) throw new Error("Generated provider Git paths must not contain line breaks.")
+  invariant(!names.some(name => /[\r\n]/.test(name)), "ViteHub names the generated provider files, and their paths have no line breaks")
   const entries = (await git(["ls-files", "-v", "-z", "--", ...names])).split("\0").filter(Boolean)
   const conflicts = entries.filter(entry => entry[0]?.toUpperCase() === "M")
   if (conflicts.length) throw agentDiagnostics.AGENT_PROVIDER_FILES_CONFLICTED({ files: [...new Set(conflicts.map(entry => entry.slice(2)))] })
