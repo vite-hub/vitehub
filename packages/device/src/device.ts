@@ -329,8 +329,9 @@ export function createDevice(options: DeviceOptions): Device {
    * reset: the tab raised the epoch when it named the account, and holds no copy of another account or version.
    *
    * The reset applies only when the disk still has the generation that this tab knows. When another tab changed the
-   * disk and this tab missed its message, an account that the page named (`fromPage`) tries again on the new disk. An
-   * account that came from the disk at open is old, so the tab takes the disk as it is.
+   * disk and this tab missed its message, an account that the page named (`fromPage`) tries again on the new disk while
+   * the disk holds that same account. Another account on the disk, or an account that came from the disk at open, is
+   * newer than what this tab knows, so the tab takes the disk as it is.
    */
   async function ensure(account: string | null, announce: boolean, fromPage: boolean): Promise<StorageResult> {
     const target = storage
@@ -353,14 +354,17 @@ export function createDevice(options: DeviceOptions): Device {
       if (found?.generation !== expected?.generation) {
         // Another tab changed the disk. When its message came in the meantime, `meta` has it already.
         if (meta === expected) {
-          if (!fromPage) {
+          // Another account on the disk is newer than what this tab knows, also than an account that the page named: the
+          // session can have changed meanwhile. The tab stores again only after the page names an account.
+          if (!fromPage || (found !== undefined && found.account !== account)) {
             adopt(found)
             return ok
           }
           meta = found
           invalidate()
         }
-        // The page still names `account`, so it tries again on the disk as it is now.
+        // The disk still holds `account`, after a clear or in another version, and the page still names it. The tab tries
+        // again on the disk as it is now.
         return fromPage && named === account ? ensure(account, announce, fromPage) : ok
       }
       meta = next
