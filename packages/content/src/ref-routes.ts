@@ -2,6 +2,7 @@ import { invariant } from "@vite-hub/internal/invariant"
 import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { contentRefTokenParameter } from "./preview-parameters.ts"
+import { contentRefTokenCookie } from "./preview.ts"
 import { parseContentRef } from "./source-refs.ts"
 
 import type { ContentHandlerOptions } from "./read-gate.ts"
@@ -334,6 +335,14 @@ export function previewResponse(response: Response, preview: ContentSourcePrevie
     result.headers.set("x-robots-tag", "noindex")
   }
   result.headers.append("link", `<${preview.url}>; rel="canonical"`)
+  if (reason === "token") {
+    // The page's own requests, such as Nuxt data requests and links under the prefix, carry no query. The cookie keeps
+    // the link working for them, below the prefix only.
+    const url = new URL(requestUrl)
+    const token = url.searchParams.get(contentRefTokenParameter)
+    const cookie = token ? contentRefTokenCookie(token, preview.prefix, url.protocol === "https:") : undefined
+    if (cookie) result.headers.append("set-cookie", cookie)
+  }
   // An answer that `authorize` allowed depends on the user, like a cookie answer.
   const policy = gated || result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
   result.headers.set("cache-control", responseCacheControl(result.headers.get("cache-control"), policy))
@@ -357,6 +366,46 @@ export interface ContentPreviewRoutesHost {
 /** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.default)`. */
 export type ContentPreviewRoutesHostLoader = () => Promise<ContentPreviewRoutesHost>
 
+/** The `app` object of the Nitro runtime config, where Nuxt reads its base URL. */
+export interface ContentPreviewAppConfig {
+  baseURL?: string
+  cdnURL?: string
+}
+
+/** Options of `defineContentPreviewRoutesPlugin()`. */
+export interface ContentPreviewRoutesPluginOptions extends ContentHandlerOptions {
+  /**
+   * `useRuntimeConfig().app`. In a preview request, `baseURL` starts with the preview prefix, so the Nuxt router, its
+   * links, and `$fetch` stay in the preview. `cdnURL` is then the app base, so build assets load from the app root,
+   * where a host CDN serves them for every ref. Outside a preview request, both keep their values.
+   */
+  app?: ContentPreviewAppConfig
+}
+
+/** Make `app.baseURL` and `app.cdnURL` follow the preview of the current request. */
+function scopeAppBase(app: ContentPreviewAppConfig, current: () => ContentSourcePreview | null): void {
+  let { baseURL, cdnURL } = app
+  // A relative base, such as `./`, resolves in the browser against the preview URL already.
+  const preview = () => baseURL?.startsWith("/") ? current() : null
+  Object.defineProperties(app, {
+    baseURL: {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        const scope = preview()
+        return scope ? `${scope.prefix}${baseURL}` : baseURL
+      },
+      set: (value: string | undefined) => { baseURL = value },
+    },
+    cdnURL: {
+      configurable: true,
+      enumerable: true,
+      get: () => cdnURL || (preview() ? baseURL : cdnURL),
+      set: (value: string | undefined) => { cdnURL = value },
+    },
+  })
+}
+
 /**
  * A Nitro 3 plugin that serves the preview URLs of `defineContent({ previews: true })`: `/tree/<branch>/-/<path>`,
  * `/blob/<sha>/<path>`, and `/pr/<number>/<path>`. It wraps Nitro's fetch entry, so the page runs with its production
@@ -365,10 +414,12 @@ export type ContentPreviewRoutesHostLoader = () => Promise<ContentPreviewRoutesH
  * straight through, and the loader runs on the first preview URL only. `options.user` gives `authorize` the user of a
  * preview request. ViteHub generates it for `server/content.ts`.
  */
-export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader, options: ContentHandlerOptions = {}): (nitroApp: unknown) => void {
+export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader, options: ContentPreviewRoutesPluginOptions = {}): (nitroApp: unknown) => void {
+  const { app, ...readerOptions } = options
   return (nitroApp) => {
     if (!isRecord(nitroApp) || !(nitroApp.fetch instanceof Function)) return
     let host: ContentPreviewRoutesHost | undefined = content instanceof Function ? undefined : content
+    if (app) scopeAppBase(app, () => host?.sources.current() ?? null)
     let loading: Promise<ContentPreviewRoutesHost> | undefined
     const load = (): ContentPreviewRoutesHost | Promise<ContentPreviewRoutesHost> => {
       if (host) return host
@@ -405,7 +456,7 @@ export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHo
           const response: unknown = await call(next)
           invariant(response instanceof Response, "the fetch entry of Nitro 3 resolves to a Response")
           return response
-        }, options)
+        }, readerOptions)
       })()
     }
   }

@@ -646,7 +646,6 @@ async function writeContentArtifact(
   const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []
   const readerOptions = options.auth ? `, { user: ${sessionUser("useAuth")} }` : ""
   const lazyUser = options.auth ? `user: ${sessionUser(`(await import(${JSON.stringify(authServerModuleId)})).useAuth`)}` : ""
-  const lazyReaderOptions = lazyUser ? `, { ${lazyUser} }` : ""
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
     ...authImport,
@@ -710,12 +709,14 @@ async function writeContentArtifact(
   else await rm(githubWebhook, { force: true })
   // `previews: true` serves refs of a `github()` Source at `/tree`, `/blob`, and `/pr` URLs. A Nitro plugin, not a route:
   // the page runs with its production path through every route of the app. It loads server/content.ts on the first
-  // preview URL only.
+  // preview URL only. In a preview request, the app base in the runtime config starts with the prefix, so Nuxt links
+  // and data requests stay in the preview.
   if (features.previews) {
     await writeFileIfChanged(previewRoutes, [
       `import { defineContentPreviewRoutesPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
+      'import { useRuntimeConfig } from "nitro/runtime-config"',
       "",
-      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default)${lazyReaderOptions})`,
+      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default), { app: useRuntimeConfig().app${lazyUser ? `, ${lazyUser}` : ""} })`,
       "",
     ].join("\n"))
     handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
