@@ -152,10 +152,6 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ detail }: { detail: string }) => `[vitehub] Cloudflare process log stream failed: ${detail}`,
       fix: "Read the Container error in the message, and check the Container logs of the Sandbox Durable Object in the Cloudflare dashboard. Start the process again to retry.",
     },
-    SANDBOX_NETWORK_POLICY_INVALID: {
-      why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
-      fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",
-    },
     SANDBOX_CLOUDFLARE_PROCESS_NOT_FOUND: {
       why: ({ processId }: { processId: string }) => `Process ${processId} is not running in this Sandbox.`,
       fix: "Read the logs of a process from the Sandbox that started it, before you close or reset that Sandbox. Start the process again to get new logs.",
@@ -163,6 +159,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_CLOUDFLARE_SLEEP_AFTER_INVALID: {
       why: ({ value }: { value: string }) => `[vitehub] Invalid Cloudflare sleepAfter ${value}. Use seconds or a value such as "30s", "5m" or "1h".`,
       fix: "Set `sleepAfter` of the Cloudflare Sandbox to a number of seconds or a string such as `\"30s\"`, `\"5m\"`, or `\"1h\"`.",
+    },
+    SANDBOX_NETWORK_POLICY_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
+      fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",
     },
     SANDBOX_SSH_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.",
