@@ -43,6 +43,30 @@ An API key starts with `vhk_`. `console_api_keys` keeps its SHA-256 hash and its
 
 Requests send the key as `Authorization: Bearer vhk_...`. The `/api/projects` routes and the forward accept it in place of a session.
 
+## Env values
+
+Whoever runs a Console can read the values that it stores. So a Console stores no env values until its operator turns them on, and **the hosted Console at console.vitehub.dev never stores values**. Without them, keep values in `.env.<stage>` files and on the host.
+
+To turn values on in a self-hosted Console, set `VITEHUB_CONSOLE_ENV_VALUES=1` and `VITEHUB_CONSOLE_ENV_KEY`, a 32-byte key from `openssl rand -base64 32`. Keep a copy of the key outside the database: without it, the values cannot be read. It is not `VITEHUB_CONSOLE_SECRET`. While values are off, every env route answers `404` with `CONSOLE_ENV_VALUES_OFF`, and the **Env values** page says that this Console does not store values.
+
+The values use `createDatabaseEnvStore()` from `@vite-hub/env/database` in the Console database: AES-256-GCM, a revision for each write, and an activity log. Each app and stage is one namespace, `<project id>:<stage>`. Every app has `production` and `preview`, and a stage that holds a value appears in the list. A stage is lowercase letters, digits, `-`, and `_`.
+
+- Members see the names and when each one changed.
+- Owners and admins set, replace, delete, and reveal values. A key that names projects does this only on those projects.
+- Each write, delete, and reveal goes in the env activity first, with `operation` `console.set`, `console.delete`, or `console.reveal`. The actor is the person of a session, or `api-key:<key id>` with the person in `target`. A reveal writes a `started` row before it reads a value, then `succeeded` or `failed` with the same `operationId` before it answers. The activity never holds a value.
+- `vitehub env pull --from console` reveals every value of a stage and writes `.env.<stage>`.
+
+### Rotate the env key
+
+`VITEHUB_CONSOLE_ENV_KEYS` is a keyring: comma-separated keys, the current key first, then the previous keys. New writes use the current key, and a value that a previous key sealed still reads. Set it in place of `VITEHUB_CONSOLE_ENV_KEY`. With both set, every env route answers `500` with `CONSOLE_ENV_KEY_INVALID`.
+
+1. Create a new key with `openssl rand -base64 32`, and keep a copy outside the database.
+2. Remove `VITEHUB_CONSOLE_ENV_KEY`, set `VITEHUB_CONSOLE_ENV_KEYS=<new key>,<old key>`, and deploy.
+3. Open the **Env values** page, or call any env route. The first env request of each Console process seals every stored value of every app and stage with the new key, and the host log gets one line: `[vitehub] Env values: sealed <n> values again with the current key, ...`. The values and their revisions stay the same. If it fails, the log says so, reads still work with both keys, and the next request tries again.
+4. When the log line is there, set `VITEHUB_CONSOLE_ENV_KEY=<new key>`, remove `VITEHUB_CONSOLE_ENV_KEYS`, and deploy. Delete the old key.
+
+Do not remove the old key before step 3 is done: a value that only the old key opens can no longer be read. A reveal of such a value answers `500` with `CONSOLE_ENV_KEY_MISSING`, returns no value, and logs the reveal as `failed`. Put the old key back in `VITEHUB_CONSOLE_ENV_KEYS` to read it again.
+
 ## ViteHub MCP
 
 The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in on an address that answers without a token, so docs and account tools need two.
@@ -50,7 +74,7 @@ The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in 
 | Address | Sign-in | Tools |
 | --- | --- | --- |
 | `/mcp` | None. It answers `tools/list` without a token and advertises no OAuth metadata. | `list-pages` and `get-page`. Each call goes to the docs MCP at `https://vitehub.dev/mcp`. |
-| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, and `run_operation`. |
+| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, `read_operation`, and `run_operation`. |
 
 ```sh
 claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
@@ -63,7 +87,8 @@ The account tools act on the team that the person opened last in the Console, el
 - `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
-- `run_operation` runs any operation that `list_operations` names. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
+- `read_operation` runs an operation that only reads. The Console signs `readOnly: true` in the caller, and the app refuses a write or destructive call. The tool has `readOnlyHint: true`, so an MCP client can run it without asking the person. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
+- `run_operation` runs an operation that changes data. It has `destructiveHint: true`, so an MCP client can ask the person first.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
 
 ## Configure
@@ -76,6 +101,9 @@ The account tools act on the team that the person opened last in the Console, el
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional. GitHub sign-in. |
 | `VITEHUB_CONSOLE_ALLOW_PRIVATE` | `true` lets the Console link private addresses, such as `localhost`, `10.0.0.8`, or `*.internal`. Off by default, so a person who links a project cannot make the Console fetch an address in its own network. The check reads the host name: a public name that resolves to a private address passes it. |
 | `VITEHUB_CONSOLE_COMMENTERS` | Optional. The emails, comma-separated, of the people who may comment on the Console's own pages. Anyone can sign up, so a signed-in account is not enough. Without it, nobody may. |
+| `VITEHUB_CONSOLE_ENV_VALUES` | Optional. `1` stores env values in this Console. Off by default. The operator can read the stored values. See [Env values](#env-values). |
+| `VITEHUB_CONSOLE_ENV_KEY` | The 32-byte key that encrypts env values, as base64 or 64 hex digits. Required when `VITEHUB_CONSOLE_ENV_VALUES` is `1`, unless `VITEHUB_CONSOLE_ENV_KEYS` is set. |
+| `VITEHUB_CONSOLE_ENV_KEYS` | Optional. In place of `VITEHUB_CONSOLE_ENV_KEY` during a rotation: comma-separated keys, the current key first. See [Rotate the env key](#rotate-the-env-key). |
 | `VITEHUB_CONSOLE_KEY_<NAME>` | Optional. The public key of a link to this Console from a Console, such as itself. See [Link the Console to itself](#link-the-console-to-itself). |
 
 ## Link the Console to itself
@@ -108,6 +136,12 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | `GET /api/whoami` | With an API key: the person, the team, the roles, the projects of the key, and its expiry. `vitehub whoami` calls it. |
 | `GET /api/api-keys`, `POST /api/api-keys` | With a session: list the person's API keys, or make one with `{ "name": "CI", "teamId": "<team>", "projectIds": ["<project>"], "days": 90 }`. Only `name` is required. The answer of `POST` holds the key once, in `key`. |
 | `DELETE /api/api-keys/<id>` | With a session, revoke one of the person's keys. With an API key, `DELETE /api/api-keys/current` revokes that key, as `vitehub logout` does. |
+| `GET /api/projects/<id>/env` | The stages of a project. Every env route answers `404` with `CONSOLE_ENV_VALUES_OFF` while values are off. |
+| `GET /api/projects/<id>/env/<stage>` | The names of a stage and when each changed, and `canReveal`. Never values. |
+| `PUT /api/projects/<id>/env/<stage>/<NAME>` | Owners and admins set or replace a value: `{ "value": "..." }`. |
+| `DELETE /api/projects/<id>/env/<stage>/<NAME>` | Owners and admins delete a value. |
+| `POST /api/projects/<id>/env/<stage>/reveal` | Owners and admins read values: `{ "names": ["API_TOKEN"] }`, or `{}` for every value of the stage. |
+| `GET /api/projects/<id>/env/<stage>/<NAME>/activity` | Owners and admins read the writes and reveals of a name. |
 | `GET /device` | The page where a person approves `vitehub login`. It needs no session to open. |
 | `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
 
@@ -164,7 +198,7 @@ VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=tru
 corepack pnpm --dir packages/console run test
 ```
 
-CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Run them for one host after you build the page:
+CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Then it checks env values on the database of that host. It writes a test owner, a member, and their API keys into the database, and starts the build three times: with values off, as console.vitehub.dev runs, with values on, and with values on and another key. With values on, an owner sets, lists, reveals, and deletes a value over HTTP, a member gets `403`, the activity and the database hold no plain value, and another key opens no value: the reveal answers `CONSOLE_ENV_KEY_MISSING` and the activity logs it as failed. Run them for one host after you build the page:
 
 ```sh
 cd packages/console

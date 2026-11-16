@@ -59,7 +59,8 @@ export interface EnvActivity {
   timestamp: string;
   actor: EnvActor;
   key: string;
-  action: "inspect" | "preview" | "replace" | "resolve" | "use" | "grant" | "revoke";
+  /** `remove`: a store deleted the key, such as the env values of a Console. The bridge never writes it. */
+  action: "inspect" | "preview" | "replace" | "remove" | "resolve" | "use" | "grant" | "revoke";
   outcome: "started" | "succeeded" | "failed" | "denied";
   revision?: string;
   operation?: string;
@@ -151,8 +152,8 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return false;
     return await safe(async () => {
       const grants = await options.access.grants(key);
-      // Internal invariant: safe() replaces this with a sanitized Env bridge error.
-      if (!Array.isArray(grants)) throw new TypeError("Invalid access grants.");
+      // `access.grants()` of the app returned no list. safe() reports it as ENV_BRIDGE_OPERATION_FAILED.
+      if (!Array.isArray(grants)) throw envBridgeError("operation_failed");
       for (const grant of grants) {
         if (
           !grant ||
@@ -165,8 +166,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
           !Array.isArray(grant.permissions) ||
           !grant.permissions.every((value: unknown) => ["inspect", "preview", "replace", "use"].includes(value as string))
         )
-          // Internal invariant: safe() replaces this with a sanitized Env bridge error.
-          throw new TypeError("Invalid access grant.");
+          throw envBridgeError("operation_failed");
         if (
           grant.key === key &&
           grant.actor.id === context.actor.id &&
