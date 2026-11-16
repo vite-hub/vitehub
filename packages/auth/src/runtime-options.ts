@@ -4,6 +4,7 @@ import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 import { resolvePublicUrl } from "@vite-hub/runtime"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
 import { createAdminsPlugin, readAdmins } from "./admins.ts"
@@ -15,7 +16,7 @@ import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
-import { authProcessMemoryDatabase, getAuthRuntimeState } from "./runtime-state.ts"
+import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -53,9 +54,11 @@ function isAuthSecondaryStoragePlacement(value: unknown): boolean {
  */
 function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAuthOptions["database"]> {
   const state = getAuthRuntimeState()
-  state.memoryDatabases ??= new WeakMap()
-  const tables = state.memoryDatabases.get(definition) ?? {}
-  state.memoryDatabases.set(definition, tables)
+  // In app tests, `reset()` empties the tables and drops the instances that hold them.
+  const databases = getViteHubTestMode()?.backend("auth", () => new WeakMap<object, Record<string, unknown[]>>(), resetAuth)
+    ?? (state.memoryDatabases ??= new WeakMap())
+  const tables = databases.get(definition) ?? {}
+  databases.set(definition, tables)
   const database = (options: BetterAuthOptions) => {
     for (const { modelName } of Object.values(getAuthTables(options))) tables[modelName] ??= []
     return memoryAdapter(tables)(options)
@@ -71,6 +74,7 @@ declare const __VITEHUB_AUTH_DEV__: boolean | undefined
  */
 function isDevelopmentServer(): boolean {
   if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
+  if (getViteHubTestMode()) return true
   // Code that a ViteHub build did not bundle, such as a test runner, has no flag.
   const mode = globalThis.process?.env?.NODE_ENV
   return mode === "development" || mode === "test"

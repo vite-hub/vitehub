@@ -687,6 +687,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/register": {
+      "types": "./dist/test/register.d.ts",
+      "import": "./dist/test/register.js",
+      "default": "./dist/test/register.js"
+    },
     "./skills": {
       "types": "./dist/skills.d.ts",
       "import": "./dist/skills.js",

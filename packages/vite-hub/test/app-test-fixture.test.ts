@@ -10,7 +10,7 @@ const fixture = fileURLToPath(new URL("../fixtures/app-test", import.meta.url))
 const vitest = join(dirname(createRequire(import.meta.url).resolve("vitest/package.json")), "vitest.mjs")
 
 // The fixture is an app as a developer writes it: Vitest reads its vite.config.ts with vitehub(), and its test
-// calls a real route that uses KV, Database, Email, Queue, Workflow, Schedule, and Server Env through `vite-hub/test`, with no mocks.
+// calls a real route that uses KV, Database, Email, Queue, Workflow, Schedule, Server Env, and Auth through `vite-hub/test`, with no mocks.
 it("runs an app's route test against the vite-hub/test backends", async () => {
   const { stdout } = await promisify(execFile)(process.execPath, [vitest, "run", "--reporter=verbose"], {
     cwd: fixture,
@@ -18,5 +18,16 @@ it("runs an app's route test against the vite-hub/test backends", async () => {
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST"))), CI: "1", NO_COLOR: "1" },
   })
   expect(stdout).toContain("signup saves the user, counts it, sends the welcome email, queues the follow-up, and starts the onboarding")
-  expect(stdout).toContain("Tests  4 passed (4)")
+  expect(stdout).toContain("Tests  5 passed (5)")
+}, 120_000)
+
+// The same app test under Node's own runner: `vite-hub/test/register` gives Node the modules that `vitehub()` generates.
+it("runs an app's route test with node --test", async () => {
+  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "vite-hub/test/register", "--test", "node-test/signup.test.ts"], {
+    cwd: fixture,
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST") && name !== "NODE_ENV")), NO_COLOR: "1" },
+  })
+  expect(stdout).toContain("a signed-in user passes requireAuth()")
+  expect(stdout).toContain("ℹ pass 3")
+  expect(stdout).toContain("ℹ fail 0")
 }, 120_000)

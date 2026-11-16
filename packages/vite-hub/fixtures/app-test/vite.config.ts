@@ -5,6 +5,7 @@ import { env } from "vite-hub/env"
 
 export default defineConfig({
   plugins: [vitehub({
+    auth: true,
     database: true,
     email: { driver: "resend", options: { apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }) } },
     env: {
@@ -18,5 +19,5 @@ export default defineConfig({
     schedule: true,
     workflow: true,
   })],
-  test: { environment: "node" },
+  test: { environment: "node", include: ["test/**/*.test.ts"] },
 })

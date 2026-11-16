@@ -28,6 +28,7 @@ describe("@vite-hub/auth package contract", () => {
       "./runtime/server",
       "./schema",
       "./server",
+      "./test",
       "./vite",
       "./vue",
     ])
@@ -73,6 +74,7 @@ describe("@vite-hub/auth package contract", () => {
     "./runtime/server",
     "./schema",
     "./server",
+    "./test",
     "./vue",
     "./vite",
   ])("loads documented export %s from the built package", async (entry) => {

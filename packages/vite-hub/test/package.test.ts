@@ -308,6 +308,7 @@ describe("framework package contract", () => {
       "./nuxt",
       "./skills",
       "./test",
+      "./test/register",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
