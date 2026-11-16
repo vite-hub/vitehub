@@ -55,6 +55,12 @@ export interface Device {
    * named an account. The device keeps no other answer, in memory or on the disk.
    */
   write: (key: string, value: unknown, maxAge: number, since: number) => void
+  /**
+   * Stores `value`, the answer that says who is signed in, under `account` and names that account, in one step: the
+   * answer proves its own account, so it is stored although its call started before the naming. Nothing happens when the
+   * epoch changed since the call started (`since`). `null` names no account and stores nothing. Returns whether it applied.
+   */
+  claim: (key: string, value: unknown, maxAge: number, since: number, account: string | null) => boolean
   subscribe: (listener: (event: DeviceEvent) => void) => () => void
   /** Resolves when every change that the device started is on the disk or failed. */
   settled: () => Promise<void>
@@ -418,6 +424,29 @@ export function createDevice(options: DeviceOptions): Device {
     // The rule of the device: it stores an answer only when the loader call started after the page named its account, and
     // nothing made the answers old since then. Any other answer stays on the screen of this read, and nowhere else.
     if (since !== epoch || typeof named !== "string") return
+    store(key, value, maxAge, named)
+  }
+
+  function claim(key: string, value: unknown, maxAge: number, since: number, account: string | null): boolean {
+    checkAccount(account)
+    if (!opening) warnOnce("open", deviceErrors.DEVICE_NOT_OPEN())
+    // Another account, a sign-out, or a clear came after the call started: the answer can belong to an old session.
+    if (since !== epoch) return false
+    // While the device opens, the copies of the disk decide what the naming changes, so the naming waits for them.
+    if (opening && !opened) {
+      void setAccount(account).then(([error]) => error && warnOnce("storage", error))
+      return false
+    }
+    if (account !== named) {
+      name(account)
+      void enqueue(() => ensure(account, true, true)).then(([error]) => error && warnOnce("storage", error))
+    }
+    if (typeof account === "string") store(key, value, maxAge, account)
+    return true
+  }
+
+  /** Keeps `value` as the copy of `key` for `account`, in memory and on the disk. */
+  function store(key: string, value: unknown, maxAge: number, account: string): void {
     let json: string | undefined
     try {
       json = JSON.stringify(value)
@@ -439,7 +468,7 @@ export function createDevice(options: DeviceOptions): Device {
     }
     const time = now()
     const entry = { key, json, storedAt: time, expiresAt: time + maxAge, bytes }
-    entries.set(key, { ...entry, account: named })
+    entries.set(key, { ...entry, account })
     if (!diskless) pending.set(key, entry)
     evict(key)
     flush()
@@ -474,6 +503,7 @@ export function createDevice(options: DeviceOptions): Device {
       return { value: JSON.parse(entry.json), storedAt: entry.storedAt }
     },
     write,
+    claim,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

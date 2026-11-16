@@ -40,7 +40,7 @@ icon: i-lucide-hard-drive
 | Part | What it does |
 | --- | --- |
 | Stored reads | `useStoredData()` shows the stored answer in the first render, then calls your loader. It has the shape of Nuxt `useAsyncData()`. |
-| One account | The device holds the copies of the account that you name with `setDeviceAccount()`. Another account, or a sign-out, deletes them in every tab. |
+| One account | The device holds the copies of the account that your session read names with its `account` option, or that you name with `setDeviceAccount()`. Another account, or a sign-out, deletes them in every tab. |
 | No account, no disk | The device stores only the answers of loader calls that start after the page names an account. An app that forgets to name one stores nothing. |
 | Caps | A copy older than `maxAge` (7 days by default) does not show. The device keeps at most 5 MB, and deletes the oldest copies first. |
 | Versions | `openDevice({ version })` deletes the copies of another version, so a new build does not show data of an old shape. |
