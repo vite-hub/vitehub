@@ -1,5 +1,8 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
+import { Diagnostic } from "nostics"
+
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
 
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
@@ -153,12 +156,10 @@ export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
   const root: FileSystemTree = {}
   for (const [path, contents] of Object.entries(files)) {
     const segments = path.split("/")
-    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-    if (path.startsWith("/") || segments.includes("..")) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    if (path.startsWith("/") || segments.includes("..")) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ path, reason: "invalid" })
     const parts = segments.filter(part => part && part !== ".")
     const name = parts.pop()
-    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-    if (!name) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    if (!name) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ path, reason: "invalid" })
     let tree = root
     for (const part of parts) {
       let node = Object.hasOwn(tree, part) ? tree[part] : undefined
@@ -166,12 +167,10 @@ export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
         node = { directory: {} }
         Object.defineProperty(tree, part, { value: node, enumerable: true, configurable: true, writable: true })
       }
-      // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-      if (!("directory" in node)) throw new TypeError(`WebContainer path ${path} goes through the file ${part}.`)
+      if (!("directory" in node)) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ part, path, reason: "through-file" })
       tree = node.directory
     }
-    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw new TypeError(`WebContainer path ${path} replaces the directory ${name}.`)
+    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw webContainerErrorDiagnostics.WEB_CONTAINER_FILE_PATH_INVALID({ part: name, path, reason: "replaces-directory" })
     Object.defineProperty(tree, name, { value: { file: { contents } }, enumerable: true, configurable: true, writable: true })
   }
   return root
@@ -264,8 +263,7 @@ async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<
   await container.fs.writeFile(script, restoreLinksScript)
   const process = await container.spawn("node", [script])
   const code = await process.exit
-  // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-  if (code !== 0) throw new Error(`Restoring the links of the snapshot exited with code ${code}.`)
+  if (code !== 0) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LINKS_FAILED({ code })
 }
 
 /** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
@@ -307,8 +305,7 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     const cached = await cache?.match(url)
     if (cached) return { url, blob: await cached.blob(), downloaded: false }
     const response = await fetch(url)
-    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-    if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
+    if (!response.ok) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_FAILED({ status: response.status, url })
     return { url, blob: await response.blob(), downloaded: true }
   }))
   const joined = new Blob(parts.map(part => part.blob))
@@ -317,16 +314,15 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     if (options.sha256) {
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
       const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-      // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-      if (hex !== options.sha256.toLowerCase()) throw new Error(`The snapshot has SHA-256 ${hex}, not ${options.sha256}.`)
+      if (hex !== options.sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${options.sha256}.`, url: urls[0]! })
     }
     data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
   }
   catch (cause) {
     // A cached part can be the bad one. Drop every part of this snapshot, so the next load downloads them again.
     await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
-    // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-    throw new Error(`The snapshot from ${urls[0]} is damaged: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+    if (cause instanceof Diagnostic && cause.code === "WEB_CONTAINER_SNAPSHOT_DAMAGED") throw cause
+    throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
   for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})
   return data
@@ -419,8 +415,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       const [file, ...args] = typeof command === "string" ? commandLines[command] : command
       const stage = typeof command === "string" ? commandStages[command] : undefined
       if (stage === "starting") {
-        // Internal invariant: runs in the browser page, where this package does not load nostics. The page shows the message.
-        if (devRunning) throw new Error("A dev process is already running. Stop it and await its exit before starting another.")
+        if (devRunning) throw webContainerErrorDiagnostics.WEB_CONTAINER_DEV_RUNNING()
         // Reserve the slot before spawn yields so an overlapping call cannot share readiness.
         devRunning = true
       }
