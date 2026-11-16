@@ -553,9 +553,10 @@ describe("Cloudflare Sandbox Durable Object", () => {
     running()[0]!.exit(137);
     await rejection;
 
-    await expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
+    const timeoutRejection = expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
     await vi.waitFor(() => expect(running()[1]!.signals).toEqual([14]));
     running()[1]!.exit(137);
+    await timeoutRejection;
 
     expect(container.destroyed).toBe(0);
     expect(container.running).toBe(true);
