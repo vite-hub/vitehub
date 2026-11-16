@@ -4290,6 +4290,18 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
     },
+    AGENT_GMAIL_CERTIFICATES_FAILED: {
+      why: ({ status }: { status: number }) => `Google OAuth certificates request failed with HTTP ${status}.`,
+      fix: "Check that the server can reach https://www.googleapis.com/oauth2/v3/certs. A retry helps when Google was only unavailable.",
+    },
+    AGENT_GMAIL_REQUEST_FAILED: {
+      why: ({ method, path, reason, status }: { method: string, path: string, reason?: string, status: number }) => `Gmail ${method} ${path} failed with HTTP ${status}${reason ? `: ${reason}` : ""}.`,
+      fix: "Read the HTTP status: for 401 or 403 give the Gmail account of GMAIL_REFRESH_TOKEN the Gmail API scopes again, for 429 or a 5xx status retry later.",
+    },
+    AGENT_GMAIL_TOKEN_REFRESH_FAILED: {
+      why: ({ reason, status }: { reason?: string, status?: number }) => `Google OAuth token refresh failed${status ? ` with HTTP ${status}` : ""}${reason ? `: ${reason}` : ""}.`,
+      fix: "Check GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN, and create a new refresh token when Google answers `invalid_grant`. Read error.cause for a network failure.",
+    },
     AGENT_HOST_ROUTE_DUPLICATE: {
       why: ({ route }: { route: string }) => `Agent host route already registered: ${route}`,
       fix: "Pass a `route` to `agentHostRoutes({ health, workspace })` that no other Nitro handler uses.",
@@ -4323,6 +4335,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE: {
       why: "[vitehub] Agent invocations accept `database` only with `store: \"database\"`.",
       fix: "Set `store: \"database\"` next to `database` in the Agent `invocations` option, or remove `database`.",
+    },
+    AGENT_INVOCATION_CLAIM_CONFLICT: {
+      why: "Invocation already exists or is claimed.",
+      fix: "Another run already holds this Invocation, so this duplicate does not run. Read it with `invocations.get(id)`, or pass `force` to Channel replay to start it again.",
     },
     AGENT_INVOCATION_CLAIM_UNAVAILABLE: {
       why: "Could not acquire the Invocation execution claim.",

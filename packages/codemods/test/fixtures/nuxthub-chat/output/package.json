@@ -26,7 +26,7 @@
     "@shikijs/langs": "^4.5.0",
     "@tanstack/charts": "^1.1.0",
     "@vercel/blob": "^2.8.2",
-    "@vite-hub/database": "^0.1.0",
+    "@vite-hub/database": "^<version>",
     "@vueuse/core": "^14.4.0",
     "ai": "^7.0.159",
     "date-fns": "^4.4.0",
@@ -38,7 +38,7 @@
     "shiki": "^4.5.0",
     "striptags": "3.2.0",
     "tailwindcss": "^4.3.3",
-    "vite-hub": "^0.1.0",
+    "vite-hub": "^<version>",
     "zod": "^4.6.7"
   },
   "devDependencies": {
