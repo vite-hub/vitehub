@@ -60,6 +60,19 @@ describe("stored copies", () => {
     expect(disk.entry("projects")?.json).toBe("[\"p2\"]")
   })
 
+  it("names the account at once on an open device, so a read that starts right after the call is stored before the disk follows", async () => {
+    const disk = createFakeDisk()
+    const page = openPage(disk)
+    await page.open()
+    const naming = page.setAccount("ada")
+    expect(page.inspect().account).toBe("ada")
+    answer(page, "projects", ["p1"])
+    expect(await naming).toEqual([undefined, undefined])
+    await page.settled()
+    expect(disk.meta).toMatchObject({ account: "ada" })
+    expect(disk.keys).toEqual(["projects"])
+  })
+
   it("does not keep the answer of a loader call that started before a clear", async () => {
     const disk = createFakeDisk()
     const page = await pageWithProjects(disk)

@@ -120,6 +120,8 @@ export function createDevice(options: DeviceOptions): Device {
   const warned = new Set<string>()
   let storage: DeviceStorage | undefined
   let opening: Promise<void> | undefined
+  /** `true` once `open()` finished, so `setAccount()` can name the account at once. */
+  let opened = false
   /** `true` when the device opened without a disk, so nothing waits to be written. */
   let diskless = false
   let version = ""
@@ -249,6 +251,15 @@ export function createDevice(options: DeviceOptions): Device {
   }
 
   async function load(): Promise<void> {
+    try {
+      await connectAndTake()
+    }
+    finally {
+      opened = true
+    }
+  }
+
+  async function connectAndTake(): Promise<void> {
     const started = epoch
     let timer: ReturnType<typeof setTimeout> | undefined
     const connecting = connect()
@@ -348,7 +359,9 @@ export function createDevice(options: DeviceOptions): Device {
   async function setAccount(account: string | null): Promise<StorageResult> {
     checkAccount(account)
     requested = account
-    if (opening) await opening
+    // While the device opens, the copies of the disk decide what the naming changes. Before and after, the page names
+    // the account at once, so a read that starts after this call can be stored before the disk follows.
+    if (opening && !opened) await opening
     // A later call decides.
     if (requested !== account) return ok
     const changed = account !== named

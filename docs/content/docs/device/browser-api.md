@@ -48,6 +48,8 @@ export async function onSession(user: { id: string } | null) {
 
 The device stores an answer only when its loader call started after the page named its account, and nothing made the answers old since then. An answer that came before the page named its account stays on the screen until the new one, and the device never stores it. If your app knows the account before it mounts, such as from the HTML, call `setDeviceAccount()` before `app.mount()`, so each read calls its loader once.
 
+After `openDevice()`, the page names the account during the call. A read that starts on the next line can be stored. The promise resolves when IndexedDB follows, such as after it deleted the copies of another account, so you do not need to wait for it before your reads.
+
 It returns `[error, undefined]`. `error` is `DEVICE_STORAGE_FAILED` when IndexedDB failed to delete the copies of the previous account. An empty string or another value throws `DEVICE_INVALID_ACCOUNT`.
 
 ## `clearDevice()`

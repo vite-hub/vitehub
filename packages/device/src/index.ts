@@ -25,6 +25,8 @@ export function openDevice(options?: OpenDeviceOptions): Promise<void> {
  * Names the signed-in account, so its copies stay on the device across reloads. Call it each time the app learns who
  * is signed in. Another account, or `null` after a sign-out, deletes every copy in every tab. The device stores only the
  * answers of loader calls that start after the page names an account, so each read that runs calls its loader again.
+ * After `openDevice()`, the page names the account at once: a read that starts right after the call can be stored. The
+ * promise resolves when the disk follows, so a page does not need to wait for it before its reads.
  */
 export function setDeviceAccount(account: string | null): Promise<Result<void, "DEVICE_STORAGE_FAILED">> {
   checkAccount(account)
