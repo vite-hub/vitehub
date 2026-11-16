@@ -4,6 +4,7 @@ import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } fr
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts";
 import type { ObservabilityLogsOptions } from "./observability-vite.ts";
 
 export function renderLogsPlugin(
@@ -42,9 +43,7 @@ export function logsVitePlugin(options: ObservabilityLogsOptions): Plugin {
           : resolveViteHubProjectRoot(config.root ?? process.cwd());
       const source = "source" in options ? resolve(root, options.source) : undefined;
       if (!source && isProductionBuild(config, environment)) {
-        throw new Error(
-          '[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: "./server/logs.ts" } }. The local buffer is per process and has no durable history.',
-        );
+        throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_MISSING();
       }
       const nitroValue: unknown = Reflect.get(config, "nitro");
       const kit = createNitroServerKit(

@@ -5,6 +5,7 @@ import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/
 import type { CloudflareSandboxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
 import type { ContainerSandboxCredential, ContainerSandboxEgress, ContainerSandboxOptions } from "./internal/container.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
+import type { SandboxNetworkPolicy } from "./internal/network-policy.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
 import type {
   VercelSandboxNetworkPolicy,
@@ -26,6 +27,7 @@ export type {
   ContainerSandboxEgress,
   ContainerSandboxOptions,
   CrabboxOptions,
+  SandboxNetworkPolicy,
   TrustedHostOptions,
   VercelSandboxNetworkPolicy,
   VercelSandboxOptions,

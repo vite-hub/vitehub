@@ -517,6 +517,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   definition: WorkflowDefinition<TPayload, TResult>,
   options: WorkflowStartOptions,
   onDispatch?: () => void,
+  startAt?: number,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   // SAFETY: Registration preserves this Workflow Definition's payload and result contract in the provider runnable.
@@ -528,7 +529,11 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     const existingId = options.id ? await runtime.findRunId(name, options.id) ?? options.id : undefined
     const existing = existingId ? await runtime.backend.getWorkflowRun({ workflowRunId: existingId }) : null
     if (existing?.workflowName === name) return { workflowRun: existing }
-    const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+    // OpenWorkflow keeps the run pending until `availableAt`, so it reports `queued` during the delay.
+    const runOptions = options.id || startAt !== undefined
+      ? { ...(options.id ? { idempotencyKey: options.id } : {}), ...(startAt === undefined ? {} : { availableAt: new Date(startAt) }) }
+      : undefined
+    const start = () => workflow.run(payload, runOptions)
     return await start().catch((error) => {
       if (!options.id) throw error
       firstAcknowledgementUnknown = getWorkflowProviderStatus(error) === undefined
@@ -546,7 +551,9 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
       metadata: serialized.status === "failed"
         ? serialized.metadata
         : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
-      payload,
+      // A start with the id of an existing run returns that run, so report the payload that it stored.
+      // SAFETY: OpenWorkflow stores the payload of this Workflow Definition as the run input.
+      payload: handle.workflowRun.input as TPayload,
     }
   })
 }

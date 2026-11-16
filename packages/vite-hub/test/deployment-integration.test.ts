@@ -617,6 +617,55 @@ describe("built-in host integration", () => {
     }
   }, 120_000)
 
+  it("writes the names that Queue, Realtime, and Workflow read on a Node server, never values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-primitive-names-node-"))
+    const canary = "canary-value-node-3f7a0c19d25e"
+    const variables = { QUEUE_POSTGRES_URL: `postgres://${canary}@db.example.com/jobs`, REDIS_URL: `redis://${canary}@cache.example.com` }
+    const previous = Object.fromEntries(Object.keys(variables).map(name => [name, process.env[name]]))
+    Object.assign(process.env, variables)
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "node",
+          blob: false,
+          queue: { provider: "postgres" },
+          rateLimit: false,
+          realtime: { authority: "redis" },
+          workflow: { provider: "openworkflow" },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
+      const owned = (JSON.parse(text) as { env: Array<{ owners?: string[] }> }).env.filter(entry => entry.owners?.some(owner => ["queue", "realtime", "workflow"].includes(owner)))
+      expect(owned).toEqual([
+        { names: ["REDIS_URL"], required: true, secret: true, hasDefault: false, owners: ["realtime"] },
+        { names: ["REALTIME_NAMESPACE"], required: false, secret: false, hasDefault: true, owners: ["realtime"] },
+        { names: ["OPENWORKFLOW_SQLITE_PATH"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"], required: false, secret: true, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_NAMESPACE_ID"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_SCHEMA"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        // Realtime and Workflow plugins run with `enforce: "pre"`, so the Queue entry comes last.
+        { names: ["QUEUE_POSTGRES_URL"], required: true, secret: true, hasDefault: false, owners: ["queue"] },
+      ])
+      expect(text).not.toContain(canary)
+    }
+    finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
+
   it("keeps one Wrangler entry per binding when the project's wrangler.json repeats generated ones", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-project-wrangler-build-"))
     try {

@@ -1,4 +1,6 @@
 import type { ConsoleOperationAction, ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { resolveProjectUrl } from "./project"
 import { requestConsoleOperation } from "./request"
 
@@ -149,7 +151,7 @@ export async function loadOperationItems(view: ConsoleOperationView, input: Reco
     if (!pagination || page.length < pagination.limit) return items
     const last = page.at(-1)!
     const before = Object.fromEntries(Object.entries(pagination.cursor).map(([key, path]) => [key, operationValue(last, path)]))
-    if (Object.values(before).some(value => value === undefined)) throw new Error("The operation returned an item without a pagination cursor.")
+    invariant(Object.values(before).every(value => value !== undefined), "each item of a paginated Console operation has the fields of its pagination cursor")
     next = { ...input, limit: pagination.limit, before }
   }
 }

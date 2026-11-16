@@ -140,9 +140,29 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number. On Cloudflare, use SIGALRM, SIGHUP, SIGINT, SIGKILL, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, or a signal number.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    SANDBOX_CLOUDFLARE_COMMAND_TIMED_OUT: {
+      why: ({ timeout }: { timeout: number }) => `Command timed out after ${timeout}ms.`,
+      fix: "Give `exec()` a larger `timeout`, or make the command finish sooner. The Sandbox and its other processes keep running.",
+    },
+    SANDBOX_CLOUDFLARE_CONTAINER_MISSING: {
+      why: "The Sandbox Durable Object has no Container. Add a containers entry for its class in wrangler.json.",
+      fix: "Add a `containers` entry with the Sandbox Durable Object class name to the Wrangler config, then deploy again.",
+    },
     SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED: {
       why: ({ detail }: { detail: string }) => `[vitehub] Cloudflare process log stream failed: ${detail}`,
       fix: "Read the Container error in the message, and check the Container logs of the Sandbox Durable Object in the Cloudflare dashboard. Start the process again to retry.",
+    },
+    SANDBOX_CLOUDFLARE_PROCESS_NOT_FOUND: {
+      why: ({ processId }: { processId: string }) => `Process ${processId} is not running in this Sandbox.`,
+      fix: "Read the logs of a process from the Sandbox that started it, before you close or reset that Sandbox. Start the process again to get new logs.",
+    },
+    SANDBOX_CLOUDFLARE_SLEEP_AFTER_INVALID: {
+      why: ({ value }: { value: string }) => `[vitehub] Invalid Cloudflare sleepAfter ${value}. Use seconds or a value such as "30s", "5m" or "1h".`,
+      fix: "Set `sleepAfter` of the Cloudflare Sandbox to a number of seconds or a string such as `\"30s\"`, `\"5m\"`, or `\"1h\"`.",
+    },
+    SANDBOX_NETWORK_POLICY_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
+      fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",
     },
     SANDBOX_SSH_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.",
@@ -168,6 +188,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TRUSTED_HOST_CLOSING: {
       why: "Trusted host Sandbox session is closing.",
       fix: "Await every command of the trusted-host Sandbox before you close it, and open a new Sandbox for more commands.",
+    },
+    SANDBOX_TRUSTED_HOST_KILL_TIMED_OUT: {
+      why: "Timed out waiting for trusted-host processes to exit after SIGKILL.",
+      fix: "Find the processes of the trusted-host Sandbox that still run, for example with `ps -ef`, end them, and open a new Sandbox.",
     },
   },
 })
