@@ -8,6 +8,7 @@ import { hsalsa, xsalsa20poly1305 } from "@noble/ciphers/salsa.js"
 import { blake2b } from "@noble/hashes/blake2.js"
 import { describe, expect, it } from "vitest"
 
+import { diffEnvNames } from "../src/setup/env.ts"
 import { githubRepositoryFromRemote } from "../src/setup/deploy/github.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
@@ -65,8 +66,8 @@ interface GitHubRequest {
 /** The Actions secrets API of one repository and its environments. Stores sealed values, as GitHub does. */
 function fakeGitHub(options: { secrets?: Record<string, string[]>, environments?: string[], appToken?: string } = {}) {
   const keys = x25519KeyPair()
-  const stored: Record<string, Map<string, string>> = { "": new Map((options.secrets?.[""] ?? []).map(name => [name, ""])) }
-  for (const environment of options.environments ?? []) stored[environment] = new Map((options.secrets?.[environment] ?? []).map(name => [name, ""]))
+  const stored: Record<string, Map<string, string>> = { "": new Map((options.secrets?.[""] ?? []).map(name => [name.toUpperCase(), ""])) }
+  for (const environment of options.environments ?? []) stored[environment] = new Map((options.secrets?.[environment] ?? []).map(name => [name.toUpperCase(), ""]))
   const requests: GitHubRequest[] = []
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" }, status })
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -85,8 +86,8 @@ function fakeGitHub(options: { secrets?: Record<string, string[]>, environments?
     if (match[2] === "public-key") return json({ key: Buffer.from(keys.publicKey).toString("base64"), key_id: "key-123" })
     if (method === "GET" && !match[2]) return json({ secrets: [...secrets.keys()].map(name => ({ name })), total_count: secrets.size })
     if (method === "PUT" && match[2] && body) {
-      const created = !secrets.has(match[2])
-      secrets.set(match[2], sealOpen(Buffer.from(body.encrypted_value, "base64"), keys.publicKey, keys.privateKey))
+      const created = !secrets.has(match[2].toUpperCase())
+      secrets.set(match[2].toUpperCase(), sealOpen(Buffer.from(body.encrypted_value, "base64"), keys.publicKey, keys.privateKey))
       return new Response(null, { status: created ? 201 : 204 })
     }
     return json({ message: "unexpected" }, 400)
@@ -122,6 +123,16 @@ const local = {
 }
 
 describe("vitehub env --to github", () => {
+  it("compares GitHub names without case while keeping reported declarations intact", () => {
+    const entries = [
+      { names: ["deployToken"], required: true, secret: true, hasDefault: false },
+      { names: [], prefix: "service_", required: true, secret: true, hasDefault: false },
+    ]
+    expect(diffEnvNames(entries, ["DEPLOYTOKEN", "SERVICE_KEY"], true)).toEqual({ ok: true, extra: [], missing: { required: [], optional: [] } })
+    expect(diffEnvNames(entries, [], true).missing.required[0]?.names).toEqual(["deployToken"])
+    expect(diffEnvNames(entries, ["DEPLOYTOKEN", "SERVICE_KEY"]).ok).toBe(false)
+  })
+
   it("lists the repository secret names and diffs them, without GitHub's reserved names", async () => {
     const { env, root } = await project()
     const github = fakeGitHub({ secrets: { "": ["VITEHUB_SECRET", "OLD_DEPLOY_KEY"] } })
@@ -144,7 +155,45 @@ describe("vitehub env --to github", () => {
     expect(github.requests).toEqual([{ authorization: `Bearer ${token}`, method: "GET", path: "/repos/acme/web/actions/secrets?per_page=100&page=1" }])
 
     const text = await runSetup(["env", "diff", "--to", "github"], root, { ...env, GITHUB_TOKEN: token }, { fetch: github.fetch })
-    expect(text.stdout).toContain("Run `vitehub env push --to github --repo acme/web` to set them")
+    expect(text.stdout).toContain("Run `vitehub env push --to github --repo acme/web --host cloudflare` to set them")
+  })
+
+  it("keeps the explicit build host in a suggested push without a host link", async () => {
+    const { env, root } = await project({
+      ".vitehub/link.json": JSON.stringify({ schemaVersion: 2, targets: {} }),
+      ...local,
+    })
+    const github = fakeGitHub()
+    const options = { ...env, GITHUB_TOKEN: token }
+    const diff = await runSetup(["env", "diff", "--to", "github", "--host", "cloudflare", "--repo", "acme/web"], root, options, { fetch: github.fetch })
+    expect(diff.stdout).toContain("Run `vitehub env push --to github --repo acme/web --host cloudflare` to set them")
+    const push = await runSetup<PushJson>(["env", "push", "--to", "github", "--repo", "acme/web", "--host", "cloudflare", "--yes", "--json"], root, options, { fetch: github.fetch })
+    expect(push.exitCode, push.stdout + push.stderr).toBe(0)
+    expect(push.json.pushed).toContainEqual({ name: "VITEHUB_SECRET", replaced: false, secret: true, source: ".env.production" })
+  })
+
+  it.each([undefined, "staging"])("matches mixed-case names and prefixes for %s secrets without changing local lookup", async (environment) => {
+    const entries = [
+      { names: ["deployToken"], required: true, secret: true, hasDefault: false },
+      { names: [], prefix: "service_", required: true, secret: true, hasDefault: false },
+    ]
+    const { env, root } = await project({
+      ".output/deployment.json": JSON.stringify({ env: entries, host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+      ".env.production": `deployToken=${canary}\nservice_key=prefix-value\n`,
+    })
+    const github = fakeGitHub({ environments: ["staging"], secrets: { [environment ?? ""]: ["DEPLOYTOKEN", "SERVICE_KEY"] } })
+    const flags = ["--to", "github", ...(environment ? ["--environment", environment] : []), "--json"]
+    const options = { ...env, GITHUB_TOKEN: token }
+    const diff = await runSetup<DiffJson>(["env", "diff", ...flags], root, options, { fetch: github.fetch })
+    expect(diff.exitCode, diff.stdout + diff.stderr).toBe(0)
+    expect(diff.json).toMatchObject({ ok: true, extra: [], missing: { required: [], optional: [] } })
+    const push = await runSetup<PushJson>(["env", "push", ...flags, "--yes"], root, options, { fetch: github.fetch })
+    expect(push.exitCode, push.stdout + push.stderr).toBe(0)
+    expect(push.json.pushed).toEqual([
+      { name: "deployToken", replaced: true, secret: true, source: ".env.production" },
+      { name: "service_key", replaced: true, secret: true, source: ".env.production" },
+    ])
+    expect(Object.fromEntries(github.stored[environment ?? ""]!)).toEqual({ DEPLOYTOKEN: canary, SERVICE_KEY: "prefix-value" })
   })
 
   it("seals each value with the repository public key, and GitHub's secret key opens it", async () => {

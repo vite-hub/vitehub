@@ -238,15 +238,22 @@ function isSet(entry: DeploymentEnvEntry, names: ReadonlySet<string>): boolean {
 }
 
 /** Compares the names that the build lists with the names on the host. Hosts return no values, so it never says "changed". */
-export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[]): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
-  const onHost = new Set(hostNames)
+export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[], ignoreCase = false): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
+  const normalize = (name: string) => ignoreCase ? name.toUpperCase() : name
+  const comparable = (entry: DeploymentEnvEntry): DeploymentEnvEntry => ignoreCase
+    ? { ...entry, names: entry.names.map(normalize), ...(entry.prefix ? { prefix: normalize(entry.prefix) } : {}) }
+    : entry
+  const onHost = new Set(hostNames.map(normalize))
   const missing: EnvDiffOutput["missing"] = { optional: [], required: [] }
   for (const entry of entries) {
-    if (isSet(entry, onHost)) continue
+    if (isSet(comparable(entry), onHost)) continue
     missing[isRequired(entry) ? "required" : "optional"].push(diffEntry(entry))
   }
-  const known = (name: string) => entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name))
-  const extra = [...onHost].filter(name => !known(name)).sort()
+  const known = (name: string) => entries.some((entry) => {
+    const compared = comparable(entry)
+    return compared.names.includes(normalize(name)) || matchesPrefix(compared, normalize(name))
+  })
+  const extra = hostNames.filter(name => !known(name)).sort()
   return { extra, missing, ok: !missing.required.length }
 }
 
@@ -264,7 +271,7 @@ function targetLabel(output: { host: DeployHost, project: string, stage: string,
 /** The flags that name the destination again, for a hint or a rerun. */
 function destinationFlags(output: { host: DeployHost, stage: string, github?: GitHubEnvDestination }): string[] {
   return [
-    ...(output.github ? ["--to github", `--repo ${output.github.repository}`, ...(output.github.environment ? [`--environment ${output.github.environment}`] : [])] : [`--host ${output.host}`]),
+    ...(output.github ? ["--to github", `--repo ${output.github.repository}`, `--host ${output.host}`, ...(output.github.environment ? [`--environment ${output.github.environment}`] : [])] : [`--host ${output.host}`]),
     ...(output.stage === defaultStage ? [] : [`--stage ${output.stage}`]),
   ]
 }
@@ -289,7 +296,7 @@ function writeDiff(output: EnvDiffOutput, context: ViteHubCliContext): void {
 async function runDiff(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env diff", context)
   const hostNames = await target.hostEnv.listSecretNames()
-  const output: EnvDiffOutput = { ...destination(target), ...diffEnvNames(target.entries, hostNames) }
+  const output: EnvDiffOutput = { ...destination(target), ...diffEnvNames(target.entries, hostNames, !!target.github) }
   if (args.json) writeSetupJson(context, output)
   else writeDiff(output, context)
   return output.ok ? setupExitCodes.done : setupExitCodes.error
@@ -421,10 +428,11 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
     if (!interactive) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: `[vitehub] \`vitehub env push\` changes ${target.github ? "GitHub Actions secrets" : "host variables"} and was not confirmed. Without a terminal, pass --yes.` }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
     if (!await confirmPush(planned, targetLabel(output))) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The push was not confirmed. Nothing was pushed." }), setupExitCodes.error)
   }
-  const onHost = new Set(await target.hostEnv.listSecretNames())
+  const remoteName = (name: string) => target.github ? name.toUpperCase() : name
+  const onHost = new Set((await target.hostEnv.listSecretNames()).map(remoteName))
   for (const item of planned) {
     await target.hostEnv.setSecret(item.name, item.value, { secret: item.secret })
-    output.pushed.push({ name: item.name, replaced: onHost.has(item.name), secret: item.secret, source: item.source })
+    output.pushed.push({ name: item.name, replaced: onHost.has(remoteName(item.name)), secret: item.secret, source: item.source })
   }
   if (args.json) writeSetupJson(context, output)
   else writePush(output, context)
