@@ -1,6 +1,6 @@
 ---
-description: "Fix VITE_HUB_PACKAGE_VERSION_UNSUPPORTED in ViteHub. An installed @vite-hub package comes from another release than vite-hub. Install the packages of the same release, also in pnpm overrides."
-seo.title: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED: a ViteHub package of another release"
+description: "Fix VITE_HUB_PACKAGE_VERSION_UNSUPPORTED: install every @vite-hub package from the release of vite-hub, also in pnpm overrides."
+seo.title: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED in ViteHub"
 ---
 
 The build stops with `VITE_HUB_PACKAGE_VERSION_UNSUPPORTED` when an installed `@vite-hub/*` package does not come from the release of the installed `vite-hub`. The message names each package, its installed version, and the versions that `vite-hub` supports:
