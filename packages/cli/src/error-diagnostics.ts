@@ -173,6 +173,22 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
       why: ({ command }: { command?: unknown }) => `The build output names a deploy command that ViteHub did not write, so it does not run it: ${String(command)}`,
     },
+    SETUP_DEPLOY_ENV_MISSING: {
+      fix: ({ firstDeploy, host }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+        ? `Set each name in the shell or in .env.<stage>, then deploy again. If the ${String(host)} project already exists, run \`vitehub link --host ${String(host)}\` first, so deploy reads its variables.`
+        : `Run \`vitehub env push --host ${String(host)}\`, set the names in the ${String(host)} dashboard, or set them in the shell or in .env.<stage> and deploy again.`,
+      why: ({ firstDeploy, host, names, stage }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+        ? `The app needs ${String(names)}, and no value was found. This is the first deploy to ${String(host)}: the project is not linked, so the host has no variables yet and every required name needs a local value for the ${String(stage)} stage. Nothing was deployed.`
+        : `The app needs ${String(names)}, and neither ${String(host)} nor a local value for the ${String(stage)} stage has one. Nothing was deployed.`,
+    },
+    SETUP_DEPLOY_ENV_NOT_LINKED: {
+      fix: ({ host }: { host?: unknown, names?: unknown }) => `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
+      why: ({ host, names }: { host?: unknown, names?: unknown }) => `The ${String(host)} project is not linked, so deploy cannot set ${String(names)} before the first deploy. Nothing was deployed.`,
+    },
+    SETUP_DEPLOY_ENV_STAGE_UNSAFE: {
+      why: ({ names, stage }: { names?: unknown, stage?: unknown }) => `These existing Cloudflare secrets have no local value for stage ${String(stage)}: ${String(names)}. The latest uploaded version may belong to another stage, so inheriting its values is unsafe. Nothing was deployed.`,
+      fix: ({ stage }: { names?: unknown, stage?: unknown }) => `Set every listed name in the shell or an untracked .env.${String(stage)} file and deploy again. Cloudflare deploys re-supply all existing secrets with the version to preserve stage isolation.`,
+    },
     SETUP_DEPLOY_FAILED: {
       fix: "Read the host output above, fix the cause, and run the command again.",
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
@@ -216,6 +232,26 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    SETUP_ENV_FILE_TRACKED: {
+      fix: ({ file }: { file?: unknown, names?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add \`.env*\` to .gitignore, and rotate the values that git has seen. Or set the values in the shell for this command.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `${String(file)} is tracked by git and holds the secret ${String(names)}. \`vitehub env push\` does not push a secret that is in git.`,
+    },
+    SETUP_ENV_NAME_UNKNOWN: {
+      fix: "Pass names that `vitehub env diff` lists, or build again after you declare the name.",
+      why: ({ names }: { names?: unknown }) => `The build output lists no variable named ${String(names)}.`,
+    },
+    SETUP_ENV_STAGE_UNSUPPORTED: {
+      fix: ({ host, stage }: { host?: unknown, stage?: unknown }) => stage !== "preview"
+        ? "Use --stage production or --stage preview, the stages of `vitehub deploy` and `vitehub deploy --preview`."
+        : host === "cloudflare"
+          ? "A Worker has one set of secrets for every version. Push production values with --stage production."
+          : "`vitehub deploy` deploys this host to production only. Push with --stage production.",
+      why: ({ host, stage }: { host?: unknown, stage?: unknown }) => `The ${String(host)} host has no environment for the ${String(stage)} stage.`,
+    },
+    SETUP_ENV_VALUE_UNSUPPORTED: {
+      fix: ({ host }: { host?: unknown, name?: unknown, reason?: unknown }) => `Set this value in the ${String(host)} dashboard.`,
+      why: ({ host, name, reason }: { host?: unknown, name?: unknown, reason?: unknown }) => `The value of ${String(name)} cannot go to ${String(host)} without a terminal prompt or argv. ${String(reason)}`,
     },
   },
 })

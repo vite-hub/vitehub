@@ -17,6 +17,8 @@ import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-pat
 import { prepareSandboxTaskRuntime } from './internal/runtime-preparation'
 import { readSandboxTaskRuntimeGeneration } from './internal/runtime-generation'
 import { inspectSandboxTaskDefinitions, inspectSandboxTaskResources, type SandboxTaskResourceInspectionOptions } from './inspect'
+import { sandboxDeploymentEnv } from './deployment-env'
+import type { DeploymentEnvContribution } from '@vite-hub/internal/build/deployment-plan-output'
 import type { ViteHubInspectionPluginMetadata } from '@vite-hub/internal/inspect'
 import type { Alias, ConfigEnv, DevEnvironment, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
@@ -28,6 +30,8 @@ export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandb
 
 export type SandboxTaskOptions = AgentSandboxTaskConfig | false
 export type SandboxTaskVitePlugin = Plugin & {
+  /** The variables that Sandbox Tasks read on the deployed host. See `sandboxDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
     name: string
@@ -362,6 +366,12 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     name: '@vite-hub/sandbox/task/vite',
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/task/provider-runtime', setup: sandboxTaskNitroModule },
+    api: {
+      // Without Sandbox Task Definitions, the server opens no Sandbox.
+      deploymentEnv: context => sandboxTaskEnabled && definitions.length
+        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.provider : undefined), context)
+        : [],
+    },
     vitehub: {
       inspect: () => sandboxTaskEnabled ? ({
         definitions: [{
