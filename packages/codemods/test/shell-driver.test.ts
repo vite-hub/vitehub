@@ -69,6 +69,46 @@ describe("shell-driver", () => {
     ))
   })
 
+  it("keeps the old local name when the new name is declared in the file", async () => {
+    const { after } = await migrate({
+      "server/top.ts": "import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'\nconst createJustBashDriver = 1\nexport const make = () => [createJustBashProvider({ fs }), createJustBashDriver]\n",
+      "server/nested.ts": "import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'\nexport function make(createJustBashDriver) {\n  return createJustBashProvider({ fs: createJustBashDriver })\n}\n",
+      "server/lazy.ts": "export async function make(createJustBashDriver) {\n  const { createJustBashProvider } = await import('vite-hub/shell/providers/just-bash')\n  return createJustBashProvider({ fs: createJustBashDriver })\n}\n",
+    })
+    expect(after["server/top.ts"]).toBe("import { createJustBashDriver as createJustBashProvider } from 'vite-hub/shell/providers/just-bash'\nconst createJustBashDriver = 1\nexport const make = () => [createJustBashProvider({ fs }), createJustBashDriver]\n")
+    expect(after["server/nested.ts"]).toBe("import { createJustBashDriver as createJustBashProvider } from 'vite-hub/shell/providers/just-bash'\nexport function make(createJustBashDriver) {\n  return createJustBashProvider({ fs: createJustBashDriver })\n}\n")
+    expect(after["server/lazy.ts"]).toBe("export async function make(createJustBashDriver) {\n  const { createJustBashDriver: createJustBashProvider } = await import('vite-hub/shell/providers/just-bash')\n  return createJustBashProvider({ fs: createJustBashDriver })\n}\n")
+  })
+
+  it("renames quoted and computed keys and the options of dynamically imported calls", async () => {
+    const { after } = await migrate({
+      "server/a.ts": [
+        "export async function make(backend, workspace) {",
+        "  const { createShellRuntime: runtime } = await import('@vite-hub/shell')",
+        "  const tools = await import('vite-hub/workspace')",
+        "  return [",
+        "    runtime({ ['provider']: backend }),",
+        "    runtime({ \"provider\": backend }),",
+        "    tools.createWorkspaceTools(workspace, { executionProvider: backend }),",
+        "  ]",
+        "}",
+        "",
+      ].join("\n"),
+    })
+    expect(after["server/a.ts"]).toBe([
+      "export async function make(backend, workspace) {",
+      "  const { createShellRuntime: runtime } = await import('@vite-hub/shell')",
+      "  const tools = await import('vite-hub/workspace')",
+      "  return [",
+      "    runtime({ ['driver']: backend }),",
+      "    runtime({ \"driver\": backend }),",
+      "    tools.createWorkspaceTools(workspace, { shellDriver: backend }),",
+      "  ]",
+      "}",
+      "",
+    ].join("\n"))
+  })
+
   it("lists options that it cannot see", async () => {
     const { run } = await migrate({
       "server/a.ts": "import { createShellRuntime } from '@vite-hub/shell'\nexport const make = (options, base) => [createShellRuntime(options), createShellRuntime({ ...base })]\n",

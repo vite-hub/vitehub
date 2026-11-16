@@ -6,6 +6,7 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
+import { blockBindings } from "../shared/bindings.ts"
 
 import type { File, Identifier, ObjectPattern } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -58,6 +59,8 @@ interface FileContext {
   resolve: ReturnType<typeof bindingResolver>
   /** The import of each local declaration, by its declaring identifier. */
   imports: Map<Identifier, Imported>
+  /** Every name that the file declares, in any scope. A new name that is in it keeps the old local name. */
+  declared: Set<string>
   changed: number
 }
 
@@ -73,6 +76,7 @@ function importSource(node: Node | null | undefined): string | undefined {
   return undefined
 }
 
+/** Static imports, and `const { name } = await import(...)` or `const module = await import(...)`. */
 function collectImports(program: File): Map<Identifier, Imported> {
   const imports = new Map<Identifier, Imported>()
   for (const statement of program.program.body) {
@@ -83,7 +87,27 @@ function collectImports(program: File): Map<Identifier, Imported> {
       else if (specifier.type === "ImportSpecifier") imports.set(specifier.local, { source, name: keyName(specifier.imported) })
     }
   }
+  walk(program, (node) => {
+    if (node.type !== "VariableDeclarator") return
+    const source = importSource(node.init)
+    if (!source) return
+    if (node.id.type === "Identifier") imports.set(node.id, { source })
+    if (node.id.type !== "ObjectPattern") return
+    for (const property of node.id.properties) {
+      if (property.type !== "ObjectProperty" || property.computed) continue
+      const local = property.value.type === "AssignmentPattern" ? property.value.left : property.value
+      if (local.type === "Identifier") imports.set(local, { source, name: keyName(property.key) })
+    }
+  })
   return imports
+}
+
+function declaredNames(program: File): Set<string> {
+  const names = new Set(blockBindings(program).keys())
+  walk(program, (node) => {
+    if (node.type === "TSTypeAliasDeclaration" || node.type === "TSInterfaceDeclaration") names.add(node.id.name)
+  })
+  return names
 }
 
 /** Renames every reference that resolves to `binding`. Shorthand properties and local exports keep their old names. */
@@ -127,9 +151,10 @@ function rewriteExports(context: FileContext) {
         continue
       }
       // The imported and local names share one range. Overwrite it once, after the `type` modifier.
-      context.output.overwrite(start(specifier.local), end(specifier.local), to)
+      const from = specifier.local.name
+      context.output.overwrite(start(specifier.local), end(specifier.local), context.declared.has(to) ? `${to} as ${from}` : to)
       context.changed++
-      renameReferences(context, specifier.local, to)
+      if (!context.declared.has(to)) renameReferences(context, specifier.local, to)
     }
   }
 
@@ -161,6 +186,10 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
     if (!to) continue
     if (!property.shorthand || property.value.type !== "Identifier") {
       overwrite(context, property.key, to)
+      continue
+    }
+    if (context.declared.has(to)) {
+      overwrite(context, property, `${to}: ${property.value.name}`)
       continue
     }
     overwrite(context, property, to)
@@ -198,6 +227,8 @@ function rewriteKeys(context: FileContext) {
       }
       if (property.type !== "ObjectProperty" || keyName(property.key, property.computed) !== entry.from) continue
       if (property.shorthand) overwrite(context, property, `${entry.to}: ${context.code.slice(start(property.value), end(property.value))}`)
+      // `{ ["provider"]: driver }` and `{ "provider": driver }` keep their quotes, so the key stays a string.
+      else if (property.key.type === "StringLiteral") overwrite(context, property.key, `${context.code[start(property.key)]}${entry.to}${context.code[start(property.key)]}`)
       else overwrite(context, property.key, entry.to)
     }
   })
@@ -218,7 +249,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Rename the Shell \`provider\` names to \`driver\` by hand.` })
       continue
     }
-    const context: FileContext = { code, file, followUps, output: new MagicString(code), program, resolve: bindingResolver(program), imports: collectImports(program), changed: 0 }
+    const context: FileContext = { code, file, followUps, output: new MagicString(code), program, resolve: bindingResolver(program), imports: collectImports(program), declared: declaredNames(program), changed: 0 }
     rewriteExports(context)
     rewriteKeys(context)
     if (context.changed) edits.push({ path: file, before: code, after: context.output.toString() })
