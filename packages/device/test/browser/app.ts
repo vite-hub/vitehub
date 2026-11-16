@@ -3,6 +3,7 @@
 import { createApp, defineComponent, effectScope, h, watch } from "vue"
 
 import { clearDevice, inspectDevice, openDevice, setDeviceAccount } from "../../src/index.ts"
+import { openIndexedDB } from "../../src/indexeddb.ts"
 import { useStoredData } from "../../src/vue.ts"
 
 interface MountOptions {
@@ -48,6 +49,23 @@ const deviceTest = {
         })
       })
     })
+  },
+  /**
+   * Resets the IndexedDB storage to `account` when it has the generation `expected`, as a tab with that view of the disk
+   * does. Returns the generation that the disk had.
+   */
+  async resetDisk(account: string, expected: string | undefined): Promise<string | undefined> {
+    const storage = await openIndexedDB()
+    const found = await storage.reset({ account, version: "", generation: "reset-by-test" }, expected)
+    storage.close()
+    return found?.generation
+  },
+  /** The generation of the disk, read with the device storage. */
+  async diskGeneration(): Promise<string | undefined> {
+    const storage = await openIndexedDB()
+    const { meta } = await storage.read()
+    storage.close()
+    return meta?.generation
   },
   /** The keys in IndexedDB, read with the browser API, not with the device. */
   storedKeys: () => readEntries(entries => entries.getAllKeys(), keys => keys.map(String).sort(), [] as string[]),

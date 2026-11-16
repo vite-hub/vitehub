@@ -182,8 +182,14 @@ export function createDevice(options: DeviceOptions): Device {
     const found = await target.write(expected, change)
     // The change applied, or a message of another tab changed `meta` in the meantime and dropped what this tab had.
     if (found?.generation === expected.generation || meta !== expected) return
-    // Another tab changed the disk, and this tab missed its message. After another account, this tab stores again only
-    // after it names an account.
+    adopt(found)
+  }
+
+  /**
+   * Takes the meta that the disk has, after another tab changed the disk and this tab missed its message. Everything of
+   * this tab is old. After another account, this tab stores again only after it names an account.
+   */
+  function adopt(found: DeviceMeta | undefined): void {
     meta = found
     if (found?.account !== named) named = undefined
     invalidate()
@@ -280,12 +286,14 @@ export function createDevice(options: DeviceOptions): Device {
     // other tab has the new meta, when the disk changed.
     else meta ??= found.meta
     // The disk follows the page: the account that it named, or else the account of the disk, in the version of this build.
-    const account = named !== undefined ? named : meta?.account
+    // The account of the disk only follows what the disk had. The account that the page named is what the page knows.
+    const fromPage = named !== undefined
+    const account = fromPage ? named : meta?.account
     if (account === undefined) return
     // When the epoch moves before the task runs, the page named an account and queued its own start-over, or the disk
     // changed, such as a trim that found another account. Then `account` is old, and the task must not delete the disk.
     const since = epoch
-    void enqueue(async () => epoch === since ? ensure(account, false) : ok).then(([error]) => error && warnOnce("storage", error))
+    void enqueue(async () => epoch === since ? ensure(account, false, fromPage) : ok).then(([error]) => error && warnOnce("storage", error))
   }
 
   /** Takes the copies that the disk had when the device opened. */
@@ -319,22 +327,41 @@ export function createDevice(options: DeviceOptions): Device {
    * Brings the disk to `account` in the version of this build. When the disk holds another account or version, every copy
    * goes and the disk gets a new generation, and the other tabs hear of it. Runs in the queue. In this tab it is not a
    * reset: the tab raised the epoch when it named the account, and holds no copy of another account or version.
+   *
+   * The reset applies only when the disk still has the generation that this tab knows. When another tab changed the
+   * disk and this tab missed its message, an account that the page named (`fromPage`) tries again on the new disk. An
+   * account that came from the disk at open is old, so the tab takes the disk as it is.
    */
-  async function ensure(account: string | null, announce: boolean): Promise<StorageResult> {
+  async function ensure(account: string | null, announce: boolean, fromPage: boolean): Promise<StorageResult> {
     const target = storage
     if (!target) {
       if (announce) options.channel.post({ type: "account", account, meta: undefined })
       return ok
     }
     if (meta?.account !== account || meta.version !== version) {
+      const expected = meta
       const next = { account, version, generation: newGeneration() }
+      let found: DeviceMeta | undefined
       try {
-        await target.reset(next)
+        found = await target.reset(next, expected?.generation)
       }
       catch (cause) {
         // The other tabs still drop what they have of another account.
         options.channel.post({ type: "account", account, meta: undefined })
         return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
+      }
+      if (found?.generation !== expected?.generation) {
+        // Another tab changed the disk. When its message came in the meantime, `meta` has it already.
+        if (meta === expected) {
+          if (!fromPage) {
+            adopt(found)
+            return ok
+          }
+          meta = found
+          invalidate()
+        }
+        // The page still names `account`, so it tries again on the disk as it is now.
+        return fromPage && named === account ? ensure(account, announce, fromPage) : ok
       }
       meta = next
       options.channel.post({ type: "account", account, meta: next })
@@ -366,7 +393,7 @@ export function createDevice(options: DeviceOptions): Device {
     if (requested !== account) return ok
     const changed = account !== named
     if (changed) name(account)
-    return enqueue(() => ensure(account, changed))
+    return enqueue(() => ensure(account, changed, true))
   }
 
   async function clear(): Promise<StorageResult> {

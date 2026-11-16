@@ -181,6 +181,21 @@ test("a new version empties the device", { timeout: 120_000 }, async (t) => {
   await until(async () => (await storedKeys(page)).length === 0)
 })
 
+test("a reset of a tab that has an old view of the disk changes nothing, in one IndexedDB transaction", { timeout: 120_000 }, async (t) => {
+  const profile = await openBrowser(t)
+  const page = await profile.open()
+  await profile.answer(["p1"])
+  await mount(page, { account: "ada" })
+  await until(async () => (await storedKeys(page)).includes("projects"))
+  const generation = await page.evaluate(() => window.deviceTest.diskGeneration())
+  assert.equal(await page.evaluate(() => window.deviceTest.resetDisk("grace", "an-old-generation")), generation)
+  assert.deepEqual(await storedKeys(page), ["projects"])
+  assert.equal(await page.evaluate(() => window.deviceTest.diskGeneration()), generation)
+  assert.equal(await page.evaluate(generation => window.deviceTest.resetDisk("grace", generation), generation), generation)
+  assert.deepEqual(await storedKeys(page), [])
+  assert.equal(await page.evaluate(() => window.deviceTest.diskGeneration()), "reset-by-test")
+})
+
 test("a stored copy older than maxAge does not show", { timeout: 120_000 }, async (t) => {
   const profile = await openBrowser(t)
   const page = await visitAndReload(profile, { reload: { maxAge: 1 } })
