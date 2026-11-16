@@ -1,11 +1,7 @@
 /*
  * The Tailwind bridge: the semantic utilities of Nuxt UI 4.12, such as `text-muted`, `bg-elevated`, `border-default`,
- * `ring-accented`, and `bg-error/10`, on the tokens of `tokens.css`. An app that removes Nuxt UI keeps its
- * classes. Load these stylesheets in order:
- *
- *   tailwindcss
- *   @vite-hub/kit/styles/tokens.css
- *   @vite-hub/kit/styles/tailwind.css
+ * `ring-accented`, and `bg-error/10`, on the tokens of `tokens.css`. An app that stops importing Nuxt UI keeps its
+ * classes when it imports Tailwind, then the kit's `styles/tokens.css`, then this file (the kit README shows the lines).
  *
  * Each name reads a shadcn token where `@vite-hub/ui/theme.css` gives it the same value, and the Nuxt UI name of the step
  * otherwise. theme.css sets the same variables, so the bridge changes nothing in an app that still loads Nuxt UI and
