@@ -8,12 +8,12 @@ import * as Y from "yjs"
 
 import type { JSONContent } from "@tiptap/core"
 import type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "../src/bus-protocol.ts"
-import type { RealtimeControlMessage } from "../src/protocol.ts"
+import type { RealtimeControlMessage, RealtimeRequestFrame } from "../src/protocol.ts"
 import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition, RealtimeDocumentAdapter, RealtimeFieldValue, RealtimeIssue } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
-import { decodeRealtimeControlPayload, messageAwareness, messageRealtimeControl } from "../src/protocol.ts"
+import { decodeRealtimeControlPayload, decodeRealtimeRequestFramePayload, messageAwareness, messageRealtimeControl, messageRealtimeRequest } from "../src/protocol.ts"
 import { createRealtimeHandler, encodeSyncStep1, encodeSyncUpdate } from "../src/server.ts"
 
 const messageSync = 0
@@ -103,6 +103,8 @@ type Hooks = {
 
 export interface TestClient {
   awareness: Uint8Array[]
+  /** The `requestRealtimeRoom()` frames this client received. */
+  requests: RealtimeRequestFrame[]
   close(): void
   closed?: { code: number, reason: string }
   controls: RealtimeControlMessage[]
@@ -132,6 +134,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     })) as Response & { crossws?: Hooks }
     const client: TestClient = {
       awareness: [],
+      requests: [],
       close: () => {
         if (client.closed) return
         client.closed = { code: 1000, reason: "client closed" }
@@ -159,6 +162,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       if (!client.closed) hooks.message(peer, { uint8Array: () => data })
     }
     const peer = {
+      id: crypto.randomUUID(),
       close(code: number, reason: string) {
         if (client.closed) return
         client.closed = { code, reason }
@@ -186,6 +190,10 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
         }
         else if (type === messageAwareness) {
           client.awareness.push(decoding.readVarUint8Array(decoder))
+        }
+        else if (type === messageRealtimeRequest) {
+          const frame = decodeRealtimeRequestFramePayload(decoder)
+          if (frame) client.requests.push(frame)
         }
       },
       subscribe(channel: string) {

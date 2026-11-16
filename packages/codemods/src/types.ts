@@ -29,6 +29,8 @@ export interface CodemodResult {
 export interface CodemodContext {
   /** Absolute path of the project directory. */
   cwd: string
+  /** Original project directory for read-only installed dependency inspection when cwd is a scratch copy. */
+  dependencyRoot?: string
 }
 
 /** Why a codemod applies to a project, such as "nuxt.config.ts lists nuxt-safe-runtime-config". */
@@ -49,6 +51,7 @@ export interface Codemod {
 }
 
 /** A codemod cannot migrate the project. The CLI prints the message and exits with code 1. */
+// Internal invariant: the codemods CLI prints its message and exits with code 1.
 export class CodemodError extends Error {
   override name = "CodemodError"
 }

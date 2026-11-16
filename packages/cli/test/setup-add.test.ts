@@ -81,6 +81,25 @@ describe("vitehub add", () => {
     expect(telemetry.json.install.packages).toContain("@vite-hub/agent")
   })
 
+  it.each([
+    ["vercel", "@vercel/sandbox", "@cloudflare/sandbox"],
+    ["cloudflare", "@cloudflare/sandbox", "@vercel/sandbox"],
+  ] as const)("installs the %s Sandbox SDK with Sandbox Tasks", async (host, sdk, other) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
+    const result = await add(["sandboxTask", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain(sdk)
+    expect(result.json.install.packages).not.toContain(other)
+  })
+
+  it("writes Sandbox Task provider options to the framework config", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "cloudflare" }') })
+    const result = await add(["sandboxTask", "--option", "sandboxTask.provider=cloudflare", "--option", "sandboxTask.keepAlive=true", "--option", "sandboxTask.migrationTag=v2", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.sandboxTask).toMatchObject({ value: { provider: "cloudflare", keepAlive: true, migrationTag: "v2" } })
+  })
+
   it("adds a Logs source under observability", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -644,7 +663,6 @@ describe("vitehub add", () => {
     expect((await add(["kv", "--name", "cache"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["queue", "--name", "../escape"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["kv", "--option", "nope"], root)).json.error?.code).toBe("CLI_R0003")
-    expect((await add(["sandboxTask", "--option", "driver=x"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["email", "--option", "database.connection.url=libsql://example.com"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["nope"], root)).json.error?.code).toBe("CLI_R0003")
   })
@@ -750,42 +768,31 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it.each(["node", "deno"])("says that the default Workflow runs inline on %s, and not when a provider is set", async (host) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}" }`) })
+  it("asks for the Workflow provider on deno and keeps its dependency bundled", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno" }`) })
 
-    const inline = await add(["workflow", "--dry-run"], root)
-    expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
-    expect(inline.json.install.packages).toEqual(["@vite-hub/workflow"])
+    const missing = await add(["workflow", "--dry-run"], root)
+    expect(missing.exitCode, missing.stdout).toBe(2)
+    expect(missing.json.missing).toEqual([{ choices: ["openworkflow"], field: "workflow.provider" }])
 
     const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
     expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
-    expect(durable.json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
+    // `@vite-hub/workflow` depends on OpenWorkflow, so the provider adds no package.
+    expect(durable.json.install.packages).toEqual(["@vite-hub/workflow"])
   })
 
   it.each([
-    "workflow.sqlite.runMigrations=true",
-    "workflow.postgres.schema=custom",
-    "workflow.sqlite.path=   ",
-    "workflow.postgres.url=",
-  ])("keeps the inline Workflow default with partial storage options (%s)", async (option) => {
+    [],
+    ["workflow.sqlite.path=.data/workflows.db"],
+    ["workflow.postgres.url=postgres://localhost/workflows"],
+    ["workflow.worker.concurrency=4"],
+  ])("uses OpenWorkflow on node without an inline warning (%s)", async (...options) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
-    const { exitCode, json } = await add(["workflow", "--option", option, "--dry-run"], root)
+
+    const { exitCode, json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
 
     expect(exitCode).toBe(0)
     expect(json.install.packages).toEqual(["@vite-hub/workflow"])
-    expect(json.nextSteps.join("\n")).toContain("inline in the request process")
-  })
-
-  it.each([
-    ["workflow.sqlite.path=.data/workflows.db"],
-    ["workflow.postgres.url=postgres://localhost/workflows"],
-    ["workflow.postgres.url.kind=env-variable", "workflow.postgres.url.source.kind=env", "workflow.postgres.url.source.name=DATABASE_URL"],
-  ])("installs OpenWorkflow when Node storage selects it (%s)", async (...options) => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
-
-    const { json } = await add(["workflow", ...options.flatMap(option => ["--option", option]), "--dry-run"], root)
-
-    expect(json.install.packages).toEqual(["@vite-hub/workflow", "openworkflow"])
     expect(json.nextSteps.join("\n")).not.toContain("inline")
   })
 

@@ -1465,8 +1465,10 @@ describe("blob runtime in vite dev", () => {
     setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
 
     expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.copy("notes/hello.txt", "notes/copy.txt"))
 
     expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(await readFile(join(base, "notes/copy.txt"), "utf8")).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
   })
 
@@ -1476,9 +1478,11 @@ describe("blob runtime in vite dev", () => {
     setActiveCloudflareEnv({ BLOB: bucket })
     setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
 
-    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello", { contentType: "text/markdown" }))
+    expect(expectBlobSuccess(await blob.copy("notes/hello.txt", "notes/copy.txt"))).toMatchObject({ contentType: "text/markdown", pathname: "notes/copy.txt" })
 
     expect(await expectBlobSuccess(await blob.get("notes/hello.txt"))?.text()).toBe("hello")
+    expect(await expectBlobSuccess(await blob.get("notes/copy.txt"))?.text()).toBe("hello")
     expect(existsSync(join(base, "notes/hello.txt"))).toBe(false)
   })
 

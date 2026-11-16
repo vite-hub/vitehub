@@ -15,12 +15,24 @@ Forge has no `vitehub()` option. It reads its credentials from the env when you 
 | `VITEHUB_GITHUB_APP_ID` | The App ID or the Client ID of the GitHub App. |
 | `VITEHUB_GITHUB_PRIVATE_KEY` | The App private key in PEM. An escaped `\n` becomes a new line. |
 | `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | A private PEM file that is available at runtime. On Cloudflare, use a `VITEHUB_GITHUB_PRIVATE_KEY` secret binding instead. |
-| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional. One fixed installation. Without it, `useForge()` finds the installation of each repository. |
+| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional. The installation of `VITEHUB_GITHUB_APP_OWNER`, which it needs. |
+| `VITEHUB_GITHUB_APP_OWNER` | The repository owner of `VITEHUB_GITHUB_INSTALLATION_ID`, such as `acme`. |
+| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional. A JSON object that maps repository owners to installation IDs, such as `{"acme":123,"other":456}`. |
 | `VITEHUB_GITHUB_TOKEN` | A token to use when there is no App, such as `${{ secrets.GITHUB_TOKEN }}` in GitHub Actions. |
 | `VITEHUB_GITLAB_TOKEN`, `VITEHUB_GITLAB_BASE_URL` | GitLab. |
 | `VITEHUB_FORGEJO_TOKEN`, `VITEHUB_FORGEJO_BASE_URL` | Forgejo and Gitea. |
 
 When `VITEHUB_GITHUB_APP_ID` is set, `useForge()` uses the App. Otherwise it uses `VITEHUB_GITHUB_TOKEN`. `GH_TOKEN` and `GITHUB_TOKEN` are not read.
+
+### Installations
+
+An App installation belongs to one repository owner. For each repository, ViteHub uses the first match:
+
+1. The owner in `VITEHUB_GITHUB_APP_INSTALLATIONS`.
+2. `VITEHUB_GITHUB_INSTALLATION_ID`, when the owner is `VITEHUB_GITHUB_APP_OWNER`.
+3. The installation that GitHub finds for the repository.
+
+A call without `repository` uses `VITEHUB_GITHUB_INSTALLATION_ID`. `VITEHUB_GITHUB_INSTALLATION_ID` without `VITEHUB_GITHUB_APP_OWNER` fails with `FORGE_INVALID_ENV`. Owner names are not case-sensitive. `useForge()`, the `forge()` Capability, the `github()` Channel, Comments, and the Babysitter use this rule.
 
 `useForge()` reads the bindings of the active Cloudflare request, then `process.env`. To read another source, pass `env`, for example `useForge({ env: process.env })`.
 

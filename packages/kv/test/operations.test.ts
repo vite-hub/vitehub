@@ -84,7 +84,7 @@ describe("kv operations", () => {
     try {
       expect(await run({ key: "binary", operation: "get" })).toEqual({
         status: 200,
-        body: { found: true, key: "binary", store: "default", type: "bytes", encoding: "base64", expiry: "none", value: Buffer.from(value).toString("base64") },
+        body: { found: true, key: "binary", store: "default", type: "bytes", encoding: "base64", expiry: "unknown", value: Buffer.from(value).toString("base64") },
       })
     }
     finally { get.mockRestore() }
@@ -151,12 +151,11 @@ describe("kv operations", () => {
     expect((await run({ key: "settings", operation: "set", ttl: 30, value: "light" })).body).toEqual({
       created: false,
       key: "settings",
-      notice: "The fs-lite driver ignores TTL. The value does not expire.",
       store: "default",
       ttl: 30,
       type: "string",
     })
-    expect((await run({ key: "settings", operation: "get" })).body).toEqual({ expiry: "none", found: true, key: "settings", store: "default", type: "string", value: "light" })
+    expect((await run({ key: "settings", operation: "get" })).body).toEqual({ expiry: "unknown", found: true, key: "settings", store: "default", type: "string", value: "light" })
     expect((await run({ key: "settings", operation: "has" })).body).toEqual({ exists: true, key: "settings", store: "default" })
 
     await run({ key: "users:1", operation: "set", value: "Ada" })
@@ -228,9 +227,9 @@ describe("kv operations", () => {
     expect((await kv.get("vitehub:state"))[1]).toBe("x")
   })
 
-  it("says whether a key can expire, since no driver reports the time left", async () => {
+  it("says that a key can expire, since no driver reports the time left", async () => {
     await run({ key: "ephemeral", operation: "set", value: "x" })
-    expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "none" })
+    expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "unknown" })
     for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {
       const response = await handle({ key: "ephemeral", operation: "get" }, [{ driver, name: "default" }])
       expect(await response.json()).toMatchObject({ expiry: "unknown", found: true })

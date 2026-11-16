@@ -40,7 +40,7 @@ export default defineQueue<{ email: string }>(async ({ payload, id }) => {
 | Field | Type | Description |
 | --- | --- | --- |
 | `payload` | `TPayload` | The payload you sent. |
-| `id` | `string` | The provider message id, or a generated id. |
+| `id` | `string` | The message id. On the local and postgres providers and on Vercel, it is the `messageId` that `sendQueue()` returned. Cloudflare assigns its own id. |
 | `attempts` | `number` | Number of delivery attempts. |
 | `metadata` | `unknown` | Provider delivery metadata, if any. |
 
@@ -127,7 +127,6 @@ An option that the provider does not support returns `QUEUE_UNSUPPORTED_OPTION`,
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `id` | `string` | Message ID. Generated if omitted. It does not stop duplicates on every provider. |
 | `delaySeconds` | `number` | Delay before delivery, in seconds. |
 
 ### Cloudflare options
@@ -144,7 +143,7 @@ Vercel only. The app needs `host: 'vercel'`, Queue on, `@vercel/queue`, and a de
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `idempotencyKey` | `string` | Idempotency key. Defaults to the message `id`. |
+| `idempotencyKey` | `string` | A send with the same key does not add a second job. |
 | `region` | `string` | Send region for this job. |
 | `retentionSeconds` | `number` | Message retention, in seconds. |
 
@@ -192,7 +191,7 @@ type QueueSendResult = {
 
 Config errors, such as an unknown queue name or a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
 
-`status: 'queued'` means accepted on every provider. Vercel returns its message id, or `undefined` when it accepts the job for later processing. Cloudflare returns the ViteHub `id`. Cloudflare never gets that id, so its delivery has a different message id.
+`status: 'queued'` means accepted on every provider. ViteHub does not take a message id from the caller: an `id` option returns `QUEUE_UNSUPPORTED_OPTION`. Use `idempotencyKey` to deduplicate sends. When `messageId` is set, the handler gets the same value as `id`. The local and postgres providers return the id of the stored job. Vercel returns its message id, or `undefined` when it accepts the job for later processing. Cloudflare returns no `messageId`, because its binding does not report the id that the handler gets.
 
 ### `deferQueue(name, payload, options?)`
 

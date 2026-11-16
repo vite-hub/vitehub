@@ -58,13 +58,13 @@ export interface QueueSendOperationResult {
 
 export interface QueueSendOperationInput {
   delaySeconds?: number
-  id?: string
   idempotencyKey?: string
   payload: unknown
   queue: string
 }
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class QueueOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
     super(redactInspectionText(message))
@@ -114,7 +114,6 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   if (!queue) throw new QueueOperationError("The queue name is not a valid Queue Definition name.", 400, "QUEUE_INVALID_NAME", "Pass the name of a Queue Definition. `vitehub queue list` shows them.")
   const options: QueueEnqueueOptions = {
     ...(input.delaySeconds === undefined ? {} : { delaySeconds: input.delaySeconds }),
-    ...(input.id === undefined ? {} : { id: input.id }),
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
   }
   let result

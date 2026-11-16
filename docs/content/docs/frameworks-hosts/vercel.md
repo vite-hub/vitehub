@@ -88,7 +88,7 @@ export default defineConfig({
 ::
 
 ::warning
-State on Vercel needs hosted stores. For Blob, use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`). For KV, use Upstash with `KV_REST_API_URL` and `KV_REST_API_TOKEN`. Local filesystem stores work only in development.
+State on Vercel needs hosted stores. For Blob, use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`). For KV, use Upstash with `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or set `kv: { driver: 'redis' }` for a Redis at `REDIS_URL`. Local filesystem stores work only in development.
 ::
 
 Database Definitions own tables and identity. The Database integration selects the hosted connection for Vercel output. Declare Marketplace credentials as Runtime Env so the output reads them at runtime.
@@ -184,8 +184,8 @@ export default defineConfig({
 Provision shows a dry-run plan before it applies actions. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` gives the team scope when the token needs it.
 
 ```bash [Terminal]
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --host vercel
 ```
 
 ## Generated output

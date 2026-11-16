@@ -125,6 +125,11 @@ describe("server auth helpers", () => {
       expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), request).baseURL).toBe("https://agents.example.com")
       // An unset value keeps the default instead of overriding it with undefined.
       expect(createAuthRequestRuntimeOptions(defineAuth(() => ({ appName: "ViteHub", baseURL: undefined })), request).baseURL).toBe("https://agents.example.com")
+      // The request Host never replaces a configured origin.
+      const attacker = new Request("https://attacker.example/api/auth/session")
+      expect(() => createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), attacker)).toThrow(expect.objectContaining({ code: "AUTH_R0022" }))
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://bot.example.com" } })
+      expect(createAuthRequestRuntimeOptions(defineAuth({ appName: "ViteHub" }), attacker).baseURL).toBe("https://bot.example.com")
     }
     finally {
       vi.unstubAllGlobals()

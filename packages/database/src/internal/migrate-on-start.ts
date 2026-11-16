@@ -3,14 +3,15 @@ import { resolve } from "pathe"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
-import type { StartMigration } from "../runtime/migrate-on-start.ts"
-import type { DatabaseIntegrationOptions, ResolvedDBViteConfig } from "../types.ts"
+import type { MigrationBackup, StartMigration } from "../runtime/migrate-on-start.ts"
+import type { DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
 
 /** The Nitro plugin that applies migrations at boot, relative to the Database project root. */
 export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-start.mjs"
 
 export interface MigrateOnStartSettings {
   allowDataLoss: boolean
+  backup?: MigrationBackup
   /** The app set `migrateOnStart`. Without it, only Postgres databases of a Node build migrate on start. */
   explicit: boolean
 }
@@ -21,7 +22,19 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
   const value = options?.migrateOnStart
   if (value === false) return
   if (value === undefined) return { allowDataLoss: false, explicit: false }
-  return { allowDataLoss: value !== true && value.allowDataLoss === true, explicit: true }
+  if (value === true) return { allowDataLoss: false, explicit: true }
+  const backup = resolveMigrationBackup(value.backup)
+  return { allowDataLoss: value.allowDataLoss === true, ...backup && { backup }, explicit: true }
+}
+
+function resolveMigrationBackup(value: boolean | MigrationBackupOptions | undefined): MigrationBackup | undefined {
+  if (!value) return
+  if (value === true) return { keep: 3 }
+  const keep = value.keep ?? 3
+  if (!Number.isInteger(keep) || keep < 1) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ problem: `\`keep\` is ${JSON.stringify(keep)}, and must be a whole number of 1 or more.` })
+  }
+  return { ...value.dir && { dir: value.dir }, keep }
 }
 
 /**
@@ -32,6 +45,7 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
 export function selectMigrateOnStartDatabases(config: ResolvedDBViteConfig | undefined, settings: MigrateOnStartSettings, host: string | undefined): string[] {
   if (settings.explicit) {
     assertMigrateOnStartSupported(config, host)
+    if (settings.backup) assertMigrationBackupSupported(config)
     return config?.databaseNames ?? []
   }
   if (!config || host !== "node") return []
@@ -54,7 +68,7 @@ interface RenderMigrateOnStartOptions {
  * migrations are read now, so the server output does not need the migrations folder. A folder that cannot be read
  * fails only the call that needs it, so a build that never migrates in the server does not fail.
  */
-export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, { allowDataLoss }: { allowDataLoss: boolean }): string {
+export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, settings: Pick<MigrateOnStartSettings, "allowDataLoss" | "backup"> | undefined): string {
   const databases: Record<string, { dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
     try {
@@ -65,7 +79,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
       databases[name] = { problem: error instanceof Error ? error.message : String(error) }
     }
   }
-  return `export default ${JSON.stringify({ allowDataLoss, databases })}\n`
+  return `export default ${JSON.stringify({ allowDataLoss: settings?.allowDataLoss ?? false, ...settings?.backup && { backup: settings.backup }, databases })}\n`
 }
 
 /**
@@ -100,6 +114,23 @@ export function assertMigrateOnStartSupported(config: ResolvedDBViteConfig | und
   for (const name of config.databaseNames) {
     if (config.databases[name]!.cloudflare?.http) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: "It uses Cloudflare D1 over HTTP." })
+    }
+  }
+}
+
+/**
+ * Fails the build when `migrateOnStart.backup` cannot copy a database: a Postgres database, or a SQLite database whose
+ * `connection.url` is remote libSQL or in memory. A URL from the environment is checked when the server starts.
+ */
+function assertMigrationBackupSupported(config: ResolvedDBViteConfig | undefined) {
+  for (const name of config?.databaseNames ?? []) {
+    const database = config!.databases[name]!
+    if (database.dialect === "postgresql") {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: name, problem: "It is a Postgres database." })
+    }
+    const url = database.connection?.url
+    if (typeof url === "string" && (url === ":memory:" || /^(?:libsql|https?|wss?):/i.test(url))) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: name, problem: url === ":memory:" ? "It is in memory." : "It uses remote libSQL." })
     }
   }
 }

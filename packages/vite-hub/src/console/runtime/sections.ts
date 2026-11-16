@@ -1,5 +1,5 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "cache", "site", "setup"] as const
 
 /**
  * Sections that are tools, not primitives, so the Overview does not offer them: Setup, which only a development server
@@ -55,7 +55,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     routeName: "vitehub-console-blob",
   },
   databases: {
-    description: "Inspect discovered Database Definitions and static schema metadata.",
+    description: "Read the tables, columns, and rows of each Database Definition without changing data.",
     icon: "i-vitehub-database",
     label: "Databases",
     routeName: "vitehub-console-databases",
@@ -65,6 +65,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     icon: "i-vitehub-kv",
     label: "KV",
     routeName: "vitehub-console-kv",
+  },
+  cache: {
+    description: "List, read, and invalidate the entries of Nitro's cache.",
+    icon: "i-vitehub-cache",
+    label: "Cache",
+    routeName: "vitehub-console-cache",
   },
   site: {
     description: "Sign your browsers and invited guests in to the site, for the page tools.",
@@ -80,43 +86,47 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
   },
 }
 
-/** Navigation groups in rail order. A contributed section with an unknown id goes to `more`. */
-export const consoleSectionGroupIds = ["agents", "data", "runtime", "platform", "more"] as const
+/** Navigation groups in sidebar order. A contributed section with an unknown id goes to `more`. */
+export const consoleSectionGroupIds = ["site", "data", "users", "ai", "runtime", "more"] as const
 
 export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
-  agents: "agents",
-  skills: "agents",
-  usage: "agents",
-  channels: "agents",
-  "mcp-client": "agents",
-  logs: "runtime",
+  comments: "site",
+  content: "site",
+  forms: "site",
   databases: "data",
   kv: "data",
+  cache: "data",
   blob: "data",
-  content: "data",
-  comments: "data",
-  forms: "data",
   workspaces: "data",
+  auth: "users",
+  site: "users",
+  email: "users",
+  agents: "ai",
+  skills: "ai",
+  "served-skills": "ai",
+  channels: "ai",
+  usage: "ai",
+  "mcp-client": "ai",
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",
   "sandbox-tasks": "runtime",
-  env: "platform",
-  auth: "platform",
-  email: "platform",
-  "rate-limits": "platform",
-  site: "platform",
-  setup: "platform",
+  logs: "runtime",
+  env: "runtime",
+  connections: "runtime",
+  "rate-limits": "runtime",
+  setup: "runtime",
 }
 
-/** Labels that the Overview shows above each navigation group. */
+/** Labels that the sidebar and the Overview show above each navigation group. */
 export const consoleSectionGroupLabels: Readonly<Record<ConsoleSectionGroupId, string>> = {
-  agents: "Agents",
+  site: "Site",
   data: "Data",
+  users: "Users",
+  ai: "AI",
   runtime: "Runtime",
-  platform: "Platform",
   more: "More",
 }
 
@@ -184,6 +194,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
   primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API."),
+  primitive("cache", "Cache", consoleSectionDetails.cache.icon, "kv/configure", "Keep the results of cached functions and handlers in a store of your host.", "kv/configure"),
   primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
   primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
@@ -227,6 +238,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   logs: "l",
   databases: "d",
   kv: "k",
+  cache: "j",
   blob: "b",
   workspaces: "w",
   workflows: "f",
@@ -325,7 +337,9 @@ export function resolveConsoleSectionIds(options: {
   console?: unknown;
   agent?: unknown;
   blob?: unknown;
+  cache?: unknown;
   comments?: unknown;
+  connections?: unknown;
   database?: unknown;
   email?: unknown;
   host?: unknown;
@@ -350,9 +364,11 @@ export function resolveConsoleSectionIds(options: {
     ...(options.blob ? ["blob"] : []),
     // Without the option, `server/comments.ts` turns the section on through discovery.
     ...(options.comments ? ["comments"] : []),
+    ...(options.connections ? ["connections"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),
+    ...(options.cache ? ["cache"] : []),
     ...(options.rateLimit ? ["rate-limits"] : []),
     ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),

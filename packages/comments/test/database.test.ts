@@ -55,6 +55,7 @@ it("installs Comments on the sole named Database in a generated runtime registry
     databaseEntries: ["  main: { db: main },"],
     ensureMigrationsImport: "@vite-hub/database/runtime/migrate-on-start",
     imports: [],
+    postgresConnectionImport: "@vite-hub/database/runtime/postgres-connection",
     migrations: { unsupported: "The test ships no migrations." },
     useDatabaseImport: "@vite-hub/database/runtime/use-database",
   })

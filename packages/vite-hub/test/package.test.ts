@@ -87,6 +87,8 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 const consolidatedOwnerExports = new Set(["@vite-hub/docs/navigation"]);
 
 const lowLevelOwnerExports = new Set([
+  // Apps serve the standalone browser bundle directly from its owner package.
+  "@vite-hub/realtime/client/browser.js",
   // Message utilities stay available on the standalone Agent package.
   "@vite-hub/agent/messages",
   // Importing native CLI sessions is a standalone journal integration.
@@ -109,6 +111,9 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
+  // Build tools and page scripts read a preview's repository and commit; apps call useForge() from vite-hub/forge.
+  "@vite-hub/forge/build",
+  "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
   // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
   "@vite-hub/ui/playground",
@@ -156,6 +161,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/connections/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/libsql-drizzle",
+  "@vite-hub/database/runtime/postgres-connection",
   "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
@@ -546,7 +552,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
     expect(sessionInspector).toContain('<TabsList class="session-inspector__tablist">');
-    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@vite-hub/kit/tabs";');
+    expect(sessionInspector).toContain('import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";');
     expect(sessionInspector).toMatch(
       /<TabsTab[\s\S]*?<\/TabsTab>[\s\S]*?<UButton[\s\S]*?:aria-label="`Close \$\{item\.label\}`"/,
     );
@@ -722,7 +728,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleRail).toContain("navigationFailed.value = true");
-    expect(consoleRail).toContain('<PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">');
+    expect(consoleRail).toContain('label="Retry loading primitives" icon="i-lucide-refresh-cw" @click="loadNavigation"');
     expect(consoleRail).toContain("open('vitehub-console')");
     expect(consoleRail).toContain("subscribeConsoleNavigation(props.sectionsBase");
     expect(consoleRail).toContain('import { defineShortcuts } from "@nuxt/ui/composables";');
@@ -781,6 +787,7 @@ describe("framework package contract", () => {
       // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

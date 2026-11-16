@@ -7,7 +7,7 @@ import {
   AlertDialogDescription,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@vite-hub/kit/alert-dialog"
+} from "@ui-sdk/vue/alert-dialog"
 </script>
 
 <template>

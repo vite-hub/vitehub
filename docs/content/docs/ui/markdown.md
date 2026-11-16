@@ -99,7 +99,7 @@ Pass Comark components to replace an element or add one. `components.img` replac
 />
 ```
 
-Parser plugins go in the top-level `plugins` prop. `options` holds parser settings only. Raw HTML stays off for strings.
+Parser plugins go in the top-level `plugins` prop. `options` holds parser settings only. Raw HTML stays off for strings. A plugin named `html` in `plugins` throws `UI_R0002`.
 
 ## Styling
 

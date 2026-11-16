@@ -21,6 +21,10 @@ export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: 
     why: "`logs` moved into `observability`.",
     fix: "Move it to `observability: { logs: ... }`. Its `evlog` options go to `observability.evlog`. `npx @vite-hub/codemods vitehub-options` moves it.",
   },
+  cloudflare: {
+    why: "`cloudflare.secretsFile` was removed. `vitehub deploy` uploads the Worker secrets that the app reads with each new version.",
+    fix: "Remove `cloudflare`. Keep the values in the shell or in `.env.production`, and deploy with `vitehub deploy`.",
+  },
   contentImportBase: {
     why: "`contentImportBase` was removed. ViteHub always imports Content from `vite-hub/content`.",
     fix: "Remove `contentImportBase`.",

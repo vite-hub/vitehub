@@ -4,6 +4,7 @@ import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, moduleSpecifier, numberValue, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, vitehubModule } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { viteHubInventory } from "../inventory.ts"
 import { removedViteHubOptions } from "../../removed-options.ts"
 
 // Local helpers.
@@ -320,18 +321,10 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
-    const value = unwrap(property.value)
-    const isObject = isNodeType(value, "ObjectExpression")
     let report: { why: string, fix: string } | undefined
     const removed = name !== undefined && Object.hasOwn(removedViteHubOptions, name) ? removedViteHubOptions[name] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
-    }
-    else if (name === "sandboxTask" && isObject) {
-      report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The host selects the provider.",
-        fix: "Set `sandboxTask: true`.",
-      }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }
@@ -411,6 +404,13 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
           why: "`vite-hub/nuxt` does not read the NuxtHub `hub` key, so these features stay off.",
           fix: "Rename `hub` to `vitehub` and add a `host`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { host: \"node\", database: true }`.",
         }), { range: ctx.range(hub) })
+      }
+      for (const dependent of viteHubInventory(ctx).nuxtHubDependents ?? []) {
+        const entry = modules.find(module => module.name === dependent.name)
+        ctx.report(diagnostics.VHUB0032({
+          why: `\`${dependent.name}\` lists \`@nuxthub/core\` in its ${dependent.field}, so the package manager installs NuxtHub for it, and the module can start NuxtHub next to ViteHub. ViteHub does not emulate NuxtHub's module APIs.`,
+          fix: `Remove \`${dependent.name}\` from \`package.json\` and \`modules\`, or replace it. See https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub.`,
+        }), { range: ctx.range(entry?.node ?? objectProperty(config, "modules") ?? config) })
       }
     }
     const r = resolver(ctx)

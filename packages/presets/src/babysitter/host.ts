@@ -9,9 +9,9 @@ import type { AgentInput, AgentCallbackContext } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter } from "@vite-hub/agent/channels";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
-import { createProcessAgentHost } from "@vite-hub/agent/process";
+import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
-import { forgeErrorStatus } from "@vite-hub/forge";
+import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
 import { babysitterQueueHealth } from "./queue-health.ts";
@@ -90,28 +90,14 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
   const appId = Number(envString(env.appId));
   const keyPath = envString(env.privateKeyPath);
   const privateKey = normalizePrivateKey(envString(env.privateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
-  const installation = envString(env.installationId);
   const missing = [
     ...Number.isSafeInteger(appId) && appId > 0 ? [] : ["VITEHUB_GITHUB_APP_ID"],
     ...privateKey ? [] : ["VITEHUB_GITHUB_PRIVATE_KEY (or VITEHUB_GITHUB_PRIVATE_KEY_PATH)"],
     ...required.webhookSecret && !envString(env.webhookSecret) ? ["VITEHUB_GITHUB_WEBHOOK_SECRET"] : [],
   ];
   if (missing.length || !privateKey) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ENV_MISSING({ variables: missing });
-  const app: GitHubAppEnvironment = { appId, privateKey };
-  if (installation) app.installationId = Number(installation);
-  app.owner = envString(env.appOwner)?.toLowerCase();
-  const configuredInstallations = envString(env.appInstallations);
-  if (configuredInstallations) {
-    const mappings: unknown = JSON.parse(configuredInstallations);
-    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("VITEHUB_GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
-    app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
-      const installationId = Number(id);
-      if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
-      return [owner.toLowerCase(), installationId];
-    }));
-  }
-  if (!app.owner) delete app.installationId;
-  return app;
+  const routing = githubInstallationRouting({ installationId: envString(env.installationId), appOwner: envString(env.appOwner), appInstallations: envString(env.appInstallations) });
+  return { appId, privateKey, ...routing } satisfies GitHubAppEnvironment;
 }
 
 /**
@@ -165,6 +151,14 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
+  const capacity = {
+    ...agent.options.capacity,
+    ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
+    concurrency: agent.options.concurrency,
+  };
+  // Conflict preparation installs like a worker before its model pass starts, so it samples memory and
+  // pressure the same way. Its own sampler keeps the worker sampler's pause hysteresis intact.
+  const hostSample = createProcessAgentCapacity(capacity).adaptive!;
   const host = await createProcessAgentHost({
     name: context.agentName,
     dataDir: context.dataDir,
@@ -174,9 +168,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     // durable wait. Keep transient provider pressure in this host queue rather
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
-      ...agent.options.capacity,
-      ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
-      concurrency: agent.options.concurrency,
+      ...capacity,
       queue: {
         maxPending: agent.options.concurrency,
         timeout: 36e5,
@@ -219,6 +211,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error: host.error,
     wake: () => host.wake(),
     admission,
+    hostCapacity: async ({ active, signal }) => await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) }),
   });
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.

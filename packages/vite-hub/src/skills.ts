@@ -38,13 +38,17 @@ const skillErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `skillsMcp()` returns them as `[error, undefined]`.
     SKILL_NOT_FOUND: {
       why: ({ uri }: { uri: string }) => `No skill or skill file at ${uri}.`,
-      fix: "Read `skills/list` or `resources/list` for the current URIs. A skill that the list function leaves out is not readable.",
+      fix: "Read `skills/list` or `resources/list` for the current URIs, or run `vitehub served-skills list` for the names. A skill that the list function leaves out is not readable.",
+    },
+    SKILL_SETTINGS_UNAVAILABLE: {
+      why: ({ action }: { action: "read" | "write" }) => `The skill settings store failed to ${action} which skills are off.`,
+      fix: "Check the store that `skillSettings()` got, such as the KV binding of the app, and try again. The error cause has the store error.",
     },
   },
 })
 
 /** The codes of `vite-hub/skills`. Each has a heading on https://vitehub.dev/docs/development/skills. */
-export type SkillErrorCode = "SKILL_DUPLICATE_NAME" | "SKILL_FILE_MISSING" | "SKILL_INVALID_FRONTMATTER" | "SKILL_INVALID_PATH" | "SKILL_NOT_FOUND"
+export type SkillErrorCode = "SKILL_DUPLICATE_NAME" | "SKILL_FILE_MISSING" | "SKILL_INVALID_FRONTMATTER" | "SKILL_INVALID_PATH" | "SKILL_NOT_FOUND" | "SKILL_SETTINGS_UNAVAILABLE"
 
 /** One file of a skill. */
 export interface SkillFile {
@@ -459,5 +463,129 @@ export function skillsMcp(skills: SkillList): SkillsMcp {
       }
       return [...resources.values()]
     },
+  }
+}
+
+/**
+ * Where {@link skillSettings} keeps the names of the skills that are off. The `kv` store of `vite-hub/kv` fits as it
+ * is. Another store, such as a Database table, needs only these two methods.
+ */
+export interface SkillSettingsStore {
+  get: (key: string) => Promise<Result<unknown, string>>
+  set: (key: string, value: string[]) => Promise<Result<void, string>>
+}
+
+/** Options of {@link skillSettings}. */
+export interface SkillSettingsOptions {
+  store: SkillSettingsStore
+  /** The key of the list of names that are off. Defaults to `vitehub:skills:disabled`. */
+  key?: string
+  /**
+   * How long, in milliseconds, a server instance reuses what it read. A change on this instance applies at once; other
+   * instances read it within this time. Defaults to `60_000`, the `Cache-Control` time of {@link serveSkills}.
+   */
+  ttlMs?: number
+}
+
+/** A skill and whether it is on. */
+export interface SkillState<TSkill extends Skill = Skill> {
+  skill: TSkill
+  enabled: boolean
+}
+
+const settingsBrand: unique symbol = Symbol.for("vitehub.skills.settings")
+
+/** Runtime switches for a skill list. See {@link skillSettings}. */
+export interface SkillSettings<TSkill extends Skill = Skill> {
+  readonly [settingsBrand]: true
+  /** Every skill, on or off. */
+  readonly skills: SkillList<TSkill>
+  /**
+   * The skills that are on, as a list function for {@link serveSkills} and {@link skillsMcp}. It rejects with
+   * `SKILL_SETTINGS_UNAVAILABLE` when the store fails, so a request fails instead of serving a skill that is off.
+   */
+  enabled: () => Promise<TSkill[]>
+  /** Every skill with its state, for a catalog or an admin page of the app. */
+  list: () => Promise<Result<SkillState<TSkill>[], "SKILL_SETTINGS_UNAVAILABLE">>
+  /** Turns one skill on or off for every server instance. */
+  set: (name: string, enabled: boolean) => Promise<Result<SkillState<TSkill>, "SKILL_NOT_FOUND" | "SKILL_SETTINGS_UNAVAILABLE">>
+}
+
+/** True for the result of {@link skillSettings}. */
+export function isSkillSettings(value: unknown): value is SkillSettings {
+  return typeof value === "object" && value !== null && Reflect.get(value, settingsBrand) === true
+}
+
+/**
+ * Lets someone turn skills on and off while the app runs, without a deploy. Every skill is on until someone turns it
+ * off, so a new skill ships on. The store keeps only the names that are off.
+ *
+ * ```ts [server/skills.ts]
+ * import { defineSkills, skillSettings } from "vite-hub/skills"
+ * import { kv } from "vite-hub/kv"
+ *
+ * export default skillSettings(defineSkills(import.meta.glob("../skills/**", { query: "?raw", import: "default", eager: true })), { store: kv })
+ * ```
+ *
+ * Pass `settings.enabled` to {@link serveSkills} and {@link skillsMcp}. With the file at `server/skills.ts`, the
+ * Console section **Served skills** and `vitehub served-skills` show and change the switches.
+ */
+export function skillSettings<TSkill extends Skill>(skills: SkillList<TSkill>, options: SkillSettingsOptions): SkillSettings<TSkill> {
+  const { store } = options
+  const key = options.key ?? "vitehub:skills:disabled"
+  const ttlMs = options.ttlMs ?? 60_000
+  let updates: Promise<void> = Promise.resolve()
+  let cached: { at: number, disabled: Promise<Result<Set<string>, "SKILL_SETTINGS_UNAVAILABLE">> } | undefined
+
+  async function read(): Promise<Result<Set<string>, "SKILL_SETTINGS_UNAVAILABLE">> {
+    const [error, value] = await store.get(key)
+    if (error) return [skillErrors.SKILL_SETTINGS_UNAVAILABLE({ action: "read", cause: error }), undefined]
+    return [undefined, new Set(Array.isArray(value) ? value.filter(name => typeof name === "string") : [])]
+  }
+
+  function disabled(): Promise<Result<Set<string>, "SKILL_SETTINGS_UNAVAILABLE">> {
+    if (cached && Date.now() - cached.at < ttlMs) return cached.disabled
+    const current = { at: Date.now(), disabled: read() }
+    cached = current
+    // A failed read must not stay for `ttlMs`: the next call tries again.
+    void current.disabled.then(([error]) => {
+      if (error && cached === current) cached = undefined
+    })
+    return current.disabled
+  }
+
+  async function list(): Promise<Result<SkillState<TSkill>[], "SKILL_SETTINGS_UNAVAILABLE">> {
+    const [error, off] = await disabled()
+    if (error) return [error, undefined]
+    return [undefined, (await resolveSkills(skills)).map(skill => ({ enabled: !off.has(skill.name), skill }))]
+  }
+
+  return {
+    [settingsBrand]: true,
+    enabled: async () => {
+      const [error, states] = await list()
+      if (error) throw error
+      return states.filter(state => state.enabled).map(state => state.skill)
+    },
+    list,
+    set(name, enabled) {
+      const update = updates.then(async (): ReturnType<SkillSettings<TSkill>["set"]> => {
+        const skill = (await resolveSkills(skills)).find(entry => entry.name === name)
+        if (!skill) return [skillErrors.SKILL_NOT_FOUND({ uri: `skill://${name}` }), undefined]
+        // Read the store, not the cache, so a change from another instance in the last `ttlMs` stays.
+        const [readError, off] = await read()
+        if (readError) return [readError, undefined]
+        if (enabled) off.delete(name)
+        else off.add(name)
+        const [writeError] = await store.set(key, [...off].sort())
+        if (writeError) return [skillErrors.SKILL_SETTINGS_UNAVAILABLE({ action: "write", cause: writeError }), undefined]
+        cached = { at: Date.now(), disabled: Promise.resolve([undefined, off]) }
+        return [undefined, { enabled, skill }]
+      })
+      // A rejected update must not prevent the next queued update from running.
+      updates = update.then(() => {}, () => {})
+      return update
+    },
+    skills,
   }
 }

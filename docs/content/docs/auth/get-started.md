@@ -121,7 +121,7 @@ The response has the `session`, with `expiresAt`, the time when the session ends
 
 ## What happens when you deploy
 
-The memory store of this tutorial is only for local tests. It loses all users when the server stops. Before you deploy, choose one of these:
+The memory store of this tutorial is only for local tests. It loses all users when the server stops, so a production build fails with `AUTH_C0063`. Before you deploy, choose one of these:
 
 - Keep users in your app Database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
 - Use [Sessions without a database](/docs/auth/configure#sessions-without-a-database) when people sign in only with a social account, such as GitHub.

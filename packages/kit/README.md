@@ -1,45 +1,36 @@
 # @vite-hub/kit
 
-Headless parts for Vue and Nuxt: dialogs, menus, tabs, selects, date pickers, toasts, and more. The parts have behavior, focus, keyboard, and ARIA, and no styles. You style them through their `data-slot` attributes, or load a [style family](#styles).
+The headless Vue parts that [ui-sdk](https://ui-sdk.dev) does not have, a Nuxt module that auto-imports them, and a plain CSS [style family](#styles) for every part.
 
-The behavior comes from [ui-sdk](https://ui-sdk.dev). Each entry that has the name of an entry of `@ui-sdk/vue` re-exports it unchanged, with the same names, props, and types. The kit also adds [components that ui-sdk does not have](#components-we-add), built on ui-sdk. The package installs only `@ui-sdk/vue` and `@ui-sdk/core`, so it does not bring the editor, terminal, or highlighter dependencies of `@vite-hub/ui`.
+For dialogs, menus, tabs, selects, date pickers, toasts, and every other part, use `@ui-sdk/vue` directly. Its parts have behavior, focus, keyboard, and ARIA, and no styles, and its docs ship in `node_modules/@ui-sdk/vue/docs`. The kit adds only what ui-sdk lacks, built on ui-sdk's public API with the same conventions.
 
 ## Install
 
 ```sh
-pnpm add @vite-hub/kit vue
+pnpm add @vite-hub/kit @ui-sdk/vue @ui-sdk/core vue
 ```
 
 ## Import paths
 
-Import each part from its own entry, so an app loads only the parts it uses. There is no root entry.
+Import each part from its own entry. There is no root entry.
 
 | Import | Contents |
 | --- | --- |
-| `@vite-hub/kit/<name>` | The parts and helpers of `@ui-sdk/vue/<name>`, for example `@vite-hub/kit/dialog`, `@vite-hub/kit/tabs`, and `@vite-hub/kit/date-picker`. Every entry of `@ui-sdk/vue` has one. |
-| `@vite-hub/kit/form`, `tags-input` | The components that the kit adds. See [Components we add](#components-we-add). |
-| `@vite-hub/kit/nuxt` | The Nuxt module |
+| `@vite-hub/kit/tags-input` | `TagsInput` and its parts. See [Components we add](#components-we-add). |
+| `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
 | `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light and dark |
-| `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every part |
+| `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every ui-sdk part and every kit part |
 
-```vue
-<script setup lang="ts">
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs";
-</script>
+## Migrate from `@vite-hub/kit/<name>`
 
-<template>
-  <Tabs default-value="code">
-    <TabsList>
-      <TabsTab value="code">Code</TabsTab>
-      <TabsTab value="preview">Preview</TabsTab>
-    </TabsList>
-    <TabsPanel value="code">...</TabsPanel>
-    <TabsPanel value="preview">...</TabsPanel>
-  </Tabs>
-</template>
+The kit no longer re-exports ui-sdk. `@vite-hub/kit/<name>` was `@ui-sdk/vue/<name>` with the same names, props, and types, so change the import path and install `@ui-sdk/vue` and `@ui-sdk/core`:
+
+```diff [app.vue]
+- import { Tabs, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs";
++ import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 ```
 
-For the props and parts of each component, read the [ui-sdk docs](https://ui-sdk.dev).
+`@vite-hub/kit/tags-input` and the styles keep their paths. Replace `@vite-hub/kit/form` with a native `<form>` and `useFormAction()` from `@vite-hub/forms/vue`; see the [Forms Vue guide](../forms/README.md#vue). In Nuxt, add `@ui-sdk/vue/nuxt` to `modules` next to `@vite-hub/kit/nuxt`. See [Nuxt](#nuxt).
 
 ## Components we add
 
@@ -47,7 +38,6 @@ The kit adds a component only when it owns state, focus, ARIA, or announcements,
 
 | Import | Parts | What it does |
 | --- | --- | --- |
-| `@vite-hub/kit/form` | `Form` | A `<form>` that ties its fields to one submission. `@form-submit` gets the values by name after the browser's validation passes. `v-model:errors` shows errors from your code, such as a server's, in the `Field` of the control with the same `name`, until the person edits that control. Without an `action`, the form stays on the page. It is moving to `@vite-hub/forms`. |
 | `@vite-hub/kit/tags-input` | `TagsInput`, `TagsInputItem`, `TagsInputItemText`, `TagsInputItemDelete`, `TagsInputInput`, `TagsInputClear` | Free text as tags. Enter or the `delimiter` adds a tag. Backspace in an empty input removes the last tag. The arrow keys move a highlight between tags, and Backspace or Delete removes the highlighted tag. With `name`, a form submits each tag. When people pick tags from suggestions, use `Combobox` with `multiple` and `ComboboxChips` instead. |
 
 ```vue
@@ -73,63 +63,63 @@ const tags = ref(["vue", "nuxt"]);
 
 ## From Reka UI
 
-What to use in ViteHub UI for each Reka UI 2.11 component. An entry such as `dialog` means `@vite-hub/kit/dialog`.
+What to use in ViteHub UI for each Reka UI 2.11 component.
 
 | Reka UI | ViteHub UI |
 | --- | --- |
-| Accordion | `accordion` |
-| AlertDialog | `alert-dialog` |
+| Accordion | `@ui-sdk/vue/accordion` |
+| AlertDialog | `@ui-sdk/vue/alert-dialog` |
 | AspectRatio | Use CSS: `aspect-ratio: 16 / 9` on the element. |
-| Autocomplete | `autocomplete` |
-| Avatar | `avatar` |
-| Calendar | `calendar` |
-| Checkbox | `checkbox`, with `CheckboxGroup` for a group |
-| Collapsible | `collapsible` |
-| ColorArea, ColorField, ColorSlider, ColorSwatch, ColorSwatchPicker | `color-picker`: `ColorPickerArea`, `ColorPickerInput`, `ColorPickerSlider`, `ColorPickerSwatches` |
-| Combobox | `combobox` |
+| Autocomplete | `@ui-sdk/vue/autocomplete` |
+| Avatar | `@ui-sdk/vue/avatar` |
+| Calendar | `@ui-sdk/vue/calendar` |
+| Checkbox | `@ui-sdk/vue/checkbox`, with `CheckboxGroup` for a group |
+| Collapsible | `@ui-sdk/vue/collapsible` |
+| ColorArea, ColorField, ColorSlider, ColorSwatch, ColorSwatchPicker | `@ui-sdk/vue/color-picker`: `ColorPickerArea`, `ColorPickerInput`, `ColorPickerSlider`, `ColorPickerSwatches` |
+| Combobox | `@ui-sdk/vue/combobox` |
 | ConfigProvider | Not needed. Parts read the direction from `dir`, and formatting parts follow the page language or take `locale`. |
-| ContextMenu | `menu`, with `MenuContextTrigger` |
-| DateField | `date-input` |
-| DatePicker | `date-picker` |
-| DateRangeField, DateRangePicker | `date-picker` with `mode="range"` |
-| Dialog | `dialog` |
-| Drawer | `drawer` |
-| DropdownMenu | `menu` |
+| ContextMenu | `@ui-sdk/vue/menu`, with `MenuContextTrigger` |
+| DateField | `@ui-sdk/vue/date-input` |
+| DatePicker | `@ui-sdk/vue/date-picker` |
+| DateRangeField, DateRangePicker | `@ui-sdk/vue/date-picker` with `mode="range"` |
+| Dialog | `@ui-sdk/vue/dialog` |
+| Drawer | `@ui-sdk/vue/drawer` |
+| DropdownMenu | `@ui-sdk/vue/menu` |
 | Editable | An `<input>` styled as text. Save on `@change`, and put the saved value back on Escape. For names in a list or a grid, `createInlineEdit` from `@ui-sdk/core`. |
-| Field | `field` |
-| Form | `form`. Moving to `@vite-hub/forms`. |
-| HoverCard | `hover-card` |
-| Label | `label` |
-| Listbox | `listbox` |
-| Menubar | `menubar` |
-| MonthPicker, MonthRangePicker, YearPicker, YearRangePicker | `select` with the months or years, and two of them for a range |
-| NavigationMenu | `navigation-menu` |
-| NumberField | `number-input` |
-| Pagination | `pagination` |
-| PinInput | `otp-input` |
-| Popover | `popover` |
-| Progress | `progress`, or `meter` for a value in a known range |
-| RadioGroup | `radio` |
-| RangeCalendar | `calendar` with `mode="range"` |
-| Rating | `rating` |
-| ScrollArea | `scroll-area` |
-| Select | `select` |
-| Separator | `separator` |
-| Slider | `slider` |
-| Splitter | `resizable` |
-| Stepper | `tabs` for now. The kit may add a `stepper` entry. |
-| Switch | `switch` |
-| Tabs | `tabs` |
-| TagGroup | `toggle` with `ToggleGroup` and `multiple` to select tags. For tags that people remove, a list with a remove `<button>` in each tag. |
-| TagsInput | `tags-input` |
-| TimeField | `time-input` |
+| Field | `@ui-sdk/vue/field` |
+| Form | A native `<form>` with a `Field` for each control. To send it to `server/forms/<name>.ts` and show the server's errors by `name`, use `useFormAction()` from `@vite-hub/forms/vue`. |
+| HoverCard | `@ui-sdk/vue/hover-card` |
+| Label | `@ui-sdk/vue/label` |
+| Listbox | `@ui-sdk/vue/listbox` |
+| Menubar | `@ui-sdk/vue/menubar` |
+| MonthPicker, MonthRangePicker, YearPicker, YearRangePicker | `@ui-sdk/vue/select` with the months or years, and two of them for a range |
+| NavigationMenu | `@ui-sdk/vue/navigation-menu` |
+| NumberField | `@ui-sdk/vue/number-input` |
+| Pagination | `@ui-sdk/vue/pagination` |
+| PinInput | `@ui-sdk/vue/otp-input` |
+| Popover | `@ui-sdk/vue/popover` |
+| Progress | `@ui-sdk/vue/progress`, or `@ui-sdk/vue/meter` for a value in a known range |
+| RadioGroup | `@ui-sdk/vue/radio` |
+| RangeCalendar | `@ui-sdk/vue/calendar` with `mode="range"` |
+| Rating | `@ui-sdk/vue/rating` |
+| ScrollArea | `@ui-sdk/vue/scroll-area` |
+| Select | `@ui-sdk/vue/select` |
+| Separator | `@ui-sdk/vue/separator` |
+| Slider | `@ui-sdk/vue/slider` |
+| Splitter | `@ui-sdk/vue/resizable` |
+| Stepper | `@ui-sdk/vue/tabs` for now. The kit may add a `stepper` entry. |
+| Switch | `@ui-sdk/vue/switch` |
+| Tabs | `@ui-sdk/vue/tabs` |
+| TagGroup | `@ui-sdk/vue/toggle` with `ToggleGroup` and `multiple` to select tags. For tags that people remove, a list with a remove `<button>` in each tag. |
+| TagsInput | `@vite-hub/kit/tags-input` |
+| TimeField | `@ui-sdk/vue/time-input` |
 | TimeRangeField | Two `TimeInput`s |
-| Toast | `toast` |
-| Toggle | `toggle` |
-| ToggleGroup | `toggle`, with `ToggleGroup` |
-| Toolbar | `toolbar` |
-| Tooltip | `tooltip` |
-| Tree | `tree` |
+| Toast | `@ui-sdk/vue/toast` |
+| Toggle | `@ui-sdk/vue/toggle` |
+| ToggleGroup | `@ui-sdk/vue/toggle`, with `ToggleGroup` |
+| Toolbar | `@ui-sdk/vue/toolbar` |
+| Tooltip | `@ui-sdk/vue/tooltip` |
+| Tree | `@ui-sdk/vue/tree` |
 | VisuallyHidden | Use CSS: `<span data-slot="visually-hidden">`, the ui-sdk convention, with the usual clip rule. |
 | Primitive (`as-child`) | The `#render` slot of each part |
 | FocusScope, DismissableLayer, Presence, RovingFocus | Built into the parts that need them. For your own parts, `createRovingFocus` and the other behaviors are in `@ui-sdk/core`. |
@@ -154,16 +144,25 @@ The parts have no styles until you load a style family. A family is one CSS file
 
 ## Nuxt
 
-The module auto-imports every part as a component, including the parts that the kit adds, and every helper, such as `createDialogController()` and `formatNumber()`. Set `prefix` when the app has its own components with the same names:
+Add the ui-sdk module for the ui-sdk parts and helpers, and the kit module for the kit parts:
 
 ```ts
 // nuxt.config.ts
 export default defineNuxtConfig({
-  // Registers <UiDialog>, <UiTabsTab>, and so on. Without a prefix, the names are <Dialog> and <TabsTab>.
-  modules: [["@vite-hub/kit/nuxt", { prefix: "Ui" }]],
+  modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt"],
 });
 ```
 
-The `viteHubKit` key of `nuxt.config.ts` takes the same options.
+Then `<Dialog>`, `<TabsTab>`, `createDialogController()`, and `<TagsInput>` need no import. Install `@ui-sdk/vue` and `@ui-sdk/core` in the app itself, so that the types in `.nuxt/components.d.ts` resolve under pnpm.
 
-The module installs the ui-sdk Nuxt module and points its imports at `@vite-hub/kit/<name>`. With pnpm, the app cannot resolve `@ui-sdk/vue` itself, so without this the generated types of the parts would be `any`.
+To prefix the names, set the same `prefix` on both modules:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  // Registers <UiDialog> and <UiTagsInput>. Without a prefix, the names are <Dialog> and <TagsInput>.
+  modules: [["@ui-sdk/vue/nuxt", { prefix: "Ui" }], ["@vite-hub/kit/nuxt", { prefix: "Ui" }]],
+});
+```
+
+The `uiSdk` and `viteHubKit` keys of `nuxt.config.ts` take the same options.

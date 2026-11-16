@@ -1,7 +1,7 @@
 // The layout and the visual details follow T3 Code's thread view (https://github.com/pingdotgg/t3code, MIT License,
 // Copyright (c) T3 Tools Inc.): a centered timeline, a details card at the top right, and a right panel of surfaces
 // whose toggle stays in the top right corner whether the panel is open or closed.
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@vite-hub/kit/tabs";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 import {
   computed,
   defineComponent,

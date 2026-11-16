@@ -115,10 +115,20 @@ const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, 
  * component starts with the session that the server read for the request, so it is settled during server rendering and
  * hydration. The browser then loads Better Auth and reads the session again only when the session can change: a call,
  * `refetch()`, the tab shows again, the network comes back, another tab signs out or updates the user, or the session
- * expires. Use `loadAuthClient()` for anything else, such as `$store`.
+ * expires. Use `loadAuthClient()` for anything else, such as `$store`. Without `basePath`, it uses the same default
+ * as `authClient`: in Nuxt, the Auth Definition's `basePath` below `app.baseURL`.
  * During Nuxt server rendering, a call such as `listSessions()` reaches the app in-process with the visitor's cookie.
  */
-export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => options, () => options)
+export const createAuthClient: typeof createBetterAuthClient = <Option extends BetterAuthClientOptions>(options?: Option) => createLazyAuthClient(() => withDefaultBasePath(options), () => options)
+
+/**
+ * The options with ViteHub's default `basePath` when they set none: in Nuxt, the Auth Definition's `basePath` below
+ * `app.baseURL`. Read when Better Auth loads, after the Nuxt module set it.
+ */
+function withDefaultBasePath<Option extends BetterAuthClientOptions>(options: Option | undefined): Option {
+  // SAFETY: `basePath` is a Better Auth client option, so adding it changes no type of the client.
+  return { basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth"), ...options } as Option
+}
 
 /**
  * The client of `createAuthClient()`. It runs `resolveOptions` when it loads Better Auth. `knownOptions` returns the
@@ -628,7 +638,7 @@ type ServerFieldsClient<TOptions> = TOptions extends BetterAuthClientOptions ? V
 // plugins change only types. Better Auth sends the same requests without them.
 export const authClient = createLazyAuthClient(async () => {
   const { default: options } = await import("#vitehub/auth/client")
-  return { basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth"), ...options }
+  return withDefaultBasePath(options)
 }) as RegisteredAuthClient
 
 /** Provide the app's configured client to Auth composables and `<Can>` in descendant components. */

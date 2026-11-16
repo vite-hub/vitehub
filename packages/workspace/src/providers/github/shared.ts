@@ -240,7 +240,8 @@ function readLocationEnv(name: string, env: Record<string, string | undefined>):
 /**
  * The GitHub App of the Server Env, when `VITEHUB_GITHUB_APP_ID` is set: its installation tokens have a rate limit of
  * their own, apart from the personal tokens of the people who share an account. Read from the active Cloudflare bindings,
- * then from `env`. `VITEHUB_GITHUB_INSTALLATION_ID` skips the lookup of the installation for the repository.
+ * then from `env`. `useForge()` picks the installation of the repository owner, as `VITEHUB_GITHUB_APP_INSTALLATIONS` and
+ * `VITEHUB_GITHUB_APP_OWNER` set it.
  */
 export function readGitHubEnvApp(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},

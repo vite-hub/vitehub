@@ -89,6 +89,7 @@ Create `server/realtime/docs.ts`. The file name is the name of the room setup: `
 import { defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
+  access: 'public',
   document: { workspace: 'docs' },
   history: {
     checkpoint: { message: 'Save collaborative document' },
@@ -96,6 +97,7 @@ export default defineRealtime({
 })
 ```
 
+- `access: 'public'` lets each person who can open the app read and write each document. Before you deploy, replace it with `auth: true` or `authorize()`. See [Identity and authorization](/docs/realtime/server-api#identity-and-authorization).
 - `document: { workspace: 'docs' }` saves each document as a Markdown file in the `docs` Workspace.
 - `history.checkpoint` lets the page call `realtime.history.checkpoint()` to save a version in the Workspace history. `message` is the text of that version.
 
@@ -115,7 +117,7 @@ export default defineWorkspace({
 - `provider: 'memory'` keeps the files in memory, like the rooms.
 - `write: true` lets Realtime write any Markdown file in the Workspace.
 
-Without an `auth` option, anyone can connect to the room. Set `auth: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.
+With `access: 'public'`, anyone can connect to the room. Replace it with `auth: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.
 
 ::
 

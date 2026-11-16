@@ -863,6 +863,16 @@ describe("defineAgent workspace option", () => {
     })).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
   })
 
+  it("rejects read rules in a colocated Workspace Definition and its plugins", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const rules = { "secrets/**": { read: false } } as never
+
+    expect(() => defineAgent({ driver: { model: {} as never }, workspace: { rules } }))
+      .toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+    expect(() => defineAgent({ driver: { model: {} as never }, workspace: { plugins: [{ id: "guard", rules }] } }))
+      .toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
+  })
+
   it("accepts colocated Workspace auto-commit", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

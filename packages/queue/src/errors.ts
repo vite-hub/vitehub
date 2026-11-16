@@ -20,7 +20,8 @@ const unsupportedEnqueueOptions = {
 
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
 export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueProvider, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
-  const unsupported = names.filter(option => options[option] !== undefined)
+  // No provider takes a message ID from the caller. JavaScript callers can still pass the removed `id` option.
+  const unsupported = [...Object.hasOwn(options, "id") ? ["id"] : [], ...names.filter(option => options[option] !== undefined)]
   return unsupported.length
     ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })
     : undefined

@@ -29,6 +29,36 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read `error.why` for the server message, and `error.cause` for a network error. Retry when the server is available again.",
     },
 
+    // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
+    REALTIME_ROOM_ABORTED: {
+      why: "The request to the room stopped because its signal aborted.",
+      fix: "Nothing to fix when the caller stopped on purpose, such as a cancelled Agent run. Call again to ask once more.",
+    },
+    REALTIME_ROOM_CROWDED: {
+      why: ({ count }: { count: number }) => `${count} browsers are in the room, and a request goes to one browser only.`,
+      fix: "Give each browser its own room, such as a random id for each tab, so that one browser answers.",
+    },
+    REALTIME_ROOM_ELSEWHERE: {
+      why: "No browser in this instance is in the room. With Redis or Postgres, the browser can be connected to another instance, and requests reach only the browsers of the same instance.",
+      fix: "Route the browser and the caller to the same instance, such as with sticky sessions, or run one Node instance.",
+    },
+    REALTIME_ROOM_EMPTY: {
+      why: "No browser is in the room. The page is closed, or it has not joined yet.",
+      fix: "Open the page again. The request waits a few seconds for a browser to join before it gives up.",
+    },
+    REALTIME_ROOM_REFUSED: {
+      why: ({ reason }: { reason: string }) => `The browser could not answer: ${reason}`,
+      fix: "Read the reason. Add `room.onRequest(handler)` on the page, and keep each answer under 1 MiB.",
+    },
+    REALTIME_ROOM_REQUESTS_OFF: {
+      why: ({ definition }: { definition: string }) => `The Realtime Definition "${definition}" does not take requests.`,
+      fix: "Define it with `defineRealtime({ access: \"public\", document: false, requests: true })`.",
+    },
+    REALTIME_ROOM_TIMEOUT: {
+      why: ({ timeout }: { timeout: number }) => `The browser did not answer in ${timeout / 1000} seconds.`,
+      fix: "Make the page answer sooner, or pass a longer `timeout` to `requestRealtimeRoom()`.",
+    },
+
     // Room errors. The server closes the WebSocket with a close code, so the client sees them in the stream.
     REALTIME_AWARENESS_OWNERSHIP_CONFLICT: {
       why: "A realtime awareness client id belongs to another peer.",
@@ -63,6 +93,24 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? "Realtime `persistence.maxWait` must be at least `persistence.debounce`."
         : `Realtime \`persistence.${name}\` must be a non-negative number of milliseconds.`,
       fix: "Set `persistence: { debounce: 2_000, maxWait: 10_000 }`, or remove the option to use these defaults.",
+    },
+    REALTIME_MISSING_ACCESS: {
+      why: "The Realtime definition sets no access rule, so it does not say who can read and write its rooms.",
+      fix: "Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
+    },
+    REALTIME_INVALID_ACCESS: {
+      why: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "public-with-rule"
+        ? "The Realtime definition sets `access: \"public\"` together with `auth` or `authorize()`, so its access rule is not clear."
+        : reason === "not-public"
+          ? "The Realtime definition sets `access` to a value other than \"public\"."
+          : "The Realtime definition sets `origins()` with `auth: true` and no `identify()`. The ViteHub Auth session is a cookie, so ViteHub accepts it only from the app's own origin.",
+      fix: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "origins-without-identify"
+        ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
+        : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `auth: true` or `authorize()`.",
+    },
+    REALTIME_CHECKPOINT_UNSUPPORTED: {
+      why: "The Realtime definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method, so `history.checkpoint()` could never run.",
+      fix: "Add `checkpoint(context, { digest, message, user })` to the document adapter, use `document: { workspace }`, or remove `history`.",
     },
     REALTIME_INVALID_USER: {
       why: "The realtime identity needs a user `id` that is a non-empty string of at most 256 characters.",

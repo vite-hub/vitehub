@@ -31,10 +31,11 @@ The package installs the binary `vitehub-codemods`. It requires Node.js 22.18 or
 
 ### How a migration runs
 
+If a codemod would edit a symbolic link or a file inside a linked directory, it stops without its edits. This applies with or without a codemod name, and also with `--dry-run`. Replace the link with a local file or directory before you retry.
+
 Without a codemod name, the command copies the app into a scratch directory named `.vitehub-migrate-<random>` inside the app, so packages and the lockfile resolve as they do from the app. It does not copy `.git`, `.nuxt`, `.output`, `.data`, `.vercel`, `.netlify`, `.wrangler`, or `node_modules`. The codemods run one after another on the copy. Then the command writes the combined edits to the app, unless `--dry-run` is set.
 
 - A codemod that cannot migrate changes nothing, and the report says why. The others still run.
-- If a codemod would edit a symbolic link or a file inside a linked directory, it stops without its edits. Replace the link with a local file or directory before you retry.
 - Existing `.vitehub-migrate` directories stay.
 
 ## Node API

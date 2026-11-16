@@ -176,8 +176,8 @@ Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your terminal. The tok
 See what ViteHub will create, then create it:
 
 ```bash [commands/provision]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again, so the output has the IDs of the new resources. Then deploy the Vite app with Nitro:
@@ -250,7 +250,7 @@ The second argument is the payload, as JSON. Add `--url` to send to a deployed a
 ::details{summary="Options, access, and errors of the CLI commands"}
 Both commands call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
-`--delay-seconds`, `--id`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
+`--delay-seconds` and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
 
 Access needs the `queues` section. A read-only grant (`queues:read`) can list but not send.
 

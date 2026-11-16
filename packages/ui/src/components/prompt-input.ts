@@ -5,6 +5,7 @@ import { nextPromptFiles } from "../internal/prompt-files.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 export interface PromptInputSubmit {
   files: readonly FileUIPart[];
@@ -18,11 +19,11 @@ const submitLabels: Record<ChatStatus, string> = {
   submitted: "Stop response",
 };
 
-const submitIcons: Record<ChatStatus, string> = {
-  error: "i-lucide-refresh-cw",
-  ready: "i-lucide-arrow-up",
-  streaming: "i-lucide-square",
-  submitted: "i-lucide-square",
+const submitIcons: Record<ChatStatus, "arrowUp" | "reload" | "stop"> = {
+  error: "reload",
+  ready: "arrowUp",
+  streaming: "stop",
+  submitted: "stop",
 };
 
 /** Whether the device has only coarse pointers, such as a phone. A tablet with a trackpad or a mouse is not touch only. */
@@ -44,6 +45,8 @@ export const PromptInput = defineComponent({
     /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
     filesDisabled: { default: false, type: Boolean },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
+    /** The text is being sent: the field is read-only, Enter does nothing, and Send shows a spinner. */
+    readonly: { default: false, type: Boolean },
     modelValue: { default: "", type: String },
     multiple: { default: true, type: Boolean },
     placeholder: { type: String },
@@ -59,6 +62,7 @@ export const PromptInput = defineComponent({
     const preparingFiles = computed(() => pendingFiles.value > 0);
     const canSubmit = computed(() =>
       props.status === "ready" &&
+      !props.readonly &&
       !preparingFiles.value &&
       (props.modelValue.trim().length > 0 || props.files.length > 0),
     );
@@ -75,6 +79,7 @@ export const PromptInput = defineComponent({
     });
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
     const remove = (index: number) => {
       if (!props.filesDisabled) emit("update:files", props.files.filter((_, current) => current !== index));
     };
@@ -128,11 +133,11 @@ export const PromptInput = defineComponent({
           const image = file.mediaType.startsWith("image/");
           return h(Attachment, { key: `${file.filename}-${index}`, size: "xs" }, () => [
             h(AttachmentMedia, { variant: image ? "image" : "icon" }, () =>
-              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: "i-lucide-file" }),
+              image ? h(ImagePreview, { alt: label, compact: true, src: file.url }) : h(UIcon, { name: icons.value.file }),
             ),
             h(AttachmentContent, () => h(AttachmentTitle, () => label)),
             h(AttachmentActions, () =>
-              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-lucide-x", onClick: () => remove(index) }),
+              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: icons.value.close, onClick: () => remove(index) }),
             ),
           ]);
         }),
@@ -155,10 +160,12 @@ export const PromptInput = defineComponent({
               if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
               if (touchOnly()) return;
               event.preventDefault();
-              if (props.status === "ready") form.value?.requestSubmit();
+              if (props.status === "ready" && !props.readonly) form.value?.requestSubmit();
             },
             onPaste: paste,
             placeholder: props.placeholder,
+            "aria-busy": props.readonly ? "true" : undefined,
+            readonly: props.readonly,
             rows: 1,
             value: props.modelValue,
           }),
@@ -166,7 +173,7 @@ export const PromptInput = defineComponent({
             props.attachments && h("input", {
               accept: props.accept,
               "aria-label": "Add attachment",
-              class: "vh-visually-hidden",
+              "data-slot": "visually-hidden",
               disabled: props.filesDisabled,
               multiple: props.multiple,
               onChange: async (event: Event) => {
@@ -185,7 +192,7 @@ export const PromptInput = defineComponent({
                 class: props.attachVariant === "ghost" ? "rounded-full text-muted hover:text-default" : "rounded-full",
                 color: "neutral",
                 disabled: props.filesDisabled,
-                icon: "i-lucide-plus",
+                icon: icons.value.plus,
                 onClick: () => input.value?.click(),
                 size: "sm",
                 square: true,
@@ -200,9 +207,9 @@ export const PromptInput = defineComponent({
                 class: "rounded-full",
                 color: "neutral",
                 disabled: props.status === "ready" && !canSubmit.value,
-                icon: submitIcons[props.status],
+                icon: icons.value[submitIcons[props.status]],
                 // Stop and Retry stay pressable while attachments convert; only Send waits for them.
-                loading: props.status === "ready" && preparingFiles.value,
+                loading: props.status === "ready" && (preparingFiles.value || props.readonly),
                 onClick: pressSubmit,
                 size: "sm",
                 square: true,

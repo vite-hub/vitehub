@@ -5,6 +5,7 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
+import { isAuthProcessMemoryDatabase } from "../src/runtime-state.ts"
 import type { AuthRuntimeContext } from "../src/types.ts"
 import { requestEvent } from "./request-event.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
@@ -149,6 +150,44 @@ describe("Auth option resolution", () => {
       code: "AUTH_C0061",
       fix: expect.stringContaining("authDatabase()"),
     }))
+  })
+
+  describe("memory store outside a development server", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    })
+
+    function buildRuntime() {
+      vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+      vi.stubEnv("NODE_ENV", "production")
+    }
+
+    it.each([
+      { name: "static options", definition: () => defineAuth({ appName: "ViteHub" }) },
+      { name: "a callback", definition: () => defineAuth(() => ({ appName: "ViteHub" })) },
+    ])("rejects a Definition without database from $name", ({ definition }) => {
+      buildRuntime()
+      expect(() => resolveAuthOptions(definition()).providerOptions).toThrow(expect.objectContaining({
+        code: "AUTH_C0063",
+        fix: expect.stringContaining("authDatabase()"),
+      }))
+    })
+
+    it.each([
+      { name: "static options", definition: () => defineAuth({ appName: "ViteHub", database: "memory" }) },
+      { name: "a callback", definition: () => defineAuth(() => ({ appName: "ViteHub", database: "memory" as const })) },
+    ])("keeps users in memory with database: \"memory\" from $name", ({ definition }) => {
+      buildRuntime()
+      const database = resolveAuthOptions(definition()).providerOptions.database
+      expect(database).toBeTypeOf("function")
+      expect(isAuthProcessMemoryDatabase(database)).toBe(true)
+    })
+
+    it("keeps the implicit memory store on a development server", () => {
+      vi.stubGlobal("__VITEHUB_AUTH_DEV__", true)
+      expect(isAuthProcessMemoryDatabase(resolveAuthOptions(defineAuth({ appName: "ViteHub" })).providerOptions.database)).toBe(true)
+    })
   })
 
   it.each([true, { store: "auth" }])("rejects secondary storage placement %j", (secondaryStorage) => {

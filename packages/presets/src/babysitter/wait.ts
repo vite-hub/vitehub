@@ -10,6 +10,7 @@ import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./me
 import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
+import { reviewerLabeledSevere } from "../github/index.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -50,6 +51,8 @@ export interface BabysitterWaitPolicy {
   reviewPushBudget?: number;
   /** Unresolved review threads with only bot comments never wake a wait. New bot comments still change the feedback. */
   ignoreAssessedBotThreads?: boolean;
+  /** Threads a worker declined while their reviewer labeled them P0 or P1. They wait for a person, so being open wakes nothing. */
+  heldThreads?: ReadonlySet<string>;
 }
 
 /**
@@ -58,6 +61,14 @@ export interface BabysitterWaitPolicy {
  */
 export function reviewPushBudgetSpent(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
   return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
+}
+
+/**
+ * The PR made twice `reviewPushBudget` review-driven pushes. Until then, a bot finding that its reviewer
+ * labeled P0 or P1 still starts a pass and needs an assessment after the budget is spent.
+ */
+export function severeReviewSettled(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
+  return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= 2 * policy.reviewPushBudget;
 }
 
 function login(value: GitHubEvidence): string {
@@ -94,9 +105,11 @@ function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean
 /** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
 function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   const pr = s.pr;
-  // After the review push budget is spent, bot feedback is not repair work, even a request for changes.
+  // After the review push budget is spent, bot feedback is not repair work, even a request for changes,
+  // unless its reviewer labeled it P0 or P1 and the PR has not spent the budget twice.
   const settled = reviewPushBudgetSpent(s, policy);
-  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value)
+  const severeSettled = severeReviewSettled(s, policy);
+  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value) && (severeSettled || !reviewerLabeledSevere(value.body))
     || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (hasGitHubLogin(policy.workerAuthors, login(value)) || hasGitHubLogin(policy.ignoreFeedbackAuthors, login(value)));
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
@@ -223,10 +236,44 @@ export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, 
   const work: string[] = [];
   if (conflicted(s)) work.push("merge-conflict");
   if (repairFailureKeys(s, policy).length) work.push("failed-check");
-  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true }).some(id => !assessedFeedback.has(id))) work.push("feedback");
+  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true, severeReviewSettled: severeReviewSettled(s, policy) }).some(id => !assessedFeedback.has(id))) work.push("feedback");
   if (s.threads.some(thread => thread.isResolved !== true && hasHumanComment(thread, policy.workerAuthors))) work.push("unresolved-thread");
   const head = s.pr?.head?.sha;
   if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
+  return work;
+}
+
+/**
+ * An unresolved review thread that needs a pass. Held threads wait for a person, and once bot threads
+ * are settled only a person's comment counts.
+ */
+function hasActionableThread(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "workerAuthors" | "reviewPushBudget" | "ignoreAssessedBotThreads" | "heldThreads">): boolean {
+  const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
+  return s.threads.some(thread => thread.isResolved !== true && !policy.heldThreads?.has(String(thread.node_id ?? thread.id))
+    && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)));
+}
+
+/**
+ * Why a conflicting PR needs a model pass besides its conflict. Empty means the pass would only resolve
+ * the conflict, so a merge whose every conflict the host resolved can be pushed without one.
+ * `checks.inheritedCheckIds` are failing checks that the base fails the same way; they are the base's
+ * work. `assessedFeedback` holds the fingerprints of feedback that an earlier pass assessed.
+ */
+export function conflictOnlyBlockers(s: Snapshot, checks: { state: GitHubRequiredCheckState; inheritedCheckIds: readonly number[] }, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
+  const work: string[] = [];
+  // pull_request CI does not run while a PR conflicts, so these are the checks of its last clean merge.
+  // Any failure there that the base does not share is model work, required or not.
+  const inherited = new Set(checks.inheritedCheckIds);
+  const settledReviews = reviewPushBudgetSpent(s, policy) ? policy.pendingReviewChecks : undefined;
+  if (checks.state === "failed" || latestCheckSignals(s).some(signal => failed.has(String(signal.conclusion ?? signal.state))
+    && !inherited.has(Number(signal.id)) && !settledReviews?.has(String(signal.name).toLowerCase()))) work.push("failed-check");
+  if ((s.humanFeedbackGeneration ?? 0) > s.handled) work.push("human-feedback");
+  const feedbackPolicy = { ...policy, automatedReviewSettled: reviewPushBudgetSpent(s, policy), severeReviewSettled: severeReviewSettled(s, policy) };
+  const legacy = feedbackFingerprints(s, feedbackPolicy, true);
+  if (feedbackFingerprints(s, feedbackPolicy).some((id, index) => !assessedFeedback.has(id) && !assessedFeedback.has(legacy[index] ?? ""))) work.push("feedback");
+  if (hasActionableThread(s, policy)) work.push("unresolved-thread");
+  // The last pass failed, was interrupted or parked without a gate, and nothing changed since: it left work.
+  if (s.attempts > 0) work.push("unfinished-pass");
   return work;
 }
 
@@ -297,8 +344,7 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   // Maintainer feedback or PR intent/base changes still resume the work.
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
-  const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
-  if (s.threads.some(thread => thread.isResolved !== true && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  if (hasActionableThread(s, policy)) reasons.push("unresolved-thread");
   if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.

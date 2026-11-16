@@ -72,7 +72,7 @@ describe("hubBlob", () => {
     expect(stdout.trim()).toBe("function")
   })
 
-  it.each([undefined, { authorize: false }, { authorize: true }])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
+  it.each([undefined, { access: "public" } as const, { authorize: true } as const])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
     const root = await temporaryDirectory("vitehub-blob-auth-watcher-")
     try {
       const plugin = hubBlob({ driver: "fs", serve })
@@ -304,7 +304,7 @@ describe("hubBlob", () => {
     const plugin = hubBlob({
       bucketName: "assets",
       driver: "cloudflare-r2",
-      serve: true,
+      serve: { access: "public" },
     })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -978,7 +978,7 @@ describe("hubBlob", () => {
   })
 
   it("registers an opt-in Nitro serving route", async () => {
-    const plugin = hubBlob({ serve: true })
+    const plugin = hubBlob({ serve: { access: "public" } })
     const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
     const userConfig = {}
@@ -1075,6 +1075,7 @@ describe("hubBlob", () => {
           "Cache-Control": "public, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
+        access: "public",
         route: "/assets",
         store: "media",
       },
@@ -1106,6 +1107,11 @@ describe("hubBlob", () => {
   })
 
   const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
+    {
+      expectedCacheControl: "public, max-age=0, s-maxage=0",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      name: "CORS headers, also on error responses",
+    },
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
       headers: undefined,
@@ -1146,7 +1152,7 @@ describe("hubBlob", () => {
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers, route: serveRoute },
+        serve: { headers, access: "public", route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1271,6 +1277,7 @@ describe("hubBlob", () => {
         const errorHead = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/${pathname}`, { method: "HEAD" }))
         expect(errorHead.status).toBe(status)
         expect(errorHead.body).toBeNull()
+        expect(errorHead.headers.get("access-control-allow-origin")).toBe(headers?.["Access-Control-Allow-Origin"] ?? null)
       }
       Reflect.deleteProperty(globalThis, "__vitehubBlobHeadPaths")
     }
@@ -1281,7 +1288,7 @@ describe("hubBlob", () => {
 
   it("keeps the Blob sandbox and a middleware CSP on the generated route", async () => {
     const root = await temporaryDirectory("vitehub-blob-route-csp-")
-    const plugin = hubBlob({ driver: "fs", serve: true }, { importBase: "virtual:blob-test" })
+    const plugin = hubBlob({ driver: "fs", serve: { access: "public" } }, { importBase: "virtual:blob-test" })
     await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
     const artifactFile = join(root, "serve-route.mjs")
     await bundle({
@@ -1405,9 +1412,9 @@ describe("hubBlob", () => {
                 "export function betterAuth() {",
                 "  return { api: { getSession({ headers }) {",
                 "    const cookie = headers.get('cookie') || ''",
-                "    if (!cookie.startsWith('session=')) return null",
+                "    if (!cookie.startsWith('session=')) return { headers: new Headers(), response: null }",
                 "    const id = cookie.slice(8)",
-                "    return { user: { id }, session: { id: 'blob-session', userId: id } }",
+                "    return { headers: new Headers(), response: { user: { id }, session: { id: 'blob-session', userId: id } } }",
                 "  } } }",
                 "}",
               ].join("\n"),
@@ -1433,7 +1440,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1490,7 +1497,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("export default { fetch: withAuthorization(authorize, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1499,6 +1506,38 @@ describe("hubBlob", () => {
         const other = await request("u2/meal.jpg", { cookie: "session=u1" })
         expect(other.status).toBe(403)
         expect(calls).toEqual(["u1/meal.jpg"])
+      }
+      finally {
+        Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
+        await rm(root, { force: true, recursive: true })
+      }
+    })
+
+    it.each([false, true])("gives the authorize export the H3 event of the route (anonymous: %s)", async (anonymous) => {
+      const root = await temporaryDirectory("vitehub-blob-authorize-event-")
+      Reflect.set(globalThis, "__vitehubBlobServeCalls", [])
+      try {
+        await mkdir(join(root, "server"), { recursive: true })
+        await writeFile(join(root, "server", "blob.ts"), [
+          "export const authorize = ({ event, user }) => {",
+          "  event.res.headers.set('x-reader', user?.id ?? 'anonymous')",
+          "  return event.context.params._ === `${user?.id ?? 'public'}/meal.jpg`",
+          "}",
+          "",
+        ].join("\n"))
+        const plugin = hubBlob({ driver: "fs", serve: { ...(anonymous ? { anonymous: true } : {}), authorize: true, route: "/photos" } }, { importBase: "virtual:blob-test" })
+        await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, plugins: [authPlugin], root } as never)
+
+        const request = await bundleServeRoute(root)
+        const own = await request("u1/meal.jpg", { cookie: "session=u1" })
+        expect(own.status).toBe(200)
+        expect(own.headers.get("x-reader")).toBe("u1")
+        expect((await request("u2/meal.jpg", { cookie: "session=u1" })).status).toBe(403)
+        if (anonymous) {
+          const shared = await request("public/meal.jpg")
+          expect(shared.status).toBe(200)
+          expect(shared.headers.get("x-reader")).toBe("anonymous")
+        }
       }
       finally {
         Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
@@ -1529,7 +1568,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1589,7 +1628,7 @@ describe("hubBlob", () => {
       try {
         await mkdir(join(root, "server"), { recursive: true })
         await writeFile(join(root, "server", "blob.ts"), "export const authorize = () => true\n")
-        const plugin = hubBlob({ driver: "fs", serve: { route: "/photos" } })
+        const plugin = hubBlob({ driver: "fs", serve: { access: "public", route: "/photos" } })
         await expect((plugin.configResolved as (config: unknown) => void | Promise<void>)({
           build: { outDir: "dist" },
           plugins: [authPlugin],
@@ -1615,7 +1654,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1627,7 +1666,7 @@ describe("hubBlob", () => {
     const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
-      serve: true,
+      serve: { access: "public" },
     }, { importBase: "vite-hub/blob" })
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
 

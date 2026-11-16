@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button } from "@vite-hub/kit/button"
+import { Button } from "@ui-sdk/vue/button"
 import {
   Toast,
   ToastAction,
@@ -7,7 +7,7 @@ import {
   ToastRegion,
   ToastTitle,
   createToaster,
-} from "@vite-hub/kit/toast"
+} from "@ui-sdk/vue/toast"
 import { onUnmounted } from "vue"
 import { useLog } from "../log"
 

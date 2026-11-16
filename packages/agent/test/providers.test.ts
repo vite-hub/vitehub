@@ -2682,7 +2682,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain(
         "return await handler(toWebhookRequest(request), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event: request, waitUntil })",
       )
-      expect(webhookRoute).toContain("return createAgentWebhookRequest({ body: request.body ?? undefined, headers, method, signal, url })")
+      expect(webhookRoute).toContain("return createAgentWebhookRequest({ body: request.body ?? undefined, from: request, headers, method, signal, url })")
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
 
       // A Fetchable gets no router parameters. The patterns read them from the end of the path and keep percent-encoding.
@@ -9315,11 +9315,9 @@ describe("server helpers", () => {
       await vi.waitFor(async () => {
         const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
+          result: "accepted github delivery",
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
       releaseRun()

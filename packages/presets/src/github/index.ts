@@ -20,8 +20,8 @@ export type {
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState } from './pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './pull-requests.ts'
 
-export { createGitHubPullRequestOperations, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from './auto-merge.ts'
-export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot, ReviewThreadAnswer, ReviewThreadOutcome } from './auto-merge.ts'
+export { createGitHubPullRequestOperations, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewerLabeledSevere, reviewThreadOutcomes } from './auto-merge.ts'
+export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot, ReviewThreadAnswer, ReviewThreadOutcome, ReviewThreadResolution } from './auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace } from "./checkout.ts"
 export type { GitHubWorkspaceReuse } from "./checkout.ts"
 export { validateGitHubInstallInputs } from "./install-inputs.ts"
@@ -34,3 +34,4 @@ export type { GitHubDependencyStatus } from "./install.ts"
 export type { GitHubInstallOptions, GitHubInstallSlotOptions, GitHubInstallSlots } from "./install.ts"
 export { GitHubDependencyConflictError } from "./install-inputs.ts"
 export { prepareGitHubRepairBase } from "./repair.ts"
+export type { GitHubConflictResolution, GitHubConflictRule } from "./conflicts.ts"

@@ -29,6 +29,7 @@ export default defineConfig({
       "src/internal/connections.ts",
       "src/internal/server.ts",
       "src/database.ts",
+      "src/operations.ts",
       "src/runtime/public-env.ts",
       "src/runtime/server-env.ts",
       "src/server.ts",
@@ -40,7 +41,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports(
           Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/")).map(([key, value]) => {
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/") && key !== "./operations").map(([key, value]) => {
               if (typeof value !== "string" || !value.endsWith(".js")) {
                 return [key, value];
               }

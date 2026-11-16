@@ -123,7 +123,7 @@ const bundledInternal: Record<string, string[]> = {
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
@@ -132,6 +132,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: ["test/browser-smoke-cleanup.test.mjs"],
     // The real SSH provider tests use the host's OpenSSH key generator.
     ignoreBinaries: ["ssh-keygen"],
+    // The storage regression test resolves unstorage from the KV package that owns it.
+    ignoreDependencies: ["unstorage"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },

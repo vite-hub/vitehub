@@ -19,7 +19,9 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_UNSUPPORTED_OPTION: {
       why: ({ options, provider }: { options: string, provider: QueueProvider }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
-      fix: "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
+      fix: ({ options }: { options: string, provider: QueueProvider }) => options.includes("`id`")
+        ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
+        : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
@@ -135,7 +137,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_PROVISION_FAILED: {
       why: "Cloudflare returned an invalid queue list during provisioning.",
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
   },
 })

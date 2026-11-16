@@ -81,3 +81,10 @@ it("shows the content without the bar while disabled, and keeps the size", async
   expect(wrapper.find("[role='toolbar']").exists()).toBe(true);
   wrapper.unmount();
 });
+
+it("sizes the page without its own bar when the toolbar is off", async () => {
+  const wrapper = frame({ defaultValue: { on: true }, toolbar: false });
+  expect(wrapper.find("[role='toolbar']").exists()).toBe(false);
+  expect(page(wrapper).attributes("style")).toContain("width: 393px");
+  wrapper.unmount();
+});

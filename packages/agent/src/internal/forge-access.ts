@@ -3,6 +3,8 @@ import {
   forgeGitAuthHeader,
   forgeGitCredentials,
   githubAppCredentials,
+  githubInstallationFor,
+  githubInstallationRouting,
   readGitHubAppPrivateKey,
   withSignal,
 } from "@vite-hub/forge"
@@ -112,7 +114,12 @@ export async function forgeConnection(
       : undefined
     if (appId && privateKey) {
       const app = githubAppCredentials({ appId, privateKey, baseUrl: resolvedBaseUrl })
-      const installation = envString(env.installationId) ?? (await app.installation(repository, signal))
+      const routing = githubInstallationRouting({
+        installationId: envString(env.installationId),
+        appOwner: envString(env.appOwner),
+        appInstallations: envString(env.appInstallations),
+      })
+      const installation = githubInstallationFor(routing, repository) ?? (await app.installation(repository, signal))
       return {
         forge: kind,
         baseUrl: resolvedBaseUrl,
@@ -124,7 +131,7 @@ export async function forgeConnection(
   if (!token) {
     const names =
       kind === "github"
-        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_INSTALLATION_ID; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
+        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_APP_INSTALLATIONS, or VITEHUB_GITHUB_INSTALLATION_ID with VITEHUB_GITHUB_APP_OWNER; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
         : specs.token.names.join(", ")
     throw agentDiagnostics.AGENT_R0941({ message: `[vitehub] Forge requires Server Env credentials: ${names}.` })
   }

@@ -180,7 +180,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'cloudflare-r2',
-      serve: true,
+      serve: { access: 'public' },
       images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
   },
@@ -199,7 +199,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -219,7 +219,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -254,7 +254,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'cloudflare-r2',
-      serve: true,
+      serve: { access: 'public' },
       images: { transformer: 'photon' },
     },
   },
@@ -273,7 +273,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
     }),
@@ -293,7 +293,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'cloudflare-r2',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
     }),
@@ -314,11 +314,25 @@ Photon reads JPEG, PNG, WebP, and GIF. It turns JPEG images upright from their E
 
 `responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
 
-Photon decodes the full source first, at about 19 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
+Photon decodes the full source first, at about 17 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
 
-The Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+Set `maxPixels` to change the pixel limit:
 
-- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+```ts fragment
+images: { transformer: 'photon', maxPixels: 6_000_000 }
+```
+
+| Source | WebAssembly memory for one variant |
+| --- | --- |
+| 4 MP (default) | about 67 MB |
+| 6 MP | about 96 MB |
+| 8 MP | about 123 MB |
+
+On a Worker, the JavaScript heap and the rest of the app share the same 128 MB, so stay at 6 megapixels or less there. On Node, the limit is the memory of the server. `maxPixels` works only with `transformer: 'photon'`. With another transformer, the build fails with `BLOB_C0015`.
+
+The Nitro plugin imports Photon with a dynamic `import()`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+
+- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression. ViteHub turns on Nitro's `wasm.lazy` for Cloudflare, and Photon loads with or without it.
 - On Node, the `node` entry embeds the WebAssembly in JavaScript and compiles it on the first variant.
 - In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node host in development, or run the built Worker with `wrangler dev`.
 
@@ -386,6 +400,39 @@ useHead({
 ```
 
 With custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
+
+## Nuxt Image
+
+With [`@nuxt/image`](https://image.nuxt.com) in `modules` and `blob.serve` set, `vite-hub/nuxt` adds a Nuxt Image provider named `vitehub`. It turns `<NuxtImg>` modifiers into variant URLs of the served store.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@nuxt/image', 'vite-hub/nuxt'],
+  vitehub: {
+    blob: { driver: 'fs', serve: { access: 'public' } },
+  },
+})
+```
+
+```vue [pages/index.vue]
+<template>
+  <NuxtImg provider="vitehub" src="photos/cat.jpg" width="400" height="300" fit="cover" format="avif" />
+</template>
+```
+
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/api/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+
+| Modifier | Parameter |
+| --- | --- |
+| `width`, `height` | `w`, `h`, snapped up to the allowed sizes, so equal variants share one URL and one CDN cache entry |
+| `fit` | `cover`, or `inside` for `inside` and `contain`. Other values are ignored. |
+| `format` | `fmt`: `webp`, `avif`, `jpeg` (or `jpg`), `png`. Other values are ignored. |
+| `quality` | `q`, from 1 to 100 |
+| `crop` | `crop`, a named crop of the record. Pass it as `:modifiers="{ crop: 'mobile' }"`. |
+
+The provider reads `blob.serve.route`, `blob.serve.publicBaseUrl`, and `blob.images.sizes` from the `vitehub` key of `nuxt.config.ts`. Options passed inline to the module are not read. ViteHub does not make `vitehub` the default provider, because images in `public/` would then go to the Blob route. To use it for every image, set `image: { provider: 'vitehub' }`.
+
+To change or replace the provider, define `image.providers.vitehub` yourself. Your entry wins. The provider file is `vite-hub/blob/nuxt-image`, with the options `baseURL` and `imageSizes`.
 
 ## Media in Content
 

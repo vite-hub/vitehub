@@ -2,7 +2,7 @@ import { and, eq, exists, inArray } from "drizzle-orm"
 import type { H3Event } from "h3"
 import { db } from "vite-hub/database/drizzle"
 import { useServerEnv } from "vite-hub/env"
-import { abuseReports, user } from "../databases/default/index"
+import { abuseReports, user } from "../databases/default"
 import { needsShareReview, reportTarget } from "#shared/trust"
 
 export async function shareReviewFor(ownerId: string, event?: H3Event, joinedOwner?: typeof user.$inferSelect | null) {

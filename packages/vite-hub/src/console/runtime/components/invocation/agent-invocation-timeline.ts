@@ -98,7 +98,7 @@ export const AgentInvocationTimeline = defineComponent({
             }, [
               h("span", { "aria-hidden": "true", class: "vh-invocation-timeline__dot" }),
               // Screen readers hear the owner and the outcome; sighted readers get the dot shape, the ring, and the cross.
-              h("span", { class: "vh-visually-hidden" }, `${item.owner === "vitehub" ? "ViteHub" : "Agent"}${item.activity.status === "failed" ? ", failed" : ""}: `),
+              h("span", { "data-slot": "visually-hidden" }, `${item.owner === "vitehub" ? "ViteHub" : "Agent"}${item.activity.status === "failed" ? ", failed" : ""}: `),
               h("span", { class: "vh-invocation-timeline__heading" }, [
                 h("strong", item.title),
                 item.detail ? h("code", { class: "vh-invocation-timeline__detail" }, item.detail) : null,

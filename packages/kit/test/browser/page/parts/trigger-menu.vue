@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Field, FieldControl, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldControl, FieldLabel } from "@ui-sdk/vue/field"
 import {
   type TriggerMenuDataItem,
   TriggerMenu,
@@ -9,7 +9,7 @@ import {
   TriggerMenuItem,
   TriggerMenuList,
   TriggerMenuStatus,
-} from "@vite-hub/kit/trigger-menu"
+} from "@ui-sdk/vue/trigger-menu"
 
 const people = [
   { value: "hollis", label: "Hollis Grant" },

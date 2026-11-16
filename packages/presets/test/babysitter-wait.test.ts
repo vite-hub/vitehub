@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
-import { checksStillRunning, createCheckWait, dailyPassExemption, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
-import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { checksStillRunning, conflictOnlyBlockers, createCheckWait, dailyPassExemption, failureKeys, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { feedbackFingerprints, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../src/github/required-checks.ts";
 
@@ -228,6 +228,15 @@ describe("Babysitter review push budget", () => {
     expect(wakeReasons(await spent(), "passed", { ...budget, wakeWhenReady: true })).toEqual(["ready-to-merge"]);
   });
 
+  it("keeps waking for a bot finding its reviewer labeled P0 or P1 until twice the budget", async () => {
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Keep the MAIL_KEY**";
+    const pullfrog = "**P0 · Class: admin role before ownership is verified.**";
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: codex, user: bot } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.reviewComments["21"] = { id: 21, body: pullfrog, user: bot } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "**P2 · Class: alias call sites.**", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: codex, user: bot } }, 4), "pending", budget)).toEqual([]);
+  });
+
   it("ends a check deferral without a review-check failure counting as new", async () => {
     const deferred = await spent(s => {
       s.wait = { ...s.wait!, defer: "checks" };
@@ -257,6 +266,8 @@ describe("Babysitter review push budget", () => {
     const open = await parked(s => { s.checks = {}; s.threads = [thread]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
     expect(wakeReasons(open, "pending", policy)).toEqual(["unresolved-thread"]);
     expect(wakeReasons(open, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual([]);
+    // A held P0 or P1 decline waits for a person.
+    expect(wakeReasons(open, "pending", { ...policy, heldThreads: new Set(["T2"]) })).toEqual([]);
     const person = await parked(s => { s.checks = {}; s.threads = [{ ...thread, comments: [...thread.comments, { id: 23, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }]; s.wait = { headSha: head, ...createCheckWait(s, policy) } });
     expect(wakeReasons(person, "pending", { ...policy, ignoreAssessedBotThreads: true })).toEqual(["unresolved-thread"]);
   });
@@ -276,6 +287,8 @@ describe("Babysitter review push budget", () => {
     const human = await clean(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } });
     expect(reviewPushBudgetWork(human, budget, new Set())).toEqual(["feedback"]);
     expect(reviewPushBudgetWork(await clean(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), budget, new Set())).toEqual(["unresolved-thread"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "**P1 · Class: lost MAIL_KEY.**", user: bot } }), budget, new Set())).toEqual(["feedback"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "**P1 · Class: lost MAIL_KEY.**", user: bot }; s.reviewPushBudget = { count: 4, heads: [head] } }), budget, new Set())).toEqual([]);
     // Someone else moved the head after the budget ran out.
     expect(reviewPushBudgetWork(await clean(s => { s.reviewPushBudget = { count: 2, heads: ["b".repeat(40)] } }), budget, new Set())).toEqual(["new-head"]);
   });
@@ -310,6 +323,43 @@ describe("Babysitter daily pass budget", () => {
     expect(dailyPassExemption(await parked(), "failed", failedOnce)).toBeUndefined();
     expect(dailyPassExemption(await parked(), "failed", failedOnce, 123)).toBe(`ci-repair:${head}:123`);
     expect(dailyPassExemption(await parked(), "failed", { ...failedOnce, exemptions: [...failedOnce.exemptions, `ci-repair:${head}:123`] }, 123)).toBeUndefined();
+  });
+});
+
+describe("Babysitter conflict-only repairs", () => {
+  const conflicting = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => {
+    s.checks = {};
+    s.pr!.mergeable_state = "dirty";
+    update(s);
+  });
+
+  it("needs no model pass when the conflict is the only work", async () => {
+    expect(conflictOnlyBlockers(await conflicting(), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual([]);
+    // Bot threads that a person never joined stay settled, and assessed feedback needs no new pass.
+    const comment = { id: 9, body: "Please fix", user: { login: "reviewer" } };
+    const assessed = await conflicting(s => { s.comments["9"] = comment });
+    expect(conflictOnlyBlockers(assessed, { state: "pending", inheritedCheckIds: [] }, policy, new Set(feedbackFingerprints(assessed, policy)))).toEqual([]);
+  });
+
+  it("names the work that still needs a model pass", async () => {
+    const human = { id: "C1", body: "Rename this", author: { login: "reviewer", __typename: "User" } };
+    expect(conflictOnlyBlockers(await conflicting(), { state: "failed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["failed-check"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.comments["9"] = { id: 9, body: "Please fix", user: { login: "reviewer" } } }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["feedback"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.threads = [{ id: "T1", isResolved: false, comments: [human] }] }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["unresolved-thread"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.threads = [{ id: "T1", isResolved: false, comments: [human] }] }), { state: "passed", inheritedCheckIds: [] }, { ...policy, heldThreads: new Set(["T1"]) }, new Set())).toEqual([]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.humanFeedbackGeneration = s.generation }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["human-feedback"]);
+    // Required lint passes, but the optional build fails because of the PR: the model has work.
+    const build = await conflicting(s => {
+      s.checks = {
+        "check_run:1": { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } },
+        "check_run:2": { id: 2, name: "build", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } },
+      };
+    });
+    expect(failureKeys(build)).toEqual(["2:failure"]);
+    expect(conflictOnlyBlockers(build, { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["failed-check"]);
+    // The same failure on the base is the base's work.
+    expect(conflictOnlyBlockers(build, { state: "passed", inheritedCheckIds: [2] }, policy, new Set())).toEqual([]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.attempts = 1 }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["unfinished-pass"]);
   });
 });
 

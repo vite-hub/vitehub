@@ -96,6 +96,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, looked }: { database: string, looked: string }) => `The database "${database}" found no connection. It looked for ${looked}.`,
       fix: "Set the environment variable or add the Cloudflare D1 binding that `connectDatabase()` reads, or pass another location, such as `file:./data/app.sqlite`.",
     },
+    DATABASE_URL_VARIABLE_IGNORED: {
+      why: ({ database, file, variable }: { database: string, file: string, variable: string }) => `The database "${database}" has no \`connection\`, so it uses the local SQLite file ${file}. \`${variable}\` is set, but a Database Definition does not read it.`,
+      fix: ({ token, variable }: { token?: string, variable: string }) => `To use it, set \`connection: { url: process.env.${variable}${token ? `, authToken: process.env.${token}` : ""} }\` in the Database Definition. To keep the local file, unset \`${variable}\`.`,
+    },
     DATABASE_UNSUPPORTED_URL: {
       why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
       fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
@@ -140,11 +144,37 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
       fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
+    DATABASE_MIGRATION_BACKUP_FAILED: {
+      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
+      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
+    },
+    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
+      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
+    },
+    DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
+    },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
     DATABASE_EXPORT_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot export the database "${database}". ${problem}`,
       fix: "Read the problem in `why`. Without `--remote`, `vitehub database export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
+    },
+
+    // Seed errors. `vitehub database seed` prints them and exits with code 1.
+    DATABASE_SEED_NOT_FOUND: {
+      why: ({ database, file }: { database: string, file: string }) => `The database "${database}" has no seed file. ViteHub looks for ${file}.`,
+      fix: "Create the file with a default export, such as `export default async ({ db, schema }) => { await db.insert(schema.users).values({ name: 'Ada' }) }`. To seed another database, add `--database <name>`.",
+    },
+    DATABASE_SEED_PENDING_MIGRATIONS: {
+      why: ({ database, migrations }: { database: string, migrations: readonly string[] }) => `The database "${database}" has pending migrations, so the seed would not see the current tables:${fileList(migrations)}`,
+      fix: "Run `vitehub database migrate` with the same `--remote` and `--stage` flags, then run `vitehub database seed` again.",
+    },
+    DATABASE_SEED_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot seed the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database seed` writes only the local database: the SQLite file or the PGlite folder. With `--remote`, it needs the same connection as `vitehub database export --remote`. A seed that throws keeps the rows that it wrote before the error. Write them in `db.transaction()` to keep all or none.",
     },
 
     // Definition errors. `defineDatabase()` throws them.
@@ -160,9 +190,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_INVALID_DRIVER: {
       why: ({ file }: { file?: string }) => file
-        ? `The Database Definition "${file}" must set \`driver\` to the string literal "pglite".`
-        : "`defineDatabase().driver` must be `pglite`.",
-      fix: "Set `driver: 'pglite'` as a string literal, or remove `driver` to connect with `connection.url`.",
+        ? `The Database Definition "${file}" must set \`driver\` to the string literal "node-postgres" or "pglite".`
+        : "`defineDatabase().driver` must be `node-postgres` or `pglite`.",
+      fix: "Set `driver: 'node-postgres'` or `driver: 'pglite'` as a string literal, or remove `driver` to connect with postgres.js.",
     },
     DATABASE_INVALID_NAME: {
       why: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
@@ -228,7 +258,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MISSING_D1_RESOURCE: {
       why: ({ databases, missing }: { databases: readonly string[], missing: string }) => `Cloudflare D1 output needs ${missing} for ${quoteList(databases)}.`,
-      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --provider cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
+      fix: "Set `cloudflare.databaseId` and `cloudflare.databaseName` at build time, or run `vitehub provision run --host cloudflare`. For values that resolve at runtime, use D1 HTTP or a remote libSQL connection.",
     },
     DATABASE_MIXED_DEFINITIONS: {
       why: ({ files }: { files: readonly string[] }) => `\`src/database.ts\` defines the default Database, so other Databases cannot use the Vite form beside it.${fileList(files)}`,
@@ -250,7 +280,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: "database" | "list" }) => problem === "list"
         ? "Cloudflare returned an invalid D1 database list during provisioning."
         : "Cloudflare returned an invalid D1 database during provisioning.",
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
     DATABASE_INVALID_RELATIONS: {
       why: ({ database, field, reason, table }: { database: string, field?: string, reason: "missing" | "replaced", table: string }) => {
@@ -276,6 +306,24 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_WRANGLER_BINDING_CONFLICT: {
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
       fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
+    },
+
+    // Setup errors. ViteHub throws them when the Wrangler config or the project packages do not fit the Database.
+    DATABASE_D1_MIGRATIONS_DIR_INVALID: {
+      why: "D1 migrations_dir must be a relative directory inside Nitro's server output.",
+      fix: "Set `migrations_dir` of the D1 binding in the Wrangler config to a relative folder, such as `migrations`, or remove it so that ViteHub picks the folder.",
+    },
+    DATABASE_D1_MIGRATIONS_DIR_OVERLAP: {
+      why: ({ first, second }: { first: string, second: string }) => `D1 migration directories overlap for bindings ${first} and ${second}; configure an exclusive migrations_dir for each binding.`,
+      fix: "Give each D1 binding in the Wrangler config its own `migrations_dir` folder, so that no folder is the same as another or inside it.",
+    },
+    DATABASE_NUXT_CONTENT_D1_MISSING: {
+      why: "Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.",
+      fix: "Set `content: { database: { type: \"d1\", bindingName: \"DB\" } }` in nuxt.config.ts and declare that D1 binding with its `database_id` in the Wrangler config, or add a Database Definition in `server/databases/`.",
+    },
+    DATABASE_POSTGRES_DRIVER_MISSING: {
+      why: ({ name }: { name: "pg" | "postgres" }) => `Cannot load the \`${name}\` package from the project. Install it, for example with \`pnpm add ${name}\`.`,
+      fix: "Install the Postgres driver that the message names in the project: `pnpm add postgres`, or `pnpm add pg` for a Database with `driver: \"node-postgres\"`.",
     },
   },
 })

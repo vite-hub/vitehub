@@ -3,16 +3,17 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
-import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
-import { readBuildRevision, readGit } from "@vite-hub/internal/build/revision"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
+import { readForgeBuild } from "@vite-hub/forge/build/node"
 import { parseJSONC, parseTOML } from "confbox"
 
+import { commentsDeploymentEnv } from "./deployment-env.ts"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
@@ -20,6 +21,7 @@ import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from 
 import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { NitroModule, NitroOptions } from "nitro/types"
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -113,6 +115,8 @@ export interface CommentsComponent {
 export type CommentsVitePlugin = Plugin & {
   nitro?: NitroModule
   api: {
+    /** The variables that Comments reads on the deployed host. See `commentsDeploymentEnv()`. */
+    deploymentEnv: DeploymentEnvContribution
     /** Supplies Nuxt's effective component names, and refreshes the generated map after a rescan. */
     setComponents(components: readonly CommentsComponent[]): Promise<void>
     /**
@@ -176,13 +180,14 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
     if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) return
     const options = argumentExpression(call.arguments[0])
     if (options?.type !== "ObjectExpression") return
-    for (const property of objectProperties(options).reverse()) {
-      // A later spread or dynamic key may replace an earlier Database option.
-      if (property.key === undefined) return
-      if (property.key !== "database") continue
-      if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
-      return staticString(property.value)
-    }
+    const properties = objectProperties(options)
+    const last = properties.findLastIndex(property => property.key === "database")
+    if (last === -1) return
+    const property = properties[last]!
+    // A later spread or dynamic key may replace the Database option, so its value is not known at build time either.
+    const name = property.node.type === "Property" && property.node.kind === "init" && !property.node.method && property.value ? staticValue(property.value) : null
+    if (properties.slice(last + 1).some(later => later.key === undefined) || (name !== undefined && typeof name !== "string")) throw commentsErrorDiagnostics.COMMENTS_B0004({ file })
+    return name
   }
   if (defaultCall) return databaseOf(defaultCall)
   for (const statement of module.program.body) {
@@ -207,31 +212,14 @@ export function commentsOverlayDirectory(): string {
   return builtDirectory("overlay")
 }
 
-/** `owner/name` of a GitHub or Enterprise remote. The forge's API URL selects the server at runtime. */
-export function githubRepository(remote: string | undefined): string | undefined {
-  return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
-}
-
-/** The pull request that the CI or host builds, when it names one. */
-function pullRequestOf(env: Record<string, string | undefined>): number | undefined {
-  const value = env.VERCEL_GIT_PULL_REQUEST_ID
-    || (env.PULL_REQUEST === "true" ? env.REVIEW_ID : undefined)
-    || /^refs\/pull\/(\d+)\//.exec(env.GITHUB_REF ?? "")?.[1]
-  const number = Number(value)
-  return Number.isSafeInteger(number) && number > 0 ? number : undefined
-}
+export { githubRepository } from "@vite-hub/forge/build/node"
 
 /**
  * The build of the app, from the CI or host, else from Git: the commit and branch, the GitHub repository, and the pull
- * request when the host names it. Empty outside a Git checkout.
+ * request when the host names it. Empty outside a Git checkout. Forge's `readForgeBuild` reads it.
  */
-export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
-  const repository = env.GITHUB_REPOSITORY
-    || (env.VERCEL_GIT_PROVIDER === "github" && env.VERCEL_GIT_REPO_OWNER && env.VERCEL_GIT_REPO_SLUG ? `${env.VERCEL_GIT_REPO_OWNER}/${env.VERCEL_GIT_REPO_SLUG}` : undefined)
-    || githubRepository(env.REPOSITORY_URL)
-    || githubRepository(await readGit(root, ["remote", "get-url", "origin"]))
-  const pullRequest = pullRequestOf(env)
-  return { ...await readBuildRevision(root, env), ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
+export function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
+  return readForgeBuild(root, env)
 }
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
@@ -546,6 +534,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
       },
     } : undefined,
     api: {
+      deploymentEnv: context => enabled() ? commentsDeploymentEnv(options, context) : [],
       async setComponents(components) {
         resolvedComponents = components
         await writeComponents()

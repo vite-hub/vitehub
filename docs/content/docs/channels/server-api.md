@@ -102,9 +102,9 @@ An event without a target answers 200 with `{ accepted: false, reason }`, so the
 
 | `webhook()` option | Value |
 | --- | --- |
-| `signature` | `'bearer'`, `'github-sha256'`, `'stripe-sha256'`, `{ preset: 'hmac-sha256', prefix, encoding, secretEncoding }`, or `{ verify }`. |
-| `secret` | A string, a sealed Server Env secret, or a function that returns one. `false` turns verification off. |
-| `header` | The header with the signature. `bearer` reads `authorization`, `github-sha256` reads `x-hub-signature-256`, and `stripe-sha256` reads `stripe-signature`. |
+| `signature` | `'bearer'`, `'token'`, `'github-sha256'`, `'stripe-sha256'`, `{ preset: 'hmac-sha256', prefix, encoding, secretEncoding }`, or `{ verify }`. Required with `secret`. |
+| `secret` | A string, a sealed Server Env secret, or a function that returns one. Required with `signature`. `secret: false` without `signature` accepts requests that anyone can send. |
+| `header` | The header with the signature. `bearer` reads `authorization`, `github-sha256` reads `x-hub-signature-256`, and `stripe-sha256` reads `stripe-signature`. `token` has no default, so set it. |
 | `event` | `(payload, request) => name`. The name selects the `on` target. Defaults to `'webhook'`. |
 | `id` | `(payload, request) => id`. The delivery ID that drops repeats. Defaults to the SHA-256 of the body. |
 | `path`, `aliases` | More routes. String literals, because ViteHub reads them without running the module. |

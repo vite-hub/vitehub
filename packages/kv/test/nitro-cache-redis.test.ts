@@ -41,7 +41,7 @@ describe.runIf(redisUrl)("Nitro cache on an explicit Redis store with a runtime 
 
   it("stores KV keys and cache entries in Redis, not in files", async () => {
     const { kv } = await import("../src/index.ts")
-    const { default: createKVCacheDriver } = await import("../src/runtime/nitro-cache.ts")
+    const { default: createKVCacheDriver } = await import("../src/runtime/unstorage-driver.ts")
     const storage = createStorage()
     storage.mount("cache", createKVCacheDriver({ base: prefix }))
 

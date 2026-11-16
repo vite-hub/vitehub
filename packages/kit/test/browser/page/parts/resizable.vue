@@ -3,7 +3,7 @@ import {
   Resizable,
   ResizableHandle,
   ResizablePanel,
-} from "@vite-hub/kit/resizable"
+} from "@ui-sdk/vue/resizable"
 </script>
 
 <template>

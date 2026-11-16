@@ -9,10 +9,13 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
 import { resolveAuthViteConfig } from "./config.ts"
+import { authDeploymentEnv } from "./deployment-env.ts"
+import { authMemoryDatabaseError } from "./database-options.ts"
 import { authAbilitiesCandidates, discoverAuthClient, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { authTableNames } from "./table-names.ts"
 
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -40,6 +43,7 @@ const envVitePluginName = "@vite-hub/env/vite"
 const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts"
 const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
 const cachedAccessRouteGuardName = "vite-hub/auth-cached-access-route-guard"
+const memoryDatabaseGuardName = "vite-hub/auth-memory-database-guard"
 const mergeNoExternal = createNoExternalAddition(authPackageName)
 
 type NitroConfig = Record<string, unknown>
@@ -51,6 +55,8 @@ type NitroBuild = {
 }
 
 export interface AuthVitePluginAPI {
+  /** The variables that Auth reads on the deployed host. See `authDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedAuthViteConfig | undefined
   refresh: () => ResolvedAuthViteConfig | undefined
 }
@@ -177,11 +183,12 @@ function renderAuthRouteHandler(): string {
 
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
+  const publicRoutes = config?.access.public?.length ? `, ${JSON.stringify(config.access.public)}` : ""
   return [
     `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
     // Every request runs this middleware. It loads Better Auth only for a request that an access route matches.
-    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)}))`,
+    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)})${publicRoutes})`,
     "",
   ].join("\n")
 }
@@ -277,6 +284,14 @@ function nitroApplicationBaseURL(value: unknown): string | undefined {
   return baseURL.split("/").some(Boolean) ? baseURL : undefined
 }
 
+/** Fails a production build, not the first sign-in. `nuxt prepare` also creates Nitro, but it does not build. */
+const memoryDatabaseGuard = {
+  name: memoryDatabaseGuardName,
+  setup(nitro: NitroBuild) {
+    nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", () => Promise.reject(authMemoryDatabaseError()))
+  },
+}
+
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined, dev: boolean): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
@@ -306,18 +321,19 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
         }]
       : []),
   ]
-  if (!authHandlers.length) return nitro
-
   for (const handler of authHandlers) kit.addHandler(handler)
   // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   const merged = kit.config as NitroConfig
+  const guards = new Set([cachedAccessRouteGuardName, memoryDatabaseGuardName])
+  const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => !guards.has(Reflect.get(Object(module), "name")))
+  if (!dev && config.implicitMemory) modules.push(memoryDatabaseGuard)
+  if (modules.length || Array.isArray(merged.modules)) merged.modules = modules
   if (config.access.routes.length > 0) {
-    const { routes } = config.access
-    const modules = (Array.isArray(merged.modules) ? merged.modules : []).filter(module => Reflect.get(Object(module), "name") !== cachedAccessRouteGuardName)
+    const { routes, public: publicRoutes = [] } = config.access
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
-        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL)
+        const check = () => assertNoCachedAccessRoutes(routes, nitro.options.routeRules, nitro.options.baseURL, publicRoutes)
         // A bundler calls `build:config` after every `build:before` hook, such as Nuxt's `nitro:build:before`, and before
         // it builds or prerenders. Without a builder, Nitro calls only `build:before`.
         nitro.hooks.hook(nitro.options.builder === false ? "build:before" : "build:config", check)
@@ -351,6 +367,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
     name: AUTH_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: () => authDeploymentEnv(runtimeConfig),
       getConfig: () => runtimeConfig,
       refresh: refreshRuntimeConfig,
     },
@@ -398,7 +415,8 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig, dev)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
-      if (hasNitroHandlers || applicationBaseURL) {
+      const hasMemoryDatabaseGuard = Boolean(authConfig?.implicitMemory && !dev)
+      if (hasNitroHandlers || applicationBaseURL || hasMemoryDatabaseGuard) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }

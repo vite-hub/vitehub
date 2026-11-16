@@ -32,15 +32,15 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Browser | — | Browser Run | — | — | — | — | — |
 | Blob | fs | R2 | Vercel Blob | Netlify Blobs | S3 | Host driver | fs / S3 |
 | Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
-| Database | SQLite | D1 | libSQL / D1 | libSQL | libSQL | Nuxt D1 | SQLite / libSQL |
+| Database | SQLite | D1 | libSQL / D1 / Postgres | libSQL / D1 / Postgres | libSQL / D1 / Postgres | Nuxt D1 | SQLite / libSQL / Postgres |
 | Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
-| KV | fs-lite | Workers KV | Upstash | Upstash | Deno KV | Host driver | Redis / Postgres / fs-lite |
+| KV | fs-lite | Workers KV | Upstash | Upstash / Redis | Deno KV | Host driver | Redis / Postgres / fs-lite |
 | Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local provider |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
 | Realtime | memory | Durable Objects | — | — | — | Host authority | Postgres or Redis |
-| Sandbox | — | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
+| Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
-| Workflow | Vercel Workflow | CF Workflows | Vercel Workflow | OpenWorkflow | Vercel Workflow | Host provider | Vercel Workflow |
+| Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
 <!-- support-matrix:server-primitives:end -->
 
@@ -49,11 +49,11 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 <!-- support-matrix:application-features:start -->
 | Feature | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Agent | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
+| Agent | Nitro | Nitro | Nitro | Nitro | Nitro + OpenWorkflow | Agent routes | Nitro |
 | Auth | Better Auth | Better Auth | Better Auth | Better Auth | Better Auth | Auth route | Better Auth |
 | Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
-| Comments | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
-| Connections | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
+| Comments | Database | Database | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Host database | Database |
+| Connections | Database | Database | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Database + libSQL / D1 / Postgres | Host database | Database |
 | Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
 | I18n | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 | Nitro 3 |
@@ -82,11 +82,11 @@ The table names built-in providers or adapters.
 - **Email:** `email: true` selects Cloudflare Email only on the Cloudflare host; every other host requires the explicit built-in Resend driver or a programmatic custom driver.
 - **Realtime:** Production uses Cloudflare Durable Objects, or memory that you select on a single-process Node server; distributed Vercel, Netlify, and Deno hosts reject memory.
 
-Local Vite delivers Queue Jobs in the dev server through the local provider, which stores jobs in `.vitehub/data/queue`. For every Queue Provider, development follows the retry, delay, and size rules of the provider of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. `vitehub({ queue: true })` fails on Netlify because `queue` has no provider option. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials. Do not use Cloudflare Sandbox there: the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+Local Vite delivers Queue Jobs in the dev server through the local provider, which stores jobs in `.vitehub/data/queue`. For every Queue Provider, development follows the retry, delay, and size rules of the provider of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. `vitehub({ queue: true })` fails on Netlify because `queue` has no provider option. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Set `sandboxTask: { provider: 'vercel' }` to use Vercel Sandbox with Vercel credentials. Cloudflare Sandbox works only on the Cloudflare host, because it needs a Cloudflare binding.
 
 Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Workspace on Vercel also defaults to process-local memory; a non-empty `BLOB_READ_WRITE_TOKEN` selects Vercel Blob, or the app can select GitHub explicitly. Realtime on Node needs `realtime: { authority: "memory" }` for a build, and that authority is safe only for a single-process server.
 
-Workflow defaults to Vercel Workflow on Local Vite, Node, and Deno. Node hosting selects OpenWorkflow when `workflow.sqlite.path` or `workflow.postgres.url` is configured, unless `workflow.provider` is explicit. Netlify requires an explicit `workflow.provider`.
+Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. Deno builds require a provider or OpenWorkflow storage; development and Agent-only Workflows can run inline. Netlify requires an explicit `workflow.provider`. An explicit `workflow.provider` always wins.
 
 ## Test status
 

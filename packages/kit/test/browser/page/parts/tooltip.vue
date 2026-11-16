@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BookmarkIcon } from "../icons"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@vite-hub/kit/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/vue/tooltip"
 </script>
 
 <template>
