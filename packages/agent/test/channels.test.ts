@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { encodeRouteSegment, resetPublicUrlAgentNames } from "@vite-hub/runtime"
+import { encodeRouteSegment } from "@vite-hub/runtime"
+import { resetPublicUrlAgentNames } from "@vite-hub/runtime/internal/public-url"
 
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { defineAgent } from "../src/index.ts"
@@ -843,6 +844,42 @@ describe("agent channels", () => {
     }
   })
 
+  it("uses the GitHub Actions bot when the user response has no login", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({})
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "github-actions[bot]" } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GITHUB_TOKEN", "actions-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "actions-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-no-login", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-no-login" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("does not treat a user token as the GitHub Actions bot", async () => {
     const { github } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -1550,8 +1587,9 @@ describe("agent channels", () => {
       "Follow the scope of the request. For review-only requests, report findings without making changes.",
       "When changes are requested:",
       "- Address unresolved review comments. Resolve threads when fixed, already addressed, or not worth changing, with a brief reason for dismissing a finding.",
-      "- Make sure CI is green.",
-      "- Resolve merge conflicts using the resolving-merge-conflicts skill when available.",
+      "- Run the project's local checks for your changes before you push.",
+      "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish.",
+      "- Resolve merge conflicts with the vitehub-resolving-merge-conflicts skill.",
       "",
       "Request: /review please",
     ].join("\n"))
@@ -1578,6 +1616,30 @@ describe("agent channels", () => {
   })
 
   it.each([
+    { ci: undefined, expected: ["- Run the project's local checks for your changes before you push.", "- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish."], absent: "wait for hosted CI. Fix failures" },
+    { ci: "report" as const, expected: ["- Do not wait for hosted CI. After you push, report the hosted checks that are still pending, then finish."], absent: "wait for hosted CI. Fix failures" },
+    { ci: "wait" as const, expected: ["- After you push, wait for hosted CI. Fix failures until all checks pass."], absent: "Do not wait for hosted CI" },
+  ])("tells PR runs how to treat hosted CI with ci: $ci", async ({ ci, expected, absent }) => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: { fetch: async () => Response.json({}) },
+      pullRequest: { ...(ci ? { ci } : {}), reply: false },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    // SAFETY: This fixture supplies the callback fields consumed by the webhook trigger.
+    const result = await trigger.invoke({
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    } as never, { payload: githubIssueCommentPayload() })
+    if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    for (const line of expected) expect(result.input.prompt).toContain(line)
+    expect(result.input.prompt).not.toContain(absent)
+    expect(result.input.prompt).not.toContain("Make sure CI is green.")
+  })
+
+  it.each([
     { workspace: false as const, location: "No repository checkout is provided by this channel." },
     { workspace: true as const, location: "The repository checkout is mounted at the workspace root." },
     { workspace: { mount: "repos/app" }, location: "The repository checkout is mounted at `repos/app/`; work inside that checkout." },
@@ -1598,6 +1660,11 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
     expect(result.input.prompt).toContain(location)
     expect(result.input.prompt).toContain("The pull request head is commit head-sha on branch feature.")
+    // The Skill is installed only with the pull request Workspace.
+    expect(result.input.prompt).toContain(workspace === false
+      ? "- Resolve merge conflicts. Keep the intent of both sides, run the checks, and finish the merge or rebase. Do not abort it."
+      : "- Resolve merge conflicts with the vitehub-resolving-merge-conflicts skill.")
+    expect(channel.capabilities?.some(capability => capability.id === "github-pull-request-skills")).toBe(workspace !== false)
     expect(result.input.prompt).not.toContain("Your checkout has commit")
     expect(result.input.prompt).toContain("For review-only requests, report findings without making changes.")
     if (workspace === false) expect(result.input.prompt).not.toContain("The repository checkout is mounted")

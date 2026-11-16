@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs/promises";
-import { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, readGitHubAppEnvironment } from "../src/babysitter/host.ts";
+import { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, ensureBabysitterLabels, readGitHubAppEnvironment } from "../src/babysitter/host.ts";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -46,6 +46,49 @@ it("normalizes escaped PEM newlines from host environment secrets", async () => 
   await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ appId: 123, installationId: 456, privateKey: pem });
 });
 
+it("fails on a fixed installation without its owner", async () => {
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "key");
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "456");
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "");
+  await expect(readGitHubAppEnvironment()).rejects.toMatchObject({ code: "FORGE_INVALID_ENV", why: expect.stringContaining("VITEHUB_GITHUB_INSTALLATION_ID needs VITEHUB_GITHUB_APP_OWNER") });
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "");
+  vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", "{\"Acme\":\"7\"}");
+  await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ installations: { acme: 7 } });
+  vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", "[7]");
+  await expect(readGitHubAppEnvironment()).rejects.toMatchObject({ code: "FORGE_INVALID_ENV" });
+});
+
+it("names a missing webhook secret at startup with the App settings present", async () => {
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "key");
+  vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "");
+  await expect(readGitHubAppEnvironment({}, { webhookSecret: true })).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_ENV_MISSING", message: expect.stringContaining("without VITEHUB_GITHUB_WEBHOOK_SECRET.") });
+  vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "secret");
+  await expect(readGitHubAppEnvironment({}, { webhookSecret: true })).resolves.toMatchObject({ appId: 123 });
+});
+
+it("creates the filter labels that a repository lacks", async () => {
+  const requests: string[] = [];
+  const github = {
+    async forge({ repository }: { repository?: string }) {
+      if (repository === "acme/down") throw new Error("no installation");
+      return {
+        async request(method: string, path: string, { body }: { body: { name: string } }) {
+          requests.push(`${method} ${path} ${body.name}`);
+          if (body.name === "babysitter:skip" && repository === "acme/app") throw Object.assign(new Error("exists"), { status: 422 });
+          return {};
+        },
+      };
+    },
+  } as unknown as Parameters<typeof ensureBabysitterLabels>[0];
+  await expect(ensureBabysitterLabels(github, ["acme/app", "acme/other", "acme/down"], ["babysitter:skip"])).resolves.toEqual({
+    created: ["acme/other:babysitter:skip"],
+    failed: ["acme/down:babysitter:skip"],
+  });
+  expect(requests).toEqual(["POST /repos/acme/app/labels babysitter:skip", "POST /repos/acme/other/labels babysitter:skip"]);
+});
+
 it("refuses to remove a replaced or symlinked checkout root", async () => {
   const dataDir = await mkdtemp(join(tmpdir(), "vitehub-babysitter-host-safe-"));
   roots.push(dataDir);
@@ -70,13 +113,30 @@ it("cleans only the owning process host pool before reading credentials", async 
   vi.stubEnv("VITEHUB_GITHUB_APP_ID", "");
   vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "");
   vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY_PATH", "");
+  vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "");
   // Cleanup runs before credentials and before process state is accessed.
   await expect(createBabysitterProcessHost({
     agent: { options: { filter: { repository: { allow: ["acme/repo"] } }, concurrency: 1 } },
     dataDir,
-  } as Parameters<typeof createBabysitterProcessHost>[0])).rejects.toThrow("needs a GitHub App");
+  } as Parameters<typeof createBabysitterProcessHost>[0])).rejects.toMatchObject({
+    code: "PRESETS_BABYSITTER_ENV_MISSING",
+    message: expect.stringContaining("VITEHUB_GITHUB_APP_ID, VITEHUB_GITHUB_PRIVATE_KEY (or VITEHUB_GITHUB_PRIVATE_KEY_PATH), VITEHUB_GITHUB_WEBHOOK_SECRET"),
+  });
   await expect(stat(pool)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readFile(join(sibling, "state.db"), "utf8")).toBe("keep");
+});
+
+it("starts without a repository allow list and reaches the GitHub App setup", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "vitehub-babysitter-installations-"));
+  roots.push(dataDir);
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY_PATH", "");
+  // Without `repository.allow` the host serves the App's installed repositories, so it needs the App, not a list.
+  await expect(createBabysitterProcessHost({
+    agent: { options: { filter: { repository: { deny: ["acme/private"] } }, concurrency: 1 } },
+    dataDir,
+  } as Parameters<typeof createBabysitterProcessHost>[0])).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_ENV_MISSING", message: expect.stringContaining("VITEHUB_GITHUB_APP_ID") });
 });
 
 it("preserves a replacement swapped in before claiming the pool", async () => {

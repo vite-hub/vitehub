@@ -16,6 +16,8 @@ export interface ProcessScheduleWake {
 export interface ProcessWakeContext {
   /** Newest cron-triggered run time, `undefined` when none exists, or `"unknown"` to check the full catch-up window when legacy history is inconclusive. */
   latestScheduledAt?(scheduleId: string): Promise<Date | "unknown" | undefined>
+  /** Occurrences held by another process or awaiting a lease-store retry. */
+  retries?(): readonly ProcessScheduleWake[]
   reportError(error: unknown): void
   wake(input: ProcessScheduleWake): Promise<void>
 }
@@ -30,7 +32,7 @@ export interface ProcessWakeDriver {
 const minuteMs = 60_000
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
-const DEFAULT_CATCH_UP_MS = 60 * 60_000
+export const DEFAULT_CATCH_UP_MS = 60 * 60_000
 
 function validateDriverOptions(options: ProcessWakeDriverOptions): { catchUpMs: number, concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
@@ -103,6 +105,8 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   function take(): ProcessScheduleWake | undefined {
     for (const [key, input] of queued) {
       queued.delete(key)
+      // Completion markers outlast this window. Old queued work must not run after its marker can expire.
+      if (input.scheduledAt.getTime() < floorUTCMinute(now()) - catchUpMs) continue
       return input
     }
     return undefined
@@ -159,7 +163,7 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   }
 
   /** Queues occurrences that are not queued or running yet, then starts free workers. The current minute dispatches each Schedule once. */
-  function enqueue(due: readonly ProcessScheduleWake[], currentMinute: number): void {
+  function enqueue(due: readonly ProcessScheduleWake[], currentMinute: number, retries: readonly ProcessScheduleWake[] = []): void {
     if (closing) return
     // A wall-clock correction can move the process into an earlier minute. Do not
     // reset the per-minute deduplication state, or that minute may run twice when
@@ -175,6 +179,12 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
       }
       queued.set(key, input)
     }
+    for (const input of retries) {
+      const key = occurrenceKey(input)
+      const schedule = schedules.get(input.scheduleId)
+      if (!schedule || queued.has(key) || active.has(key) || !isScheduleDue(schedule, input.scheduledAt)) continue
+      queued.set(key, input)
+    }
     occurrenceMinute = currentMinute
     scannedThrough = Math.max(scannedThrough ?? currentMinute, currentMinute)
     startWorkers()
@@ -186,7 +196,8 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     const first = scannedThrough === undefined
       ? currentMinute
       : Math.min(currentMinute, Math.max(scannedThrough + minuteMs, currentMinute - catchUpMs))
-    enqueue(dueOccurrences(schedules.values(), first, currentMinute), currentMinute)
+    // Claims can be held, or the store unavailable, after the scan advances. Retry those occurrences on later scans.
+    enqueue(dueOccurrences(schedules.values(), first, currentMinute), currentMinute, context.retries?.() ?? [])
   }
 
   // After a restart, dispatch the minutes that no process checked: those after each Schedule's

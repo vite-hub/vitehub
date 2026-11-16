@@ -1,0 +1,82 @@
+/* Layout of the fixture page and of the helpers that the ui-sdk examples use. Not part of the style family. */
+body {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.fixture {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+}
+
+.fixture > section {
+  min-width: 0;
+  padding: 1.25rem;
+  box-shadow: inset -1px -1px 0 var(--border);
+}
+
+.fixture > section[data-part="waterfall"] {
+  grid-column: 1 / -1;
+}
+
+.fixture > section > h2 {
+  margin: 0 0 0.75rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+[data-part="scroll-area"] [data-slot="scroll-area"] {
+  height: 14rem;
+}
+
+[data-slot="stack"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+[data-slot="row"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+[data-slot="grid"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+[data-slot="hint"] {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+[data-slot="card"] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+}
+
+[data-slot="card"] h3 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+[data-slot="grip"] {
+  align-self: center;
+  width: 2.5rem;
+  height: 0.25rem;
+  margin-top: -0.75rem;
+  border-radius: 9999px;
+  background: var(--input);
+}

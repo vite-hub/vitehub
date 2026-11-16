@@ -31,7 +31,7 @@ const blob = {
   async get(pathname) { const bytes = objects.get(pathname); return [undefined, bytes ? new Blob([bytes]) : null] },
   async head(pathname) { const bytes = objects.get(pathname); return [undefined, bytes ? object(pathname, bytes) : null] },
   async put(pathname, body) { const bytes = new Uint8Array(await new Response(body).arrayBuffer()); objects.set(pathname, bytes); return [undefined, object(pathname, bytes)] },
-  async del(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
+  async delete(pathnames) { for (const pathname of [pathnames].flat()) objects.delete(pathname); return [undefined, undefined] },
   async list({ prefix = "" } = {}) { return [undefined, { blobs: [...objects].filter(([key]) => key.startsWith(prefix)).map(([key, bytes]) => object(key, bytes)), hasMore: false }] },
 }
 const database = drizzle({ client: createClient({ url: "file:" + process.env.CONTENT_FIXTURE_DATABASE }) })

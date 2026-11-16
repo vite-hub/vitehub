@@ -8,11 +8,9 @@ import type { ViteHubContext } from "@vite-hub/runtime"
 
 const bindings = { STANDARD_CONTEXT_TOKEN: "request-token", VITEHUB_SECRET: "request-root-secret-at-least-32-characters" }
 
-function requestEvent(version: number): ViteHubContext {
+function requestEvent(): ViteHubContext {
   const context = { cloudflare: { env: bindings } }
-  const event = version === 1
-    ? { context, node: { req: { headers: { host: "example.test" }, async *[Symbol.asyncIterator]() {} }, res: {} } }
-    : { context, req: new Request("https://example.test/"), res: { headers: new Headers() } }
+  const event = { context, req: new Request("https://example.test/"), res: { headers: new Headers() } }
   // H3's event type is augmented, but a standalone app has not installed the property yet.
   return event as never
 }
@@ -22,15 +20,15 @@ function registry() {
 }
 
 describe("Server Env Standard Context", () => {
-  it.each([1, 2])("installs Standard Context for an H3 %i event before reading bindings", async (version) => {
-    const event = requestEvent(version)
+  it("installs Standard Context for an H3 event before reading bindings", async () => {
+    const event = requestEvent()
     expect(event).not.toHaveProperty("~standard")
     expect(resolveServerEnv(registry(), event)).toEqual({ token: "request-token" })
     expect(event["~standard"].runtime?.cloudflare?.env).toBe(bindings)
-    await expect(loadServerEnv(registry(), requestEvent(version))).resolves.toEqual({ token: "request-token" })
-    await expect(inspectServerEnv(registry(), requestEvent(version))).resolves.toMatchObject({ entries: [{ status: "available" }] })
-    await expect(deriveSecret("test:context", requestEvent(version))).resolves.toBe(
-      await deriveSecret("test:context", cloudflareRequest(bindings)),
+    await expect(loadServerEnv(registry(), requestEvent())).resolves.toEqual({ token: "request-token" })
+    await expect(inspectServerEnv(registry(), requestEvent())).resolves.toMatchObject({ entries: [{ status: "available" }] })
+    await expect(deriveSecret("test:context", { event: requestEvent() })).resolves.toBe(
+      await deriveSecret("test:context", { event: cloudflareRequest(bindings) }),
     )
   })
 

@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -34,18 +35,26 @@ export function withAgentToolJsonSchema<TSchema extends AgentToolSchema>(schema:
   const converts = Object.hasOwn(standard, "jsonSchema") && Boolean((standard as Partial<StandardJSONSchemaV1["~standard"]>).jsonSchema)
   // SAFETY: Valibot exposes async metadata; ownership is checked before reading this optional field.
   if (!converts && standard.vendor === "valibot" && Object.hasOwn(schema, "async") && (schema as { async?: unknown }).async === true) {
-    throw new Error("[vitehub] Async Valibot Agent tool schemas cannot be converted to JSON Schema.")
+    throw agentDiagnostics.AGENT_TOOL_SCHEMA_ASYNC_VALIBOT()
   }
   // SAFETY: The own `~standard` marker above makes this branch of AgentToolSchema a Standard Schema.
   return withValibotJsonSchema(schema as TSchema & StandardSchemaV1, { target: "draft-07" })
+}
+
+/** The JSON Schema inside an AI SDK `jsonSchema()` wrapper, such as the input schema of an MCP client tool. */
+function aiSdkJsonSchema(schema: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!Reflect.get(schema, Symbol.for("vercel.ai.schema"))) return
+  const jsonSchema: unknown = Reflect.get(schema, "jsonSchema")
+  return isRuntimeRecord(jsonSchema) ? jsonSchema : undefined
 }
 
 export function agentToolJsonSchema(schema: AgentToolSchema | undefined, direction: "input" | "output"): Record<string, unknown> | undefined {
   if (!schema) return
   const normalized = withAgentToolJsonSchema(schema)
   if (!Object.hasOwn(normalized, "~standard") || !normalized["~standard"]) {
-    // SAFETY: The alternate AgentToolSchema branch is a JSON Schema object.
-    return normalized as Record<string, unknown>
+    // SAFETY: The alternate AgentToolSchema branch is a JSON Schema object or an AI SDK schema wrapper.
+    const schemaObject = normalized as Record<string, unknown>
+    return aiSdkJsonSchema(schemaObject) ?? schemaObject
   }
   // SAFETY: The own Standard Schema marker is checked above; optional conversion metadata is checked below.
   const standard = (normalized as JsonStandardSchema)["~standard"]

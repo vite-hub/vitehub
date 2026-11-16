@@ -17,7 +17,7 @@ it.each(["node-worker", "miniflare"] as const)("writes Content declarations on t
     await mkdir(join(root, "server"))
     await writeFile(join(root, "server/content.ts"), `
       import { defineContent } from "vite-hub/content"
-      export default defineContent({ sources: {
+      export default defineContent({ access: "public", sources: {
         docs: { async items() { return [{ key: "about.md", content: "---\\ntitle: About\\n---\\n" }] } },
       } })
     `)

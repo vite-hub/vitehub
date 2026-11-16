@@ -201,9 +201,14 @@ describe("container Sandbox runtime", () => {
     try {
       const controller = new AbortController();
       const child = await session.spawn!("sh", ["-c", "sleep 1; true"], { signal: controller.signal });
-      if (action === "kill") await child.kill();
-      else controller.abort();
-      expect((await child.wait()).code).not.toBe(0);
+      if (action === "kill") {
+        await child.kill();
+        expect((await child.wait()).code).not.toBe(0);
+      } else {
+        const reason = new Error("cancel spawn");
+        controller.abort(reason);
+        await expect(child.wait()).rejects.toBe(reason);
+      }
       // Even abort must wait for the remote signal command, rather than only killing the CLI.
       const calls = await fake.calls();
       expect(calls.filter(call => call.argv[0] === "signal-result").at(-1)?.argv[1]).toBe("0");

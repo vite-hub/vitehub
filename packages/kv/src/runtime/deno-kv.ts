@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -124,7 +125,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      if (disposed) throw new Error("KV storage has been disposed.")
+      invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
@@ -138,7 +139,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           cursorHistories.complete(cursor)
           return { keys }
         }
-        if (disposed) throw new Error("KV storage has been disposed.")
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
         }

@@ -51,9 +51,9 @@ The decision is stored under the Capability id in the Invocation Context and exp
 
 ## Choose identity
 
-The Agent chooses the identity, not the driver. The default `identity: 'auto'` uses the Agent Invoker (the caller), then Agent Run metadata, then trusted IP headers, then an anonymous identity.
+The Agent chooses the identity, not the driver. The default `identity: 'auto'` uses the Agent Invoker (the caller) when the caller has an identity. For an anonymous caller, it uses Agent Run metadata (the thread or channel), then trusted IP headers. Anonymous callers with neither share one budget.
 
-Use `identity: 'invoker'` when authentication gives a stable Invoker. Use `identity: 'ip'` only after you name headers that the host sets and cleans.
+Use `identity: 'invoker'` when authentication gives a stable Invoker. Use `identity: 'ip'` only after you name headers that the host sets and cleans. Only `auto` and `ip` read `trustedIpHeaders`. With another identity, or with `ip` and no headers, `rateLimit()` throws `AGENT_R0161`.
 
 ```ts [server/agents/public-support.ts] fragment
 rateLimit({
@@ -101,7 +101,7 @@ A custom driver must implement an atomic `consume()`. ViteHub has no generic KV 
 | `id` | `string` | `"rate-limit"` | Capability id and Invocation Context key. |
 | `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity for the private key. |
 | `scope` | `string \| function` | Capability id | Extra key part. |
-| `trustedIpHeaders` | `string[]` | none | Host-set headers allowed for IP identity. |
+| `trustedIpHeaders` | `string[]` | none | Host-set headers for IP identity. Only `auto` and `ip` read them. |
 | `message` | `string \| function` | default rejection message | Error message on rejection. |
 | `onDecision` | `function` | none | Callback after every decision. |
 | `onAllowed` | `function` | none | Callback after an allowed decision. |

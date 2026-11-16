@@ -14,23 +14,25 @@ pnpm vitehub secret generate
 
 Save the output as `VITEHUB_SECRET` on the host (`openssl rand -base64 32` also works). It needs at least 32 characters. Use a different one per deployment.
 
-In a Nuxt app, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set. ViteHub uses its own salt, so its secrets never match the ones from Nuxt's `deriveSecret()`.
+ViteHub reads only `VITEHUB_SECRET`, not `NUXT_APP_SECRET`, so a Nuxt application sets `VITEHUB_SECRET` too. ViteHub derives with its own salt, so the same root never produces the same secret as Nuxt's `deriveSecret()`.
 
 ## Derive a secret
 
 ```ts [server/utils/session.ts]
-import { deriveSecret } from '#vitehub/env/server'
+import { deriveSecret } from 'vite-hub/env'
 
 export async function sessionPassword() {
   return await deriveSecret('my-app:session')
 }
 ```
 
-`deriveSecret(purpose)` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. Each purpose gets its own result, stable until the root secret changes. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+`deriveSecret(purpose, { event, root })` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. The result is stable while the root secret is unchanged, and it is different for every purpose. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+
+Both options are optional. On Cloudflare, pass the request event, as in `deriveSecret('my-app:session', { event })`, so ViteHub reads `VITEHUB_SECRET` from the Worker bindings of that request. Pass `root` to derive from another root secret than `VITEHUB_SECRET`.
 
 | Failure | Error code |
 | --- | --- |
-| `VITEHUB_SECRET` and `NUXT_APP_SECRET` are not set | `ENV_REQUIRED_MISSING` |
+| `VITEHUB_SECRET` is not set | `ENV_REQUIRED_MISSING` |
 | The root secret is shorter than 32 characters | `ENV_RUNTIME_VALUE_INVALID` |
 
 `vitehub secret derive <purpose>` prints the same value from `VITEHUB_SECRET` in your shell. It does not load the project.
@@ -73,11 +75,34 @@ export async function readTicket(ticket: string) {
 | `ENV_SEAL_EXPIRED` | The `ttl` has passed. |
 | `ENV_SEAL_INVALID` | The string is not a sealed value, someone changed it, or another root secret sealed it. |
 | `ENV_SEAL_SCHEMA_MISMATCH` | The value opened, but it does not match `schema`. `error.cause` has the schema issues. |
+| `ENV_SEAL_USED_UP` | The value was sealed with `uses`, and every use is taken. |
 | `ENV_SEAL_WRONG_PURPOSE` | The value was sealed for another purpose. |
 
 A missing root secret is a configuration error, so `seal()` and `unseal()` throw `ENV_REQUIRED_MISSING`, as `deriveSecret()` does. A bad argument, such as an empty purpose, a `ttl` that is not a positive number, or a value that is not JSON, throws `ENV_SEAL_ARGUMENT_INVALID`.
 
-`seal()` and `unseal()` from `vite-hub/env` read `VITEHUB_SECRET` or `NUXT_APP_SECRET`. `#vitehub/env/server` exports the same two functions, and they also read the [development secret](#development) that ViteHub generates when neither is set.
+`seal()` and `unseal()` from `vite-hub/env` read `VITEHUB_SECRET`. `#vitehub/env/server` exports the same two functions, and they also read the [development secret](#development) that ViteHub generates when it is not set.
+
+### Single-use values
+
+Pass `uses` and a `db` to make a share link that opens once, or N times, and then is gone. Pass the same `db` to `unseal()`:
+
+```ts [server/api/share/[token].get.ts]
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
+import { db } from 'vite-hub/database'
+import { unseal } from 'vite-hub/env'
+
+// Create the link elsewhere: await seal('my-app:share', { apiKey }, { uses: 1, ttl: 3600, db })
+export default defineEventHandler(async (event) => {
+  const [error, shared] = await unseal('my-app:share', getRouterParam(event, 'token')!, { db })
+  if (error) throw new HTTPError({ status: 410, message: error.why })
+  return shared
+})
+```
+
+- **Atomic.** Each read takes one use with one conditional `UPDATE`. Of two reads of the last use, on any instances, one gets the value and the other gets `ENV_SEAL_USED_UP`.
+- **No values in the database.** The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry.
+- **Database.** `db` is a SQLite, libSQL, or D1 Drizzle database, such as `db` from `vite-hub/database`. KV cannot take a use atomically, so it does not work here.
+- **Failed reads keep their uses.** A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
 
 ### Sealed values that you store
 
@@ -112,7 +137,7 @@ export async function readCredentials(stored: string, secret: string) {
 
 ## Development
 
-When the Vite dev server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite dev server starts without `VITEHUB_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
 Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at the first derivation, not at build.
 
@@ -120,7 +145,7 @@ Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at 
 
 When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
 
-Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`. Give `seal()` a separate `secret` for stored values for the same reason.
+Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKeys`. Give `seal()` a separate `secret` for stored values for the same reason.
 
 > [!WARNING]
 > Anyone with the root secret can derive every secret above, including Auth session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.

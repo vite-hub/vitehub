@@ -32,11 +32,13 @@ if (error) {
 
 `Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with [`defineErrors()`](/docs/runtime/errors) from `vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
-A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics 1.3 requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+
+A catalog checks its own errors. `errors.is(error)` accepts any code of the catalog, and `errors.CODE.is(error)` accepts one code. Both narrow `code` and `data`, and both accept an error from another bundled copy or realm. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 ## Diagnostic codes
 
-Packages that follow the error contract use named codes: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Other packages still use numbered codes:
+New codes use names: `<PACKAGE>_<NAME>`, such as `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Codes that a package published with a number keep it:
 
 | Format | Catalog group |
 | --- | --- |
@@ -78,6 +80,12 @@ Packages that do not follow the error contract yet keep the `ViteHubError` contr
 
 Use an operational code to choose what your app does. Use a Nostics code to find and fix ViteHub config, build, or runtime code.
 
+<a id="durability"></a>
+
+## Durability diagnostics
+
+A Node server throws `RUNTIME_R0017` at boot when `VITEHUB_INSTANCES` or `node.instances` is greater than 1 and a primitive keeps its state in one process or on one host. The message lists each primitive with its fix. Move each one to a shared store, or run one instance. `RUNTIME_R0018` means that the instance count is not a positive integer. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances).
+
 ## Agent diagnostics
 
 Agent config, build, and runtime defects use `AGENT_C####`, `AGENT_B####`, and `AGENT_R####`. Your own tools can use their own Nostics catalog:
@@ -98,6 +106,8 @@ throw errors.SEARCH_INDEX_MISSING()
 ```
 
 Add `nostics` as a direct dependency to use it. Omit reporters for throw-only catalogs. ViteHub formats the error where it is reported.
+
+Check your own errors with `errors.SEARCH_INDEX_MISSING.is(error)`, or `errors.is(error)` for any code of the catalog. These Nostics guards check that this catalog created the error, so they reject an error from another bundled copy of `nostics`. Log a diagnostic with `createConsoleReporter()` from `nostics` to print its `cause` too; `formatDiagnostic()` leaves the cause out.
 
 AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports, and CLI output keep the code and fix, without causes or stacks.
 
@@ -137,7 +147,7 @@ i18n uses `AGENT_C0014` for invalid `i18n()` options, and `AGENT_R0104` when the
 
 Forge uses `AGENT_C0011` for invalid options. `AGENT_R0941` to `AGENT_R0945` cover credentials, repository access, context, requests, and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
-The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
+The `gitlab()` and `forgejo()` Channels use `AGENT_FORGE_WEBHOOK_SECRET_MISSING` for a missing webhook secret, `AGENT_FORGE_METADATA_FAILED` and `AGENT_FORGE_EFFECT_FAILED` for failed Forge requests, and other `AGENT_FORGE_*` codes for activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
 
 ## Agent public errors
 
@@ -235,7 +245,7 @@ For Env, read the `ENV_*` code first. Its codes and public messages are fixed:
 Raw labels and diagnostics stay in `cause`, which the serialized shape omits. Errors from custom source resolvers pass through unchanged.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
 pnpm --filter @vite-hub/sandbox test
 ```

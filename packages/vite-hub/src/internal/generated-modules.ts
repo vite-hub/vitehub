@@ -14,6 +14,8 @@ export const generatedModules = {
   consoleDocuments: ownModule(import.meta.url, "console/runtime/server/documents"),
   consoleEnv: ownModule(import.meta.url, "console/runtime/server/env"),
   consoleOperations: ownModule(import.meta.url, "console/runtime/server/operation-contributions"),
+  consolePageAuth: ownModule(import.meta.url, "console/runtime/server/page-auth"),
+  consolePageTool: ownModule(import.meta.url, "console/runtime/server/page-tool"),
   consoleSections: ownModule(import.meta.url, "console/runtime/server/sections"),
   consoleSetup: ownModule(import.meta.url, "console/runtime/server/setup"),
 }

@@ -262,7 +262,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
                 abortSignal: bootstrapSignal,
                 command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
               })
-              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0099({ message: "Git command failed." })
+              if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0120({ message: `[vitehub] Sandbox checkout Git command exited with code ${result.exitCode}.` })
               return { stdout: result.stdout }
             },
           })
@@ -1162,7 +1162,10 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
     // SAFETY: child-process stdout yields Buffer chunks, which are Uint8Array values.
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     wait: () => wait,
-    async kill() {
+    async kill(signal?: string) {
+      // kill() signals the local Crabbox CLI with SIGTERM. The CLI does not forward a chosen signal to the remote command.
+      if (signal !== undefined && signal.toUpperCase().replace(/^SIG/, "") !== "TERM")
+        throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Crabbox", signal: String(signal) })
       child.kill()
       await wait.catch(() => undefined)
     },

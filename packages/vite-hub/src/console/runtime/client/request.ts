@@ -4,7 +4,7 @@ import { Diagnostic } from "nostics"
 import { consoleRpcHeader } from "../rpc"
 import { projectFetch } from "./project"
 
-import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
+import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode, type ConsoleDiagnosticData } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/_vitehub/api/"
@@ -69,6 +69,9 @@ const textField = (value: unknown): string | undefined =>
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
 export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   const body = record(value)
+  // An Auth guard refusal only has the HTTP phrase as its message. The Console code and sentence of the status say more.
+  const authRefusal = record(body?.data)?.code
+  if (body?.code === undefined && (authRefusal === "SIGNED_OUT" || authRefusal === "FORBIDDEN")) return {}
   const nested = record(body?.error)
   const source = nested ?? body
   const docs = textField(source?.docs)
@@ -130,7 +133,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
-  "env": { booleans: { status: "1" }, operation: "env.get" },
+  "env": { operation: "env.get" },
   "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
@@ -139,6 +142,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "status": { operation: "status.get", strings: ["agent"] },
   "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
+  "workspace-files": { operation: "workspaces.files", strings: ["cursor", "name", "path", "ref", "revision"] },
 }
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -202,15 +206,15 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
     if (call.method === "POST") {
       const { action, ...input } = body
-      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      if (action === "set" || action === "delete") return { input, operation: `kv.${action}` }
       return { input: { ...input, preview: true }, operation: "kv.get" }
     }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
   if (route === "blob" && call.method === "POST") {
-    // The Blob page uploads and deletes through the same route as it lists.
+    // The Blob page uploads, deletes, and opens files through the same route as it lists.
     const { action, ...input } = body
-    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    if (action === "put" || action === "delete" || action === "get") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
   if (route === "rate-limit" && call.method === "POST") {
@@ -231,16 +235,13 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
   return { input: inputFromQuery(known, call.query), operation: known.operation }
 }
 
-/** A fetch failure known to originate at the network boundary. */
-export class ConsoleNetworkError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
-    this.name = "ConsoleNetworkError"
-  }
+/** A fetch failure known to originate at the network boundary: `CONSOLE_UNAVAILABLE` with the message and cause of the fetch error. */
+export function consoleNetworkError(cause: unknown): Diagnostic<ConsoleDiagnosticData> {
+  return Object.assign(consoleDiagnostic("CONSOLE_UNAVAILABLE", cause instanceof Error ? cause.message : "Console network request failed."), { cause })
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
+  if (!(error instanceof ConsoleRequestError)) return error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE"
   const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
   if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
   return transientStatus
@@ -294,7 +295,7 @@ export async function requestConsoleOperation(
       // Aborted requests are intentional (for example when a view unmounts); preserve
       // the original error so callers that ignore AbortError can do so reliably.
       if (error instanceof Error && error.name === "AbortError") throw error
-      throw new ConsoleNetworkError(error)
+      throw consoleNetworkError(error)
     }
     // The clone keeps the body readable for the error of an answer that is not a reply.
     return { body: await response.clone().json().catch(() => undefined), response }

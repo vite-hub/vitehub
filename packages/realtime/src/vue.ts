@@ -3,7 +3,7 @@ import { useUserSession } from "@vite-hub/auth/vue"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
-import { computed, markRaw, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
+import { computed, getCurrentInstance, markRaw, onMounted, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
 import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
@@ -53,8 +53,11 @@ export interface RealtimeResetEvent {
 }
 
 export interface UseRealtimeTiptapOptions {
-  /** Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. */
-  editor?: Pick<RealtimeEditor, "extensions">
+  /**
+   * Editor schema shared with the definition's `editor`. Defaults to the built-in Markdown kit. Its `version` goes with
+   * the connection: when it differs from the server's, the connection is read-only with `readOnlyReason` `version`.
+   */
+  editor?: Pick<RealtimeEditor, "extensions" | "version">
   enabled?: MaybeRefOrGetter<boolean>
   /** Presence identity. Defaults to the ViteHub Auth session; pass `null` for an anonymous guest. */
   identity?: MaybeRefOrGetter<RealtimeUser | null | undefined>
@@ -140,6 +143,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   let connectedDocumentId: string | undefined
   let workspaceChangeTimer: ReturnType<typeof setTimeout> | undefined
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
+  let canConnect = !getCurrentInstance()
 
   function destroyDocument(keepDocument = false, preserveRefresh = false) {
     for (const controller of requestControllers) {
@@ -236,7 +240,12 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   function connect(id: string) {
     const nextDocument = markRaw(new Y.Doc())
     const room = id.split("/").map(encodeURIComponent).join("/")
-    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: {} })
+    const version = options.editor?.version
+    const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, {
+      connect: canConnect,
+      disableBc: true,
+      params: { clientId: String(nextDocument.clientID), ...version === undefined ? {} : { editor: version } },
+    })
     keepRealtimeSocketAlive(nextProvider)
     nextProvider.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       if (provider.value !== nextProvider) return
@@ -283,7 +292,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     connectedDocumentId = id
     document.value = nextDocument
     provider.value = nextProvider
-    status.value = "connecting"
+    if (canConnect) status.value = "connecting"
   }
 
   function reset(id: string, reason: RealtimeResetReason, epoch: string) {
@@ -411,6 +420,14 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     if (!active || !id || typeof window === "undefined") return
     connect(id)
   }, { immediate: true })
+  // Prepare editor extensions in setup, but keep the first render disconnected.
+  if (!canConnect) onMounted(() => {
+    canConnect = true
+    const current = provider.value
+    if (!current) return
+    status.value = "connecting"
+    current.connect()
+  })
 
   watch(enabled, (active) => {
     const current = workspaceProvider.value

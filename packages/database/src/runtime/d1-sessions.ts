@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 

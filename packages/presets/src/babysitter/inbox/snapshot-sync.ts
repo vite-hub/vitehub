@@ -1,8 +1,10 @@
 import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
-import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
+import { type Claim, type PullRequestInbox, type Snapshot, type SnapshotPatch } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
+import { isBabysitterCheckRun } from '../check-run.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
@@ -41,13 +43,13 @@ const envelope = v.object({ data: v.optional(v.unknown()), errors: v.optional(v.
 
 function reviewThreadData(raw: unknown): unknown {
   const response = v.parse(envelope, raw)
-  if (response.errors?.length) throw new Error(`GitHub review thread query failed: ${response.errors.map(error => error.message).join('; ')}`)
+  if (response.errors?.length) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_QUERY_FAILED({ query: 'review thread', errors: response.errors.map(error => error.message).join('; ') })
   return response.data ?? raw
 }
 function nextCursor(connection: { pageInfo: v.InferOutput<typeof pageInfo> }, seen: Set<string>): string | null {
   if (!connection.pageInfo.hasNextPage) return null
   const cursor = connection.pageInfo.endCursor
-  if (!cursor || seen.has(cursor)) throw new Error('Invalid review thread pagination cursor')
+  if (!cursor || seen.has(cursor)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_CURSOR_INVALID({ kind: 'review thread pagination' })
   seen.add(cursor); return cursor
 }
 async function readThreadComments(request: ReadGraphql, id: string) {
@@ -71,7 +73,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const prefix = `repos/${repository}`
   const [raw] = await read(`${prefix}/pulls/${number}`, '.')
   const pr = parsePullRequest(raw)
-  if (!pr.head?.sha) throw new Error('GitHub returned no pull request head.')
+  if (!pr.head?.sha) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_HEAD_MISSING()
   if (pr.state !== 'open') return { pr }
   const readAll = async (path: string, projection?: string) => {
     const items: unknown[] = []
@@ -92,7 +94,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
-    checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
+    checks: Object.fromEntries(checks.map(parseEvidence).filter(c => !isBabysitterCheckRun(c)).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
@@ -101,14 +103,24 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<boolean> {
   const { snapshot: current } = claim
-  if (current.hydrated && !current.refresh && current.pr?.mergeable !== null && current.pr?.mergeable_state !== 'unknown') {
-    if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
-    const threads = await readThreads(current.repository, current.number, signal)
-    return await inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
+  const readAll = async () => {
+    const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors, signal)
+    // CAS keeps an event received while REST requests ran from being overwritten.
+    return await inbox.hydrate(claim, { ...snapshot, refresh: false })
   }
-  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors, signal)
-  // CAS keeps an event received while REST requests ran from being overwritten.
-  return await inbox.hydrate(claim, { ...snapshot, refresh: false })
+  if (!current.hydrated || current.refresh) return await readAll()
+  const patch: SnapshotPatch = {}
+  // Pull request webhooks carry no mergeability; GitHub computes it after the event. Webhooks keep
+  // the evidence lists current, so only the pull request itself needs another read.
+  if (current.pr?.mergeable === null || current.pr?.mergeable_state === 'unknown') {
+    const [raw] = await read(`repos/${current.repository}/pulls/${current.number}`, '.')
+    patch.pr = parsePullRequest(raw)
+    if (patch.pr.head?.sha !== current.pr?.head?.sha) return await readAll()
+  }
+  if (readThreads && (!current.threadsHydrated || current.feedbackRefresh)) {
+    Object.assign(patch, { threads: await readThreads(current.repository, current.number, signal), threadsHydrated: true, feedbackRefresh: false })
+  }
+  return Object.keys(patch).length ? await inbox.hydrate(claim, patch) : true
 }
 
 export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<void> {
@@ -136,7 +148,11 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   if (snapshot.threads) await inbox.refreshThreads(s, snapshot.threads)
   const ingest = async (event: string, payload: GitHubDelivery) => {
     const full = { repository: { full_name: s.repository }, ...payload }
-    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, full])).digest('hex')}`
+    // Reviews and comments embed the whole PR, whose updated_at and mergeability change with any
+    // activity. Hash only its number and head so an unchanged review keeps its delivery ID.
+    const pr = full.pull_request as { number?: number, head?: { sha?: string } } | undefined
+    const identity = event === 'pull_request' || !pr ? full : { ...full, pull_request: { number: pr.number, head: pr.head?.sha } }
+    const id = `reconcile:${createHash('sha256').update(JSON.stringify([event, identity])).digest('hex')}`
     await inbox.ingest(id, event, full)
   }
   await ingest('pull_request', { action: snapshot.pr.state === 'closed' ? 'closed' : 'synchronize', pull_request: snapshot.pr })
@@ -146,12 +162,22 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   for (const comment of Object.values(snapshot.reviewComments ?? {})) await ingest('pull_request_review_comment', { action: 'edited', pull_request: snapshot.pr, comment })
   for (const check_run of Object.values(snapshot.checks ?? {})) await ingest('check_run', { action: check_run.status, check_run })
   for (const status of Object.values(snapshot.statuses ?? {}) ) await ingest('status', { ...status, sha: snapshot.pr.head?.sha })
+  // Workflow runs and check suites come only from webhooks, and the check runs read above do not
+  // replace them. On 2026-11-16 a lost `workflow_run.completed` kept a green PR not merge-ready
+  // after every probe. Read again each one that still runs on the current head.
+  for (const [key, item] of Object.entries(s.checks)) {
+    const kind = key.slice(0, key.indexOf(':'))
+    if ((kind !== 'workflow_run' && kind !== 'check_suite') || item.deleted || item.status === 'completed' || item.head_sha !== snapshot.pr.head?.sha) continue
+    const [fresh] = await read(kind === 'workflow_run' ? `repos/${s.repository}/actions/runs/${item.id}` : `repos/${s.repository}/check-suites/${item.id}`, '.')
+    const evidence = parseEvidence(fresh)
+    await ingest(kind, { action: evidence.status === 'completed' ? 'completed' : String(evidence.status ?? ''), [kind]: evidence })
+  }
 }
 
 const OPEN_PULL_REQUESTS = `query BabysitterOpenPullRequests($owner:String!,$name:String!,$after:String) {
   repository(owner:$owner,name:$name) { pullRequests(states:OPEN,first:50,after:$after) {
     nodes { number title isDraft headRefOid headRefName baseRefName baseRefOid mergeable updatedAt url authorAssociation totalCommentsCount
-      author { login } headRepository { nameWithOwner } labels(first:100) { nodes { name } }
+      author { login __typename } headRepository { nameWithOwner } labels(first:100) { nodes { name } }
       commits(last:1) { nodes { commit { statusCheckRollup { state contexts(first:100) {
         nodes { __typename ... on CheckRun { databaseId status conclusion } ... on StatusContext { context state } }
         pageInfo { hasNextPage } } } } } }
@@ -164,7 +190,7 @@ const openPullRequestSchema = v.object({
   number: v.pipe(v.number(), v.integer(), v.minValue(1)), title: v.nullish(v.string()), isDraft: v.boolean(),
   headRefOid: v.string(), headRefName: v.string(), baseRefName: v.string(), baseRefOid: v.nullish(v.string()),
   mergeable: v.nullish(v.string()), updatedAt: v.string(), url: v.string(), authorAssociation: v.nullish(v.string()), totalCommentsCount: v.nullish(v.number()),
-  author: v.nullish(v.object({ login: v.string() })), headRepository: v.nullish(v.object({ nameWithOwner: v.string() })),
+  author: v.nullish(v.object({ login: v.string(), __typename: v.optional(v.string()) })), headRepository: v.nullish(v.object({ nameWithOwner: v.string() })),
   labels: v.object({ nodes: v.array(v.object({ name: v.string() })) }),
   commits: v.object({ nodes: v.array(v.object({ commit: v.object({ statusCheckRollup: v.nullish(v.object({ state: v.nullish(v.string()), contexts: nodes })) }) })) }),
   latestReviews: nodes, reviewThreads: nodes,
@@ -177,7 +203,7 @@ interface OpenPullRequestConnection { nodes: unknown[]; pageInfo?: { hasNextPage
 export interface OpenPullRequest {
   number: number; title?: string | null; isDraft: boolean; headRefOid: string; headRefName: string; baseRefName: string; baseRefOid?: string | null
   mergeable?: string | null; updatedAt: string; url: string; authorAssociation?: string | null; totalCommentsCount?: number | null
-  author?: { login: string } | null; headRepository?: { nameWithOwner: string } | null; labels: { nodes: Array<{ name: string }> }
+  author?: { login: string; __typename?: string } | null; headRepository?: { nameWithOwner: string } | null; labels: { nodes: Array<{ name: string }> }
   commits: { nodes: Array<{ commit: { statusCheckRollup?: { state?: string | null; contexts: OpenPullRequestConnection } | null } }> }
   latestReviews: OpenPullRequestConnection; reviewThreads: OpenPullRequestConnection
 }
@@ -194,24 +220,36 @@ export function openPullRequestFingerprint(pr: OpenPullRequest): string {
   })).digest('hex')
 }
 
-type PendingChange = { fingerprint: string; retryAt: number }
-const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.number() })
+/**
+ * A PR that change detection marked for a REST probe. `settled` means its checks stopped running or it
+ * closed, so the probe can wake a merge or a repair. `markedAt` keeps the first mark time for ordering.
+ */
+type PendingChange = { fingerprint: string; retryAt: number; settled?: boolean; markedAt?: number }
+const pendingChangeSchema = v.object({ fingerprint: v.string(), retryAt: v.number(), settled: v.optional(v.boolean()), markedAt: v.optional(v.number()) })
+const runningRollup = new Set(['PENDING', 'EXPECTED'])
+
+/** True when the PR's checks stopped running: a lost `check_suite.completed` hides a green or red head. */
+export function openPullRequestChecksSettled(pr: OpenPullRequest): boolean {
+  const state = pr.commits.nodes[0]?.commit.statusCheckRollup?.state
+  return typeof state === 'string' && !runningRollup.has(state)
+}
 // Webhooks can wake the reconciler concurrently. Keep the expensive open-PR
 // snapshot scan single-flight per inbox so each wake cannot reread every large
 // snapshot row before the durable minute gate is observed.
 const changeDetectionInFlight = new WeakSet<PullRequestInbox>()
 
 /**
- * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute.
+ * Reads every open PR of each repository in one GraphQL query per 50 PRs, at most once a minute,
+ * and at most once per 1.5 seconds per repository, so many repositories stay within the GraphQL rate limit.
  * Seeds new PRs and marks PRs whose fingerprint changed, or that closed, for a targeted REST probe.
  * This recovers lost webhook deliveries without probing unchanged PRs.
  */
-export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql: (repository: string) => ReadGraphql, repositories: readonly string[], now: number = Date.now(), allowSeed = true): Promise<void> {
+export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql: (repository: string) => ReadGraphql, repositories: readonly string[], now: number = Date.now(), allowSeed = true, onError?: (repository: string, error: unknown) => void): Promise<void> {
   if (changeDetectionInFlight.has(inbox)) return
   changeDetectionInFlight.add(inbox)
   try {
   if (((await inbox.metaNumber('change-detect-next')) ?? 0) > now) return
-  await inbox.setMeta('change-detect-next', now + 60_000)
+  await inbox.setMeta('change-detect-next', now + Math.max(60_000, repositories.length * 1_500))
   // The summary query already contains every tracked PR. Reuse it for both
   // change detection and the closed-PR sweep instead of issuing one SQLite
   // read per open PR. On a busy inbox this turns an O(open PRs) sequence of
@@ -228,19 +266,19 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
     do {
       const raw = await graphql(repository)(OPEN_PULL_REQUESTS, { owner, name, after })
       const response = v.parse(envelope, raw)
-      if (response.errors?.length) throw new Error(`GitHub open pull request query failed: ${response.errors.map(error => error.message).join('; ')}`)
+      if (response.errors?.length) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_QUERY_FAILED({ query: 'open pull request', errors: response.errors.map(error => error.message).join('; ') })
       const page = v.parse(openPullRequestsSchema, response.data ?? raw).repository.pullRequests
       for (const pr of page.nodes) open.set(pr.number, pr)
       after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor ?? '' : null
-      if (after !== null && (!after || cursors.has(after))) throw new Error('Invalid open pull request cursor')
+      if (after !== null && (!after || cursors.has(after))) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_CURSOR_INVALID({ kind: 'open pull request' })
       if (after) cursors.add(after)
     } while (after)
     // Mark changes only after every page succeeded, so a partial list never looks like closed PRs.
-    const mark = async (number: number, fingerprint: string) => {
+    const mark = async (number: number, fingerprint: string, settled: boolean) => {
       const key = `snapshot-changed:${repository}:${number}`
       const pending = v.safeParse(pendingChangeSchema, await inbox.meta(key))
       if (await inbox.meta(`change-fingerprint:${repository}:${number}`) === fingerprint || pending.success && pending.output.fingerprint === fingerprint) return
-      await inbox.setMeta(key, { fingerprint, retryAt: 0 } satisfies PendingChange)
+      await inbox.setMeta(key, { fingerprint, retryAt: 0, settled, markedAt: pending.success ? pending.output.markedAt ?? now : now } satisfies PendingChange)
     }
     for (const [number, pr] of open) {
       const fingerprint = openPullRequestFingerprint(pr)
@@ -248,7 +286,7 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       // The summary is a point-in-time snapshot. A delivery can insert a row
       // while GraphQL is scanning, so confirm only summary misses before
       // deciding to bootstrap the PR. Existing rows keep the no-read fast path.
-      if (trackedKeys.has(key) || await inbox.get(repository, number)) { await mark(number, fingerprint); continue }
+      if (trackedKeys.has(key) || await inbox.get(repository, number)) { await mark(number, fingerprint, openPullRequestChecksSettled(pr)); continue }
       if (!allowSeed) continue
       // A PR that no delivery reported yet. Seeding applies the filter; the claim hydrates it over REST.
       await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,
@@ -258,11 +296,11 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint)
     }
     // An inbox PR missing from the open list closed or merged.
-    for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed')
-    } catch {
+    for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed', true)
+    } catch (error) {
       // A repository failure must not prevent detection for later repositories.
       // The next interval retries this repository; partial pages are never marked.
-      continue
+      onError?.(repository, error)
     }
   }
 
@@ -271,22 +309,33 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
   }
 }
 
-/** Probes up to `limit` PRs that change detection marked, then records their fingerprints. */
-export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = [], limit = 3): Promise<number> {
+/**
+ * Probes up to `limit` PRs that change detection marked, then records their fingerprints. PRs whose
+ * checks settled or that closed come first, up to `settledLimit`: on 2026-11-16 a third of webhook
+ * deliveries timed out, 43 PRs waited for a probe, and green PRs waited 30 minutes or more while the
+ * probes read PRs whose checks were still running. Older marks come before newer ones.
+ */
+export async function probeChangedSnapshots(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = [], limit = 3, settledLimit = 10): Promise<number> {
   let probed = 0
+  const due: Array<{ key: string; repository: string; number: string; pending: PendingChange }> = []
   for (const [key, value] of await inbox.metaEntries('snapshot-changed:')) {
-    if (probed >= limit) break
     const pending = v.safeParse(pendingChangeSchema, value)
     const [, repository, number] = /^snapshot-changed:(.+):(\d+)$/.exec(key) ?? []
     if (!pending.success || !repository || !number) { await inbox.deleteMeta(key); continue }
-    if (pending.output.retryAt > now) continue
+    if (pending.output.retryAt <= now) due.push({ key, repository, number, pending: pending.output })
+  }
+  due.sort((a, b) => Number(Boolean(b.pending.settled)) - Number(Boolean(a.pending.settled)) || (a.pending.markedAt ?? 0) - (b.pending.markedAt ?? 0))
+  let settled = 0
+  for (const { key, repository, number, pending } of due) {
+    if (pending.settled ? settled >= settledLimit : probed - settled >= limit) continue
     const s = await inbox.get(repository, Number(number))
     if (!s) { await inbox.deleteMeta(key); continue }
     // A failed probe retries later, not on every reconcile tick.
-    await inbox.setMeta(key, { ...pending.output, retryAt: now + 2 * 60_000 } satisfies PendingChange)
+    await inbox.setMeta(key, { ...pending, retryAt: now + 2 * 60_000 } satisfies PendingChange)
     probed++
+    if (pending.settled) settled++
     await probeSnapshot(inbox, read, s, now, readThreads, activityAuthors)
-    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.output.fingerprint)
+    await inbox.setMeta(`change-fingerprint:${repository}:${number}`, pending.fingerprint)
     await inbox.deleteMeta(key)
   }
   return probed

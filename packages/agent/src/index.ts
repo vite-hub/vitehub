@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import "./channel-extensions.ts"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
@@ -12,7 +13,6 @@ import { readDiscoveredAgentIdentity, readDiscoveredAgentName } from "./internal
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
-import { Diagnostic } from "nostics"
 import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
@@ -24,7 +24,7 @@ import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./i
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
-import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule, loadInstalledAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
 import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
@@ -52,7 +52,7 @@ import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agent-run.ts"
 import { agentRunError, type AgentErrorCode } from "./run-errors.ts"
 import type { Result } from "@vite-hub/runtime"
-import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, observeAgentWorkspaceRevision, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
@@ -86,7 +86,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -270,11 +270,14 @@ import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
 
 export { agentInvocationId, agentInvocationRerunInput } from "./invocations.ts"
+export { invocationPageChanges } from "./invocations/page-changes.ts"
+export type { InvocationPageApproval, InvocationPageChange } from "./invocations/page-changes.ts"
 
 export type {
   AgentInvocationAnnotationValue,
   AgentInvocationCancelResult,
   AgentInvocationDeleteOutcome,
+  AgentInvocationGetOptions,
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
@@ -537,6 +540,9 @@ export type {
   AgentToolTransform,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
+  AgentCloudflareStateProviderOptions,
+  AgentMemoryStateProviderOptions,
+  AgentSqlStateProviderOptions,
   AgentStateProviderOptions,
   AgentTelemetry,
   AgentTelemetryContentOptions,
@@ -575,6 +581,7 @@ export type {
   CodexDriverOptions,
   CodexReasoningEffort,
   CodexReasoningSummary,
+  CodexWorkspaceWriteAccess,
   CustomAgentDriver,
   DiscoveredAgentDefinition,
   MaybePromise,
@@ -802,6 +809,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 interface AgentWorkflowRun<TOutput = unknown> {
+  error?: { code?: string, message: string, name?: string }
   id: string
   metadata?: unknown
   payload?: unknown
@@ -1108,8 +1116,8 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
   await loadAgentHost()
   const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
-    if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-    throw new Error("Could not acquire the Invocation execution claim.")
+    if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+    throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
   }
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   if (!journal.createdNew) {
@@ -1121,42 +1129,45 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
       // even when legacy metadata cannot show whether dispatch was accepted.
       if (!canDispatchAgentWorkflow(binding, context)) {
         if (binding || dispatch) {
-          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw new AgentInvocationClaimConflict()
-          throw new AgentInvocationClaimConflict()
+          if (dispatch && await journal.confirmWorkflowDispatch(dispatch)) throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+          throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
         }
         return journal
       }
       const workflowName = resolveAgentWorkflowName(agent, binding, context)
-      const recoveryConfig = (await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig()
+      const recoveryState = "discoveryDefault" in binding
+        ? await loadInstalledAgentWorkflowRuntimeStateModule()
+        : await loadAgentWorkflowRuntimeStateModule()
+      const recoveryConfig = recoveryState ? recoveryState.getWorkflowRuntimeConfig() : false
       // Discovery-default agents fall back to inline execution when Workflow
-      // is disabled. There is no provider run to inspect in this case, so keep
+      // is disabled or not installed. There is no provider run to inspect in this case, so keep
       // the claimed reservation for the inline retry path.
       if (recoveryConfig === false && "discoveryDefault" in binding) return journal
       const handle = await getAgentWorkflowHandle<TRuntimeConfig, unknown, unknown>(agent, workflowName, hostDiscovered(context))
       // Legacy reservations lack dispatch intent and may already have been accepted.
-      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw new AgentInvocationClaimConflict()
+      if (!dispatch && recoveryConfig && recoveryConfig.provider === "vercel") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       if (dispatch && (dispatch.provider !== (recoveryConfig && recoveryConfig.provider) || dispatch.name !== workflowName)) {
-        throw new Error("Workflow dispatch identity changed; replay cannot safely submit this Invocation again.")
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch identity changed" })
       }
       if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
         if (!dispatch.id) {
-          throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
+          throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch acknowledgement is unknown" })
         }
       }
       const providerId = (recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.provider === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
       const accepted = await handle.getRun(providerId)
       if (accepted.status !== "unknown") {
-        if (!await journal.confirmWorkflowDispatch()) throw new Error("Could not confirm the accepted Workflow Invocation.")
-        throw new AgentInvocationClaimConflict()
+        if (!await journal.confirmWorkflowDispatch()) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the accepted Workflow Invocation" })
+        throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
       }
       // A missing marker is ambiguous for legacy reservations. Only an explicit
       // false means the provider call was never attempted; an attempted or
       // unknown marker must stay pending until the provider can be reconciled.
       if (await journal.getWorkflowDispatchAttempted() !== false) {
-        throw new Error("Workflow dispatch acknowledgement is unknown; replay cannot safely submit this Invocation again.")
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "Workflow dispatch acknowledgement is unknown" })
       }
       if ((recoveryConfig && recoveryConfig.provider) === "vercel" && dispatch) {
-        throw new Error("The acknowledged Workflow run is unavailable; replay cannot safely submit this Invocation again.")
+        throw agentDiagnostics.AGENT_WORKFLOW_REPLAY_UNSAFE({ reason: "The acknowledged Workflow run is unavailable" })
       }
     } catch (error) {
       await journal.releaseClaim()
@@ -1194,8 +1205,8 @@ async function runAgentAsWorkflow<
         })
       : undefined
     if (journal?.claimStatus !== "owned") {
-      if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-      throw new Error("Could not acquire the Invocation execution claim.")
+      if (journal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+      throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     replayJournal = journal
     replayReserved = true
@@ -1219,9 +1230,12 @@ async function runAgentAsWorkflow<
       console.error(new AggregateError([error, journalError], "[vitehub] Agent Workflow preparation and invocation journaling failed."))
     }
   }
-  let workflowRuntimeState: Awaited<ReturnType<typeof loadAgentWorkflowRuntimeStateModule>>
+  let workflowRuntimeState: Awaited<ReturnType<typeof loadInstalledAgentWorkflowRuntimeStateModule>>
   try {
-    workflowRuntimeState = await loadAgentWorkflowRuntimeStateModule()
+    // A discovered Agent uses Workflow only when the app installs it. agentWorkflow() requires it.
+    workflowRuntimeState = "discoveryDefault" in binding
+      ? await loadInstalledAgentWorkflowRuntimeStateModule()
+      : await loadAgentWorkflowRuntimeStateModule()
   }
   catch (error) {
     await ensureActivity()
@@ -1229,6 +1243,7 @@ async function runAgentAsWorkflow<
     await recordPreparationFailure(error)
     throw error
   }
+  if (!workflowRuntimeState) return undefined
   let workflowConfig = workflowRuntimeState.getWorkflowRuntimeConfig()
   let activateCloudflareWorkflow = false
   if ("discoveryDefault" in binding && workflowConfig === undefined) {
@@ -1394,10 +1409,10 @@ async function runAgentAsWorkflow<
       await replayJournal.watchCancellation(invocationCancellationDriver(agent))
       replayJournal.abortSignal.throwIfAborted()
       if (!await replayJournal.prepareWorkflowDispatch({ name: workflowName, provider: (workflowConfig && workflowConfig.provider) || "unknown" })) {
-        throw new Error("Could not persist the Workflow dispatch intent.")
+        throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Workflow dispatch intent" })
       }
       payload.invocationClaimToken = await replayJournal.handoffClaim({ workflowDispatch: true })
-      if (!payload.invocationClaimToken) throw new Error("Could not transfer the Invocation execution claim.")
+      if (!payload.invocationClaimToken) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "transfer the Invocation execution claim" })
     }
     catch (error) {
       await recordPreparationFailure(error)
@@ -1444,13 +1459,13 @@ async function runAgentAsWorkflow<
       ? await agent.invocations.getByRunId(context.run.runId, agentInvocationName(agent, context))
       : undefined
     if (record?.annotations?.[pendingAgentInvocationAnnotation] !== false) {
-      throw new Error("Could not confirm the Workflow Invocation dispatch.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the Workflow Invocation dispatch" })
     }
   }
   if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
     await activity?.update(
       run.status,
-      run.status === "failed" ? run.metadata : undefined,
+      run.status === "failed" ? run.error : undefined,
       run.status === "completed" ? finalTextFromAgentOutput(run.result) : undefined,
     )
   }
@@ -2276,7 +2291,12 @@ function defineBaseAgent<
             requirements: driver.requirements,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
-          })))
+            workspaceWrite: driver.workspaceWrite,
+          })).catch((error: unknown) => {
+            // A failed load lets the next Invocation try again.
+            providerAdapter = undefined
+            throw error
+          }))
         : undefined
     if (!resolvedAdapter) {
       throw agentDiagnostics.AGENT_R0427({ message: "[vitehub] Agent Driver is required unless the agent uses driver.run." })
@@ -2602,9 +2622,13 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
     : TCapabilities
 
 // Only the provider Driver factories reference the provider runtime, so apps that never call one do not bundle it.
-// One promise for every load, so an Invocation and its concurrent title run share one module instance.
+// One promise for every load, so an Invocation and its concurrent title run share one module instance. A failed load
+// lets the next Invocation try again.
 let providerAgentRuntimeModule: ReturnType<ProviderAgentRuntimeLoader> | undefined
-const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent")
+const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent").catch((error: unknown) => {
+  providerAgentRuntimeModule = undefined
+  throw error
+})
 
 /** Run the Agent with Codex. Codex starts as a local process, so the Agent needs a Node.js host. */
 export function codexDriver<TOutput = unknown>(
@@ -3072,7 +3096,7 @@ const defineAgentDefinition: DefineAgent = ((options: unknown) => {
     settings.channels = channels
     return isWorkspaceAgentOptions(settings) || agentContributesWorkspace({ capabilities: settings.capabilities, channels })
   }, name => {
-    throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
+    throw agentDiagnostics.AGENT_PRESET_UNKNOWN({ name })
   }) as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
@@ -3506,7 +3530,7 @@ function resolveOwnedAgentWorkspaceDefinition(
 }
 
 function ownedAgentWorkspaceKey(agent: unknown): object {
-  if (!isRuntimeObject(agent)) throw agentDiagnostics.AGENT_R0432({ message: "[vitehub] Owned Agent Workspace state requires an object owner." })
+  invariant(isRuntimeObject(agent), "every caller checks that the Workspace owner is an object first")
   return agent
 }
 
@@ -4013,7 +4037,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
       await registration.exporter({ agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) }, run: runtime.run, runtime, signal: "traces", spans })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
   }))
   throwAgentTelemetryFailures(exports)
@@ -4075,7 +4099,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
         })
       }
       catch (error) {
-        throw new AgentTelemetryCapabilityError(capabilityId, error)
+        throw agentTelemetryCapabilityError(capabilityId, error)
       }
       afterSequence = events.at(-1)!.sequence
       cursors.set(item, afterSequence)
@@ -4131,7 +4155,7 @@ async function exportAgentTelemetryConfiguration<TRuntimeConfig extends AgentRun
       })
     }
     catch (error) {
-      throw new AgentTelemetryCapabilityError(capabilityId, error)
+      throw agentTelemetryCapabilityError(capabilityId, error)
     }
     configurationDelivered.add(item)
   }))
@@ -4144,19 +4168,13 @@ function throwAgentTelemetryFailures(exports: PromiseSettledResult<void>[]): voi
   if (failures.length > 1) throw new AggregateError(failures, "Multiple Agent telemetry exports failed.")
 }
 
-class AgentTelemetryCapabilityError extends Diagnostic {
-  readonly capabilityId: string
+function agentTelemetryCapabilityError(capabilityId: string, cause: unknown) {
+  return Object.assign(agentDiagnostics.AGENT_R0890({ cause, message: `[vitehub] Capability "${capabilityId}" telemetry export failed.` }), { capabilityId })
+}
 
-  constructor(capabilityId: string, cause: unknown) {
-    super({
-      cause,
-      code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/agents/diagnostics/agent_r0890",
-      why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
-    }, AgentTelemetryCapabilityError)
-    this.name = "AgentTelemetryCapabilityError"
-    this.capabilityId = capabilityId
-  }
+/** The Capability id of an `AGENT_R0890` telemetry export error. */
+function telemetryCapabilityId(error: unknown): string | undefined {
+  return isRuntimeRecord(error) && error.code === "AGENT_R0890" && typeof error.capabilityId === "string" ? error.capabilityId : undefined
 }
 
 function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -4166,14 +4184,15 @@ function reportAgentTelemetryFailure<TRuntimeConfig extends AgentRuntimeConfig>(
   invocationId: string,
   phase: "live" | "terminal",
 ): void {
-  const failure = error instanceof AgentTelemetryCapabilityError ? error.cause : error
+  const capabilityId = telemetryCapabilityId(error)
+  const failure = capabilityId !== undefined && error instanceof Error ? error.cause : error
   const name = agentInvocationName(agent, runtime)
   const capabilityIds = error instanceof AggregateError
-    ? error.errors.flatMap(item => item instanceof AgentTelemetryCapabilityError ? [item.capabilityId] : [])
+    ? error.errors.flatMap(item => telemetryCapabilityId(item) ?? [])
     : []
   console.error({
     agent: { ...(name ? { name } : {}), ...(agent.version ? { version: agent.version } : {}) },
-    ...(error instanceof AgentTelemetryCapabilityError ? { capability_id: error.capabilityId } : {}),
+    ...(capabilityId !== undefined ? { capability_id: capabilityId } : {}),
     ...(capabilityIds.length ? { capability_ids: capabilityIds } : {}),
     component: "@vite-hub/agent",
     error: normalizeRuntimeDiagnosticError(failure, { includeStack: true }),
@@ -4732,7 +4751,7 @@ async function createAgentInvocationContext<
     else {
       try {
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
-        if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
+        if (collisions.length) throw agentDiagnostics.AGENT_INVOCATION_TOOL_NAME_TAKEN({ names: collisions })
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
         // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
         transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
@@ -4796,6 +4815,10 @@ async function createAgentInvocationContext<
       ...tool,
       ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
     }))
+    // Provider Drivers record the revision materialized by their Workspace Session after Source setup.
+    const workspaceRevision = (capabilities.registries.telemetry.length || invocationJournal) && activeWorkspace && driverKind !== "provider"
+      ? await observeAgentWorkspaceRevision(activeWorkspace)
+      : undefined
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
@@ -4828,6 +4851,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
+              ...(workspaceRevision ? { ref: workspaceRevision.ref, revision: workspaceRevision.id } : {}),
               ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }
@@ -5548,7 +5572,7 @@ function resultWithResolvedUsageRecord(result: unknown, usageRecord: AgentUsageR
 }
 
 function resultWithPreservedProperties(result: unknown, descriptors: PropertyDescriptorMap): object {
-  if (!isRuntimeObject(result)) throw agentDiagnostics.AGENT_R0433({ message: "[vitehub] Preserving Agent result properties requires an object result." })
+  invariant(isRuntimeObject(result), "every caller passes an object result that has stream properties")
   const prototype = Object.getPrototypeOf(result)
   if (prototype !== Object.prototype && prototype !== null && Object.isExtensible(result)) {
     try {
@@ -6623,7 +6647,7 @@ async function finishAgentInvocation<
         : context.finishExtensionProviders.filter(provider => provider.eager)
       if (hasOutcomeConsumer || finishExtensionProviders.length) {
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0436({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           const fallbackEvent = provisionalFinishEvent(context, eventBase)
           const fallbackProviders = await runFinishActivity(
             deliveryActivity,
@@ -6685,7 +6709,7 @@ async function finishAgentInvocation<
           },
         )
         if (hasDurableFailureDelivery) {
-          if (!durableFailureDeadline) throw agentDiagnostics.AGENT_R0437({ message: "Durable failure delivery requires a deadline" })
+          invariant(durableFailureDeadline, "durableFailureDeadline is set whenever hasDurableFailureDelivery is true")
           await runFinishActivity(
             deliveryActivity,
             async () => {
@@ -7149,10 +7173,10 @@ async function executeAgentInvocationWithCapacityLease<
     // adapter preparation, and cancellation setup above may yield while a
     // renewal confirms a claim loss; do not start a Driver after that loss.
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.dispatchAllowed()) {
-      throw new Error("Could not persist the Invocation running state.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     }
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
-      throw new Error("Could not persist the Invocation running state.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     }
     // An Invocation that the Driver starts with `runAgent()` becomes a child of this one.
     const scope = agentInvocationScope(invocation)
@@ -8301,6 +8325,8 @@ async function executeAgentInvocation<
   const inheritedClaim = (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim]
   // SAFETY: The webhook queue installs this private attempt metadata on its runtime context.
   const queuedAttempt = (context as AgentRuntimeContext & { [queuedAgentInvocation]?: { reopenFailed: boolean, retryPending: boolean } })[queuedAgentInvocation]
+  // SAFETY: Only the Agent Workflow handler installs this private boolean marker.
+  const workflowAttempt = (context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey] === true
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   let activity = exclusive || inheritedClaim ? undefined : createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
@@ -8327,20 +8353,29 @@ async function executeAgentInvocation<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         agentName: agentInvocationName(definition as AgentDefinition, context),
         cancellationDriver: invocationCancellationDriver(definition),
+        // A Workflow turn runs its Driver at most once. A retry must not take over the record of an interrupted Driver.
+        ...(workflowAttempt ? { driverAtMostOnce: true } : {}),
         // Channel replay depends on the journal claim to prevent duplicate runs.
         ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
         ...(queuedAttempt ? { reopenFailed: queuedAttempt.reopenFailed, retryPending: queuedAttempt.retryPending } : {}),
       })
       : undefined
+    // An earlier attempt reached the Driver. A claimed replay keeps its handoff conflict below while another owner holds the claim.
+    if (invocationJournal?.driverInterrupted && (invocationJournal.claimStatus === "owned" || !(exclusive || inheritedClaim))) {
+      const error = Object.assign(agentDiagnostics.AGENT_INVOCATION_DRIVER_INTERRUPTED({ id: invocationJournal.id }), { isRetryable: false as const })
+      // While the earlier claim is still held, the failed state is written in the background when that claim expires.
+      await invocationJournal.finish("failed", error)
+      throw error
+    }
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {
-      if (invocationJournal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
-      throw new Error("Could not acquire the Invocation execution claim.")
+      if (invocationJournal?.claimStatus === "conflict") throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
+      throw agentDiagnostics.AGENT_INVOCATION_CLAIM_UNAVAILABLE()
     }
     // SAFETY: Workflow execution installs this private binding on the runtime context before handing off the claimed Invocation.
     if (inheritedClaim && !await invocationJournal?.confirmWorkflowDispatch((context as AgentRuntimeContext & { [agentInvocationWorkflowBinding]?: AgentInvocationWorkflowBinding })[agentInvocationWorkflowBinding])) {
       await invocationJournal?.releaseClaim()
-      throw new Error("Could not confirm the Workflow Invocation handoff.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the Workflow Invocation handoff" })
     }
   }
   catch (error) {
@@ -8397,7 +8432,7 @@ async function executeAgentInvocation<
     if (preparedInvocation?.handledResponse) {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
       await activity?.update("running")
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
@@ -8425,7 +8460,7 @@ async function executeAgentInvocation<
     try {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
       await activity?.update("running")
       input.abortSignal?.throwIfAborted()
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
@@ -8452,7 +8487,7 @@ async function executeAgentInvocation<
   try {
     const runningPersisted = await invocationJournal?.running()
     input.abortSignal?.throwIfAborted()
-    if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
+    if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the Invocation running state" })
     await activity?.update("running")
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,
@@ -8513,7 +8548,7 @@ function agentInvocationSnapshotFromWorkflow<TOutput>(
       : run.status
   if (!status) return undefined
   return {
-    ...(run.status === "failed" && run.metadata !== undefined ? { error: run.metadata } : {}),
+    ...(run.status === "failed" && run.error !== undefined ? { error: run.error } : {}),
     id: run.id,
     ...(run.result !== undefined ? { output: run.result } : {}),
     status,
@@ -8842,7 +8877,7 @@ function toUIMessageStreamResponse(output: unknown): Response {
   if (isResponse(output)) return output
   if (output instanceof ReadableStream) return createAgentUIMessageStreamResponse({ stream: output })
   if (isAsyncIterable(output)) return createAgentUIMessageStreamResponse({ stream: ReadableStream.from(output) })
-  throw new TypeError("[vitehub] The Agent did not return a UI message stream.")
+  throw agentDiagnostics.AGENT_UI_STREAM_MISSING()
 }
 
 /** Invocation tools and Capabilities hold functions that a Workflow cannot serialize, so they need an inline run. */
@@ -8882,9 +8917,7 @@ async function runAgentWithContext<
   const binding = resolveAgentWorkflowRuntimeBinding(agent)
   const runsInline = requiresInlineInvocation(options)
   if (runsInline && binding && !("discoveryDefault" in binding)) {
-    throw new Error(options.capabilities?.length
-      ? "[vitehub] Invocation capabilities cannot be used with an explicit Agent Workflow. They require inline execution."
-      : "[vitehub] Invocation tools cannot be used with an explicit Agent Workflow. Callable tools require inline execution.")
+    throw agentDiagnostics.AGENT_INLINE_INVOCATION_WORKFLOW({ capabilities: Boolean(options.capabilities?.length) })
   }
   // Discovered Workflows are optional host defaults. Invocation-scoped functions
   // require an inline run because they cannot be serialized into Workflow input.
@@ -8964,7 +8997,7 @@ export async function publishAgentActivity(
   options: { channelId: string, target: AgentActivityTarget, activity: AgentActivityUpdate, abortSignal?: AbortSignal },
 ): Promise<void> {
   const channel = agent.channels?.[options.channelId]
-  if (!channel?.activity) throw new Error(`Agent channel ${options.channelId} does not support activity.`)
+  if (!channel?.activity) throw agentDiagnostics.AGENT_CHANNEL_ACTIVITY_UNSUPPORTED({ channelId: options.channelId })
   const pending: Promise<unknown>[] = []
   const memoized = new Map<string, unknown>()
   await channel.activity.update({

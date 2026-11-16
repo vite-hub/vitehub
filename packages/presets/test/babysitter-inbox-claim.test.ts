@@ -170,6 +170,18 @@ test('stack parents are claimed before older independent work', async () => {
   } finally { await inbox.close() }
 })
 
+test('stack children are claimed beside their open parent when the inbox claims them', async () => {
+  let now = 1_000
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['acme/app'], clock: () => now++, claimStackChildren: true })
+  try {
+    const pr = (number: number, head: string, base: string) => ({ number, state: 'open', head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'acme/app' } }, base: { ref: base, repo: { full_name: 'acme/app' } }, updated_at: '2026-10-01T00:00:00Z' })
+    await inbox.seed('acme/app', pr(1, 'parent', 'main'))
+    await inbox.seed('acme/app', pr(2, 'child', 'parent'))
+    assert.equal((await inbox.summary()).some(item => item.stackBlocked), false)
+    assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [1, 2])
+  } finally { await inbox.close() }
+})
+
 test('startup releases every held lease and keeps recorded waits', async () => {
   const inbox = await fixture()
   try {
@@ -245,7 +257,7 @@ test('prospective publication CI association survives opening a new inbox proces
   try {
     await inbox.seed('vite-hub/vitehub', { number: 42, state: 'open', head: { sha: 'a'.repeat(40), ref: 'feature' }, base: { ref: 'main' } })
     const claim = (await inbox.claim(1))[0]!
-    await assert.rejects(inbox.registerProspectivePush(claim, 'unvalidated'), /exact publication/)
+    await assert.rejects(inbox.registerProspectivePush(claim, 'unvalidated'), { code: 'INTERNAL_INVARIANT_FAILED', message: /full commit SHA/ })
     assert.equal(await inbox.registerProspectivePush(claim, head), true)
     await inbox.close()
     inbox = new PullRequestInbox(options)
@@ -384,4 +396,76 @@ test('a claim keeps its head across unrelated events, but not across a source pu
     assert.equal((await pushed.get('vite-hub/vitehub', 42))?.pr?.head?.sha, 'new')
     assert.equal(await pushed.holdsClaimedHead(claim), false)
   } finally { await pushed.close() }
+})
+
+test('claims main repairs, then priority-labelled PRs, before reviewed heads', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], priorityLabels: ['Agent:Priority'], mainRepairBranchPrefix: 'repair-main-' })
+  try {
+    const seed = (number: number, ref: string, labels: unknown[] = []) => inbox.seed(repository, { number, state: 'open', user: { login: 'dev' },
+      head: { sha: `h${number}`, ref }, base: { ref: 'main' }, labels, updated_at: '2026-10-01T00:00:00Z' })
+    // Oldest first: #1 has a stored review, #2 a priority label, #3 repairs main, #4 needs a model pass.
+    await seed(1, 'fix-1')
+    await seed(2, 'fix-2', [{ name: 'agent:priority' }])
+    await seed(3, 'repair-main-0123abcd')
+    await seed(4, 'fix-4', [{ name: 'docs' }])
+    await inbox.setMeta(`review-assessment:${repository}#1`, { version: 2, head: 'h1', evidenceKey: 'key', feedback: [] })
+    assert.deepEqual((await inbox.claim(4)).map(claim => claim.snapshot.number), [3, 2, 1, 4])
+  } finally { await inbox.close() }
+})
+
+test('a main repair never exhausts its no-progress budget', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 1 }, mainRepairBranchPrefix: 'repair-main-' })
+  try {
+    await inbox.seed(repository, { number: 1, state: 'open', head: { sha: 'h1', ref: 'repair-main-0123abcd' }, base: { ref: 'main' } })
+    await inbox.seed(repository, { number: 2, state: 'open', head: { sha: 'h2', ref: 'fix-2' }, base: { ref: 'main' } })
+    for (const claim of await inbox.claim(2)) assert.ok(await inbox.finish(claim, { text: 'no change', retry: true, progress: { kind: 'no-progress' } }))
+    assert.equal((await inbox.get(repository, 1))?.progressBudget?.exhausted, false)
+    assert.equal((await inbox.get(repository, 2))?.progressBudget?.exhausted, true)
+  } finally { await inbox.close() }
+})
+
+test('a fold into a parent branch and the parent merge never hold their fences at the same time', async () => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
+  const pr = (number: number, head: string, base: string) => ({ number, state: 'open', user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },
+    base: { sha: 'base', ref: base }, title: 'Test', html_url: `https://github.com/vite-hub/vitehub/pull/${number}`, updated_at: '2026-09-13T00:00:00Z' })
+  try {
+    await inbox.seed('vite-hub/vitehub', pr(1, 'parent', 'main'))
+    await inbox.seed('vite-hub/vitehub', pr(2, 'child', 'parent'))
+    const claims = await inbox.claim(2)
+    const parent = claims.find(claim => claim.snapshot.number === 1)!
+    const child = claims.find(claim => claim.snapshot.number === 2)!
+    assert.equal(await inbox.beginDirectMerge(child, 'child-sha', true, 1), true)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 2)
+    // The parent cannot merge while the fold's outcome is unknown.
+    assert.equal(await inbox.beginDirectMerge(parent, 'parent-sha', true), false)
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 2, child.token), true)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), undefined)
+    assert.equal(await inbox.beginDirectMerge(parent, 'parent-sha', true), true)
+    // A child cannot fold into a parent whose own merge is in flight.
+    await inbox.deleteMeta('direct-merge:vite-hub/vitehub:2')
+    assert.equal(await inbox.beginDirectMerge(child, 'child-sha', true, 1), false)
+  } finally { await inbox.close() }
+})
+
+test('a sibling fold never replaces an earlier fold that still holds the parent', async () => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
+  const pr = (number: number, head: string, base: string) => ({ number, state: 'open', user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },
+    base: { sha: 'base', ref: base }, title: 'Test', html_url: `https://github.com/vite-hub/vitehub/pull/${number}`, updated_at: '2026-09-13T00:00:00Z' })
+  try {
+    await inbox.seed('vite-hub/vitehub', pr(1, 'parent', 'main'))
+    await inbox.seed('vite-hub/vitehub', pr(2, 'first', 'parent'))
+    await inbox.seed('vite-hub/vitehub', pr(3, 'second', 'parent'))
+    const claims = await inbox.claim(3)
+    const claim = (number: number) => claims.find(item => item.snapshot.number === number)!
+    assert.equal(await inbox.beginDirectMerge(claim(2), 'first-sha', true, 1), true)
+    assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), false)
+    // Ending the refused sibling's attempt leaves the first fold's hold in place.
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 3, claim(3).token), false)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 2)
+    assert.equal(await inbox.beginDirectMerge(claim(1), 'parent-sha', true), false)
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 2, claim(2).token), true)
+    assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), true)
+  } finally { await inbox.close() }
 })

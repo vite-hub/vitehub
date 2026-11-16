@@ -46,7 +46,7 @@ function resolveBuildMode(viteMode: string): ViteHubMode {
 export default defineConfig(async ({ mode }) => {
   const buildMode = resolveBuildMode(mode)
   const input = inputByMode[buildMode]
-  const hosting = process.env.VITEHUB_HOSTING || ""
+  const hosting = process.env.VITEHUB_HOST || ""
   const baseConfig = {
     appType: "custom" as const,
     build: {
@@ -59,7 +59,7 @@ export default defineConfig(async ({ mode }) => {
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDatabase }, { hubKV }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vite-hub/blob/vite"),
       import("@vite-hub/database/vite"),
       import("@vite-hub/kv/vite"),
@@ -93,10 +93,10 @@ export default defineConfig(async ({ mode }) => {
       plugins: [
         withoutProviderOutput(hubQueue(moduleOptions.queue)),
         withoutProviderOutput(hubSchedule()),
-        withoutProviderOutput(hubKv(moduleOptions.kv ?? {})),
+        withoutProviderOutput(hubKV(moduleOptions.kv ?? {})),
         withoutProviderOutput(hubWorkflow(moduleOptions.workflow)),
         hubBlob(composerOptions.hosting.includes("vercel") ? { access: "private", driver: "vercel-blob" } : {}),
-        withoutProviderOutput(hubDb()),
+        withoutProviderOutput(hubDatabase()),
         hubSandboxTask(composerOptions.sandbox),
         withoutProviderOutput(hubWorkspace({ store: { provider: "memory" } })),
         createViteE2EComposer({
@@ -150,7 +150,7 @@ export default defineConfig(async ({ mode }) => {
   }
 
   if (buildMode === VITEHUB_MODES.schedule) {
-    const [{ hubKv }, { hubSchedule }] = await Promise.all([
+    const [{ hubKV }, { hubSchedule }] = await Promise.all([
       import("@vite-hub/kv/vite"),
       import("@vite-hub/schedule/vite"),
     ])
@@ -160,7 +160,7 @@ export default defineConfig(async ({ mode }) => {
         ...baseConfig.build,
         ssr: true,
       },
-      plugins: [hubSchedule(), hubKv({})],
+      plugins: [hubSchedule(), hubKV({})],
     }
   }
 
@@ -173,10 +173,10 @@ export default defineConfig(async ({ mode }) => {
   }
 
   if (buildMode === VITEHUB_MODES.db) {
-    const { hubDb } = await import("@vite-hub/database/vite")
+    const { hubDatabase } = await import("@vite-hub/database/vite")
     return {
       ...baseConfig,
-      plugins: [hubDb()],
+      plugins: [hubDatabase()],
     }
   }
 
@@ -189,13 +189,13 @@ export default defineConfig(async ({ mode }) => {
     }
   }
 
-  const [{ hubKv }, { hubQueue }] = await Promise.all([
+  const [{ hubKV }, { hubQueue }] = await Promise.all([
     import("@vite-hub/kv/vite"),
     import("@vite-hub/queue/vite"),
   ])
 
   return {
     ...baseConfig,
-    plugins: [hubQueue({}), hubKv({})],
+    plugins: [hubQueue({}), hubKV({})],
   }
 })

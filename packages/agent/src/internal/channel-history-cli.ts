@@ -7,7 +7,7 @@ import { deployedChannelWebhookUrl, loadChannelTargets, type ChannelTargetSignat
 import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { decodeBase64Key } from "../trigger-runtime.ts"
+import { decodeViteHubBase64Key } from "@vite-hub/internal/secret"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -103,7 +103,7 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   const signature: ChannelTargetSignature | undefined = registration.signature === "github-sha256" ? { preset: "hmac-sha256", prefix: "sha256=" } : registration.signature
   let hmacSecret: string | Uint8Array = secret
   if (signature !== undefined && typeof signature !== "string" && signature.secretEncoding === "base64") {
-    const decoded = decodeBase64Key(secret)
+    const decoded = decodeViteHubBase64Key(secret)
     if (!decoded) throw agentDiagnostics.AGENT_R0524({ message: "Channel history webhook secret is not valid canonical base64." })
     hmacSecret = decoded
   }

@@ -28,7 +28,7 @@ content/
 - `index.md` is its folder's page. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found and the Docs links open the first section.
 - Files outside `content/docs/`, such as `about.md`, are plain articles under the site header, with no sidebar.
 - A page's URL is its path in the folder. Without a `content/docs/` folder, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section.
-- `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
+- `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit. To read pages from more than one place, use `sources`. See [Pages from other places](#pages-from-other-places).
 - In an app with its own pages, put the docs in `content/docs/` only. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app).
 
 ### Sections and categories
@@ -49,7 +49,7 @@ related: [reference]
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     categories: ['Learn', 'Build', 'Reference'],
     railExclude: ['Reference'],
@@ -69,7 +69,7 @@ List the sections in `groups`, or set `group` in their `.navigation.yml`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     groups: [
       { title: 'Components', icon: 'i-lucide-blocks', sections: ['tabs', 'steps', 'cards'] },
@@ -149,7 +149,7 @@ When a page moves, keep its old URL with a `redirect` route rule:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   routeRules: {
     '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
   },
@@ -177,6 +177,34 @@ keywords: glyph, symbol, svg
 - `eyebrow` is a short label above the title.
 - `credits` is one line of inline Markdown at the page end.
 - `keywords` find the page in search for words the page does not contain. A keyword match ranks like a heading, below the title.
+
+### Pages from other places
+
+`sources` reads pages from more than one place, in place of `dir`. Each entry is a folder relative to the app root, a Source from `vite-hub/source`, such as `glob()` or `github()`, or an object with one of them as `source`:
+
+```ts [nuxt.config.ts]
+import { github, glob } from 'vite-hub/source'
+
+export default defineNuxtConfig({
+  docs: {
+    base: '/',
+    sources: [
+      'pages',
+      { source: '../packages/zoom/docs', mount: '/zoom', exclude: ['partials/**'] },
+      { source: glob({ cwd: 'guides', include: ['**/*.md', '**/.navigation.yml'] }), mount: '/guides' },
+      { source: github({ repo: 'acme/api', root: 'docs' }), mount: '/api' },
+    ],
+    sections: { zoom: { category: 'Packages', order: 1 } },
+  },
+})
+```
+
+- `mount` is the URL path of the pages. It defaults to `/`.
+- `exclude` leaves out files by glob, relative to the source.
+- `frontmatter(data, { file, path, markdown })` changes the fields of a page before the schema checks them, such as a generated title. It does not change the file.
+- `sections` sets `.navigation.yml` fields by section id.
+- The module reads the `.md` and `.navigation.yml` files of each source when it builds. A `glob()` Source lists dot files only when its `include` names them, as above, and reads only below the app root. A folder can be anywhere, and the module watches it in development.
+- The server reads a folder as it is. The build copies the pages of other Sources into the server, so a `github()` Source shows its branch as it was at build time.
 
 ## Layouts
 
@@ -265,7 +293,7 @@ Pages with a collapsible navigation fill the viewport, so they leave out the `ba
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     site: {
       name: 'Lumen',
@@ -435,7 +463,7 @@ D2, PlantUML, and Graphviz fences stay code blocks. comark-ui draws them through
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. Plugins are functions, so the parser options go in a module that `parser` names, not in `nuxt.config.ts` itself:
 
 ```ts [docs.parser.ts]
-import type { DocsParserOptions } from '@vite-hub/docs/server'
+import type { DocsParserOptions } from 'vite-hub/docs/server'
 import emoji from 'comark/plugins/emoji'
 
 export default {
@@ -447,7 +475,7 @@ export default {
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: { parser: './docs.parser.ts' },
 })
 ```
@@ -470,8 +498,32 @@ Coding agents read the same pages without HTML. These routes need no setup:
 | `/sitemap.md` | Every page, for agents. `/sitemap.xml` is the same list for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Each Agent Skill in the app's `skills/` folder. |
+| `/<page>.md` | Any other page of the app, such as `/index.md` for the home page, converted from its HTML. The page URL returns it too for `Accept: text/markdown`. |
+
+An app page that is not a docs page gets a Markdown copy too. Content renders the page inside the server for the same request, with its cookies, and converts the `<main>` part of the HTML. Navigation, footers, buttons, forms, scripts, and hidden elements stay out. A page that sends `X-Robots-Tag: noindex`, a redirect, and an error get no copy. A copy keeps the robots meta tag of its page as `X-Robots-Tag`. Each HTML page with a copy sends `Link: </about.md>; rel="alternate"; type="text/markdown"`. Turn it off with `markdownPages: false`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/docs/nuxt'],
+  docs: { markdownPages: false },
+})
+```
 
 Each page header has **Copy page**, **View as Markdown**, **Open in ChatGPT**, **Open in Claude**, and links that add the MCP server to Cursor or VS Code. `mcp: { name, guide }` sets the server name and a page on connecting other tools. `mcp: false` turns the server off.
+
+[Content](/docs/content/seo#markdown-for-agents) serves these files from the same pages as the site, so a new page shows in each of them. `llms` adds text to `/llms.txt`: `details` goes under the site description, and `sections` adds sections of links before the page sections.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/docs/nuxt'],
+  docs: {
+    llms: {
+      details: 'Rules for coding agents: read the installed types before you write code.',
+      sections: [{ title: 'Machine resources', links: [{ title: 'OpenAPI document', href: 'https://docs.example.com/openapi.json' }] }],
+    },
+  },
+})
+```
 
 ### Content only for agents
 
@@ -485,11 +537,11 @@ The site renders nothing for `::agent-only`, and search skips it. The Markdown c
 
 ### Rewrite the agent copy
 
-When a page uses a component with no Markdown form, `rawMarkdown` rewrites the page before its copy is written. It gets the Markdown and the page, and runs at build time, before the built-in rewrites. This one turns a `::demo-video{src="..."}` block into a link:
+When a page uses a component with no Markdown form, `rawMarkdown` rewrites the page before its copy is made. It gets the Markdown and the page, and runs at build time, before the built-in rewrites. The server keeps each page that it changed. This one turns a `::demo-video{src="..."}` block into a link:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     rawMarkdown: markdown => markdown.replace(/::demo-video\{src="([^"]+)"\}\n::/g, '[Watch the demo]($1)'),
   },
@@ -511,8 +563,8 @@ pnpm add @vite-hub/comments
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { preset: 'node', console: { auth: false } }],
-    '@vite-hub/docs/nuxt',
+    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
+    'vite-hub/docs/nuxt',
   ],
 })
 ```
@@ -541,12 +593,12 @@ A site without `vite-hub/nuxt` has no server for threads, so it has no Comments.
 
 The ViteHub Console edits and publishes docs pages through the [CMS](/docs/cms). The site still renders the Markdown files. The CMS stores and publishes drafts.
 
-Install `vite-hub/nuxt` next to `@vite-hub/docs/nuxt` and add one file:
+Install `vite-hub/nuxt` next to `vite-hub/docs/nuxt` and add one file:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
-import { docsCollection } from '@vite-hub/docs'
+import { docsCollection } from 'vite-hub/docs'
 
 export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],

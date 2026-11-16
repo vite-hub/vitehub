@@ -1,6 +1,5 @@
-import { globSync, readFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
+import { toResultError } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import { createRateLimiter } from "../src/index.ts"
@@ -43,7 +42,7 @@ describe("Rate Limit core", () => {
 
   it("accepts consume functions from another JavaScript realm", async () => {
     const driver = memoryRateLimitDriver()
-    const consume = runInNewContext("(input) => [null, { allowed: true }]") as typeof driver.consume
+    const consume = runInNewContext("(input) => [undefined, { allowed: true }]") as typeof driver.consume
     Object.assign(driver, { consume })
 
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
@@ -143,9 +142,9 @@ describe("Rate Limit core", () => {
     const invalid = [
       ["malformed-error", undefined],
       [],
-      [undefined, { allowed: true }],
+      [null, { allowed: true }],
       [false, { allowed: true }],
-      [null, { allowed: true }, "extra"],
+      [undefined, { allowed: true }, "extra"],
       [new Error("offline"), { allowed: true }],
       [new Error("offline")],
       [{ name: "Error", message: "spoofed", [Symbol.toStringTag]: "Error" }, undefined],
@@ -154,7 +153,7 @@ describe("Rate Limit core", () => {
       const driver = memoryRateLimitDriver()
       Object.assign(driver, { consume: () => outcome })
       const limiter = createRateLimiter({ driver, failure, limit: 1, window: "1m" })
-      await expect(limiter.consume({ key: "user" })).rejects.toThrow("must return [null, value] or [Error, undefined]")
+      await expect(limiter.consume({ key: "user" })).rejects.toThrow("must return [undefined, value] or [error, undefined]")
     }
   })
 
@@ -166,27 +165,27 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, cause, reason: "unavailable" })
   })
 
-  it.each([[], [new Error("offline")], [undefined, { used: 1 }], [null, { used: 1 }, "extra"], [new Error("offline"), { used: 1 }]].map(outcome => ({ outcome })))("rejects malformed custom peek outcomes: %j", async ({ outcome }) => {
+  it.each([[], [new Error("offline")], [null, { used: 1 }], [undefined, { used: 1 }, "extra"], [new Error("offline"), { used: 1 }]].map(outcome => ({ outcome })))("rejects malformed custom peek outcomes: %j", async ({ outcome }) => {
     const driver = memoryRateLimitDriver()
     Object.assign(driver, { peek: () => outcome })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
-    await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [null, value] or [Error, undefined]")
+    await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [undefined, value] or [error, undefined]")
   })
 
-  it.each([[], [undefined], [null, "extra"], ["error"]].map(outcome => ({ outcome })))("rejects malformed custom reset outcomes: %j", async ({ outcome }) => {
+  it.each([[], [null], [undefined], [undefined, undefined, "extra"], ["error", undefined]].map(outcome => ({ outcome })))("rejects malformed custom reset outcomes: %j", async ({ outcome }) => {
     const driver = memoryRateLimitDriver()
     Object.assign(driver, { reset: () => outcome })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
-    await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [null] or [Error]")
+    await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [undefined, undefined] or [error, undefined]")
   })
 
   it("rejects spoofed Error brands for peek and reset", async () => {
     const cause = { name: "Error", message: "spoofed", [Symbol.toStringTag]: "Error" }
     const driver = memoryRateLimitDriver()
-    Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause] })
+    Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause, undefined] })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
-    await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [null, value] or [Error, undefined]")
-    await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [null] or [Error]")
+    await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [undefined, value] or [error, undefined]")
+    await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [undefined, undefined] or [error, undefined]")
   })
 
   it("validates tagged and foreign Errors without native Error.isError", async () => {
@@ -198,15 +197,15 @@ describe("Rate Limit core", () => {
     try {
       const driver = memoryRateLimitDriver()
       for (const cause of [tagged, foreign]) {
-        Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause] })
+        Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause, undefined] })
         const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
         await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ cause, status: "unavailable" })
         await expect(limiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
       }
-      Object.assign(driver, { peek: () => [spoof, undefined], reset: () => [spoof] })
+      Object.assign(driver, { peek: () => [spoof, undefined], reset: () => [spoof, undefined] })
       const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
-      await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [null, value] or [Error, undefined]")
-      await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [null] or [Error]")
+      await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [undefined, value] or [error, undefined]")
+      await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [undefined, undefined] or [error, undefined]")
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -217,7 +216,7 @@ describe("Rate Limit core", () => {
   it("accepts genuine Errors with a custom display tag", async () => {
     const cause = Object.assign(new Error("offline"), { [Symbol.toStringTag]: "ProviderError" })
     const driver = memoryRateLimitDriver()
-    Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause] })
+    Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause, undefined] })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ cause, status: "unavailable" })
     await expect(limiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
@@ -234,7 +233,7 @@ describe("Rate Limit core", () => {
   it("accepts driver reset errors from another JavaScript realm", async () => {
     const cause: unknown = runInNewContext("new Error('cross-realm offline')")
     const driver = memoryRateLimitDriver()
-    Object.assign(driver, { reset: () => [cause] })
+    Object.assign(driver, { reset: () => [cause, undefined] })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(limiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
   })
@@ -244,7 +243,7 @@ describe("Rate Limit core", () => {
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(limiter.reset({ key: "user" })).resolves.toEqual({ status: "reset" })
     const cause = new Error("offline")
-    Object.assign(driver, { reset: () => [cause] })
+    Object.assign(driver, { reset: () => [cause, undefined] })
     const errorLimiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(errorLimiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
   })
@@ -377,9 +376,9 @@ describe("Rate Limit core", () => {
     for (const resetAt of [8.64e15 + 1, 1e16]) {
       const driver: RateLimitDriver = {
         capabilities: strictCapabilities,
-        consume: () => [null, { allowed: true, resetAt }],
+        consume: () => [undefined, { allowed: true, resetAt }],
         name: "custom",
-        peek: () => [null, { resetAt, used: 1 }],
+        peek: () => [undefined, { resetAt, used: 1 }],
       }
       const limiter = createRateLimiter({ driver, failure: "allow", limit: 2, window: "1m" })
       await expect(limiter[operation]({ key: "user" })).rejects.toThrow("8640000000000000")
@@ -389,9 +388,9 @@ describe("Rate Limit core", () => {
   it("accepts the exact custom reset timestamp boundary for consume and peek", async () => {
     const driver: RateLimitDriver = {
       capabilities: strictCapabilities,
-      consume: () => [null, { allowed: true, resetAt: 8.64e15 }],
+      consume: () => [undefined, { allowed: true, resetAt: 8.64e15 }],
       name: "custom",
-      peek: () => [null, { resetAt: 8.64e15, used: 1 }],
+      peek: () => [undefined, { resetAt: 8.64e15, used: 1 }],
     }
     const limiter = createRateLimiter({ driver, limit: 2, window: "1m" })
 
@@ -500,20 +499,20 @@ describe("Rate Limit core", () => {
 
   it("validates driver guarantees before consumption", () => {
     expect(() => createRateLimiter({
-      driver: { capabilities: { ...strictCapabilities, enforcement: "best-effort" }, consume: () => [null, { allowed: true }], name: "edge" },
+      driver: { capabilities: { ...strictCapabilities, enforcement: "best-effort" }, consume: () => [undefined, { allowed: true }], name: "edge" },
       enforcement: "strict",
       limit: 1,
       window: "1m",
     })).toThrow("requires strict enforcement")
 
     expect(() => createRateLimiter({
-      driver: { capabilities: { ...strictCapabilities, windows: [10_000] }, consume: () => [null, { allowed: true }], name: "narrow" },
+      driver: { capabilities: { ...strictCapabilities, windows: [10_000] }, consume: () => [undefined, { allowed: true }], name: "narrow" },
       limit: 1,
       window: "1m",
     })).toThrow("does not support")
 
     expect(() => createRateLimiter({
-      driver: { capabilities: {} as never, consume: () => [null, { allowed: true }], name: "opaque" },
+      driver: { capabilities: {} as never, consume: () => [undefined, { allowed: true }], name: "opaque" },
       limit: 1,
       window: "1m",
     })).toThrow("valid enforcement")
@@ -524,7 +523,7 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter({
       driver: {
         capabilities: { ...strictCapabilities, windows } as never,
-        consume: () => [null, { allowed: true }],
+        consume: () => [undefined, { allowed: true }],
         name: "malformed-windows",
       },
       limit: 1,
@@ -542,7 +541,7 @@ describe("Rate Limit core", () => {
   })
 
   it("applies explicit failure policy", async () => {
-    const cause = new Error("offline")
+    const cause = toResultError(rateLimitErrorDiagnostics.RATE_LIMIT_R0005({ message: "offline" }))
     const consume = vi.fn((): import("../src/index.ts").RateLimitDriverOutcome => [cause, undefined])
     const driver = { capabilities: strictCapabilities, consume, name: "offline" }
     const allow = createRateLimiter({ driver, failure: "allow", limit: 1, window: "1m" })
@@ -560,15 +559,5 @@ describe("Rate Limit core", () => {
 
     await expect(allow.consume({ key: "user" })).rejects.toBe(defect)
     await expect(deny.consume({ key: "user" })).rejects.toBe(defect)
-  })
-})
-
-describe("Rate Limit server code", () => {
-  it("never reads `typeof window`, because Nitro 2 replaces it with \"undefined\" in server bundles", () => {
-    const sourceRoot = fileURLToPath(new URL("../src", import.meta.url))
-    const files = globSync("**/*.ts", { cwd: sourceRoot }).filter(file => /typeof window\b/.test(readFileSync(`${sourceRoot}/${file}`, "utf8")))
-
-    // Nuxt 4 builds turn `typeof window !== "string"` into `"undefined" !== "string"`. Rename the local variable.
-    expect(files).toEqual([])
   })
 })

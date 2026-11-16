@@ -48,18 +48,15 @@ export function ownObject(value: unknown): Record<PropertyKey, unknown> | undefi
     : undefined
 }
 
-/** The objects where H3 1, H3 2, and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
+/** The objects where H3 and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
 export function cloudflareOwners(target: Record<PropertyKey, unknown> | undefined): Array<Record<PropertyKey, unknown> | undefined> {
   const context = ownObject(ownValue(target, "context"))
   const platform = ownObject(ownValue(context, "_platform"))
   const req = ownObject(ownValue(target, "req"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
   return [
     ownObject(ownValue(context, "cloudflare")),
     ownObject(ownValue(platform, "cloudflare")),
     ownObject(ownValue(ownObject(ownValue(req, "runtime")), "cloudflare")),
-    ownObject(ownValue(ownObject(ownValue(nodeReq, "runtime")), "cloudflare")),
   ]
 }
 

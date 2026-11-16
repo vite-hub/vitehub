@@ -114,8 +114,10 @@ const bundledInternal: Record<string, string[]> = {
   forms: ["birpc"],
   kv: ["@valibot/to-json-schema", "birpc"],
   "rate-limit": ["@valibot/to-json-schema", "birpc"],
+  // Operation definitions are bundled from the private owner into Runtime.
+  runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
-  "vite-hub": ["@valibot/to-json-schema", "birpc", "semver"],
+  "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
 };
@@ -128,30 +130,28 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   agent: {
     // `run-node-tests.mjs` runs this file outside Vitest.
     entry: ["test/browser-smoke-cleanup.test.mjs"],
-    ignoreDependencies: [
-      // remove when the agent tests import @whatwg-node/node-fetch by name and the package declares it (today they import it from the pnpm store by path)
-      "@whatwg-node/node-fetch",
-      // remove when the agent test-d files stop importing @vite-hub/source or the package declares it
-      "@vite-hub/source",
-    ],
+    // The real SSH provider tests use the host's OpenSSH key generator.
+    ignoreBinaries: ["ssh-keygen"],
+    // The storage regression test resolves unstorage from the KV package that owns it.
+    ignoreDependencies: ["unstorage"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },
-  // A script that people run by hand on real projects.
-  codemods: { entry: ["test/real-world/run.mjs"] },
+  codemods: {
+    entry: [
+      // A script that people run by hand on real projects.
+      "test/real-world/run.mjs",
+      // TypeScript loads the paired declaration; Knip follows only the .mjs implementation.
+      "test/nuxthub-runtime.d.mts",
+    ],
+  },
   // The overlay build aliases `@vite-hub/ui` to its source (`overlay.aliases.ts`) and bundles it.
   comments: { ignoreDependencies: ["@vite-hub/ui"] },
   // A ViteHub app. Its config imports `vite-hub` from the build output, which Knip cannot load before a build.
   console: {
     entry: viteHubAppEntries,
     vite: false,
-    // remove when the unused h3 dependency of the Console is fixed
-    ignoreDependencies: ["h3"],
   },
-  // remove when the unused @vite-hub/database devDependency of content is fixed
-  content: { ignoreDependencies: ["@vite-hub/database"] },
-  // remove when the unused @vite-hub/blob devDependency of cms is fixed
-  cms: { ignoreDependencies: ["@vite-hub/blob"] },
   // CLI integration tests execute node_modules/drizzle-kit/bin.cjs by path.
   database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
@@ -160,13 +160,10 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ignoreDependencies: [
       // The module installs these Nuxt modules by name from `moduleDependencies`.
       "nuxt-agent-discovery",
-      "nuxt-llms",
       "nuxt-og-image",
       "nuxt-site-config",
       // nuxt-og-image renders the `*.takumi.vue` share images with it.
       "@takumi-rs/core",
-      // remove when the unlisted happy-dom of the docs package tests is fixed
-      "happy-dom",
     ],
   },
   // The CLI loads `nuxt/kit` from the app with `createRequire`, so the app owns that dependency.
@@ -177,13 +174,11 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     ignoreDependencies: [
       // Root consumer tests resolve `sharp` from this package with `createRequire`.
       "sharp",
-      // remove when the unused effect dependency of internal is fixed
-      "effect",
     ],
   },
   // The tests mock it with `vi.mock()`. The code under test imports it through `@vite-hub/agent`.
   presets: { ignoreDependencies: ["@t3tools/provider-runtime"] },
-  // remove when the unused prosemirror-transform dependency of realtime is fixed
+  // The bundled `@tiptap/y-tiptap` imports it, and `neverBundle` keeps it external.
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   // The generated Durable Object imports it, and the tests build that output.
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
@@ -195,16 +190,17 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@shikijs/langs",
       "@shikijs/themes",
       "vega-loader",
-      // remove when the unused @vite-hub/agent devDependency of ui is fixed
-      "@vite-hub/agent",
+      // `test/browser/kit-parts.browser.mjs` aliases these to the copies of Nuxt UI and `@vite-hub/kit`, which the
+      // two sides of the check must share.
+      "@iconify/vue",
+      "@fontsource-variable/geist",
+      "@fontsource-variable/geist-mono",
     ],
   },
   "vite-hub": {
     // `console.vite.config.ts` aliases `shiki/wasm` to this file by path.
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
   },
-  // remove when the unused ocache and h3 devDependencies of workspace are fixed
-  workspace: { ignoreDependencies: ["ocache", "h3"] },
 };
 
 function packageWorkspace(name: string): WorkspaceProjectConfig {
@@ -237,12 +233,12 @@ const packageWorkspaces = Object.fromEntries(
 
 const config: KnipConfiguration = {
   // `dependencies` also checks devDependencies. Off: `optionalPeerDependencies`, because packages import their optional
-  // peers on purpose when an app uses that feature; `exports`, `types` and `duplicates`, which report the public API of
-  // every package; and `catalog`, which `knip:catalog` checks and which has no ignore list for one entry (motion-v).
-  include: ["files", "dependencies", "unlisted", "unresolved", "binaries"],
+  // peers on purpose when an app uses that feature; and `exports`, `types` and `duplicates`, which report the public API
+  // of every package.
+  include: ["files", "dependencies", "unlisted", "unresolved", "binaries", "catalog"],
   exclude: ["optionalPeerDependencies"],
   // Test fixtures are sample apps and inputs. `playground/chatgpt` is not a pnpm workspace, so its dependencies are not installed.
-  ignore: ["fixtures/**", "test/fixtures/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
+  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
   // CSS reaches local stylesheets and packages through `@import` and `url()`, such as the Console fonts.
   compilers: {
     css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
@@ -254,14 +250,12 @@ const config: KnipConfiguration = {
   ignoreDependencies: ["cloudflare"],
   // Virtual modules: Vite plugins of each Server Primitive serve `#vitehub/*`, the docs Nuxt module serves `#docs/*`,
   // and the Console app's Vite plugin supplies its built account page as `#console-page`.
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#agent-discovery", "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
   // A CLI that people install on their own machine. The Sandbox runs it when they choose the Crabbox provider.
   ignoreBinaries: ["crabbox"],
   ignoreIssues: {
-    // remove when the unused agent-chat-message.ts and agent-chat-prompt.ts of ui are fixed
+    // remove when #3775 or #3780 merges: both delete these two files
     "packages/ui/src/components/agent-chat-{message,prompt}.ts": ["files"],
-    // remove when the unused operations-core/anchor.ts of comments is fixed
-    "packages/comments/src/operations-core/anchor.ts": ["files"],
   },
   workspaces: {
     ".": {
@@ -281,10 +275,9 @@ const config: KnipConfiguration = {
         "@vercel/blob",
         // Consumer tests resolve it from `packages/internal` with `createRequire`.
         "sharp",
-        // remove when the unused oxlint-tsgolint, chat and chat-state-cloudflare-do devDependencies of the root are fixed
-        "oxlint-tsgolint",
+        // Nothing imports it, but without it Knip reports `chat` as unlisted once `vite-hub` is built: the build copies
+        // chat's types into its `.d.ts`, and Knip reads their `jsxImportSource: "chat"` example as an import.
         "chat",
-        "chat-state-cloudflare-do",
       ],
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
@@ -308,34 +301,54 @@ const config: KnipConfiguration = {
         "@chat-adapter/slack",
         // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
         "@takumi-rs/core",
-        // remove when the unused @nuxt/icon, agents and comark-chips dependencies of the docs are fixed
+        // Nuxt UI installs `@nuxt/icon` by name, and Nuxt resolves it from the app first, so this pins the copy that loads.
         "@nuxt/icon",
+        // On Cloudflare, the MCP endpoint of `@nuxtjs/mcp-toolkit` imports `agents/mcp`.
         "agents",
-        "comark-chips",
       ],
       vitest: { config: ["vitest.config.ts", "vitest.artifact.config.ts"] },
     },
     // A type contract that `tsc` checks. Nothing imports it.
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
+    // `icons.html` loads `icons.ts`, the icon parity page that `packages/vite-hub/test/console-icon.browser.mjs` opens.
+    "playground/console": { entry: ["icons.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
       entry: appEntries("playground/content"),
       vite: false,
-      // remove when the unused comark-content and @vite-hub/cli dependencies of the content playground are fixed
-      ignoreDependencies: ["comark-content", "@vite-hub/cli"],
     },
     "playground/docs": {
       entry: appEntries("playground/docs"),
       ignoreDependencies: [
         // Nuxt Icon loads icon sets by the prefix of an icon name, such as `i-lucide-x`.
         /^@iconify-json\//,
-        // remove when the unused dependencies of the docs playground are fixed
+        // remove when #3644 and #3653 merge: they move this app to Nuxt 5 and rewrite these lines
         "@ai-sdk/vue",
         "@vite-hub/env",
         "@vite-hub/runtime",
         "@vite-hub/source",
         "h3",
         "vue-tsc",
+      ],
+    },
+    "packages/docs/playground": {
+      entry: [
+        ...appEntries("packages/docs/playground"),
+        // Markdown and Nuxt auto-import these components and their helpers.
+        "app/components/**/*.vue",
+        "app/utils/*.ts",
+        // Maintainers run these content and illustration tools directly.
+        "scripts/*.mjs",
+        "illustrations/*.mjs",
+        ".claude/skills/illustration-isometric-mono/scripts/*.mjs",
+      ],
+      ignoreDependencies: [
+        // Nuxt Icon loads icon collections by name from the app and the docs layer.
+        /^@iconify-json\//,
+        // The docs MCP endpoint loads agents/mcp on Cloudflare.
+        "agents",
+        // The README runs Wrangler directly for local migrations and Worker previews.
+        "wrangler",
       ],
     },
     "playground/logs": { entry: appEntries("playground/logs"), vite: false },

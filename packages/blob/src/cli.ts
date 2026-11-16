@@ -32,9 +32,7 @@ type BlobCliOption = "content-type" | "cursor" | "limit" | "output" | "prefix"
 interface BlobCommand {
   description: string
   file?: boolean
-  name: "delete" | Exclude<BlobDevOperation, "del">
-  /** The `blob.*` operation that the command runs. */
-  operation: BlobDevOperation
+  name: BlobDevOperation
   options: readonly BlobCliOption[]
   pathname: boolean
 }
@@ -64,13 +62,13 @@ const blobDevTargetErrors = {
 }
 
 const blobCommands: readonly BlobCommand[] = [
-  { description: "List blobs of a Blob store, one page at a time.", name: "list", operation: "list", options: ["prefix", "limit", "cursor"], pathname: false },
-  { description: "Show the metadata of one blob.", name: "head", operation: "head", options: [], pathname: true },
-  { description: "Download one blob to a file, or to stdout without --output.", name: "get", operation: "get", options: ["output"], pathname: true },
-  { description: "Upload one file as a blob.", file: true, name: "put", operation: "put", options: ["content-type"], pathname: true },
-  { description: "Delete one blob.", name: "delete", operation: "del", options: [], pathname: true },
-  { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", operation: "media", options: [], pathname: true },
-  { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", operation: "variants", options: [], pathname: true },
+  { description: "List blobs of a Blob store, one page at a time.", name: "list", options: ["prefix", "limit", "cursor"], pathname: false },
+  { description: "Show the metadata of one blob.", name: "head", options: [], pathname: true },
+  { description: "Download one blob to a file, or to stdout without --output.", name: "get", options: ["output"], pathname: true },
+  { description: "Upload one file as a blob.", file: true, name: "put", options: ["content-type"], pathname: true },
+  { description: "Delete one blob.", name: "delete", options: [], pathname: true },
+  { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", options: [], pathname: true },
+  { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", options: [], pathname: true },
 ]
 
 const optionUsage: Record<BlobCliOption, string> = {
@@ -253,7 +251,7 @@ type BlobCliResult =
   | { operation: "list", value: BlobDevListResult }
   | { operation: "head", value: BlobDevHeadResult }
   | { operation: "put", value: BlobDevPutResult }
-  | { operation: "del", value: BlobDevDeleteResult }
+  | { operation: "delete", value: BlobDevDeleteResult }
   | { operation: "media", value: BlobDevMediaResult }
   | { operation: "variants", value: BlobDevVariantsResult }
 
@@ -266,7 +264,7 @@ const resultSchemas = {
   list: v.object({ blobs: v.array(blobObjectSchema), cursor: v.optional(v.string()), hasMore: v.boolean(), limit: v.pipe(v.number(), v.finite()), prefix: v.string(), store: v.string(), stores: v.array(v.string()) }),
   head: v.object({ object: blobObjectSchema, store: v.string() }),
   put: v.object({ created: v.boolean(), object: blobObjectSchema, store: v.string() }),
-  del: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
+  delete: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
   media: v.object({ record: v.unknown(), store: v.string() }),
   variants: v.object({
     pathname: v.string(),
@@ -280,7 +278,7 @@ function parseResult(operation: Exclude<BlobDevOperation, "get">, value: unknown
     case "list": { const parsed = v.safeParse(resultSchemas.list, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "head": { const parsed = v.safeParse(resultSchemas.head, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "put": { const parsed = v.safeParse(resultSchemas.put, value); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "del": { const parsed = v.safeParse(resultSchemas.del, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "delete": { const parsed = v.safeParse(resultSchemas.delete, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "media": {
       const parsed = v.safeParse(resultSchemas.media, value)
       const record = parsed.success ? sanitizeMediaRecord(parsed.output.record) : undefined
@@ -334,7 +332,7 @@ function writeResult(result: BlobCliResult, context: BlobCliContext): void {
       ])}\n`)
       return
     }
-    case "del": {
+    case "delete": {
       const value = result.value
       context.stdout.write(value.deleted
         ? `Deleted blob ${value.pathname} from store ${value.store}.\n`
@@ -410,13 +408,13 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
     rootDir: context.rootDir,
     ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     ...(parsed.url ? { url: parsed.url } : {}),
-  }, `blob.${command.operation}`, input)
+  }, `blob.${command.name}`, input)
   if (!called.ok) return writeCliFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
-  if (command.operation === "get") {
+  if (command.name === "get") {
     const file = v.safeParse(v.object({ contentType: v.optional(v.string()), data: v.string(), pathname: v.string(), size: v.number(), store: v.string() }), called.value)
     return file.success ? await writeDownload(file.output, parsed, context) : writeCliFailure(parsed.json, context, { message: "The blob operation answered with an invalid file." })
   }
-  const result = parseResult(command.operation, called.value)
+  const result = parseResult(command.name, called.value)
   if (!result) return writeCliFailure(parsed.json, context, { message: "The blob operation answered with an invalid result." })
   if (parsed.json) context.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`)
   else writeResult(result, context)

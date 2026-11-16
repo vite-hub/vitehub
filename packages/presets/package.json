@@ -71,6 +71,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@yarnpkg/parsers": "catalog:tooling",
     "comark": "catalog:markdown",
+    "nostics": "catalog:runtime",
     "valibot": "catalog:runtime",
     "yaml": "catalog:tooling"
   },

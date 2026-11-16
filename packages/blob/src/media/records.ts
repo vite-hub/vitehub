@@ -1,9 +1,9 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
-import { getStandardContext } from "@vite-hub/runtime/h3"
-import { createError } from "h3"
+import { eventRequest } from "../internal/event-request.ts"
+import { createError } from "nitro/h3"
 
 import { ensureBlob } from "../ensure.ts"
-import { blobError } from "../errors.ts"
+import { blobError, isBlobResultError } from "../errors.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { readDerivedHeader } from "../internal/derived-header.ts"
 import { averageImageColor } from "./color.ts"
@@ -15,7 +15,7 @@ import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import type { ResolvedBlobImages } from "./transformers.ts"
 import type { MediaCrop, MediaCropReplacement, MediaRecord, MediaUpdate, MediaVariantEntry } from "./types.ts"
 import type { BlobImageVariant, MediaFocalPoint } from "./variant.ts"
-import type { Result, ResultError } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 
 import type {
   BlobDriverAdapter,
@@ -47,7 +47,7 @@ export interface BlobMediaContext {
   driver: BlobDriverAdapter<unknown>
   images: ResolvedBlobImages | undefined
   normalizePathname(pathname: string): string
-  storage: Pick<BlobStorage, "del" | "list" | "put">
+  storage: Pick<BlobStorage, "copy" | "delete" | "list" | "put">
   store: string
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
@@ -60,13 +60,6 @@ export interface MediaVariantPlan {
 
 export interface InternalBlobMedia extends BlobMedia {
   planVariant(pathname: string, variant: BlobImageVariant): Promise<MediaVariantPlan | undefined>
-}
-
-// Internal invariant: media methods catch this and return its code as a Result error.
-class MediaFailure extends Error {
-  constructor(readonly code: BlobErrorCode, message: string, readonly result?: ResultError<BlobErrorCode>) {
-    super(message)
-  }
 }
 
 function invalid(message: string): Error {
@@ -251,9 +244,8 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       return [undefined, await operation()]
     }
     catch (cause) {
-      if (cause instanceof MediaFailure) {
-        return [cause.result ?? blobError(cause.code, "media", store, { detail: cause.message }), undefined]
-      }
+      // `unwrap()` and the checks below throw Result errors of the catalog. Return them unchanged.
+      if (isBlobResultError(cause)) return [cause, undefined]
       if (cause instanceof Error && "code" in cause && /^BLOB_R00(?:33|35)$/.test(String(cause.code))) throw cause
       return [blobError("BLOB_OPERATION_FAILED", "media", store, { cause }), undefined]
     }
@@ -261,7 +253,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
 
   function unwrap<TResult>(result: Result<TResult, BlobErrorCode>): TResult {
     const [error, value] = result
-    if (error) throw new MediaFailure(error.code, error.message, error)
+    if (error) throw error
     return value
   }
 
@@ -356,7 +348,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
 
   async function requireRecord(pathname: string): Promise<MediaRecord> {
     const record = await load(pathname)
-    if (!record) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${pathname} was not found in store ${store}.`)
+    if (!record) throw blobError("BLOB_NOT_FOUND", "media", store, { detail: `Blob ${pathname} was not found in store ${store}.` })
     return record
   }
 
@@ -400,16 +392,14 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     return `${mediaCropsPrefix}${owner.slice(0, 32)}/${name}.${hash.slice(0, 12)}${formatExtensions.get(format) ?? ""}`
   }
 
-  async function copyObject(from: string, to: string, object: BlobObject): Promise<BlobObject> {
-    const body = await driver.get(from)
-    if (!body) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${from} was not found in store ${store}.`)
-    const customMetadata = Object.keys(object.customMetadata).length ? { customMetadata: object.customMetadata } : {}
-    return unwrap(await context.storage.put(to, body, { ...(object.contentType ? { contentType: object.contentType } : {}), ...customMetadata }))
+  // The caller checks for a conflict first, so the copy replaces the destination.
+  async function copyObject(from: string, to: string): Promise<BlobObject> {
+    return unwrap(await context.storage.copy(from, to, { overwrite: true }))
   }
 
   async function removeMedia(pathname: string): Promise<void> {
     const record = await readRecord(pathname)
-    unwrap(await context.storage.del(pathname))
+    unwrap(await context.storage.delete(pathname))
     for (const crop of Object.values(record?.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement, pathname)
     }
@@ -422,12 +412,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
 
   async function moveMedia(from: string, to: string, overwrite: boolean): Promise<MediaRecord> {
     const object = await driver.head(from)
-    if (!object) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${from} was not found in store ${store}.`)
+    if (!object) throw blobError("BLOB_NOT_FOUND", "media", store, { detail: `Blob ${from} was not found in store ${store}.` })
     if (canonical(from) === canonical(to)) return await requireRecord(from)
-    if (!overwrite && await driver.head(to)) throw new MediaFailure("BLOB_CONFLICT", `Blob ${to} already exists in store ${store}.`)
+    if (!overwrite && await driver.head(to)) throw blobError("BLOB_CONFLICT", "media", store, { detail: `Blob ${to} already exists in store ${store}.` })
     const destination = overwrite ? await readRecord(to) : undefined
     const record = await requireRecord(from)
-    const moved = await copyObject(from, to, object)
+    const moved = await copyObject(from, to)
     let crops: Record<string, MediaCrop> | undefined
     for (const [name, crop] of Object.entries(record.crops ?? {})) {
       crops ||= {}
@@ -461,7 +451,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     for (const crop of Object.values(destination?.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement)
     }
-    unwrap(await context.storage.del(from))
+    unwrap(await context.storage.delete(from))
     for (const crop of Object.values(record.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement, from)
     }
@@ -549,7 +539,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const formKey = options.formKey ?? "files"
       let form: FormData
       try {
-        form = await getStandardContext(event).req.formData()
+        form = await eventRequest(event).formData()
       }
       catch {
         throw createError({ statusCode: 400, message: "Expected a multipart/form-data request body." })
@@ -651,10 +641,10 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const folder = normalizeFolder(path)
       const objects = await listAll(`${folder}/`)
       const content = objects.filter(object => baseName(object.pathname) !== mediaFolderMarker)
-      if (content.length && !options.force) throw new MediaFailure("BLOB_CONFLICT", `Folder ${folder}/ in store ${store} is not empty. Pass { force: true } to remove ${content.length} objects.`)
+      if (content.length && !options.force) throw blobError("BLOB_CONFLICT", "media", store, { detail: `Folder ${folder}/ in store ${store} is not empty. Pass { force: true } to remove ${content.length} objects.` })
       for (const object of content) await removeMedia(object.pathname)
       const markers = objects.filter(object => baseName(object.pathname) === mediaFolderMarker).map(object => object.pathname)
-      if (markers.length) unwrap(await context.storage.del(markers))
+      if (markers.length) unwrap(await context.storage.delete(markers))
       return { removed: content.length }
     }),
     moveFolder: (from, to) => run(async () => {
@@ -662,14 +652,14 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const target = normalizeFolder(to)
       if (canonical(target) === canonical(source) || canonical(target).startsWith(`${canonical(source)}/`)) throw invalid(`Cannot move folder ${source}/ into itself.`)
       const objects = await listAll(`${source}/`)
-      if (!objects.length) throw new MediaFailure("BLOB_NOT_FOUND", `Folder ${source}/ was not found in store ${store}.`)
-      if ((await listAll(`${target}/`)).some(object => baseName(object.pathname) !== mediaFolderMarker)) throw new MediaFailure("BLOB_CONFLICT", `Folder ${target}/ in store ${store} is not empty.`)
+      if (!objects.length) throw blobError("BLOB_NOT_FOUND", "media", store, { detail: `Folder ${source}/ was not found in store ${store}.` })
+      if ((await listAll(`${target}/`)).some(object => baseName(object.pathname) !== mediaFolderMarker)) throw blobError("BLOB_CONFLICT", "media", store, { detail: `Folder ${target}/ in store ${store} is not empty.` })
       let moved = 0
       for (const object of objects) {
         const destination = `${target}/${object.pathname.slice(source.length + 1)}`
         if (baseName(object.pathname) === mediaFolderMarker) {
-          await copyObject(object.pathname, destination, object)
-          unwrap(await context.storage.del(object.pathname))
+          await copyObject(object.pathname, destination)
+          unwrap(await context.storage.delete(object.pathname))
           continue
         }
         await moveMedia(object.pathname, destination, false)

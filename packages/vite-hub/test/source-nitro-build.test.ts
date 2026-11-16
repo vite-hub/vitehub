@@ -51,7 +51,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
           configFile: false,
           root,
           plugins: [
-            vitehub({ preset: "node" }),
+            vitehub({ host: "node" }),
             {
               name: "collection-client-base",
               enforce: "post",
@@ -99,6 +99,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
             `// route: false belongs to an unrelated comment`,
             ``,
             `export const articles = defineCollection(async () => [{ id: "a", title: "A" }], {`,
+            `  access: "public",`,
             `  cursor: article => article.id,`,
             `  cursorSchema: v.string(),`,
             `})`,
@@ -115,8 +116,8 @@ describe("Source Collections through the Nitro Vite plugin", () => {
         const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
         const plugins =
           nitroPosition === "before"
-            ? [nitro() as never, vitehub({ preset: "node" })]
-            : [vitehub({ preset: "node" }), nitro() as never];
+            ? [nitro() as never, vitehub({ host: "node" })]
+            : [vitehub({ host: "node" }), nitro() as never];
         const configuration: Plugin = {
           name: "collection-host-configuration",
           config() {

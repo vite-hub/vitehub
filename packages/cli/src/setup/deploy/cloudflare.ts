@@ -1,28 +1,32 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand, untilInterrupted } from "./host.ts"
 
-import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
-/** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/index.ts`). */
-const valueFlags = new Set(["--config", "--secrets-file"])
+/** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/plugins.ts`). */
+const valueFlags = new Set(["--config"])
 const plainFlags = new Set(["--containers-rollout=gradual"])
 
 interface WranglerCommand {
-  /** `--config` and `--secrets-file` with their values, and the rollout flag, in build order. */
+  /** `--config` with its value, and the rollout flag, in build order. */
   args: string[]
   config: string
+  /** The D1 bindings whose migrations `database.migrateOnDeploy` applies before the deploy, in build order. */
+  migrations: string[]
 }
 
 /**
  * Reads `commands.deploy` from `<output>/nitro.json` and checks that it is the Wrangler deploy that the build writes:
- * `npx wrangler deploy --config <file> [--secrets-file <file>] [--containers-rollout=gradual]`.
+ * `npx wrangler deploy --config <file> [--containers-rollout=gradual]`. With
+ * `database.migrateOnDeploy`, `npx wrangler d1 migrations apply <binding> --remote --config <file> && ` comes before it
+ * once for each D1 binding (`packages/database/src/internal/migrate-on-deploy.ts`).
  */
 async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> {
   let manifest: unknown
@@ -30,11 +34,12 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
     manifest = JSON.parse(await readFile(join(outputDir, "nitro.json"), "utf8"))
   }
   catch {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(outputDir, "nitro.json") }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(outputDir, "nitro.json") }), setupExitCodes.error)
   }
   const command = isRecord(manifest) && isRecord(manifest.commands) ? optionalString(manifest.commands.deploy) : undefined
-  if (!command) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: `commands.deploy in ${join(outputDir, "nitro.json")}` }), setupExitCodes.error)
-  const words = splitManifestCommand(command)
+  if (!command) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: `commands.deploy in ${join(outputDir, "nitro.json")}` }), setupExitCodes.error)
+  const steps = command.split(" && ").map(step => splitManifestCommand(step))
+  const words = steps.pop()!
   if (words[0] !== "npx" || words[1] !== "wrangler" || words[2] !== "deploy") throw commandRejected(command)
   const args: string[] = []
   let config: string | undefined
@@ -49,7 +54,31 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
     else throw commandRejected(command)
   }
   if (!config) throw commandRejected(command)
-  return { args, config }
+  const migrations = steps.map((step) => {
+    const [binding, ...flags] = step.slice(5)
+    const valid = step.slice(0, 5).join(" ") === "npx wrangler d1 migrations apply" && binding !== undefined && /^[A-Z_a-z]\w*$/u.test(binding)
+      && flags.length === 3 && flags[0] === "--remote" && flags[1] === "--config" && flags[2] === config
+    if (!valid) throw commandRejected(command)
+    return binding
+  })
+  return { args, config, migrations }
+}
+
+/**
+ * The plain vars of the Wrangler config that the build writes (`vars` in the `--config` file of `commands.deploy`). The
+ * deploy sets them with the version, so the Worker has them at runtime even though `wrangler secret list` omits them.
+ */
+export async function wranglerVarNames(outputDir: string): Promise<string[]> {
+  const { config } = await readWranglerCommand(outputDir)
+  const file = join(outputDir, config)
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(file, "utf8"))
+  }
+  catch {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
+  }
+  return isRecord(value) && isRecord(value.vars) ? Object.keys(value.vars) : []
 }
 
 interface WranglerOutputEntry {
@@ -82,8 +111,13 @@ function claimExpiry(text: string): string | undefined {
   return match ? new Date(Date.now() + Number(match[1]) * durationUnits[match[2]!]!).toISOString() : undefined
 }
 
-// Wrangler 4.158: `wrangler deploy --help`, `wrangler secret put --help`, `wrangler secret list --help`, and the global
-// `--temporary` flag. Recorded in test/fixtures/host-cli-help/.
+// Wrangler 4.158: `wrangler deploy --help`, `wrangler versions upload --help`, `wrangler secret put --help`,
+// `wrangler secret list --help`, and the global `--temporary` flag. Wrangler 4.157: `wrangler d1 migrations apply --help`.
+// Recorded in test/fixtures/host-cli-help/.
+//
+// `context.upload` goes to `--secrets-file` as JSON, so the values arrive with the new version: a `secret put` before
+// the deploy would roll the old code out with the new values, and a preview value would reach production. JSON, not
+// dotenv: Wrangler's dotenv mode expands `$VAR` and lets the process env override the file.
 export async function cloudflareAdapter(context: DeployContext): Promise<DeployAdapter> {
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
@@ -94,41 +128,57 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
     ...context.env,
     ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}),
   }
-  const run = (args: readonly string[], options: { stdin?: string, show?: boolean, env?: NodeJS.ProcessEnv } = {}) =>
+  const run = (args: readonly string[], options: { stdin?: string, show?: boolean, env?: NodeJS.ProcessEnv, signal?: AbortSignal } = {}) =>
     context.run(wrangler[0], [...wrangler.slice(1), ...args], { cwd: context.outputDir, env: options.env ?? env, ...options })
 
   return {
     async deploy(): Promise<DeployResult> {
-      const folder = await mkdtemp(join(tmpdir(), "vitehub-deploy-"))
-      const outputFile = join(folder, "wrangler-output.jsonl")
-      try {
-        const args = context.preview
-          ? ["versions", "upload", ...command.args.filter(arg => !plainFlags.has(arg))]
-          : ["deploy", ...command.args]
-        args.push(...target)
-        if (context.temporary) args.push("--temporary")
-        if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
-        const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true })
-        if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
-        const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
-        const text = `${result.stdout}\n${result.stderr}`
-        const targets = Array.isArray(entry?.targets) ? entry.targets.filter(target => typeof target === "string") : []
-        const url = (context.preview ? optionalString(entry?.preview_url) : targets[0]) ?? findUrl(text, /\.workers\.dev$/u)
-        if (!url) throw hostCliFailed("wrangler deploy printed no URL", result, context.secrets)
-        const version = optionalString(entry?.version_id)
-        const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
-        const expiresAt = claimExpiry(text)
-        const name = optionalString(entry?.worker_name)
-        return {
-          url,
-          ...(version ? { version } : {}),
-          ...(claimUrl ? { claim: { url: claimUrl, ...(expiresAt ? { expiresAt } : {}) } } : {}),
-          ...(name ? { project: { name, ...(accountId ? { accountId } : {}) } } : {}),
+      // A preview version and a temporary Worker must not change the production database.
+      if (!context.preview && !context.temporary) {
+        for (const binding of command.migrations) {
+          const result = await run(["d1", "migrations", "apply", binding, "--remote", "--config", command.config], { show: true })
+          if (result.exitCode !== 0) throw hostCliFailed(`wrangler d1 migrations apply ${binding}`, result, context.secrets)
         }
       }
-      finally {
-        await rm(folder, { force: true, recursive: true })
-      }
+      // Ctrl+C must not leave the secrets file: a signal stops Wrangler and waits for the cleanup in `finally`.
+      return await untilInterrupted(async (signal) => {
+        const folder = await mkdtemp(join(tmpdir(), "vitehub-deploy-"))
+        const outputFile = join(folder, "wrangler-output.jsonl")
+        try {
+          const args = context.preview
+            ? ["versions", "upload", ...command.args.filter(arg => !plainFlags.has(arg))]
+            : ["deploy", ...command.args]
+          args.push(...target, "--keep-vars")
+          if (context.temporary) args.push("--temporary")
+          if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
+          if (context.upload && Object.keys(context.upload).length) {
+            // mkdtemp makes the folder 0700, and `finally` removes it with the file.
+            const secretsFile = join(folder, "secrets.json")
+            await writeFile(secretsFile, JSON.stringify(context.upload), { flag: "wx", mode: 0o600 })
+            args.push("--secrets-file", secretsFile)
+          }
+          const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true, signal })
+          if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
+          const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
+          const text = `${result.stdout}\n${result.stderr}`
+          const targets = Array.isArray(entry?.targets) ? entry.targets.filter(target => typeof target === "string") : []
+          const url = (context.preview ? optionalString(entry?.preview_url) : targets[0]) ?? findUrl(text, /\.workers\.dev$/u)
+          if (!url) throw hostCliFailed("wrangler deploy printed no URL", result, context.secrets)
+          const version = optionalString(entry?.version_id)
+          const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
+          const expiresAt = claimExpiry(text)
+          const name = optionalString(entry?.worker_name)
+          return {
+            url,
+            ...(version ? { version } : {}),
+            ...(claimUrl ? { claim: { url: claimUrl, ...(expiresAt ? { expiresAt } : {}) } } : {}),
+            ...(name ? { project: { name, ...(accountId ? { accountId } : {}) } } : {}),
+          }
+        }
+        finally {
+          await rm(folder, { force: true, recursive: true })
+        }
+      })
     },
   }
 }
@@ -142,6 +192,40 @@ interface CloudflareVersion {
 }
 
 /** Version and deployment `source` values: https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/ */
+/**
+ * The secrets of the linked Worker. Wrangler 4.158 (`wrangler secret put --help`, `wrangler secret list --help`, in
+ * test/fixtures/host-cli-help/). `secret put` reads the value from stdin when stdin is not a terminal, and creates a
+ * draft Worker when the Worker does not exist. A Worker has one set of secrets for every version, so there is no
+ * preview target. Every value becomes a secret: a plain var lives in the Wrangler config that the build writes.
+ */
+export function cloudflareEnv(context: HostEnvContext): HostEnv {
+  const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
+  const env: NodeJS.ProcessEnv = { ...context.env, ...(context.link.account ? { CLOUDFLARE_ACCOUNT_ID: context.link.account.id } : {}) }
+  const worker = ["--name", context.link.project.name]
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(wrangler[0], [...wrangler.slice(1), ...args], { cwd: context.root, env, ...(stdin === undefined ? {} : { stdin }) })
+
+  return {
+    async listSecretNames() {
+      const result = await run(["secret", "list", "--format", "json", ...worker])
+      if (result.exitCode !== 0) throw hostListFailed("wrangler secret list", result, context.secrets)
+      const start = result.stdout.indexOf("[")
+      let value: unknown
+      try {
+        value = JSON.parse(result.stdout.slice(start))
+      }
+      catch {
+        throw hostListFailed("wrangler secret list printed no JSON", result, context.secrets)
+      }
+      return Array.isArray(value) ? value.flatMap(item => isRecord(item) && typeof item.name === "string" ? [item.name] : []) : []
+    },
+    async setSecret(name, value) {
+      const result = await run(["secret", "put", name, ...worker], value)
+      if (result.exitCode !== 0) throw hostCliFailed(`wrangler secret put ${name}`, result, context.secrets)
+    },
+  }
+}
+
 function cloudflareSource(value: unknown): HostDeploymentSource {
   if (value === "wrangler" || value === "cf_cli") return "cli"
   if (value === "workersci") return "git"
@@ -209,7 +293,7 @@ async function optional<T>(request: Promise<T>): Promise<T | undefined> {
  */
 export const listCloudflareDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const accountId = context.link.account?.id ?? context.credentials.accountId
-  if (!accountId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
+  if (!accountId) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
   const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
   const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
   const [deployments, versions, subdomain, settings] = await Promise.all([

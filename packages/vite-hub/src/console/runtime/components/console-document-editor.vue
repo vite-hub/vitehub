@@ -45,7 +45,7 @@ import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
 import { isRemoteProject } from "../client/project";
 import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
-import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
+import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, consolePublishPreviewUrl, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
 import { openConsoleTicket } from "../client/ticket";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
@@ -64,11 +64,12 @@ import ConsoleSeoPanel from "./console-seo-panel.vue";
 import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
 
-import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentTranslationState, ConsoleRawDocument } from "../client/documents";
+import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentPublished, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentTranslationState, ConsoleRawDocument } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
 import ConsoleConfirm from "./console-confirm.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -1084,7 +1085,7 @@ async function publish(): Promise<void> {
     // Publish exactly the draft on screen. A deleted document has no draft to expect.
     const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
     const pullRequest = result.pullRequest;
-    if (result.documents.length && pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
+    if (result.documents.length && pullRequest) toast.show({ action: pullRequestAction(pullRequest, result.previews, id.value), title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
     else if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
     notifyChanged();
     previewReloads.value++;
@@ -1318,6 +1319,13 @@ async function openSharedPublish(): Promise<void> {
   }
 }
 
+/** The toast action after a publish opened a pull request: its signed page preview when this Console can open it, else the pull request. */
+function pullRequestAction(pullRequest: { url: string }, previews: ConsoleDocumentPublished["previews"], documentId: string | undefined) {
+  const preview = consolePublishPreviewUrl(previews, documentId, remote ? undefined : window.location.origin);
+  const url = preview ?? pullRequest.url;
+  return { label: preview ? "Open preview" : "Open pull request", onClick: () => void window.open(url, "_blank", "noopener") };
+}
+
 /** Publishes exactly the shared draft that the dialog showed. The local edits stay in this tab. */
 async function publishShared(): Promise<void> {
   const reviewed = sharedPublish.value;
@@ -1333,7 +1341,7 @@ async function publishShared(): Promise<void> {
     sharedPublishOpen.value = false;
     // With `publish: "pr"` the store opens a pull request: nothing is live until it merges.
     const pullRequest = result.pullRequest;
-    if (pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The shared draft goes live when it merges. Your local edits are still here.` });
+    if (pullRequest) toast.show({ action: pullRequestAction(pullRequest, result.previews, props.documentId), title: `Pull request #${pullRequest.number} opened. The shared draft goes live when it merges. Your local edits are still here.` });
     else toast.show({ title: "Shared draft published. Your local edits are still here." });
     notifyChanged();
     previewReloads.value++;
@@ -1901,7 +1909,7 @@ async function onPreviewSelect(field: string): Promise<void> {
   const row = document.querySelector<HTMLElement>(`.vitehub-document-editor [data-vitehub-field="field-${field.replace(/[^a-zA-Z0-9_-]/g, "-")}"]`);
   if (!row) return;
   row.scrollIntoView({ block: "center" });
-  row.animate([{ backgroundColor: "color-mix(in oklab, var(--ui-primary) 14%, transparent)" }, { backgroundColor: "transparent" }], { duration: 1200, easing: "ease-out" });
+  row.animate([{ backgroundColor: "color-mix(in oklab, var(--primary) 14%, transparent)" }, { backgroundColor: "transparent" }], { duration: 1200, easing: "ease-out" });
   if (!inPlace) row.querySelector<HTMLElement>("input, textarea, select, button, [contenteditable='true']")?.focus({ preventScroll: true });
 }
 
@@ -2293,13 +2301,13 @@ const menuItems = computed(() => [[
           </template>
         </UAlert>
         <div v-if="translationNote" class="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status">
-          <UIcon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+          <Icon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0 flex-1 text-default">{{ translationNote }}</span>
           <UButton v-if="sourceLocale" size="xs" variant="outline" :label="`Open ${consoleLocaleName(sourceLocale)}`" :to="localeRoute(sourceLocale)" />
           <UButton v-if="stale && canWrite && sourceClient" size="xs" variant="outline" label="Mark as up to date" @click="openMarkCurrent()" />
         </div>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
-          <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
+          <Icon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
           Read-only. You can read drafts of this collection but not change them.
         </p>
 
@@ -2388,7 +2396,7 @@ const menuItems = computed(() => [[
 
         <section v-else class="mb-4 grid gap-3" aria-label="Stored file">
           <div class="flex items-center gap-2 text-xs text-muted">
-            <UIcon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
             <span class="font-mono text-highlighted">{{ base?.path }}</span>
             <span class="ms-auto">{{ liveActive ? "Read-only during a live session. Edit in Rich." : dataDirty ? "Fields are saving…" : "Fields are read-only here. Edit them in Rich." }}</span>
           </div>
@@ -2417,7 +2425,7 @@ const menuItems = computed(() => [[
           @outline="outline = $event"
         />
         <div v-else-if="hasBody && liveRoom" v-show="mode === 'rich'" class="flex min-h-[40vh] items-start gap-2 text-[13px] text-muted" role="status">
-          <UIcon name="i-lucide-loader-circle" class="mt-0.5 size-4 animate-spin" aria-hidden="true" />
+          <Icon name="i-lucide-loader-circle" class="mt-0.5 size-4 animate-spin" aria-hidden="true" />
           Joining the live session…
         </div>
         <ConsoleMarkdownEditor
@@ -2503,7 +2511,7 @@ const menuItems = computed(() => [[
       @pointerdown="onSplitterPointerDown"
       @keydown="onSplitterKeydown"
     >
-      <div class="mx-auto h-full w-px bg-(--ui-border) transition-colors hover:bg-(--ui-border-accented)" :class="resizing ? 'w-0.5 bg-primary' : ''" />
+      <div class="mx-auto h-full w-px bg-(--border) transition-colors hover:bg-(--ui-border-accented)" :class="resizing ? 'w-0.5 bg-primary' : ''" />
     </div>
     <ConsoleDocumentPreview
       id="vitehub-document-preview"
@@ -2786,7 +2794,7 @@ const menuItems = computed(() => [[
           </p>
           <p class="text-xs text-muted">Compared with the saved draft.</p>
         </div>
-        <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
+        <div v-if="previewLoading" class="flex justify-center py-8"><Icon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
         <p v-else-if="!preview.document" class="text-xs text-muted">The {{ noun.toLowerCase() }} does not exist in this version.</p>
         <ConsoleDocumentDiff v-else :before="preview.current?.text ?? null" :after="preview.document.text" :format="collection.format" :name="fileName" />
       </div>

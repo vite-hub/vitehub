@@ -1,10 +1,12 @@
 import { readdir, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { defineContent } from "@vite-hub/content"
+import { createSource, glob } from "@vite-hub/source"
 import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
-import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
+import { docsMarkdown, docsSearchSections } from "../src/markdown.ts"
 import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
@@ -15,18 +17,26 @@ const examplesDir = resolve(import.meta.dirname, "../../../docs/app/examples")
 let search: ReturnType<typeof createDocsSearch>
 
 beforeAll(async () => {
-  const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
+  const manifest = await createDocsManifest({ dir: contentDir, base: "/docs" })
   const examples = Object.fromEntries(await Promise.all(
     (await readdir(examplesDir)).filter(file => file.endsWith(".vue")).map(async file => [
       file.slice(0, -4),
       await readFile(resolve(examplesDir, file), "utf8"),
     ] as const),
   ))
-  const parse = createDocsParser({ examples })
+  // As on the site, search reads each page through Content, parsed with the page parser config.
+  const content = defineContent({
+    route: false,
+    live: false,
+    markdown: docsMarkdown({ examples }),
+    sources: { docs_0: () => createSource(glob({ include: ["**/*.md"] }), { rootDir: contentDir }) },
+  })
+  // One parse of the folder: a `glob()` Source reads every file again on each read of one page.
+  const files = new Map((await content.instances.find(instance => instance.name === "docs_0")!.snapshot()).items.map(file => [file.meta.key, file]))
   const records: DocsSearchSection[] = []
   // As in the site search, a page that search engines skip, such as a generated diagnostic code page, has one record.
   for (const page of docsIndexedPages(manifest)) {
-    const { nodes } = await parse(await readFile(resolve(contentDir, page.file), "utf8"))
+    const { nodes } = files.get(`docs_0/${page.file}`)!
     records.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
   records.push(...docsUnindexedSearchSections(manifest))
@@ -73,8 +83,14 @@ describe("docs search on the vitehub.dev content", () => {
 
   it("ranks Installation pages above Install headings", () => {
     const results = search("install", 12)
-    expect(results.slice(0, 2).map(record => record.id)).toEqual(["/docs/getting-started/installation", "/docs/ui/installation"])
-    expect(results[2]?.level).toBeGreaterThan(1)
+    const ids = results.map(record => record.id)
+    // Other pages can mention installing, so check the order against headings, not exact positions.
+    const firstHeading = results.findIndex(record => record.level > 1)
+    expect(firstHeading).toBeGreaterThan(1)
+    for (const page of ["/docs/getting-started/installation", "/docs/ui/installation"]) {
+      expect(ids.indexOf(page)).toBeGreaterThanOrEqual(0)
+      expect(ids.indexOf(page)).toBeLessThan(firstHeading)
+    }
   })
 
   it("tolerates a typo, a swapped pair of letters, and an unfinished word", () => {

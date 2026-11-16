@@ -88,6 +88,24 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 token. Content serves a `github()` Source from a validated head commit only when
 it does.
 
+`history(key, { sha, page, perPage })` lists the commits that changed one file,
+newest first, from the commit `sha` back. It reads GitHub's commits endpoint with
+`path`, so it does not follow renames. Each commit has `sha`, `date`, `author`,
+the first line of `message`, and `url`. `content.history()` uses it.
+
+`latest(keys, { sha })` returns the latest commit of many files at once, as a
+`Map` from key to commit. It sends one GitHub GraphQL request per 150 files, 4
+at a time, so 2,600 files cost 18 requests. When GitHub stops a request after 10
+seconds (502), it asks again with half the files. `changes(base, head)` returns
+the keys that a commit from one commit to a later one changed, with a file that
+one commit edits and a later one reverts. It sends one compare request, plus one
+commit request per commit when there is more than one. It returns undefined when
+GitHub cannot list them all or more than 20 commits lie between them. The Content sitemap and RSS feed
+use both to date Source pages. `pullChanges(number)` returns the keys that a pull
+request adds or changes, from its file list, with the new key of a renamed file
+and without removed files. GitHub lists at most 3,000 files of a pull request.
+`vitehub content previews comment` uses it.
+
 `resolveRef()` returns the commit that a ref of the repository points to now:
 `{ sha }` for `{ sha }` or `{ branch }`, and `{ sha, pull }` for `{ pull: 12 }`.
 `pull` has the state, the head and base branches, `fork`, and the label names. A
@@ -195,6 +213,11 @@ await cachedDocs.get("intro.md")
 
 Use a different cache name for each origin and access scope.
 
+The `cache` option of a loader, such as `github({ cache: { maxAge } })`, is a
+hint for the consumer of the Source. The Workspace reads it to decide when its
+copy of the Source content is stale. A reader from `createSource()` alone does
+not read `cache` and does not cache.
+
 ## Collections
 
 Define a Collection when a database or other origin should become a typed,
@@ -217,6 +240,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
   if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
   return await response.json() as Article[]
 }, {
+  access: 'public',
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
   querySchema: v.object({ author: v.optional(v.string()) }),
@@ -242,7 +266,10 @@ export const useArticles = () => useCollection("articles", {
 ViteHub discovers modules in `server/collections` and generates the collection
 registry and GET handler. The module must export a Collection with the same name
 as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
-A Collection is a public read model unless it sets `authorize`. `authorize: true`
+Each routed Collection must set `authorize` or `access: "public"`, or
+`defineCollection()` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`. `access: "public"` makes the route
+public. `authorize: false` throws `SOURCE_COLLECTION_AUTHORIZE_FALSE`, and `access: "public"` with
+`authorize` throws `SOURCE_COLLECTION_ACCESS_CONFLICT`. `authorize: true`
 requires a signed-in `@vite-hub/auth` session, and a callback receives
 `{ request, session, user }` and returns `true`, `false` for `403`, or a
 `Response`. The route checks access before it parses the query. Without a session
@@ -250,7 +277,8 @@ it returns `401`, and `useCollection()` sets `error` to a `CollectionAccessError
 with that `status`. Generated routes wrap the page with Auth's `withAuthorization` when the host
 enables Auth with a discovered Auth Definition (`hubSource({ auth: true })`
 alongside `hubAuth()` outside `vite-hub`); otherwise a
-Collection with `authorize` fails closed. Do not repeat the route under
+Collection with `authorize: true` or a callback fails closed. Set `route: false`
+to keep a Collection server-only. Then neither is needed. Do not repeat the route under
 `server/api`. Restart Nuxt after
 adding, removing, or renaming a Collection module so Nitro rebuilds its handler
 manifest.
@@ -273,6 +301,7 @@ It filters, searches, sorts, counts, and pages the array, and returns `total` an
 import { array, defineCollection } from "@vite-hub/source"
 
 export const articles = defineCollection({
+  access: 'public',
   source: array(() => loadArticles(), {
     facets: ["category"],
     filters: ["category", "authors.name"],
@@ -296,7 +325,17 @@ page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
-`vite-hub/source/drizzle`.
+`vite-hub/source/drizzle`. `table()` selects every column. A public Collection
+over it must set `transform` to return only the public fields, or
+`defineCollection()` throws `SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED`:
+
+```ts fragment
+export const authors = defineCollection({
+  access: 'public',
+  source: table({ db, orderBy: { column: users.id, direction: "asc", tieBreaker: users.id }, table: users }),
+  transform: ({ id, name }) => ({ id, name }),
+})
+```
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or

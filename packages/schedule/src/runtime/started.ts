@@ -1,8 +1,8 @@
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { isScheduleDue } from "./due.ts"
-import { executeSchedule } from "./execute.ts"
-import { getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
+import { executeSchedule, toRunId } from "./execute.ts"
+import { getScheduleOccurrenceClaims, getStartedScheduleRuntime, setStartedScheduleRuntime } from "./state.ts"
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
@@ -102,7 +102,7 @@ export function createKVStartedScheduleStore(options: KVStartedScheduleStoreOpti
     async delete(id) {
       read.delete(id)
       if (!await kv.has(key(id))) return false
-      await kv.del(key(id))
+      await kv.delete(key(id))
       return true
     },
     async get(id) {
@@ -151,7 +151,8 @@ function dueMinutes(schedule: StartedSchedule, first: number, last: number): Dat
   return due
 }
 
-async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedSchedule, scheduledAt: Date, waitUntil: ScheduleRunContext["waitUntil"]): Promise<void> {
+/** Runs one occurrence of a started Schedule. Resolves `false` when another process holds it, so a later tick tries again. */
+async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedSchedule, scheduledAt: Date, waitUntil: ScheduleRunContext["waitUntil"]): Promise<boolean> {
   const load = Object.hasOwn(runtime.registry, schedule.name) ? runtime.registry[schedule.name] : undefined
   const definition = unwrapStartableDefinition(await load?.())
   if (!definition) {
@@ -159,21 +160,35 @@ async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedS
     if (schedule.at) await runtime.store.delete(schedule.id)
     throw startedScheduleErrors.SCHEDULE_NOT_STARTABLE({ name: schedule.name })
   }
-  try {
-    await executeSchedule({
-      captureHandlerFailure: true,
-      definition: { handler: context => definition.handler({ ...context, payload: schedule.payload }) },
-      scheduleId: schedule.id,
-      scheduledAt,
-      source: "started",
-      target: schedule.name,
-      waitUntil,
-    })
+  const claims = getScheduleOccurrenceClaims()
+  const run = async (markFinal?: () => void) => {
+    let final = false
+    try {
+      await executeSchedule({
+        captureHandlerFailure: true,
+        ...(claims ? { claimed: true } : {}),
+        definition: { handler: context => definition.handler({ ...context, payload: schedule.payload }) },
+        onExecution() {
+          final = true
+          markFinal?.()
+        },
+        scheduleId: schedule.id,
+        scheduledAt,
+        source: "started",
+        target: schedule.name,
+        waitUntil,
+      })
+    }
+    finally {
+      // A one-time Schedule runs once, also when the handler fails. The failed run stays in the run history.
+      if (schedule.at && final) await runtime.store.delete(schedule.id)
+    }
   }
-  finally {
-    // A one-time Schedule runs once, also when the handler fails. The failed run stays in the run history.
-    if (schedule.at) await runtime.store.delete(schedule.id)
+  if (!claims) {
+    await run()
+    return true
   }
+  return await claims.run(toRunId("started", schedule.id, scheduledAt), run) !== "held"
 }
 
 /**
@@ -188,11 +203,29 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
   const first = runtime.checkedThrough === undefined
     ? minute - runtime.catchUpMs
     : Math.min(minute, runtime.checkedThrough + minuteMs)
-  const occurrences = (await runtime.store.list()).flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
+  const schedules = await runtime.store.list()
+  const occurrences = schedules.flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
+  // Occurrences that another process held at an earlier tick. A Schedule that is gone now ran its last time or was cancelled.
+  const held = runtime.held ??= new Map()
+  const byId = new Map(schedules.map(schedule => [schedule.id, schedule]))
+  for (const [runId, entry] of held) {
+    const schedule = byId.get(entry.scheduleId)
+    if (!schedule) held.delete(runId)
+    else if (!occurrences.some(occurrence => occurrence.schedule.id === schedule.id && occurrence.scheduledAt.getTime() === entry.scheduledAt.getTime())) {
+      occurrences.push({ schedule, scheduledAt: entry.scheduledAt })
+    }
+  }
   const results = await Promise.allSettled(occurrences.map(({ schedule, scheduledAt }) => runOccurrence(runtime, schedule, scheduledAt, context.waitUntil)))
   results.forEach((result, index) => {
-    if (result.status === "fulfilled") return
-    const { schedule } = occurrences[index]!
+    const { schedule, scheduledAt } = occurrences[index]!
+    const runId = toRunId("started", schedule.id, scheduledAt)
+    if (result.status === "fulfilled") {
+      if (result.value) held.delete(runId)
+      else held.set(runId, { scheduleId: schedule.id, scheduledAt })
+      return
+    }
+    // A first tick can fail before checkedThrough is set. Keep that occurrence for the next tick as well.
+    held.set(runId, { scheduleId: schedule.id, scheduledAt })
     console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (results.every(result => result.status === "fulfilled")) {

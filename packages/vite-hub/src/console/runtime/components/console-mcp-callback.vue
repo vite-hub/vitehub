@@ -6,6 +6,7 @@ import { consoleMcpAccount, requestConsoleMcp } from "../client/mcp-client";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Where an authorization server sends the browser after an MCP sign-in. The page hands the code to the server, which
@@ -68,7 +69,7 @@ onMounted(async () => {
       :actions="[{ label: 'Back to MCP client', icon: 'i-lucide-arrow-left', to: { name: 'vitehub-console-mcp-client' } }]"
     />
     <div v-else class="grid justify-items-center gap-3 text-center" role="status" aria-live="polite">
-      <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted motion-reduce:animate-none" aria-hidden="true" />
+      <Icon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted motion-reduce:animate-none" aria-hidden="true" />
       <p class="text-[13px] text-muted">Finishing the sign-in…</p>
     </div>
   </UDashboardPanel>

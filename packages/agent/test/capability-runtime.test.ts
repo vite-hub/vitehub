@@ -152,6 +152,45 @@ describe("agent capability runtime", () => {
     } finally { await result.close() }
   })
 
+  it("drops the Skill Sources of the GitHub source that a PR checkout replaces", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { withSourceSkills } = await import("../src/internal/source-skills.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-source-skills-${crypto.randomUUID()}`
+    const files = (ref: string, content: string, keys: string[]) => ({
+      name: "github",
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref } },
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => keys,
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => keys.map(key => ({ key, content })),
+      getMeta: async () => ({}),
+    })
+    const source = (ref: string, content: string, materialize: "lazy" | "none") => ({
+      ...github({ repo: "example/portal", ref, materialize }),
+      ...files(ref, content, ["version.txt", ".agents/skills/deploy/SKILL.md"]),
+      prepare: undefined,
+      subset: () => files(ref, content, [".agents/skills/deploy/SKILL.md"]),
+    })
+    // A Source with `materialize: "none"` gets Skill Sources mounted inside it, such as `portal/.agents/skills`.
+    const sources = withSourceSkills({ portal: source("main", "support", "none") })
+    expect(Object.keys(sources).filter(key => key !== "portal").length).toBeGreaterThan(0)
+    const definition = defineWorkspace({ store: { provider: "memory" }, sources })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request", "lazy"), mount: { path: "portal" } } } },
+    })
+    const result = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })
+    try {
+      expect(Object.keys(result.workspaceDefinition?.sources ?? {})).toEqual(["vitehubGitHubPullRequest"])
+      await expect(result.workspace!.fs.readFile("portal/.agents/skills/deploy/SKILL.md")).resolves.toBe("pull request")
+    } finally { await result.close() }
+  })
+
   it("does not overlay a GitHub source with a narrower declared scope", async () => {
     const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
     const { github } = await import("@vite-hub/workspace")
@@ -1101,6 +1140,34 @@ describe("agent capability runtime", () => {
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
   })
 
+  it("installs the merge conflict Skill for github() pull request runs and keeps it across runs", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { github } = await import("../src/channels.ts")
+    const { mergeConflictSkillContent } = await import("../src/internal/merge-conflict-skill.ts")
+    const skillPath = ".agents/skills/vitehub-resolving-merge-conflicts/SKILL.md"
+    const capability = github({ pullRequest: true }).capabilities?.find(item => item.id === "github-pull-request-skills")
+    if (!capability) throw new Error("Missing github() pull request Skill capability.")
+    expect(github({ pullRequest: { workspace: false } }).capabilities?.some(item => item.id === "github-pull-request-skills")).toBe(false)
+    const workspaceName = `github-pull-request-skills-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-github-pull-request-skills-"))
+    onTestFinished(() => Promise.all([
+      rm(workspaceRoot, { force: true, recursive: true }),
+      rm(`${workspaceRoot}.meta.json`, { force: true }),
+    ]).then(() => undefined))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    for (let run = 0; run < 2; run++) {
+      const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      await expect(resolved.workspace?.fs.readFile(skillPath)).resolves.toBe(mergeConflictSkillContent)
+      await resolved.close()
+    }
+    expect(mergeConflictSkillContent).toMatch(/^---\nname: vitehub-resolving-merge-conflicts\ndescription: /)
+  })
+
   it("keeps the Browser Skill invocation-local when the Store lacks conditional writes", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
@@ -1723,6 +1790,25 @@ describe("agent capability runtime", () => {
         },
       },
     })).rejects.toThrow('workspace contribution rule "artifacts/review/**" conflicts with existing Workspace Rule "artifacts/**"')
+  })
+
+  it("rejects a capability workspace read rule in a read-only Workspace", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "secrets",
+          workspace: {
+            rules: {
+              "secrets/**": { read: false } as never,
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: { name: "review" },
+    })).rejects.toMatchObject({ code: "WORKSPACE_R0075" })
   })
 
   it("rejects capability workspace rules that overlap plugin rules", async () => {

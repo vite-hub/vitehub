@@ -1,4 +1,5 @@
 import type { ChannelDefinition } from "@vite-hub/channels"
+import type { EnvVariableDeclaration } from "@vite-hub/env"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
@@ -143,6 +144,8 @@ declare global {
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
+    /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
+    page: { id: string }
     "vitehub.channel.final-output": boolean
     "vitehub.title.response-fallback": boolean
     "workspace.sourceResolution.definition": WorkspaceDefinition
@@ -410,6 +413,9 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
+    /** Retained Workspace head resolved before the Driver starts. */
+    revision?: string
+    ref?: string
     sources?: Array<string | { id: string, repository?: string }>
   }
 }
@@ -440,12 +446,23 @@ export type AgentChannelDeliveryEventType =
   | "rejected"
   | "retrying"
   | "superseded"
+  | "trigger.completed"
+  | "trigger.failed"
+  | "trigger.started"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
   error?: string
   messageId?: string
+  /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
+  outcome?: "input" | "response"
+  /** The `reason` of a trigger's answer, such as `ignored(reason)`. */
+  reason?: string
   runId?: string
+  /** The HTTP status of a trigger's answer. */
+  status?: number
+  /** The trigger that the `trigger.*` event is about. */
+  trigger?: string
   type: AgentChannelDeliveryEventType
 }
 
@@ -889,8 +906,11 @@ export interface AgentChannelPullResult<TCursor extends string | number = string
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  /** The accepted Invocation when a durable webhook delivery is replayed for rehydration. */
-  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { agentName?: string }
+  /**
+   * The accepted Invocation when a durable webhook delivery is replayed for rehydration.
+   * `acceptedAt` is when the queue accepted the delivery, in milliseconds since the epoch.
+   */
+  queuedInvocation?: Pick<AgentTriggerRunInvokeResult, "input" | "run" | "task"> & { acceptedAt?: number, agentName?: string }
   invoker?: AgentInvoker
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
@@ -1644,6 +1664,13 @@ export type AgentAdapterInstructions<
     mode: "replace"
     value: AgentInstructionsContent<TRuntimeConfig, Name>
   }
+  | {
+    /**
+     * Receive the inherited instructions as one document and return the new document.
+     * Without a parent, `inherited` is an empty string.
+     */
+    extend: (inherited: string) => string
+  }
 
 export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1894,6 +1921,8 @@ export interface AgentProviderExitContext {
 }
 
 export interface AgentProviderLaunchCommand {
+  /** Prepare the transport before inspection or launch. Runs outside provider probe deadlines; honor cancellation. */
+  prepare?: (context: { abortSignal?: AbortSignal }) => MaybePromise<void>
   /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection or auxiliary runs. */
   onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
@@ -1926,6 +1955,21 @@ type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" 
 export type CodexReasoningEffort = KnownCodexReasoningEffort | (string & Record<never, never>)
 export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 
+/**
+ * Access that Codex's `workspace-write` sandbox adds for `permissions: "allow-edits"` and `"allow-edits-unattended"`.
+ * Without it, sandboxed commands have no network and can write only inside the working directory.
+ */
+export interface CodexWorkspaceWriteAccess {
+  /** Let sandboxed commands use the network, for example to download packages. Defaults to `false`. */
+  network?: boolean
+  /**
+   * Let sandboxed commands write the package manager store and caches where the provider runs:
+   * `npm_config_store_dir`, `npm_config_cache_dir`, `~/.local/share/pnpm`, `~/.cache/pnpm`,
+   * `~/.cache/node/corepack`, and `~/.npm`. ViteHub creates missing directories. Defaults to `false`.
+   */
+  packageCaches?: boolean
+}
+
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
@@ -1935,6 +1979,8 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /** Network and package cache access for Codex's `workspace-write` sandbox. Other permissions ignore it. */
+  workspaceWrite?: CodexWorkspaceWriteAccess
 }
 export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
   /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
@@ -1996,6 +2042,7 @@ export interface AgentModelDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2026,6 +2073,7 @@ export interface AgentRunDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
@@ -2089,6 +2137,7 @@ export interface AgentAskDriver<
   reasoningSummary?: never
   sessionStorePath?: never
   toolchain?: never
+  workspaceWrite?: never
   run?: never
   sandbox?: never
   sessionKey?: never
@@ -2283,17 +2332,39 @@ export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = Agen
 export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
-export interface AgentStateProviderOptions {
-  authToken?: string
+/** Agent State in libSQL. `auto` also selects Cloudflare state on Cloudflare when no `url` is set. */
+export interface AgentSqlStateProviderOptions {
+  /**
+   * The libSQL auth token. Declare where it comes from, so the token stays out of the server bundle:
+   * `env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })`. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+   */
+  authToken?: EnvVariableDeclaration
+  driver?: "auto" | "libsql" | "sqlite"
   /** Persistent file databases default to WAL. Select delete for network-backed volumes. */
   journalMode?: "wal" | "delete"
-  driver?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
   tablePrefix?: string
   url?: string
 }
 
+/** Agent State in a Cloudflare Durable Object. */
+export interface AgentCloudflareStateProviderOptions {
+  driver: "cloudflare"
+}
+
+/** Agent State in process memory. It does not survive a restart. */
+export interface AgentMemoryStateProviderOptions {
+  driver: "memory"
+}
+
+export type AgentStateProviderOptions =
+  | AgentSqlStateProviderOptions
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
+
 export type ResolvedAgentStateProviderOptions =
-  Omit<AgentStateProviderOptions, "driver"> & { driver: NonNullable<AgentStateProviderOptions["driver"]> }
+  | (Omit<AgentSqlStateProviderOptions, "driver"> & { driver: NonNullable<AgentSqlStateProviderOptions["driver"]> })
+  | AgentCloudflareStateProviderOptions
+  | AgentMemoryStateProviderOptions
 
 export interface AgentProvidersOptions {
   state?: AgentStateProviderOptions

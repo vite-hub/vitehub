@@ -107,7 +107,7 @@ Do not pass free model output into a trusted HTML fragment.
 - Node.js 22.22 or later.
 - Vite 8 or later and one provider (`resend` or `cloudflare-email`).
 - The provider must allow the `from` address.
-- Generated Agent routes get the Email runtime (`email` from `vite-hub/email/server`) only while the Email Vite plugin is on.
+- Generated Agent routes get the Email runtime (`email` from `vite-hub/email`) only while the Email Vite plugin is on.
 
 Set one built-in Email provider in the config. The server reads the credential on every send.
 
@@ -119,7 +119,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -141,7 +141,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       email: {
         driver: 'resend',
         options: {
@@ -164,7 +164,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       email: {
         driver: 'resend',
         options: {

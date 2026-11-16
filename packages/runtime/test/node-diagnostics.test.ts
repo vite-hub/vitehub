@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { nodeRuntimeResources } from "../src/node.ts"
+import { nodeRuntimeResources } from "../src/internal/node.ts"
 
 describe("Node Runtime diagnostics", () => {
   it("reports process, host, and cgroup observations with honest scopes", async () => {

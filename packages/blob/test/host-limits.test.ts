@@ -1,4 +1,4 @@
-import { VITEHUB_DEPLOYMENT_PRESET } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST } from "@vite-hub/internal/build/vite"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -54,11 +54,11 @@ describe("Cloudflare R2 object keys", () => {
       name: "BLOB_PATHNAME_TOO_LONG",
       why: "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.",
     })
-    expect(error?.cause).toHaveProperty("message", "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.")
+    expect(error?.fix).toContain("shorter pathname")
     expect(puts).toEqual([])
     // Two bytes per character in UTF-8, so 513 characters are 1026 bytes.
     expect((await storage.put("é".repeat(513), "x"))[0]?.code).toBe("BLOB_PATHNAME_TOO_LONG")
-    for (const [readError] of [await storage.get("k".repeat(1025)), await storage.head("k".repeat(1025)), await storage.del("k".repeat(1025))]) {
+    for (const [readError] of [await storage.get("k".repeat(1025)), await storage.head("k".repeat(1025)), await storage.delete("k".repeat(1025))]) {
       expect(readError?.code).toBe("BLOB_PATHNAME_TOO_LONG")
     }
 
@@ -128,9 +128,9 @@ describe("generated Nitro plugin", () => {
   }
 
   it("sets the Vercel request body limit only in a dev server for Vercel", async () => {
-    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "vercel" })).toContain("setBlobRequestBodyLimit(4500000)")
+    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_HOST]: "vercel" })).toContain("setBlobRequestBodyLimit(4500000)")
     expect(await nitroPlugin({ command: "serve", nitro: { preset: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
-    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_PRESET]: "node" })).not.toContain("setBlobRequestBodyLimit")
-    expect(await nitroPlugin({ command: "build", [VITEHUB_DEPLOYMENT_PRESET]: "vercel" })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "serve", [VITEHUB_DEPLOYMENT_HOST]: "node" })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "build", [VITEHUB_DEPLOYMENT_HOST]: "vercel" })).not.toContain("setBlobRequestBodyLimit")
   })
 })

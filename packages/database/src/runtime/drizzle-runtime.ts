@@ -1,9 +1,5 @@
 import databaseEntries from "#vitehub/database/databases"
-import { localSqlite } from "#vitehub/database/libsql"
-
-import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { createUseDatabase } from "./use-database.ts"
-import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { createConfiguredDatabase } from "#vitehub/database/definition-runtime"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
@@ -44,77 +40,37 @@ function createRuntimeDatabase(
     return createMissingDatabaseProxy(name)
   }
 
-  return createDrizzleSqliteAdapter<Record<string, unknown>, AnyRelations>(config, relations, {
-    libsql: localSqlite,
-    missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",
-    requireRemoteUrl: false,
-    resolveLocalUrl: localSqlite?.resolveLocalUrl,
-  })
+  return createConfiguredDatabase(config, relations, config.migrationsDir)
 }
+
+function resolveDatabases() {
+  const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
+  // SAFETY: Each generated entry has a database and schema; the default entry is added below.
+  const resolved = Object.fromEntries(
+    Object.entries(runtimeEntries).map(([name, entry]) => [
+      name,
+      {
+        db: entry.db ?? createRuntimeDatabase(entry.config, entry.relations, name),
+        relations: entry.relations,
+        schema: entry.schema,
+      } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
+    ]),
+  ) as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+  return {
+    configured: new Set(Object.keys(runtimeEntries)),
+    databases: {
+      ...resolved,
+      default: resolved.default ?? { db: createMissingDatabaseProxy("default"), relations: {}, schema: {} },
+    } as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & { default: RuntimeDatabaseEntry<Record<string, unknown>> },
+  }
+}
+
+let runtimeDatabases: ReturnType<typeof resolveDatabases> | undefined
 
 /**
- * In app tests, `vite-hub/test` turns on test mode, and each database is an in-memory SQLite with the migrations of
- * its Definition, created again after each reset. The choice happens on each property read, because the app imports
- * `db` before the test turns test mode on.
+ * The runtime databases, resolved on first use. Database Definitions import this package, and the generated registry
+ * imports the Definitions, so the module must not read the registry while it loads.
  */
-function withTestDatabase(
-  name: string,
-  relations: AnyRelations,
-  migrationsDir: string | undefined,
-  database: RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>,
-): RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations> {
-  function current(): RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations> {
-    const test = getViteHubTestMode()
-    // App tests never run a Cloudflare production build, the only build without local SQLite.
-    if (!test || !localSqlite) return database
-    const sqlite = localSqlite
-    return test.backend(`database:${name}`, () => {
-      const directory = migrationsDir ?? `server/databases/${name}/migrations`
-      const client = sqlite.createTestClient(test.root, directory)
-      // SAFETY: Drizzle's libSQL database is the runtime type of every SQLite Definition.
-      return sqlite.drizzle(client, { relations }) as RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>
-    }, db => (Reflect.get(db, "$client") as { close: () => void }).close())
-  }
-  // SAFETY: Every read goes to the current database, so the proxy has the full database shape.
-  return new Proxy({} as RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>, {
-    get: (_target, property) => Reflect.get(current(), property),
-    getPrototypeOf: () => Object.getPrototypeOf(current()),
-    has: (_target, property) => Reflect.has(current(), property),
-  })
+export function getRuntimeDatabases(): ReturnType<typeof resolveDatabases> {
+  return runtimeDatabases ??= resolveDatabases()
 }
-
-const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
-
-// SAFETY: Each generated entry has a database and schema; the default entry is checked below.
-const resolvedDatabases = Object.fromEntries(
-  Object.entries(runtimeEntries).map(([name, entry]) => [
-    name,
-    {
-      // Postgres entries bring their own client and keep it in tests.
-      db: entry.db ?? (entry.config
-        ? withTestDatabase(name, entry.relations, entry.config.migrationsDir, createRuntimeDatabase(entry.config, entry.relations, name))
-        : createMissingDatabaseProxy(name)),
-      relations: entry.relations,
-      schema: entry.schema,
-    } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
-  ]),
-) as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
-  default: RuntimeDatabaseEntry<Record<string, unknown>>
-}
-
-const defaultDatabaseEntry = resolvedDatabases.default || {
-  db: createMissingDatabaseProxy("default"),
-  relations: {},
-  schema: {},
-}
-
-export const databases = {
-  ...resolvedDatabases,
-  default: defaultDatabaseEntry,
-} as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
-  default: RuntimeDatabaseEntry<Record<string, unknown>>
-}
-
-export const db = databases.default.db
-
-export const useDatabase = createUseDatabase(databases, Object.keys(resolvedDatabases))

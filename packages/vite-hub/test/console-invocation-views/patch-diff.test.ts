@@ -7,7 +7,7 @@ import { AgentInvocation } from "../../src/console/runtime/components/invocation
 import { invocationActivities } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 
-vi.mock("@vite-hub/ui/patch-diff", () => ({
+vi.mock("../../src/console/runtime/components/console-lazy-views.ts", () => ({
   PatchDiff: defineComponent({
     props: { patch: { required: true, type: String } },
     setup: props => () => h("pre", { class: "patch-diff-stub" }, props.patch),

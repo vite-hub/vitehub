@@ -1,3 +1,5 @@
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
@@ -25,8 +27,17 @@ export interface StartMigrationDatabase {
   name: string
 }
 
+/** `migrateOnStart.backup` as the build resolves it. */
+export interface MigrationBackup {
+  /** Relative to the working directory. Unset, the copies go to `backups` beside the database file. */
+  dir?: string
+  keep: number
+}
+
 export interface MigrateOnStartOptions {
   allowDataLoss?: boolean
+  /** Copy each SQLite file before its pending migrations. */
+  backup?: MigrationBackup
   log?: (message: string) => void
 }
 
@@ -41,6 +52,8 @@ interface LibsqlMigrationClient {
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
   databases: StartMigrationDatabase[]
+  /** The path of the main database file. Empty for an in-memory database. */
+  file: string
   /** Statements that upgrade a ledger of Drizzle Kit 0.x before the migrations run. */
   upgrade: LibsqlStatement[]
   pending: Array<{ migration: StartMigration, name: string }>
@@ -158,16 +171,75 @@ function ledgerHashes(rows: readonly LedgerRow[], backfill: LedgerMatch["backfil
  */
 export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
   const log = options.log ?? (message => console.info(message))
+  const postgresDatabase = databases.find(database => database.dialect === "postgresql")
+  if (options.backup && postgresDatabase) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: postgresDatabase.name, problem: "It is a Postgres database." })
+  }
   const sqlitePlans = await planSqlite(databases.filter(database => database.dialect === "sqlite"), options)
   const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
-    const client: unknown = Reflect.get(Object(database.db), "$client")
-    if (!isPostgresClient(client)) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js." })
+    const value: unknown = Reflect.get(Object(database.db), "$client")
+    const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
+    if (!client) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js or a node-postgres Pool." })
     }
     return { client, database }
   })
   // The SQLite files change only after every Postgres database passed its check under the lock.
-  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, log), log })
+  await migratePostgres(postgres, { ...options, beforeApply: () => applySqlite(sqlitePlans, options.backup, log), log })
+}
+
+/** The migrations that a server build ships, by Database name. The build writes them, so the server needs no migrations folder. */
+export interface ShippedMigrations {
+  allowDataLoss: boolean
+  backup?: MigrationBackup
+  /** A Database without migrations is not listed. `problem` says why the build could not read its migrations. */
+  databases: Record<string, Pick<StartMigrationDatabase, "dialect" | "migrations"> | { problem: string }>
+  /** Why this build cannot apply migrations in the server process. */
+  unsupported?: string
+}
+
+export interface EnsureMigrationsContext {
+  /** The internal Database registry of the app. */
+  databases: Record<string, { db: unknown }>
+  load: () => Promise<ShippedMigrations>
+}
+
+// One run for each Database in this process. The server start and `ensureMigrations()` share it.
+const runs = new Map<string, Promise<void>>()
+// Runs start one after the other. Definitions on one SQLite file share its ledger, so a run must read it after the
+// previous run committed, or both apply the same migration.
+let lastRun: Promise<unknown> = Promise.resolve()
+
+/**
+ * Applies the pending migrations of `names`, or of every Database, once in this process. It runs `migrateOnStart()`,
+ * so a Postgres database migrates under the advisory lock. Calls during a run and after a successful run share that
+ * run. A run that fails is forgotten, so the next call starts a new one. A new run waits for the previous run, so
+ * Definitions that share a SQLite file apply each migration once.
+ *
+ * In app tests, a SQLite Database is an in-memory copy that already has its migrations, so it is skipped.
+ */
+export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names?: readonly string[]): Promise<void> {
+  const selected = names ?? Object.keys(context.databases)
+  const unknown = selected.find(name => !Object.hasOwn(context.databases, name))
+  if (unknown !== undefined) return Promise.reject(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: unknown }))
+  const missing = [...new Set(selected.filter(name => !runs.has(name)))]
+  if (missing.length) {
+    const run = lastRun.then(() => context.load()).then(async (shipped) => {
+      if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
+      const test = getViteHubTestMode()
+      await migrateOnStart(missing.flatMap((name) => {
+        const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
+        if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
+        if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
+        return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
+      }), { allowDataLoss: shipped.allowDataLoss, backup: shipped.backup })
+    })
+    for (const name of missing) runs.set(name, run)
+    lastRun = run.catch(() => {
+      for (const name of missing) if (runs.get(name) === run) runs.delete(name)
+    })
+  }
+  return Promise.all(selected.map(name => runs.get(name))).then(() => undefined)
 }
 
 async function planSqlite(databases: StartMigrationDatabase[], options: MigrateOnStartOptions): Promise<StartMigrationPlan[]> {
@@ -181,9 +253,12 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
     // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
     const files = await client.execute("PRAGMA database_list")
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
+    if (options.backup && (typeof file !== "string" || !file)) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_UNSUPPORTED({ database: database.name, problem: "It is in memory." })
+    }
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, databases: [], pending: [], upgrade: [] }
+    const plan = plans.get(target) ?? { client, databases: [], file: typeof file === "string" ? file : "", pending: [], upgrade: [] }
     plan.databases.push(database)
     plans.set(target, plan)
   }
@@ -201,7 +276,9 @@ async function planSqlite(databases: StartMigrationDatabase[], options: MigrateO
   return [...plans.values()]
 }
 
-async function applySqlite(plans: StartMigrationPlan[], log: (message: string) => void) {
+async function applySqlite(plans: StartMigrationPlan[], backup: MigrationBackup | undefined, log: (message: string) => void) {
+  // Copy every file before the first one changes, so a failed copy leaves all of them as they were.
+  if (backup) for (const plan of plans) if (plan.pending.length) await backupSqlite(plan, backup, log)
   for (const { client, pending, upgrade } of plans) {
     if (!pending.length && !upgrade.length) continue
     await client.migrate([
@@ -214,6 +291,46 @@ async function applySqlite(plans: StartMigrationPlan[], log: (message: string) =
     ])
     for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
+}
+
+/**
+ * Copies a SQLite file with `VACUUM INTO`, which writes a consistent copy while other connections can read, then
+ * deletes the oldest copies of that file beyond `keep`. An empty database has nothing to keep, so it gets no copy.
+ * Copies are `<file name>-<UTC time>-before-<last pending migration><extension>`, so they sort by time.
+ */
+async function backupSqlite({ client, databases, file, pending }: StartMigrationPlan, backup: MigrationBackup, log: (message: string) => void) {
+  const objects = await client.execute("SELECT count(*) AS count FROM sqlite_master")
+  if (!Number(objects.rows[0]?.[0])) return
+  // Hosted builds bundle this module without Node's file system, so it reads the built-ins only when a copy is due.
+  const { mkdir, readdir, rm } = process.getBuiltinModule("fs/promises")
+  const { basename, dirname, extname, join, resolve } = process.getBuiltinModule("path")
+  const dir = backup.dir ? resolve(backup.dir) : join(dirname(file), "backups")
+  const extension = extname(file) || ".db"
+  // A shared directory must keep retention independent for files with the same basename.
+  const identity = backup.dir ? `-${process.getBuiltinModule("crypto").createHash("sha256").update(file).digest("hex")}` : ""
+  const stem = `${basename(file, extname(file))}${identity}`
+  const time = new Date().toISOString().replaceAll(":", "-").replace(".", "-")
+  const target = join(dir, `${stem}-${time}-before-${pending.at(-1)!.migration.name}${extension}`)
+  const copy = new RegExp(`^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-before-.+${escapeRegExp(extension)}$`)
+  try {
+    await mkdir(dir, { recursive: true })
+    await client.execute({ args: [target], sql: "VACUUM INTO ?" })
+    const copies = (await readdir(dir)).filter(name => copy.test(name)).sort()
+    for (const name of copies.slice(0, -backup.keep)) await rm(join(dir, name))
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_BACKUP_FAILED({
+      cause: error,
+      database: databases[0]!.name,
+      problem: error instanceof Error ? error.message : String(error),
+      target,
+    })
+  }
+  log(`[vitehub] Database "${databases[0]!.name}": copied ${file} to ${target} before ${pending.length} migration(s).`)
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 /** The part of a postgres.js client, or of one of its transactions, that migrations use. */
@@ -230,6 +347,52 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
   return typeof value === "function"
     && typeof Reflect.get(value, "begin") === "function"
     && typeof Reflect.get(value, "unsafe") === "function"
+}
+
+/** The part of a node-postgres Pool, or of one of its clients, that migrations use. */
+interface NodePostgresQueryable {
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+interface NodePostgresPool extends NodePostgresQueryable {
+  connect: () => Promise<NodePostgresQueryable & { release: (error?: Error) => void }>
+}
+
+function isNodePostgresPool(value: unknown): value is NodePostgresPool {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "connect") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+}
+
+function nodePostgresSql(queryable: NodePostgresQueryable): PostgresMigrationSql {
+  return { unsafe: async (query, parameters) => (await queryable.query(query, parameters)).rows }
+}
+
+/** Runs migrations on a node-postgres Pool: `begin()` takes one client of the pool and wraps the run in a transaction. */
+export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigrationClient {
+  return {
+    ...nodePostgresSql(pool),
+    begin: async (run) => {
+      const client = await pool.connect()
+      let failure: Error | undefined
+      try {
+        await client.query("begin")
+        const result = await run(nodePostgresSql(client))
+        await client.query("commit")
+        return result
+      }
+      catch (error) {
+        await client.query("rollback").catch((rollbackError: unknown) => {
+          // A client that cannot roll back must not go back to the pool.
+          failure = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        })
+        throw error
+      }
+      finally {
+        client.release(failure)
+      }
+    },
+  }
 }
 
 /**

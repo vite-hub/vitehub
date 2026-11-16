@@ -26,6 +26,7 @@ export type {
   ResolvedAnchor,
 } from "./client-anchor.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
+export { foldName } from "./fold-name.ts"
 export { commentAttachmentUrl, CommentsRestError, createCommentsRestRequest, createRestTransport } from "./rest-transport.ts"
 export type { CommentsGuest, CommentsRestAnswer, CommentsRestRequest, RestCommentThread, RestTransport, RestTransportOptions } from "./rest-transport.ts"
 export type * from "./client-types.ts"

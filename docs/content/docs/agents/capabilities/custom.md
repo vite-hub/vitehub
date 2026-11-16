@@ -105,7 +105,7 @@ export function ticketContext() {
 
       return {
         rules: {
-          'support/tickets/**': { read: true },
+          'support/tickets/**': { write: false },
         },
         sources: {
           ticket: {

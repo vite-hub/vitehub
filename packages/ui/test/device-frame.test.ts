@@ -2,7 +2,7 @@
 import { mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
 import { h, nextTick } from "vue";
-import { DeviceFrame, type DeviceFrameSize } from "../src/device-frame.ts";
+import { DeviceFrame, type DeviceFrameSize } from "../src/index.ts";
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
@@ -58,6 +58,7 @@ it("keeps an uncontrolled size in local storage", async () => {
   await first.get("select").setValue("laptop");
   first.unmount();
   const second = frame({ storageKey: "test:device" });
+  await nextTick();
   expect(page(second).attributes("style")).toContain("width: 1280px");
   second.unmount();
 });
@@ -79,5 +80,12 @@ it("shows the content without the bar while disabled, and keeps the size", async
   await wrapper.setProps({ disabled: false });
   await nextTick();
   expect(wrapper.find("[role='toolbar']").exists()).toBe(true);
+  wrapper.unmount();
+});
+
+it("sizes the page without its own bar when the toolbar is off", async () => {
+  const wrapper = frame({ defaultValue: { on: true }, toolbar: false });
+  expect(wrapper.find("[role='toolbar']").exists()).toBe(false);
+  expect(page(wrapper).attributes("style")).toContain("width: 393px");
   wrapper.unmount();
 });

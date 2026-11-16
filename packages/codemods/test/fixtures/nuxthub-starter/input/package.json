@@ -1,0 +1,31 @@
+{
+  "name": "nuxthub-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "deploy-cloudflare": "NITRO_PRESET=cloudflare_module npm run build && npx wrangler deploy && npx wrangler d1 migrations apply DB --remote",
+    "deploy-vercel": "npx vercel deploy",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.0",
+    "@nuxt/eslint": "^1.13.0",
+    "@nuxthub/core": "^0.10.6",
+    "@upstash/redis": "^1.36.2",
+    "@vercel/blob": "^2.0.1",
+    "drizzle-kit": "^0.31.8",
+    "drizzle-orm": "^0.45.1",
+    "nuxt": "^4.3.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "^1.13.0",
+    "eslint": "^9.39.2",
+    "vue-tsc": "^3.2.4",
+    "wrangler": "4.62.0"
+  },
+  "packageManager": "pnpm@10.28.2"
+}

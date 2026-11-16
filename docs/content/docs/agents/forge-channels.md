@@ -41,6 +41,10 @@ Choose what starts a run:
 
 Only GitLab sends `ready_for_review`. Forgejo has no draft-to-ready event, so `forgejo()` rejects it in `reconcile.events`.
 
+`github()` also acts on reconcile runs when a person pushes to the branch or closes the pull request, with `reconcile.headMoves`. `gitlab()` and `forgejo()` do not: they do not pass `closed` events to the trigger, and they cannot always tell a bot push from a person's push. See [When the branch moves or the pull request closes](/docs/agents/channels#when-the-branch-moves-or-the-pull-request-closes).
+
+`pullRequest.ci` is `'report'` (default) or `'wait'`, as on GitHub. See [Hosted CI](/docs/agents/channels#hosted-ci).
+
 The final reply is a pull request comment. `pullRequest.reply: false` turns it off. Delivery effects can add reactions, edit the triggering comment, or report commit statuses. `statusContext` defaults to `ViteHub Agent`. `activity: true` keeps one comment with session links and status, owned by the authenticated account.
 
 ## Server Env
@@ -109,13 +113,13 @@ To set up a webhook by hand, point it at the generated Agent Channel route. Use 
 | GitLab | Comments, Merge request events |
 | Forgejo or Codeberg | Pull Request, Pull Request Comment, Review |
 
-GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_R0946`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
+GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_FORGE_WEBHOOK_SECRET_MISSING`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
 
 ## Limits
 
 - No `pullRequest.workspace` checkout, artifacts, or `authorAssociation` filters. Add a Workspace through the Agent's other Capabilities if needed.
 - `webhookSecret: false` is not supported.
-- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_R0946`.
+- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_FORGE_REVIEW_UNSUPPORTED`.
 - Forgejo has native reviews, but these Channels cannot reach its CI runs, jobs, or check reruns.
 - Metadata reads are limited. Change the limits with `maxBodyLength`, `maxCommentBodyLength`, `maxComments`, and `maxFiles` on `pullRequest`. The context reports omitted items and missing metadata.
 - After a restart, activity lookup scans the newest 500 comments.

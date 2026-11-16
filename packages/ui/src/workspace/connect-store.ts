@@ -1,5 +1,5 @@
 import { type Connect, type ConnectCredentials, type ConnectProviderName, connectEnv } from "@vite-hub/web-container/connect";
-import { computed, type ComputedRef, type Ref, readonly, ref } from "vue";
+import { computed, type ComputedRef, getCurrentInstance, onMounted, type Ref, readonly, ref } from "vue";
 
 export interface UseConnectStoreOptions {
   /**
@@ -16,7 +16,7 @@ export interface ConnectStore {
   set: (provider: ConnectProviderName, token: string) => void;
   remove: (provider: ConnectProviderName) => void;
   clear: () => void;
-  /** The `env` of a workspace run, such as `useWorkspace({ env: store.env(connect) })`. */
+  /** The `env` of a workspace run, such as `useWebContainer({ env: store.env(connect) })`. */
   env: (connect: Connect) => ComputedRef<Record<string, string>>;
 }
 
@@ -44,11 +44,18 @@ function read(storage: Storage | undefined, key: string): ConnectCredentials {
   }
 }
 
-/** A small token store for `ConnectPanel`. Tokens stay in this browser and never go to a server. */
+/**
+ * A small token store for `ConnectPanel`. Tokens stay in this browser and never go to a server. Called in a component,
+ * it loads the stored tokens when the component mounts.
+ */
 export function useConnectStore(options: UseConnectStoreOptions = {}): ConnectStore {
   const key = options.key ?? "vitehub:connect";
   const storage = browserStorage(options.storage ?? "session");
-  const credentials = ref<ConnectCredentials>(read(storage, key));
+  const credentials = ref<ConnectCredentials>({});
+  // In a component, load after mount so the first client render matches the server, which cannot read storage.
+  const load = () => { credentials.value = read(storage, key); };
+  if (getCurrentInstance()) onMounted(load);
+  else load();
 
   function save(next: ConnectCredentials) {
     credentials.value = next;

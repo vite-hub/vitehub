@@ -1,4 +1,5 @@
-import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget } from './budgets.ts'
+import { invariant, invariantError } from '@vite-hub/internal/invariant'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget, nextMinorReviewRound, type AutomatedReviewClass } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -7,11 +8,13 @@ import { isRuntimeNumber, isRuntimeString } from '../../internal/runtime-type.ts
 import { isRuntimeRecord } from '../../internal/runtime-type.ts'
 import { createNodeSqliteInboxStorage, type PullRequestInboxExecutor, type PullRequestInboxRow, type PullRequestInboxStorage } from './storage.ts'
 import type { AgentRunActivity } from '@vite-hub/agent'
+import { isBabysitterCheckRun } from '../check-run.ts'
 import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
-import { matchesGitHubPullRequestFilter } from '@vite-hub/agent/channels'
+import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -53,8 +56,12 @@ export interface GitHubInboxSummary {
   dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
-export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
+export type Claim = {
+  token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity
+  /** The pass's class of the automated review of the claimed head. `finish()` records it with `budgets.minorReviewRounds`. */
+  automatedReview?: AutomatedReviewClass
+}
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean; foldInto?: number }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
   digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
@@ -66,7 +73,7 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item)
 
 function parseSnapshot(value: unknown): Snapshot {
-  if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+  if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
   // SAFETY: Number.isInteger above guarantees this unknown value is a finite integer for the range check.
@@ -81,7 +88,7 @@ function parseSnapshot(value: unknown): Snapshot {
     ('revision' in input && !Number.isFinite(input.revision)) ||
     ('threadsHydrated' in input && input.threadsHydrated !== true && input.threadsHydrated !== false) ||
     ('lastResult' in input && Object.prototype.toString.call(input.lastResult) !== '[object String]')) {
-    throw new TypeError('Invalid inbox snapshot')
+    throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   }
   if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
   if (input.threadReopens !== undefined) v.parse(v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))), input.threadReopens)
@@ -97,7 +104,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
   if (input.dailyPassBudget !== undefined) parseDailyPassBudget(input.dailyPassBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
-    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
   // SAFETY: All snapshot fields and nested values are validated immediately above.
@@ -113,12 +120,19 @@ export interface PullRequestInboxOptions {
   storage?: PullRequestInboxStorage
   /** Separates inboxes that share one storage, for example one per Agent. */
   scope?: string
-  repositories: readonly string[]
+  /** The served repositories, or a function that returns the current lowercase list on each read. */
+  repositories: readonly string[] | (() => readonly string[])
   filter?: GitHubPullRequestFilter
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
   budgets?: InboxBudgets
+  /** Labels that put a PR first in the claim order after main repairs. Matched case-insensitively. */
+  priorityLabels?: readonly string[]
+  /** Head branch prefix of PRs that repair the base branch. They are claimed first and never exhaust `budgets.noProgress`. */
+  mainRepairBranchPrefix?: string
+  /** Claim a PR whose base is another open PR's branch. By default it waits until its parent merges. */
+  claimStackChildren?: boolean
   /**
    * Called once per process for each stored PR row that fails validation. The inbox skips such a row
    * in claims, summaries and wait evaluation, so one bad row cannot stop the queue or its health.
@@ -195,7 +209,7 @@ export function looksMergeReady(s: Snapshot): boolean {
     if (!previous || numeric >= previous.id) latest.set(key, { id: numeric, status: String(status), conclusion: String(conclusion).toLowerCase() })
   }
   for (const check of Object.values(s.checks)) {
-    if (check.deleted || check.head_sha !== head) continue
+    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check)) continue
     keep(`check\0${String(check.name)}\0${String(check.app?.id ?? '')}`, check.id, check.status, check.conclusion)
   }
   for (const status of Object.values(s.statuses)) {
@@ -207,7 +221,7 @@ export function looksMergeReady(s: Snapshot): boolean {
 }
 
 /** Wait reasons of PRs that a Babysitter budget parked. Their `lastResult` says how to resume them. */
-export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget'])
+export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget', 'daily-push-budget'])
 
 /** PRs that a budget parked, with the recorded reason and, for a timed budget, when they resume. */
 export function budgetParks(queue: readonly GitHubInboxSummary[]): Array<{ repository: string; number: number; budget: string; reason: string; resumeAt?: string }> {
@@ -236,20 +250,30 @@ export class PullRequestInbox {
   private scope: string
   private ready?: Promise<void>
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
-  private repositories: string[]
+  private repositoryList: () => readonly string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
+  private priorityLabels: string[]
+  private mainRepairBranchPrefix?: string
+  private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
-    if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
+    if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
+    this.priorityLabels = [...new Set(priorityLabels.map(label => label.trim().toLowerCase()).filter(Boolean))]
+    this.mainRepairBranchPrefix = mainRepairBranchPrefix || undefined
+    this.claimStackChildren = claimStackChildren
     this.invalidRow = invalidRow
-    this.repositories = repositories.map(repository => repository.toLowerCase())
+    if (typeof repositories === 'function') this.repositoryList = repositories
+    else {
+      const fixed = repositories.map(repository => repository.toLowerCase())
+      this.repositoryList = () => fixed
+    }
     this.clock = clock
     this.filter = filter
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -330,8 +354,12 @@ export class PullRequestInbox {
     this.reportedRows.add(key)
     try { this.invalidRow?.({ repository, number, error }) } catch {}
   }
+  private get repositories(): readonly string[] {
+    return this.repositoryList()
+  }
   private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
-    return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
+    const repositories = [...this.repositories]
+    return { sql: `${column} IN (${repositories.map(() => '?').join(',')})`, args: repositories }
   }
   private ownsComment(comment: GitHubEvidence | undefined): boolean {
     return this.activityAppId !== undefined
@@ -547,7 +575,7 @@ export class PullRequestInbox {
   }
   /** A bounded batch of due deliveries. Invalid metadata never reaches the publisher. */
   async pendingStatusDeliveries(limit = 5): Promise<StatusDelivery[]> {
-    if (!Number.isInteger(limit) || limit < 1) throw new Error('Status delivery limit must be a positive integer')
+    invariant(Number.isInteger(limit) && limit >= 1, 'the status recovery passes a fixed positive integer delivery limit')
     const now = this.clock()
     return (await this.metaEntries(statusOutboxPrefix)).flatMap(([, value]) => {
       const parsed = v.safeParse(statusDeliverySchema, value)
@@ -556,7 +584,7 @@ export class PullRequestInbox {
   }
   /** Claim due, eligible deliveries atomically across hosts. Deferred heads yield the batch. */
   async claimStatusDeliveries(limit = 5, leaseMs = 300_000): Promise<StatusDelivery[]> {
-    if (!Number.isInteger(limit) || limit < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery limits must be positive')
+    invariant(Number.isInteger(limit) && limit >= 1 && Number.isFinite(leaseMs) && leaseMs > 0, 'the status recovery passes a fixed positive delivery limit and lease')
     return await this.transaction(async tx => {
       const now = this.clock()
       const rows = await tx.execute(`SELECT value FROM ${this.tables.meta} WHERE scope=? AND substr(key, 1, ?)=?`, [this.scope, statusOutboxPrefix.length, statusOutboxPrefix])
@@ -595,7 +623,7 @@ export class PullRequestInbox {
   }
   /** Keep the external writer's lease, including when its saved result is superseded. */
   async renewStatusDelivery(observed: StatusDelivery, leaseMs = 300_000): Promise<boolean> {
-    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery lease must be positive')
+    invariant(Number.isFinite(leaseMs) && leaseMs > 0, 'the status recovery passes a fixed positive delivery lease')
     return await this.transaction(async tx => {
       const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
       const parsed = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
@@ -753,17 +781,38 @@ export class PullRequestInbox {
     })
   }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
-  /** Atomically records that a claim has started an irreversible merge request. */
-  async beginDirectMerge(claim: Claim, head: string, asynchronous = false): Promise<boolean> {
+  private stackFoldKey(repository: string, parent: number): string { return `stack-fold:${repository}:${parent}` }
+  /** The stacked pull request whose merge into this pull request's branch has an unknown outcome. */
+  private async foldingChildIn(tx: PullRequestInboxExecutor, repository: string, parent: number): Promise<number | undefined> {
+    const fold = await this.metaIn(tx, this.stackFoldKey(repository, parent))
+    if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
+    const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
+    return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+  }
+  async foldingChild(repository: string, parent: number): Promise<number | undefined> {
+    await this.init()
+    return await this.foldingChildIn({ execute: (statement, args) => this.storage.execute(statement, args) }, repository, parent)
+  }
+  /**
+   * Atomically records that a claim has started an irreversible merge request. With `foldInto`, the merge
+   * targets that open parent's branch. A parent with a merge in flight refuses the fold, and a parent with
+   * a fold in flight refuses its own merge, so a fold never lands on a branch that already merged.
+   */
+  async beginDirectMerge(claim: Claim, head: string, asynchronous = false, foldInto?: number): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.generation !== claim.generation ||
         (s.revision ?? 0) !== (claim.snapshot.revision ?? 0) || s.leaseUntil <= this.clock()) return false
       if (await this.metaIn(tx, this.directMergeKey(s.repository, s.number)) !== undefined) return false
+      if (await this.foldingChildIn(tx, s.repository, s.number) !== undefined) return false
+      // One fold at a time per parent: the parent's marker names one child, and a sibling must not replace it.
+      if (foldInto !== undefined && (await this.metaIn(tx, this.directMergeKey(s.repository, foldInto)) !== undefined
+        || await this.foldingChildIn(tx, s.repository, foldInto) !== undefined)) return false
       await this.setMetaIn(tx, this.directMergeKey(s.repository, s.number), {
         token: claim.token, generation: claim.generation, revision: claim.snapshot.revision ?? 0,
-        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}),
+        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}), ...(foldInto === undefined ? {} : { foldInto }),
       } satisfies DirectMergeAttempt)
+      if (foldInto !== undefined) await this.setMetaIn(tx, this.stackFoldKey(s.repository, foldInto), { child: s.number, token: claim.token })
       return true
     })
   }
@@ -793,6 +842,11 @@ export class PullRequestInbox {
       const attempt = await this.metaIn(tx, key)
       if (!isRuntimeRecord(attempt) || Array.isArray(attempt) || attempt.token !== token) return false
       await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+      if (isRuntimeNumber(attempt.foldInto)) {
+        const foldKey = this.stackFoldKey(repository, attempt.foldInto)
+        const fold = await this.metaIn(tx, foldKey)
+        if (isRuntimeRecord(fold) && fold.token === token) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, foldKey])
+      }
       return true
     })
   }
@@ -807,9 +861,9 @@ export class PullRequestInbox {
   }
   async reserveProviderAttempt(provider: string): Promise<ProviderAttempt | undefined> {
     return await this.transaction(async tx => {
-      if (!provider.trim()) throw new Error('Provider scope is required')
+      invariant(provider.trim(), 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const maxRetries = this.budgets.providerRetries
-      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before reserving attempts')
+      invariant(maxRetries !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const budget = await this.providerBudgetIn(tx, provider) ?? { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [] }
       // Pending attempts also consume capacity. A crashed dispatch fails closed.
       if (budget.pending.length + budget.failures.length >= budget.maxRetries + 1) return undefined
@@ -838,7 +892,7 @@ export class PullRequestInbox {
     requireEvidence(reason)
     await this.transaction(async tx => {
       const maxRetries = this.budgets.providerRetries
-      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before resetting attempts')
+      invariant(maxRetries !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       await this.setMetaIn(tx, `provider-budget:${provider}`, { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [], resetReason: reason })
     })
   }
@@ -848,7 +902,7 @@ export class PullRequestInbox {
       const s = await this.getIn(tx, repository.toLowerCase(), number)
       if (!s || s.pr?.head?.sha !== head || s.status === 'terminal' || s.lease) return false
       const limit = this.budgets.noProgress
-      if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
+      invariant(limit !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
       s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
         creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason, ...(previous?.grants ? { grants: previous.grants } : {}) }
@@ -906,12 +960,20 @@ export class PullRequestInbox {
     }
     return true
   }
+  /** Whether the PR carries one of `priorityLabels`. */
+  isPriority(pr: GitHubPullRequestRecord | null | undefined): boolean {
+    return Boolean(pr?.labels?.some(label => this.priorityLabels.includes((typeof label === 'string' ? label : label.name ?? '').toLowerCase())))
+  }
+  /** Whether the PR's head branch starts with `mainRepairBranchPrefix`. */
+  isMainRepair(pr: GitHubPullRequestRecord | null | undefined): boolean {
+    return this.mainRepairBranchPrefix !== undefined && Boolean(pr?.head?.ref?.startsWith(this.mainRepairBranchPrefix))
+  }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
-    return Boolean(pr && pr.state === 'open' && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
+    return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
   async seed(repository: string, value: unknown): Promise<Snapshot> {
     repository = repository.toLowerCase()
-    if (!this.repositories.includes(repository)) throw new Error('Repository is not configured for this inbox.')
+    invariant(this.repositories.includes(repository), 'the runtime seeds only repositories that its repository source lists')
     const pr = normalizePullRequest(value)
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, repository, pr.number) ?? this.empty(repository, pr.number)
@@ -956,6 +1018,10 @@ export class PullRequestInbox {
       if (!supported.includes(event)) return await finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
+      // The host's own check run and its suite report this inbox's state. As evidence they
+      // would wake the PR on every status update and gate its merge on itself.
+      if (event === 'check_run' && isBabysitterCheckRun(payload.check_run)) return await finish('own check run')
+      if (event === 'check_suite' && this.activityAppId !== undefined && payload.check_suite?.app?.id === this.activityAppId) return await finish('own check suite')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
       // Match commit-scoped evidence to the current head. Pull request
       // synchronize payloads also have `after`, but must advance that head.
@@ -987,7 +1053,7 @@ export class PullRequestInbox {
         const s = existing ?? this.empty(repository, number)
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
-        if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
+        if (!existing && !matchesBabysitterPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
         const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
         const pendingHead = sha && (check || event === 'status') && (s.wait?.headSha === sha || s.lease && s.leaseUntil > this.clock() && (s.sourcePushHeads?.includes(sha) || s.prospectivePush?.token === s.lease && s.prospectivePush.heads.includes(sha)))
         if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch && !pendingHead) continue // unrelated old-head CI cannot wake current head
@@ -1127,22 +1193,29 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const now = this.clock(), claims: Claim[] = [], t = this.tables
       const repositories = this.repositoryFilter('p.repository')
-      // Columns select candidates; only these snapshots are parsed. A head with a stored review needs
-      // only a host merge check, and a head whose checks all passed is close to it, so both come
+      // Columns select candidates; only these snapshots are parsed. A main repair comes first: a red base
+      // fails every PR that tests against it. Then PRs with a priority label. A head with a stored review
+      // needs only a host merge check, and a head whose checks all passed is close to it, so both come
       // before PRs that need a model pass. Then stack parents, weighted by their open children:
       // merging one unblocks every child based on its branch. The review lookup uses the meta key.
+      const mainRepair = this.mainRepairBranchPrefix
+      const priority = this.priorityLabels.map(() => '?').join(', ')
       const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(CASE WHEN json_valid(p.value) THEN json_extract(p.value, '$.pr.base.repo.full_name') END, p.repository) AS base_repository FROM ${t.pullRequests} p
         WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
           AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
-        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
+        ORDER BY ${mainRepair === undefined ? '' : 'substr(p.head_ref, 1, ?)=? DESC,'}${priority ? `
+          EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(p.value) THEN p.value END, '$.pr.labels') l
+            WHERE lower(CASE WHEN l.type='text' THEN l.value ELSE json_extract(l.value, '$.name') END) IN (${priority})) DESC,` : ''}
+          EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
           COALESCE(CASE WHEN json_valid(p.summary) THEN json_extract(p.summary, '$.mergeReady') END, 0) DESC,
           (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
-          p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
+          p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0,
+        ...mainRepair === undefined ? [] : [mainRepair.length, mainRepair], ...this.priorityLabels])
       for (const candidate of candidates) {
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
-        // Stack children remain local; a parent merge's base push wakes them.
-        if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
+        // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
+        if (!this.claimStackChildren && candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
@@ -1216,14 +1289,14 @@ export class PullRequestInbox {
   }
   /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
   async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
-    if (!/^[a-f\d]{40}$/i.test(head)) throw new TypeError('Expected an exact publication commit SHA.')
+    invariant(/^[a-f\d]{40}$/i.test(head), 'the runtime registers the full commit SHA that the host push returned')
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.status === 'terminal' || s.sourcePushOverflow || s.lease !== claim.token || s.leaseUntil <= this.clock()
         || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
       const heads = s.prospectivePush?.token === claim.token ? s.prospectivePush.heads : []
       if (!heads.includes(head)) {
-        if (heads.length >= 64) throw new Error('Publication candidate limit reached.')
+        invariant(heads.length < 64, 'a pass registers one head for each host push, and the push budgets end a pass long before 64 pushes')
         heads.push(head)
       }
       s.prospectivePush = { token: claim.token, heads }
@@ -1254,15 +1327,30 @@ export class PullRequestInbox {
    * Records that a claimed pass started the model, with the exemption that let it run past
    * `budgets.dailyPasses`. It changes no evidence, so the claim stays current.
    */
-  async recordModelPass(claim: Claim, exemption?: string): Promise<boolean> {
+  async recordModelPass(claim: Claim, exemption?: string): Promise<number | false> {
     if (this.budgets.dailyPasses === undefined) return false
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
-      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
-      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, this.clock(), s.humanFeedbackGeneration, exemption)
+      const at = this.clock()
+      if (!s || s.lease !== claim.token || s.leaseUntil <= at) return false
+      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, at, s.humanFeedbackGeneration, exemption)
       s.revision = (s.revision ?? 0) + 1
       await this.put(tx, s)
       Object.assign(claim.snapshot, { dailyPassBudget: structuredClone(s.dailyPassBudget), revision: s.revision })
+      return at
+    })
+  }
+  /**
+   * Gives back the pass that `recordModelPass` counted at `at`, and its exemption, when the provider
+   * failed the pass before it did any work. It changes no evidence, so the claim stays current.
+   */
+  async releaseModelPass(claim: Claim, at: number, exemption?: string): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s?.dailyPassBudget?.passes.includes(at)) return false
+      s.dailyPassBudget = { ...s.dailyPassBudget, passes: s.dailyPassBudget.passes.filter(pass => pass !== at),
+        exemptions: exemption ? s.dailyPassBudget.exemptions.filter(item => item !== exemption) : s.dailyPassBudget.exemptions }
+      await this.put(tx, s)
       return true
     })
   }
@@ -1301,8 +1389,8 @@ export class PullRequestInbox {
       this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
-        if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
-        if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
+        invariant(!result.retry && !result.terminal, 'the runtime builds each pass result, so a wait has no retry or terminal')
+        invariant(!result.verifiedPushHeads || result.progress?.kind === 'verified' && result.progress.evidence === `push:${pinnedHead}`, 'the runtime builds each pass result, so it sets verified push heads only with their push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
         // Generation changes must not discard a pinned wait: feedback and terminal
@@ -1334,7 +1422,7 @@ export class PullRequestInbox {
         return true
       }
       if (result.wait) {
-        if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
+        invariant(!result.retry && !result.terminal, 'the runtime builds each pass result, so a wait has no retry or terminal')
         if (s.status === 'terminal' || !s.pr?.head?.sha || s.pr.head.sha !== claim.snapshot.pr?.head?.sha
           || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
           s.lease = null; s.leaseUntil = 0
@@ -1361,6 +1449,8 @@ export class PullRequestInbox {
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
       if (s.status !== 'terminal' && s.progressBudget?.exhausted && s.progressBudget.head === head) {
         s.status = 'waiting'; s.nextAt = 0; s.reasons = ['no-progress-budget-exhausted']
+        const due = (s.progressBudget.exhaustedAt ?? this.clock()) + progressCooldownMs
+        if (s.wait) s.wait.retryAt = Math.min(s.wait.retryAt ?? due, due)
       }
       await this.put(tx, s)
       if (s.generation === claim.generation) await this.enqueueStatusResult(tx, s, claim)
@@ -1385,9 +1475,12 @@ export class PullRequestInbox {
   }
   private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const limit = this.budgets.reviewPushes
-    if (limit === undefined || !progress) return
-    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
-    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
+    if (limit === undefined) return
+    const head = claim.snapshot.pr?.head?.sha
+    const rounds = this.budgets.minorReviewRounds
+    if (rounds !== undefined && claim.automatedReview && head) s.reviewPushBudget = nextMinorReviewRound(s.reviewPushBudget, limit, rounds, claim.automatedReview, head)
+    if (!progress || progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, head)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
@@ -1398,7 +1491,9 @@ export class PullRequestInbox {
       const creditedEvidence = previous?.creditedEvidence ?? []
       const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
       const count = verified ? 0 : (previous?.count ?? 0) + 1
-      s.progressBudget = { head, limit, count, exhausted: count >= limit,
+      // A main repair gates every PR that inherits the base's failures, so only the daily pass budget caps it.
+      s.progressBudget = { head, limit, count, exhausted: count >= limit && !this.isMainRepair(s.pr),
+        ...count >= limit ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
         resetReason: previous?.resetReason, ...(previous?.grants ? { grants: previous.grants } : {}) }
@@ -1432,6 +1527,10 @@ export class PullRequestInbox {
         || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
       parseWait({ ...s.wait, evidenceKey })
       if (s.wait.evidenceKey === evidenceKey) return false
+      const budget = s.progressBudget
+      if (budget?.exhausted && budget.head === s.pr?.head?.sha && this.clock() - (budget.exhaustedAt ?? 0) >= progressCooldownMs) {
+        s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, exhaustedAt: undefined, resetReason: 'cooldown' }
+      }
       if (options.recovery) { s.recoveryHead = s.pr?.head?.sha; s.refresh = true }
       else delete s.recoveryHead
       delete s.wait
@@ -1486,7 +1585,7 @@ export class PullRequestInbox {
       const parsed = this.parseRow(row, parseSummary, 'summary')
       if (!parsed) return []
       const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
-      if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
+      if (this.claimStackChildren || summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })
   }

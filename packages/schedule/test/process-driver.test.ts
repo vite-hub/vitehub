@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
-import { runSchedule } from "../src/runtime/execute.ts"
+import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { readScheduleConsoleRecords } from "../src/runtime/console.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
@@ -121,7 +121,7 @@ describe("Process Schedule Runtime", () => {
     setScheduleRunStore(scheduleRunStore)
     const handler = vi.fn()
     const registry = { reconcile: async () => defineSchedule({ cron: "*/10 * * * *", manual: true, handler }) }
-    const manual = await runSchedule("reconcile", { registry, scheduledAt })
+    const manual = await runScheduleFrom(registry, "reconcile", { scheduledAt })
     handler.mockClear()
 
     const controller = await installProcessScheduleRuntime({
@@ -150,7 +150,7 @@ describe("Process Schedule Runtime", () => {
     const handler = vi.fn()
     const registry = { reconcile: async () => defineSchedule({ cron: "*/10 * * * *", manual: true, handler }) }
     for (let index = 0; index < manualCount; index++) {
-      await runSchedule("reconcile", { registry, scheduledAt: "2026-10-17T15:00:00Z" })
+      await runScheduleFrom(registry, "reconcile", { scheduledAt: "2026-10-17T15:00:00Z" })
     }
     handler.mockClear()
 
@@ -169,6 +169,8 @@ describe("Process Schedule Runtime", () => {
     // The bounded fallback must not repeat the existing 14:50 occurrence.
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
     expect(listRuns.mock.calls.map(([options]) => options)).toEqual([
+      // Recovery of unfinished runs reads the two occurrences of the window, 14:50 and 15:00.
+      { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 2 },
       { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 },
       { scheduleId: "reconcile", limit: 100 },
     ])
@@ -401,6 +403,21 @@ describe("Process Schedule Wake Driver", () => {
     await flushAsyncWork()
     expect(wake).toHaveBeenCalledTimes(2)
 
+    await driver.close()
+  })
+
+  it.each([1, 2])("bounds queued work by the catch-up window (minutes waiting: %s)", async (minutesWaiting) => {
+    vi.useFakeTimers({ now: new Date("2026-07-11T09:00:20.000Z") })
+    let releaseFirst!: () => void
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
+      if (wake.mock.calls.length === 1) await new Promise<void>(resolve => { releaseFirst = resolve })
+    })
+    const driver = await createDriver({ reportError: vi.fn(), wake }, { catchUpMs: 60_000, concurrency: 1, intervalMs: 1_000 })
+    await driver.reconcile([record("blocker", { cron: "0 9 * * *" }), record("target", { cron: "0 9 * * *" })])
+    await vi.advanceTimersByTimeAsync(minutesWaiting * 60_000)
+    releaseFirst()
+    await flushAsyncWork()
+    expect(wake).toHaveBeenCalledTimes(minutesWaiting === 1 ? 2 : 1)
     await driver.close()
   })
 

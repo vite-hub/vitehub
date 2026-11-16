@@ -42,11 +42,35 @@ export type ContentFormat = "markdown" | "json" | "yaml"
 /**
  * How a document maps to its public URL: a root-relative pattern such as `/blog/:id`, or a function of the document.
  * A pattern replaces `:id` with the document id and `:<field>` with a text or number field. A function, or a pattern
- * whose field has no value, may return null for a document without a page.
+ * whose field has no value, may return null for a document without a page. A function gets the `key` of a Source
+ * file, such as `guides/start.md`.
  */
 export type ContentDocumentUrl<TData = Record<string, unknown>> =
   | string
-  | ((document: { id: string, data: TData, locale?: string }) => string | null | undefined)
+  | ((document: { id: string, data: TData, locale?: string, key?: string }) => string | null | undefined)
+
+/** A Markdown copy: the text, or the text and a footer that only the copy at `<url>.md` ends with. */
+export type ContentMarkdownCopy = string | { markdown: string, footer?: string }
+
+/** A page that the `markdown` option of `documents()` or `singleton()` renders for agents. */
+export interface ContentDocumentMarkdownPage<TData = Record<string, unknown>> {
+  /** The document id, such as `2026/hello`. */
+  id: string
+  /** The page path, such as `/blog/2026/hello`. */
+  path: string
+  /** The locale of the document, in a collection with locales. */
+  locale?: string
+  /** The published fields. */
+  data: TData
+  /** The published Markdown body, as it is stored. */
+  body: string
+  /** The `seo()` title, else the title field. */
+  title?: string
+  /** The `seo()` description, else the `description` field. */
+  description?: string
+  /** The public origin, such as `https://example.com`, when it is known. */
+  site?: string
+}
 
 export interface DocumentsOptions<TFields extends ContentFields> {
   /**
@@ -95,6 +119,14 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`.
    */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
+  /**
+   * The Markdown copy of a page for agents, such as `/blog/hello.md`, `llms-full.txt`, and the MCP `get-page` tool, when
+   * the page needs more than its body, such as a component written out as Markdown or an interactive block left out.
+   * Return a string, or `{ markdown, footer }`: the copy at `<url>.md` ends with `footer`, and `llms-full.txt` and
+   * `get-page` leave it out. Return null for a page without a copy. Content uses the result as it is. It needs `url`.
+   * Defaults to the title as a heading, the description as a quote, then the body with absolute links.
+   */
+  markdown?: (page: ContentDocumentMarkdownPage<ContentFieldsOutput<TFields>>) => ContentMarkdownCopy | null | Promise<ContentMarkdownCopy | null>
   /**
    * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
    * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
@@ -166,6 +198,14 @@ export interface SingletonOptions<TFields extends ContentFields> {
   /** The public URL of the document, such as `/` or `/about`. Omit it for data without a page, such as settings. */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
   /**
+   * The Markdown copy of a page for agents, such as `/blog/hello.md`, `llms-full.txt`, and the MCP `get-page` tool, when
+   * the page needs more than its body, such as a component written out as Markdown or an interactive block left out.
+   * Return a string, or `{ markdown, footer }`: the copy at `<url>.md` ends with `footer`, and `llms-full.txt` and
+   * `get-page` leave it out. Return null for a page without a copy. Content uses the result as it is. It needs `url`.
+   * Defaults to the title as a heading, the description as a quote, then the body with absolute links.
+   */
+  markdown?: (page: ContentDocumentMarkdownPage<ContentFieldsOutput<TFields>>) => ContentMarkdownCopy | null | Promise<ContentMarkdownCopy | null>
+  /**
    * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
    * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
    * presence still shows who is there, and `ifDigest` still guards each save.
@@ -185,6 +225,8 @@ interface CollectionDefinitionBase<TFields extends ContentFields> {
   readonly format: ContentFormat
   /** How each document maps to its public URL, when it has one. */
   readonly url?: ContentDocumentUrl<any>
+  /** The Markdown copy of each page for agents, from the `markdown` option. */
+  readonly markdown?: (page: ContentDocumentMarkdownPage<any>) => ContentMarkdownCopy | null | Promise<ContentMarkdownCopy | null>
   /** Whether one session at a time holds the edit lease of a document. */
   readonly editing: { readonly lease: boolean }
   /** Display name from `label`, when the definition sets one. */
@@ -278,6 +320,8 @@ export function documents<const TFields extends ContentFields>(options: Document
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(display, options.components)
   if (options.url !== undefined) definition.url = options.url
+  const markdown = markdownOption("documents", display, options.markdown, options.url)
+  if (markdown) definition.markdown = markdown
   const label = labelOption("documents", display, options.label, true)
   if (label?.plural) definition.label = label.plural
   if (label?.singular) definition.singularLabel = label.singular
@@ -423,6 +467,8 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
     editing: editingOptions("singleton", options.path, options.editing),
   }
   if (options.url !== undefined) definition.url = options.url
+  const markdown = markdownOption("singleton", options.path, options.markdown, options.url)
+  if (markdown) definition.markdown = markdown
   const label = labelOption("singleton", options.path, options.label, false)
   if (label?.plural) definition.label = label.plural
   const titleField = titleFieldOption("singleton", options.path, options.titleField, options.fields)
@@ -437,6 +483,14 @@ function editingOptions(helper: string, path: string, editing: unknown): { reado
     throw invalidDefinition(`${helper}(${JSON.stringify(path)}) editing must be { lease?: boolean }.`)
   }
   return Object.freeze({ lease: lease !== false })
+}
+
+/** Check the `markdown` option: a function, on a definition whose documents have pages. */
+function markdownOption<TOption>(helper: string, path: string, value: TOption | undefined, url: unknown): TOption | undefined {
+  if (value === undefined) return
+  if (!(value instanceof Function)) throw invalidDefinition(`${helper}(${JSON.stringify(path)}) markdown must be a function that returns the Markdown copy of a page.`)
+  if (url === undefined) throw invalidDefinition(`${helper}(${JSON.stringify(path)}) markdown renders the copy of each page, so it needs a url, such as '/blog/:id'.`)
+  return value
 }
 
 const urlToken = /:([A-Za-z_$][\w$]*)/g
@@ -469,7 +523,7 @@ export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>, localized: b
  */
 export function contentDocumentUrl(
   url: ContentDocumentUrl<any> | undefined,
-  document: { id: string, data: Record<string, unknown>, locale?: string },
+  document: { id: string, data: Record<string, unknown>, locale?: string, key?: string },
   sourceLocale?: string,
 ): string | null {
   if (url === undefined) return null
@@ -478,7 +532,7 @@ export function contentDocumentUrl(
     return resolved === null ? null : `/${document.locale}${resolved === "/" ? "" : resolved}`
   }
   if (url instanceof Function) {
-    const result: unknown = url(document.locale === undefined ? { id: document.id, data: document.data } : { id: document.id, data: document.data, locale: document.locale })
+    const result: unknown = url({ id: document.id, data: document.data, ...document.locale === undefined ? {} : { locale: document.locale }, ...document.key === undefined ? {} : { key: document.key } })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
       throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)

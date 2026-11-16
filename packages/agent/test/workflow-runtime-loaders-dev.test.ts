@@ -7,7 +7,7 @@ import { expect, it } from "vitest"
 import type { Plugin } from "vite"
 
 const dist = resolve(import.meta.dirname, "../dist")
-const disabledSpecifiers = ["@vite-hub/blob", "@vite-hub/database/drizzle"]
+const disabledSpecifiers = ["@vite-hub/blob", "@vite-hub/database/runtime/registry"]
 
 // vite-hub throws from resolveId for a feature that the app disables.
 function disabledFeatures(): Plugin {

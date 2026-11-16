@@ -9,13 +9,13 @@ import {
   stringValue,
   finishUsage,
   usageSession,
+  withRecordedCost,
   usageCursor,
   usageQueryWindow,
 } from "./usage.ts";
 
 import type { ConsoleInvocationUsage, UsageQuery, UsageTotal } from "./usage.ts";
 import type { InValue, Value } from "@libsql/client";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
 const metrics = [
   "inputTokens",
@@ -100,6 +100,11 @@ export function createConsoleUsageIndex(
         SELECT p.id FROM ${table} p JOIN ${source} s ON s.id = p.id
         WHERE p.model_key = '' AND p.incomplete = 1 AND p.usage IS NULL
         AND s.status IN (${terminalStatusList}) AND instr(s.record, '"usage.record"') > 0`,
+          // Earlier projections read the cost only from the finish observation. Project priced usage observations again.
+          `INSERT OR IGNORE INTO ${dirty}(id)
+        SELECT p.id FROM ${table} p JOIN ${source} s ON s.id = p.id
+        WHERE p.model_key = '' AND p.cost_usd IS NULL
+        AND s.status IN (${terminalStatusList}) AND instr(s.record, '"usage.costUsd"') > 0`,
         ].map((sql) => ({ sql })),
         "write",
       );
@@ -123,7 +128,9 @@ export function createConsoleUsageIndex(
       COALESCE(json_extract(s.record, '$.createdAt'), s.updated_at) AS created_at,
       (SELECT j.value FROM json_each(s.record, '$.observations') j
         WHERE json_extract(j.value, '$.name') = 'agent.invocation.finish'
-        ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS finish
+        ORDER BY CAST(j.key AS INTEGER) DESC LIMIT 1) AS finish,
+      (SELECT json_group_array(json(j.value)) FROM json_each(s.record, '$.observations') j
+        WHERE json_extract(j.value, '$.name') = 'agent.usage.recorded') AS usage_records
       FROM ${dirty} d JOIN ${source} s ON s.id = d.id
       WHERE s.status IN (${terminalStatusList}) LIMIT 250`,
     });
@@ -133,7 +140,11 @@ export function createConsoleUsageIndex(
       const finish = finishValue === undefined ? undefined : JSON.parse(finishValue);
       const incomplete = finish?.attributes?.["vitehub.observation.truncated"] === true;
       const configuredModel = stringValue(row.model)?.trim() || undefined;
-      const usage = finishUsage(finish?.attributes?.["usage.record"], incomplete, configuredModel);
+      const usageRecords: unknown = JSON.parse(stringValue(row.usage_records) ?? "[]");
+      const usage = withRecordedCost(
+        finishUsage(finish?.attributes?.["usage.record"], incomplete, configuredModel),
+        Array.isArray(usageRecords) ? usageRecords.filter(isObservation) : [],
+      );
       const entries: Array<[string, ConsoleInvocationUsage | undefined]> = terminalStatuses.has(
         String(row.status),
       )
@@ -279,9 +290,8 @@ export function createConsoleUsageIndex(
       );
       const [periods, models, agents, runs, expensive, remaining] = results;
       if (!periods || !models || !agents || !runs || !expensive || !remaining)
-        throw viteHubErrorDiagnostics.VITE_HUB_R0119({
-          message: "Expected six usage query results",
-        });
+        // Internal invariant: client.batch() returns one result for each of the six statements above.
+        throw new Error("Expected six usage query results");
       const incomplete = Number(remaining.rows[0]?.count) > 0;
       const groups = (rows: UsageRow[], groupBy = (row: UsageRow) => String(row.grouping)) => {
         const result = new Map<string, UsageTotal>();
@@ -389,4 +399,8 @@ export function createConsoleUsageIndex(
       };
     },
   };
+}
+
+function isObservation(value: unknown): value is { attributes?: Record<string, unknown>; name?: string } {
+  return value instanceof Object && !Array.isArray(value);
 }

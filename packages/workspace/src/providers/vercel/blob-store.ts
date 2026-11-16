@@ -197,7 +197,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #client() {
-    this.#files ||= createVercelBlobClient(this.#options)
+    // A failed load lets the next call try again.
+    this.#files ||= createVercelBlobClient(this.#options).catch((error: unknown) => {
+      this.#files = undefined
+      throw error
+    })
     return await this.#files
   }
 

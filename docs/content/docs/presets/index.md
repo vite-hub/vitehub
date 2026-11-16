@@ -18,7 +18,7 @@ Import ready presets from `vite-hub/presets/<name>` (package `@vite-hub/presets`
 | [Workspace](/docs/presets/workspace) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
 | [Gmail Labeller](/docs/presets/labeller) | Label Gmail messages with ordered rules, and let Jev pick a label when no rule matches. | A [Gmail Channel](/docs/agents/gmail) and a Jev provider. |
 
-The deployment `preset` in `vitehub({ preset: 'node' })` is different. It picks the server host, not an Agent workflow.
+The deployment `host` in `vitehub({ host: 'node' })` is different. It picks the server host, not an Agent workflow.
 
 ## Select and configure
 

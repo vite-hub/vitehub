@@ -15,18 +15,12 @@ const statuses: Record<AuthConsoleErrorCode, number> = {
   AUTH_CONSOLE_PROVIDER_FAILED: 502,
 };
 
-/** The reason of a refused Auth Console call, such as no live app session of the actor, after the code's `why`. */
-function reason(error: ResultError<AuthConsoleErrorCode>): string {
-  const cause: unknown = error.cause;
-  const status = statuses[error.code];
-  return status < 500 && cause instanceof Error && cause.name === "AuthConsoleError" && cause.message ? cause.message : error.why;
-}
-
 /** An Auth Console failure as the error of an operation: its code, why, fix, and the HTTP status of the code. */
 export function authConsoleFailure(error: ResultError<AuthConsoleErrorCode>): Error {
   if (error.code === "AUTH_CONSOLE_PROVIDER_FAILED")
     globalThis.console.error("[vitehub] Auth Console operation failed.", error.cause);
-  return Object.assign(error, { statusCode: statuses[error.code], statusMessage: reason(error) });
+  // The `why` names the reason of a refused call, such as no live app session of the actor.
+  return Object.assign(error, { statusCode: statuses[error.code], statusMessage: error.why });
 }
 
 function isRequestEvent(event: unknown): event is ConsoleRequestEvent {

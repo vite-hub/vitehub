@@ -17,14 +17,14 @@ export const EnvLanding = {
         path: variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts",
         language: "typescript",
         content: variant.framework === "nuxt"
-          ? `// Illustrative pseudocode: configure your deployment preset for production.
+          ? `// Illustrative pseudocode: configure your host for production.
 import { env } from '@vite-hub/env/vite'
 import viteHubNuxt from 'vite-hub/nuxt'
 
 export default defineNuxtConfig({
   modules: [viteHubNuxt],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       server: {
         dryRun: env.boolean({ default: true }),
@@ -66,7 +66,7 @@ export default defineConfig({
       {
         path: "server/config.ts",
         language: "typescript",
-        content: `import { useServerEnv } from '#vitehub/env/server'
+        content: `import { useServerEnv } from 'vite-hub/env'
 
 export function isDryRun() {
   const { dryRun } = useServerEnv()

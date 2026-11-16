@@ -1,4 +1,4 @@
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { Result, ViteHubContext } from "@vite-hub/runtime"
 
 type MaybePromise<T> = Promise<T> | T
 
@@ -29,8 +29,8 @@ export interface RequireRateLimitOptions extends RateLimitPolicy {
 export type RateLimitRequest = Pick<Request, "headers">
 
 /**
- * The request that a guard limits: a request event with Standard Context properties, such as an H3 1 or H3 2 event
- * in a ViteHub app, or a Web `Request`. From an event, the guard reads the client address, the request headers, and
+ * The request that a guard limits: a request event with Standard Context properties, such as an H3 2 event in a
+ * ViteHub app, or a Web `Request`. From an event, the guard reads the client address, the request headers, and
  * the Cloudflare bindings from `event["~standard"]`. A `Request` has no client address, so pass `key`. On Cloudflare,
  * the guard reads `cf-connecting-ip` from its headers and the bindings of the request that runs.
  */
@@ -63,9 +63,8 @@ export interface RateLimitDriverResult {
   used?: number
 }
 
-export type RateLimitDriverOutcome =
-  | [error: null, value: RateLimitDriverResult]
-  | [error: Error, value: undefined]
+/** `[undefined, result]` after the driver consumed the counter, or `[error, undefined]` for an outage. */
+export type RateLimitDriverOutcome = Result<RateLimitDriverResult>
 
 interface RateLimitDecisionBase extends RateLimitDriverResult {
   limit: number
@@ -91,6 +90,12 @@ interface RateLimitUnavailableDecision extends RateLimitDecisionBase {
 
 export type RateLimitDecision = RateLimitAllowedDecision | RateLimitLimitedDecision | RateLimitUnavailableDecision
 
+/**
+ * The errors that `checkRateLimit()` returns. `RATE_LIMIT_R0013`: the request has no client address and the call has
+ * no `key`. `RATE_LIMIT_R0009`: the Cloudflare Rate Limiting binding of the policy is not on the request.
+ */
+export type CheckRateLimitErrorCode = "RATE_LIMIT_R0009" | "RATE_LIMIT_R0013"
+
 export interface RateLimitDriverCapabilities {
   readonly enforcement: RateLimitEnforcement
   readonly rejectedAttempts: RateLimitRejectedAttemptBehavior
@@ -106,11 +111,11 @@ export interface RateLimitDriverPeekResult {
   used: number
 }
 
-export type RateLimitDriverPeekOutcome =
-  | [error: null, value: RateLimitDriverPeekResult]
-  | [error: Error, value: undefined]
+/** `[undefined, result]` with the counter state, or `[error, undefined]` for an outage. */
+export type RateLimitDriverPeekOutcome = Result<RateLimitDriverPeekResult>
 
-export type RateLimitDriverResetOutcome = [error: Error | null]
+/** `[undefined, undefined]` after the driver deleted the counter, or `[error, undefined]` for an outage. */
+export type RateLimitDriverResetOutcome = Result<void>
 
 export interface RateLimitDriver {
   capabilities: RateLimitDriverCapabilities
@@ -166,7 +171,11 @@ export interface CreateRateLimiterOptions extends RateLimitPolicy {
   name?: string
 }
 
-export type RateLimitProvider = "auto" | "cloudflare" | "memory"
+/**
+ * `kv` counts in the default KV store, shared by every server process when KV uses `redis`, `database`, or `upstash`.
+ * With another KV driver, it counts in process memory and prints a warning at boot.
+ */
+export type RateLimitProvider = "auto" | "cloudflare" | "kv" | "memory"
 
 export interface RateLimitOptions {
   namespace?: string
@@ -177,4 +186,9 @@ export interface RateLimitOptions {
 
 export interface RateLimitRuntimeConfig {
   provider: Exclude<RateLimitProvider, "auto">
+  /**
+   * With the `kv` provider: count in the memory of this process, with a warning, when the KV store cannot share counts.
+   * Without it, such a store fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED`. ViteHub sets it in `vite dev` and when it selects `kv` itself.
+   */
+  memoryFallback?: boolean
 }

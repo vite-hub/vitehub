@@ -10,13 +10,13 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
-| `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
-| `@vite-hub/docs/navigation` | Only the navigation helpers, which the root also exports. |
-| `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
-| `@vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
+| `vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
+| `vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
+| `@vite-hub/docs/navigation` | Only the navigation helpers. `vite-hub/docs` exports them too. |
+| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
+| `vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
 
-Apps with `vite-hub` can import `vite-hub/docs` and `vite-hub/docs/assistant`, which re-export `@vite-hub/docs` and `@vite-hub/docs/assistant`.
+Each `vite-hub/docs/*` path re-exports the same path of `@vite-hub/docs`. A site without `vite-hub` imports `@vite-hub/docs/*`, as [Use without ViteHub](/docs/docs-site#use-without-vitehub) shows.
 
 ## Module options
 
@@ -25,6 +25,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `dir` | `string` | `'content'` | Folder of Markdown pages, relative to the app root. |
+| `sources` | `Array<string \| Source \| { source, mount?, exclude?, frontmatter? }>` | None | Pages from more than one place, in place of `dir`: folders relative to the app root, or Sources such as `glob()` and `github()` from `vite-hub/source`. See [Pages from other places](/docs/docs-site/configure#pages-from-other-places). |
 | `base` | `string` | `'/docs'`, or `'/'` without a `docs/` folder in `dir` | URL prefix whose folders are sections. |
 | `site.name` | `string` | `'Docs'` | Name in titles, the rail, llms.txt, and the MCP server. |
 | `site.url` | `string` | `''` | Canonical origin, such as `https://lumen.example.com`, for canonical links, raw Markdown links, llms.txt, and the sitemap. |
@@ -42,12 +43,14 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The repository of the site. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default the `dir` option) are in `useDocsConfig().github` for your own components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
-| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
-| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out. |
+| `llms` | `{ details?, sections? }` | None | More text for `/llms.txt`: `details` under the site description, and `sections` of links, `[{ title, description?, links }]`, before the page sections. |
+| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes here, the search check reports it, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
+| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out of the page checks. Every page must stay below 2 MB of HTML and must not link to a redirect page or to `/mcp`. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `markdownPages` | `boolean` | `true` | A Markdown copy of each app page that is not a docs page, converted from its HTML, at its URL plus `.md` and for `Accept: text/markdown`. See [Agent resources](/docs/docs-site/configure#agent-resources). |
 | `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`: `{ comarkUi, examples, plugins }`. The page route, search, and Console drafts parse with it. See [Configure the parser](/docs/docs-site/configure#configure-the-parser). |
 
 The module also configures the modules it installs: `llms` from `site`, and `agentDiscovery` with the page routes and MCP server card. Your own `llms` and `agentDiscovery` options win.
@@ -96,17 +99,17 @@ A `.navigation.yml` in a section folder, validated by `docsSectionSchema`.
 | Every page path | The catch-all page | The rendered page. Skipped when an app catch-all page, such as `pages/[...slug].vue`, answers every docs page. |
 | `/api/_docs/page/<page>.json` | The module | The parsed page, its section, and the previous and next pages. `/api/_docs/page/index.json` is the home page. |
 | `/api/_docs/search.json` | The module | The search index: one entry per `h2` and `h3`. |
-| `/raw/<page>.md` | The module | The agent copy of a page. `/raw/index.md` is the home page. |
-| `/sitemap.xml` | The module | Every page and the `sitemap` paths. |
-| `/llms.txt`, `/llms-full.txt` | `nuxt-llms` | The page index and every page in one file. |
-| `/sitemap.md`, `/.well-known/api-catalog`, `/robots.txt` | `nuxt-agent-discovery` | The Markdown sitemap, the API catalog, and the AI crawler policy. |
+| `/raw/<page>.md` | Content | The agent copy of a page. `/raw/index.md` is the home page. `<page>.md` and `Accept: text/markdown` return it too. |
+| `/sitemap.xml` | Content | Every indexed page and the `sitemap` paths. |
+| `/llms.txt`, `/llms-full.txt`, `/sitemap.md` | Content | The page index, every page in one file, and the Markdown sitemap. |
+| `/.well-known/api-catalog`, `/robots.txt` | `nuxt-agent-discovery` | The API catalog and the AI crawler policy. |
 | `/.well-known/skills/index.json`, `/.well-known/skills/<name>/SKILL.md` | `nuxt-agent-discovery` | Agent Skills from the `skills/` folder, if the app has one. |
-| `/mcp` | `@nuxtjs/mcp-toolkit` | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
+| `/mcp` | Content | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
 | `/.well-known/mcp/server-card.json` | `nuxt-agent-discovery` | The MCP server card. Not added with `mcp: false`. |
 | `/api/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
 | `/api/_vitehub/comments/**`, `/_vitehub/page/session` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
 
-A production build prerenders every page, its page JSON, the search index, `/sitemap.xml`, and `/sitemap.md`, and follows links between pages.
+A production build prerenders every page, its page JSON and agent copy, the search index, `/sitemap.xml`, `/sitemap.md`, `/llms.txt`, and `/llms-full.txt`, and follows links between pages.
 
 ## App aliases
 
@@ -126,12 +129,12 @@ The module writes its output to the Nuxt build folder:
 | `.nuxt/docs/raw/` | The agent copy of each page, as `/raw` serves it. |
 | `.nuxt/docs/components.mjs` | The Markdown blocks that pages can use, and their files. |
 
-To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it throws `DocsContentError` on the first invalid file:
+To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
-import { createDocsManifest } from '@vite-hub/docs/server'
+import { createDocsManifest } from 'vite-hub/docs/server'
 
-const manifest = createDocsManifest({ dir: 'content', base: '/docs' })
+const manifest = await createDocsManifest({ dir: 'content', base: '/docs' })
 for (const section of manifest.sections) {
   console.log(section.id, section.pages.map(page => page.path))
 }
@@ -144,6 +147,6 @@ A running site serves the parsed page at `/api/_docs/page/<page>.json` and the a
 | Export | Use |
 | --- | --- |
 | `docsAssistant` | The Agent preset. Extend it with `defineAgent({ extends: docsAssistant })`. See [What the preset sets](/docs/docs-site/assistant#what-the-preset-sets). |
-| `docsRateLimit(options?)` | The question limit, id `docs-rate-limit`. Options: `limit` (default `30`), `window` (default `'1h'`), `identity` (default: the whole site), and `trustedIpHeaders`. Counters live in process memory. |
+| `docsRateLimit(options?)` | The question limit, id `docs-rate-limit`. Options: `limit` (default `30`), `window` (default `'1h'`), `identity` (default: the whole site), and `trustedIpHeaders` (only with `identity: 'ip'` or `'auto'`). Counters live in process memory. |
 | `docsPageFromBody(body)` | The open page path from a chat request body, or `''` if missing or not a plain path. |
 | `docsPageContextKey` | The Agent run context key for the open page path: `'docsPage'`. |

@@ -23,7 +23,7 @@ let runtimeDatabase: object = {}
 
 // SAFETY: Vitest supports the virtual-module option at runtime before its public type includes it.
 ;(vi.mock as any)(
-  "@vite-hub/database/drizzle",
+  "@vite-hub/database/runtime/registry",
   () => ({
     databases: {},
     schema: collectionSchema,
@@ -70,6 +70,7 @@ describe("table Collection source", () => {
     ])
 
     const meals = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -103,6 +104,7 @@ describe("table Collection source", () => {
     })
 
     const publishedMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -124,6 +126,7 @@ describe("table Collection source", () => {
     await expect(meals.page({ query: {}, signal: controller.signal })).rejects.toThrow("collection request stopped")
 
     const dinners = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -180,6 +183,7 @@ describe("table Collection source", () => {
 
     expect(() =>
       defineCollection({
+        route: false,
         source: table({
           db,
           orderBy: {

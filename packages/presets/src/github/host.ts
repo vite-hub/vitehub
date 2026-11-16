@@ -3,14 +3,16 @@ import type { AgentChannelDefinition } from '@vite-hub/agent'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { lstat, mkdtemp, readdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { invariant } from "@vite-hub/internal/invariant"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
-import { prepareGitHubPullRequestWorkspace } from "./checkout.ts"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
 const exec = promisify(execFile)
@@ -41,6 +43,11 @@ export interface GitHubHostOptions {
   /** Forge request timeout in milliseconds. Default 60000. */
   timeout?: number
   userAgent?: string
+  /**
+   * `false` stops Forge providers from revalidating repeated GETs with `If-None-Match`. Default: on. Entries are
+   * kept per App installation, so they survive the hourly token rotation, or per token without an App.
+   */
+  conditionalRequests?: boolean
 }
 
 export interface GitHubHostAccess {
@@ -62,8 +69,13 @@ export interface GitHubHostPullRequest {
 
 export interface GitHubHostCheckout extends GitHubHostAccess {
   path: string
-  /** Restore source instruction files only before the provider injects its instructions. */
-  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean }): Promise<void>
+  /**
+   * Restore source instruction files only before the provider injects its instructions. For the
+   * `persistent.work` directory, `reuse` keeps its ignored files when the tracked tree matches the
+   * head, and the result says whether it did. `complete` checks the whole head out into another
+   * directory the caller owns, the way the `persistent.work` directory is prepared.
+   */
+  prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
   push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
@@ -72,6 +84,11 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
 export interface GitHubHostCheckoutOptions {
   signal?: AbortSignal
   timeout?: number
+  /**
+   * Keep the host clone in `checkout` after the callback and fetch into it next time instead of
+   * cloning. `work` is the provider workspace that `prepareWorkspace` keeps between calls.
+   */
+  persistent?: { checkout: string, work: string }
 }
 
 export interface GitHubHostForgeOptions extends GitHubHostCheckoutOptions {
@@ -82,6 +99,8 @@ export interface GitHubHostForgeOptions extends GitHubHostCheckoutOptions {
 export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
   fallback?: boolean
   refresh?: boolean
+  /** Mint a new App installation token when the cached one expires within this many milliseconds. */
+  minLifetime?: number
   repository?: string
 }
 
@@ -120,16 +139,16 @@ function secret(value: GitHubHostSecret | undefined): string | undefined {
 
 function positiveInteger(value: string, name: string): number {
   const number = Number(value)
-  if (!Number.isSafeInteger(number) || number <= 0) throw new TypeError(`${name} must be a positive integer.`)
+  if (!Number.isSafeInteger(number) || number <= 0) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_NUMBER_INVALID({ name })
   return number
 }
 
 export interface GitHubAppEnvironment {
   appId: number
   privateKey: string
-  /** Fixed installation. Without it, each repository resolves its own installation. */
+  /** Fixed installation of `owner`, which it needs. Repositories of other owners use `installations` or discovery. */
   installationId?: number
-  /** Owner authorized by the fixed installation; other owners are discovered. */
+  /** Repository owner of `installationId`. */
   owner?: string
   /** Explicit installation IDs by repository owner. */
   installations?: Record<string, number>
@@ -143,7 +162,12 @@ export interface GitHubAppEnvironment {
  * repository from the App, and the App's bot identity for commits. Results are cached.
  */
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
-  const configuredInstallations = new Map(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id]));
+  if (app.installationId !== undefined && !app.owner) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_OWNER_MISSING()
+  const routing = {
+    ...(app.installationId === undefined ? {} : { installationId: app.installationId }),
+    ...(app.owner ? { owner: app.owner.toLowerCase() } : {}),
+    installations: Object.fromEntries(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id])),
+  }
   const installations = new Map<string, number>()
   let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
@@ -161,18 +185,22 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
   return {
     async credentials(context: GitHubHostCredentialContext): Promise<GitHubHostCredentials> {
       if (!context.repository) return { token: app.token }
-      const repositoryOwner = owner(context.repository)
-      const configured = configuredInstallations.get(repositoryOwner) ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined)
-      const installationId = configured ?? await installation(context.repository, context.signal)
+      const installationId = githubInstallationFor(routing, context.repository) ?? await installation(context.repository, context.signal)
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
+    /** Every repository that the App's installations can access. */
+    repositories: (signal?: AbortSignal): Promise<GitHubAppRepository[]> => client.repositories(signal),
+    /** Failed App webhook deliveries since `since` that no later attempt delivered, oldest first. */
+    failedDeliveries: (since: number, signal?: AbortSignal): Promise<GitHubAppDelivery[]> => client.failedDeliveries(since, signal),
+    /** Sends one App webhook delivery again. */
+    redeliver: (id: string, signal?: AbortSignal): Promise<void> => client.redeliver(id, signal),
     /** The App bot's login and noreply email, used as the commit author. */
     async identity(): Promise<{ appId: number, login: string, email: string }> {
       identity ??= (async () => {
         const { id: appId, login } = await client.app().catch((error: unknown) => {
           const status = forgeErrorStatus(error)
-          if (status !== undefined) throw new Error(`GitHub App request /app failed with ${status}.`, { cause: error })
-          if (error instanceof ForgeResponseError) throw new Error(error.message, { cause: error })
+          if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
+          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
           throw error
         })
         const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
@@ -278,7 +306,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   function fallbackToken(config: GitHubHostCredentials): string {
     const configured = secret(config.token)?.trim()
-    if (!configured) throw new Error("GitHub authentication is not configured. Set VITEHUB_GITHUB_TOKEN or GitHub App credentials.")
+    if (!configured) throw presetsErrorDiagnostics.PRESETS_GITHUB_AUTH_MISSING()
     return configured
   }
 
@@ -294,8 +322,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     let credentialKey: string
 
     if (appValues.some(Boolean)) {
-      if (!appValues.every(Boolean)) throw new Error("GitHub App appId, installationId, and privateKey must be configured together.")
-      if (!appOwner) throw new Error("GitHub App owner must be configured with App credentials.")
+      if (!appValues.every(Boolean)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_CREDENTIALS_INCOMPLETE()
+      if (!appOwner) throw presetsErrorDiagnostics.PRESETS_GITHUB_HOST_APP_OWNER_MISSING()
       if (input.fallback || (repositoryOwner && repositoryOwner !== appOwner)) {
         token = fallbackToken(config)
         credentialKey = tokenKey(token)
@@ -306,13 +334,13 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         credentialKey = `app:${numericAppId}:${numericInstallationId}`
         try {
           token = (await githubAppCredentials({ appId: numericAppId, privateKey, userAgent: options.userAgent })
-            .installationToken(numericInstallationId, { refresh: input.refresh, signal: input.signal })).token
+            .installationToken(numericInstallationId, { refresh: input.refresh, minLifetime: input.minLifetime, signal: input.signal })).token
         }
         catch (error) {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
           const status = forgeErrorStatus(error)
-          if (status !== undefined) throw new Error(`GitHub App token request failed with ${status}.`, { cause: error })
-          if (error instanceof ForgeResponseError) throw new Error("GitHub App token response did not include a token.", { cause: error })
+          if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_FAILED({ status, cause: error })
+          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_MISSING({ cause: error })
           throw error
         }
       }
@@ -370,6 +398,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         forge: "github",
         token: auth.token,
         fetch: observe(auth.credentialKey),
+        conditionalRequests: options.conditionalRequests === false ? false : { identity: auth.credentialKey },
         timeout: options.timeout ?? 60_000,
         userAgent: options.userAgent,
       })
@@ -384,16 +413,18 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     run: (checkout: GitHubHostCheckout) => Promise<T>,
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
-    if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw new Error("A pull request headSha must be a full Git commit SHA.")
+    if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_HEAD_SHA_INVALID()
     for (const repository of [pullRequest.repository, pullRequest.headRepository]) {
       if (repository !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
-        throw new Error("Expected a GitHub repository in owner/name form.")
+        throw presetsErrorDiagnostics.PRESETS_GITHUB_REPOSITORY_INVALID()
       }
     }
     if (pullRequest.headRepository && !pullRequest.headRef) {
-      throw new Error("A pull request headRef is required when headRepository is supplied.")
+      throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_HEAD_REF_MISSING()
     }
-    const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
+    const persistent = options.persistent
+    if (persistent) await mkdir(persistent.checkout, { recursive: true })
+    const checkout = persistent ? await realpath(persistent.checkout) : await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     const checkoutIdentity = await lstat(checkout, { bigint: true })
     const isCheckout = async (path: string) => {
       try {
@@ -436,7 +467,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           }
         }
       }
-      throw new Error(`[vitehub] Could not locate disposable checkout for cleanup: ${checkout}`)
+      throw presetsErrorDiagnostics.PRESETS_CHECKOUT_CLEANUP_FAILED({ checkout })
     }
 
     const operation = controlledOperation(options)
@@ -450,22 +481,48 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const commandOptions = { env, maxBuffer, signal: operation.signal }
       if (pullRequest.headRef) {
         await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions)
-        if (pullRequest.headRef.startsWith("-")) throw new Error("A pull request headRef cannot start with a dash.")
+        if (pullRequest.headRef.startsWith("-")) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_HEAD_REF_INVALID()
       }
-      // Provider workspaces must be self-contained. A blobless partial clone
-      // defers file objects to a lazy network fetch, which is unavailable to
-      // isolated agent runs when they inspect a full PR diff.
-      await exec("git", ["clone", "--no-checkout", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
-      if (pullRequest.headRef) {
-        // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
-        const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
-        const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
-        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
-        await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
-      }
-      else {
-        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
-        await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", "--detach", "FETCH_HEAD"], commandOptions)
+      const cloneUrl = `https://github.com/${pullRequest.repository}.git`
+      // A kept clone is reused only when its own .git directory belongs to this repository;
+      // `git -C` alone would find a parent repository.
+      let reuseClone = Boolean(persistent)
+        && Boolean((await lstat(join(checkout, ".git")).catch(() => undefined))?.isDirectory())
+        && await exec("git", ["-C", checkout, "rev-parse", "--absolute-git-dir"], commandOptions)
+          .then(async result => result.stdout.trim() === await realpath(join(checkout, ".git")), () => false)
+        && await exec("git", ["-C", checkout, "config", "--local", "--get", "remote.origin.url"], commandOptions)
+          .then(result => result.stdout.trim() === cloneUrl, () => false)
+      // Fetch-time gc must not run detached while a provider workspace copies this .git directory.
+      const fetchConfig = persistent ? ["-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false"] : []
+      const checkoutMode = persistent ? ["--force"] : []
+      for (;;) {
+        try {
+          if (!reuseClone) {
+            if (persistent) await Promise.all((await readdir(checkout)).map(entry => rm(join(checkout, entry), { recursive: true, force: true, maxRetries: 3 })))
+            // Provider workspaces must be self-contained. A blobless partial clone
+            // defers file objects to a lazy network fetch, which is unavailable to
+            // isolated agent runs when they inspect a full PR diff.
+            await exec("git", ["clone", "--no-checkout", "--", cloneUrl, checkout], commandOptions)
+          }
+          if (pullRequest.headRef) {
+            // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
+            const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
+            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
+            await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
+          }
+          else {
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+            await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "--detach", "FETCH_HEAD"], commandOptions)
+          }
+          if (persistent) await exec("git", ["-C", checkout, "clean", "-ffdxq"], commandOptions)
+          break
+        }
+        catch (error) {
+          // A kept clone that Git cannot update, such as one with a stale lock or a broken ref, is cloned again.
+          if (!reuseClone || operation.signal.aborted) throw error
+          reuseClone = false
+        }
       }
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       const pushUrl = pullRequest.headRepository
@@ -473,20 +530,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         : "disabled://pull-request-head-repository-unavailable"
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
       if (pullRequest.headRepository) {
-        if (!pullRequest.headRef) throw new Error("A pull request headRef is required when headRepository is supplied.")
+        invariant(pullRequest.headRef, "withPullRequestCheckout() rejects a headRepository without a headRef before the clone")
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
-      if (fetched !== pullRequest.headSha) throw new Error(`Pull request head changed from ${pullRequest.headSha} to ${fetched}.`)
+      if (fetched !== pullRequest.headSha) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_HEAD_CHANGED({ expected: pullRequest.headSha, actual: fetched })
       operation.signal.throwIfAborted()
-      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean } = {}) => await prepareGitHubPullRequestWorkspace(checkout, target, { ...options, signal: operation.signal })
+      const prepareWorkspace = async (target: string, options: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean } = {}) => options.complete || persistent && resolve(target) === resolve(persistent.work)
+        ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
+        : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha
       const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
       const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
         const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
         signal.throwIfAborted()
         const expectedHead = pushHead
-        if (!pullRequest.headRepository || !pullRequest.headRef) throw new Error("Pull request source repository and branch are required to push.")
+        if (!pullRequest.headRepository || !pullRequest.headRef) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_PUSH_TARGET_MISSING()
         const readEnv = { ...process.env }
         delete readEnv.GH_TOKEN
         delete readEnv.GITHUB_TOKEN
@@ -499,9 +558,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         readEnv.GIT_CONFIG_GLOBAL = "/dev/null"
         const readOptions = { env: readEnv, maxBuffer, signal }
         const root = (await exec("git", ["-C", target, "rev-parse", "--show-toplevel"], readOptions)).stdout.trim()
-        if (await realpath(root) !== await realpath(target)) throw new Error("Push target must be the root of its prepared Git checkout.")
+        if (await realpath(root) !== await realpath(target)) throw presetsErrorDiagnostics.PRESETS_PUSH_TARGET_INVALID()
         const head = (await exec("git", ["-C", target, "rev-parse", "HEAD"], readOptions)).stdout.trim()
-        if (!/^[a-f0-9]{40}$/i.test(head)) throw new Error("Push target did not return a full Git commit SHA.")
+        if (!/^[a-f0-9]{40}$/i.test(head)) throw presetsErrorDiagnostics.PRESETS_PUSH_TARGET_HEAD_INVALID()
         if (await realpath(target) !== await realpath(checkout)) {
           // Import without host credentials. Authenticated Git only reads our trusted clone's config.
           await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)
@@ -532,7 +591,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       operation.close()
       // Cleanup is best effort. Preserve the callback result or error when
       // the checkout moved or filesystem discovery fails.
-      await cleanupCheckout().catch(() => undefined)
+      if (!persistent) await cleanupCheckout().catch(() => undefined)
     }
   }
 
@@ -549,7 +608,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.() } } : {}),
+          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
         },
       })
     },

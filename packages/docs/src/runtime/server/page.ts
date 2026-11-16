@@ -3,7 +3,8 @@ import { HTTPError, defineHandler, getRouterParam } from "nitro/h3"
 import type { EventHandler, EventHandlerRequest } from "nitro/h3"
 import { content } from "#docs/content"
 import manifest from "#docs/manifest"
-import { loadDocsDocument, parseDocsDocument } from "../documents.ts"
+import { readDocsPage } from "../content.ts"
+import { parseDocsDocument } from "../documents.ts"
 import { findDocsPage } from "../../navigation.ts"
 import { docsPageResponse } from "../../page.ts"
 
@@ -24,7 +25,7 @@ const handler: EventHandler<EventHandlerRequest, Promise<DocsPageResponse>> = de
   }
   const found = findDocsPage(manifest, path)
   if (!found) throw HTTPError.status(404, "Page not found")
-  const document = await loadDocsDocument(found.page.file, found.page.source)
+  const document = await readDocsPage(found.page)
   if (document === null) throw HTTPError.status(404, "Page not found")
   const credits = found.page.credits ? await parseDocsDocument(found.page.credits) : null
   return docsPageResponse(manifest, found, document, credits)

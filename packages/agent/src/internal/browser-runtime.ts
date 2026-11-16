@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
@@ -7,6 +8,7 @@ import { lock } from "proper-lockfile"
 
 import type { AgentInvocationContextStore } from "../types.ts"
 import { assertTrustedBrowserCache } from "./browser-cache.ts"
+import { extractLinuxChromiumScript, smokeLinuxChromiumScript } from "./browser-runtime-scripts.injected.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 
 const agentBrowserVersion = "0.35.2"
@@ -128,111 +130,6 @@ async function normalizePrivateModes(root: string): Promise<void> {
   }
 }
 
-const extractLinuxChromiumScript = `
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { mkdir, writeFile } from 'node:fs/promises'
-const require = createRequire(join(process.argv[1], 'package.json'))
-const modulePath = require.resolve('@sparticuz/chromium')
-const Chromium = (await import(pathToFileURL(modulePath).href)).default
-await Chromium.executablePath()
-await mkdir(join(process.env.TMPDIR, 'fonts'), { recursive: true })
-await writeFile(join(process.env.TMPDIR, 'fonts', 'fonts.conf'), '<fontconfig><dir prefix="relative">.</dir><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>')
-`
-
-// Headless Shell exposes CDP but does not implement Chrome's --dump-dom command.
-const smokeLinuxChromiumScript = `
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { setTimeout as delay } from 'node:timers/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-const cancellation = new AbortController()
-process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check cancelled')))
-const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
-const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
-const group = child.pid
-const descendants = new Set([child.pid])
-const collectDescendants = async () => {
-  // Walk to a fixed point: Chromium commonly creates grandchildren after
-  // the initial process has started, so one snapshot is insufficient.
-  let changed = true
-  while (changed) {
-    changed = false
-    const entries = await readdir('/proc').catch(error => {
-      if (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM') return []
-      throw error
-    })
-    const parents = new Set(descendants)
-    for (const pid of entries) {
-      if (!/^[0-9]+$/.test(pid)) continue
-      const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(() => '')
-      if (!status) continue
-      const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-      const numericPid = Number(pid)
-      if (parents.has(Number(fields[1])) && !descendants.has(numericPid)) {
-        descendants.add(numericPid)
-        changed = true
-      }
-    }
-  }
-}
-try {
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
-    const abort = () => { clearTimeout(timer); reject(cancellation.signal.reason) }
-    cancellation.signal.addEventListener('abort', abort, { once: true })
-    if (cancellation.signal.aborted) abort()
-    let stderr = ''
-    child.once('error', error => { clearTimeout(timer); reject(error) })
-    child.once('exit', code => { clearTimeout(timer); reject(new Error('Chromium exited: ' + code + ' ' + stderr)) })
-    child.stderr.on('data', data => {
-      stderr = (stderr + data).slice(-4000)
-      if (stderr.includes("DevTools listening on ws://127.0.0.1:")) { clearTimeout(timer); resolve() }
-    })
-  })
-} finally {
-  await collectDescendants()
-  if (child.pid) {
-    try { process.kill(-child.pid, 'SIGKILL') } catch {}
-    try { process.kill(child.pid, 'SIGKILL') } catch {}
-    for (const pid of descendants) if (pid !== process.pid) { try { process.kill(pid, 'SIGKILL') } catch {} }
-  }
-  await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('close', resolve))
-  // A direct-child close does not join helpers with independent stdio.
-  // Zombies have exited and released their files; their reaping belongs to
-  // the adopting parent, which may be PID 1 rather than this wrapper.
-  if (child.pid) {
-    const deadline = Date.now() + 1500
-    while (true) {
-      await collectDescendants()
-      let running = false
-      const procEntries = await readdir('/proc').catch(error => {
-        if (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM') return []
-        throw error
-      })
-      for (const pid of procEntries) {
-        if (!/^[0-9]+$/.test(pid)) continue
-        const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(error => {
-          if (error.code === 'ENOENT' || error.code === 'ESRCH') return ''
-          throw error
-        })
-        const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-        if ((descendants.has(Number(pid)) || Number(fields[1]) === child.pid || Number(fields[2]) === group) && !['Z', 'X'].includes(fields[0])) {
-          running = true
-          break
-        }
-      }
-      if (!running) break
-      if (Date.now() >= deadline) throw new Error('Chromium helpers did not exit; retaining profile ' + profile)
-      await delay(10)
-    }
-  }
-  await rm(profile, { recursive: true, force: true })
-}
-`
-
 async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, preferNoSandbox = false, linuxBundle = false, signal?: AbortSignal): Promise<string | undefined> {
   if (linuxBundle) {
     await run(process.execPath, ["--input-type=module", "-e", smokeLinuxChromiumScript, executablePath, JSON.stringify(["--no-sandbox"])], { env, timeoutMs: 20_000, signal })
@@ -322,8 +219,8 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
 }
 
 async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void, signal?: AbortSignal): Promise<PreparedBrowserRuntime> {
-  if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
-  if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
+  if (platform !== "linux" && platform !== "darwin") throw agentDiagnostics.AGENT_BROWSER_PLATFORM_UNSUPPORTED({ arch: false })
+  if (platform === "linux" && process.arch !== "x64") throw agentDiagnostics.AGENT_BROWSER_PLATFORM_UNSUPPORTED({ arch: true })
   await assertTrustedBrowserCache(root)
   const stagingPrefix = `${basename(root)}.install-`
   for (const entry of await readdir(dirname(root))) {
@@ -349,7 +246,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
     const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
     if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
-      throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
+      throw agentDiagnostics.AGENT_BROWSER_SOCKET_DIRECTORY_UNSAFE({ ancestors: true })
     }
     const parent = dirname(ancestor)
     if (parent === ancestor) break
@@ -360,7 +257,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     await chmod(socketRoot, 0o700)
     const socketStat = await lstat(socketRoot)
     if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
-      throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
+      throw agentDiagnostics.AGENT_BROWSER_SOCKET_DIRECTORY_UNSAFE({ ancestors: false })
     }
     const skillPath = join(root, "core.SKILL.md")
     const marker = join(root, "ready.json")
@@ -428,7 +325,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
         await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv, signal })
         stagingChrome = await findChrome(stagingBrowserCache)
       }
-      if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
+      if (!stagingChrome) throw agentDiagnostics.AGENT_BROWSER_INSTALL_FAILED({ step: "executable" })
       await normalizePrivateModes(staging)
       const noSandbox = await smokeChrome(stagingChrome, {
         ...installEnv,
@@ -454,7 +351,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
       await rm(staging, { force: true, recursive: true })
       await mkdir(socketRoot, { mode: 0o700, recursive: true })
       const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
-      if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")
+      if (!prepared) throw agentDiagnostics.AGENT_BROWSER_INSTALL_FAILED({ step: "validation" })
       return prepared
     }
     catch (error) {

@@ -11,7 +11,7 @@ const kvModule = vi.hoisted(() => ({
       store.set(key, value)
       return [null, undefined]
     },
-    del: async (key: string) => {
+    delete: async (key: string) => {
       store.delete(key)
       return [null, undefined]
     },
@@ -64,6 +64,24 @@ describe("teams() send", () => {
     await expect(connector.send("Hi", { recipient: "user:29:abc" })).resolves.toEqual({ id: "101" })
     expect(adapter.openDM).toHaveBeenCalledWith("29:abc")
     expect(adapter.postMessage).toHaveBeenLastCalledWith(encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" }), { markdown: "Hi" })
+  })
+
+  it("passes a card to the adapter as is for posts, edits, and thread roots", async () => {
+    const { adapter, connector } = await setup()
+    const card = { card: { type: "card" as const, title: "Build 7", children: [] }, fallbackText: "Build 7 failed" }
+    const done = { card: { type: "card" as const, title: "Build 7", children: [] }, fallbackText: "Build 7 passed" }
+
+    await connector.send(card, { recipient: "user:29:abc" })
+    const first = await connector.send(card, { recipient: channel, thread: { key: "build:7", root: card }, idempotencyKey: "status" })
+    await connector.send(done, { recipient: channel, thread: { key: "build:7" }, idempotencyKey: "status", update: true })
+
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=101", serviceUrl: "https://smba.example" })
+    expect(adapter.postMessage.mock.calls).toEqual([
+      [encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" }), card],
+      [rootThread, card],
+    ])
+    expect(adapter.postChannelMessage).toHaveBeenCalledWith(channel, card)
+    expect(adapter.editMessage.mock.calls).toEqual([[rootThread, first.id, done]])
   })
 
   it("returns the stored receipt for a repeated idempotency key", async () => {

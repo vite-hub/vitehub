@@ -21,6 +21,10 @@ export function defaultDatabaseNotConfiguredError(): Error {
   return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: "default" })
 }
 
+export function databaseNotFoundError(name: string): Error {
+  return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
+}
+
 function requireDatabase(databases: Record<string, AgentDatabaseEntry>, name: string) {
   const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
   if (!entry) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
@@ -55,6 +59,25 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
       return createAgentDatabaseHandle(databases, name)
     },
   }
+}
+
+/**
+ * Runs `SELECT 1` on each named Database and returns whether it answered, by name. A Database that fails is `false`,
+ * and its error goes to the server log, so the result holds no connection details.
+ */
+export async function pingDatabaseEntries(databases: Record<string, AgentDatabaseEntry>, names: readonly string[]): Promise<Record<string, boolean>> {
+  const handle = createAgentDatabase(databases)
+  const results = await Promise.all(names.map(async (name) => {
+    try {
+      await handle.database(name).exec("SELECT 1")
+      return [name, true] as const
+    }
+    catch (error) {
+      console.error(`[vitehub] Database ${JSON.stringify(name)} did not answer SELECT 1.`, error)
+      return [name, false] as const
+    }
+  }))
+  return Object.fromEntries(results)
 }
 
 /**

@@ -95,7 +95,8 @@ if (lease) {
     await sendReport()
   }
   finally {
-    await lease.release()
+    const [releaseError] = await lease.release()
+    if (releaseError) throw releaseError
   }
 }
 ```
@@ -103,10 +104,24 @@ if (lease) {
 On libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`. On `node:sqlite`, pass `{ dialect: 'sqlite', query: async (sql, params) => db.prepare(sql).all(...params) }`.
 
 - `acquire(key, { ttl, owner? })` returns `[error, lease]`. `lease` is `null` when another caller holds the key. `ttl` is in seconds, as in KV, and can be a fraction. Leases are not reentrant: the same `owner` also gets `null`.
-- Each acquire gets a new random `id`. `lease.release()` and `lease.renew({ ttl? })` act only while the stored `id` is still this one. They return `false` when the lease expired and another caller took it. `renew()` updates `lease.expiresAt`.
-- `get(key)` returns the live lease with its `owner` and `expiresAt`, or `null`.
+- Each acquire gets a new random `id`. `lease.release()` and `lease.renew({ ttl? })` act only while the stored `id` is still this one.
+- `lease.release()` returns `[error, released]`. `released` is `false` when another caller holds the key now.
+- `lease.renew({ ttl? })` returns `[error, renewed]`. `renewed` is `false` when the lease expired and another caller took it. On `true`, it updates `lease.expiresAt`.
+- `get(key)` returns `[error, record]`. `record` is the live lease with its `owner` and `expiresAt`, or `null`.
 - `owner` is a label for inspection. Acquire does not compare it.
 - Errors: `RUNTIME_LEASE_INVALID_TTL` when `ttl` is not a positive number, and `RUNTIME_LEASE_FAILED` when the store fails. Read `error.cause` for the Database error.
+
+Check the error from each operation before using its value. After renewal, check `renewed` before continuing work. The result tuple itself is always truthy:
+
+```ts fragment
+const [renewError, renewed] = await lease.renew({ ttl: 60 })
+if (renewError) throw renewError
+if (!renewed) return // Ownership was lost. Stop work.
+
+const [getError, current] = await leases.get('report:2026-11-09')
+if (getError) throw getError
+console.log(current?.owner)
+```
 
 The SQL store keeps leases in the `vitehub_leases` table and creates it when it is missing. Acquire is one `INSERT ... ON CONFLICT ("key") DO UPDATE ... WHERE expires_at <= now RETURNING` statement, so when many processes acquire one key at the same time, exactly one gets it. Expiry uses the clock of the Database. Postgres and SQLite 3.35 or later work.
 
@@ -138,7 +153,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app
 
 ## Node process lifecycle
 
-`vite-hub/runtime/node` has Node-only helpers. When you inspect it, it reads Node process data and, on Linux, `/proc` and cgroup v2 files.
+ViteHub packages use the private `@vite-hub/runtime/internal/node` entry for Node-only helpers. Apps do not import this entry. When you inspect it, it reads Node process data and, on Linux, `/proc` and cgroup v2 files.
 
 `createProcessReconciler()` runs event-driven work for a long-lived Node service. It merges repeated triggers, runs periodic repair, stops new work, and waits for tracked work during a drain.
 
@@ -174,7 +189,5 @@ The [package README](https://github.com/vite-hub/vitehub/tree/main/packages/runt
 | Import | Provides |
 | --- | --- |
 | `vite-hub/runtime` | Context, Capability, policy, approval, trace, lease, diagnostic, error, execution authority, public URL, and host binding APIs. |
-| `vite-hub/runtime/h3` | `getRuntimeContext()`, `getStandardContext()`, and `installStandardContext()` for H3 events. |
-| `vite-hub/runtime/node` | Node process data, reconciliation, and graceful drain. |
 
 Do not import from `src`, `dist`, or `_internal` paths.

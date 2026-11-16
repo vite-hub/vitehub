@@ -1,0 +1,20 @@
+Import and set environment variables from .env file
+
+USAGE
+  $ netlify env:import [options] <fileName>
+
+ARGUMENTS
+  fileName                    .env file to import
+
+OPTIONS
+  --filter <app>              For monorepos, specify the name of the
+                              application to run the command in
+  -h, --help                  display help for command
+  --json                      Output environment variables as JSON
+  -r, --replace-existing      Replace all existing variables instead of merging
+                              them with the current ones (default: false)
+  --debug                     Print debugging information
+  --auth <token>              Netlify auth token - can be used to run this
+                              command without logging in
+  -s, --site <name-or-id>     A project name or ID to target
+

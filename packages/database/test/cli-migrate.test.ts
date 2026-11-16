@@ -12,7 +12,7 @@ import { createHash } from "node:crypto"
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { copyD1MigrationFiles, d1MigrationNamesFile, listD1Migrations } from "../src/internal/d1-migrations.ts"
-import { renderMigrateOnStartPlugin } from "../src/internal/migrate-on-start.ts"
+import { renderMigrateOnStartPlugin, renderShippedMigrationsModule } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createTestDatabaseClient } from "../src/runtime/test-database.ts"
 
@@ -40,13 +40,14 @@ async function migrationTags(migrationsDir: string) {
   return (await readdir(migrationsDir)).filter(name => /^\d{14}_/.test(name)).sort()
 }
 
-function realSpawn(command: string, args: string[], options: { cwd?: string, env?: NodeJS.ProcessEnv } = {}) {
-  return new Promise<{ exitCode: number | null }>((resolve, reject) => {
+function realSpawn(command: string, args: string[], options: { cwd?: string, env?: NodeJS.ProcessEnv, stdin?: "ignore" | "inherit", stdout?: "inherit" | "pipe" } = {}) {
+  return new Promise<{ exitCode: number | null, stdout?: string }>((resolve, reject) => {
     const child = spawnProcess(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] })
-    child.stdout.resume()
+    const stdout: Buffer[] = []
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk))
     child.stderr.resume()
     child.on("error", reject)
-    child.on("close", exitCode => resolve({ exitCode }))
+    child.on("close", exitCode => resolve({ exitCode, ...(options.stdout === "pipe" ? { stdout: Buffer.concat(stdout).toString("utf8") } : {}) }))
   })
 }
 
@@ -173,6 +174,26 @@ describe("vitehub database up", () => {
     await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ stdout: expect.stringContaining("no pending migrations.") })
   }, 120_000)
 
+  it("records the unique indexes of 0.x .unique() columns as constraints, so generate keeps the tables", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-unique"), migrationsDir, { recursive: true })
+    // Drizzle Kit 0.x made `members_email_unique` for `.unique()`. `members_slug_idx` stays an index in the schema.
+    await writeFile(join(project.rootDir, "schema.ts"), [
+      "import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'",
+      "export const members = sqliteTable('members', { id: integer('id').primaryKey(), email: text('email').notNull().unique(), slug: text('slug').notNull() }, table => [uniqueIndex('members_slug_idx').on(table.slug)])",
+      "",
+    ].join("\n"))
+
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(migrationsDir)
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    // Without the conversion, Drizzle Kit writes a migration that rebuilds `members` with `email` UNIQUE.
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": the snapshots record 1 unique index of `.unique()` columns as UNIQUE constraints")
+  }, 120_000)
+
   it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
     const project = await createProject()
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
@@ -193,12 +214,105 @@ describe("vitehub database up", () => {
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
     const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
 
-    expect(() => renderMigrateOnStartPlugin(config, { allowDataLoss: false, databases: ["default"], drizzleImport: "db", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
+    expect(() => renderMigrateOnStartPlugin(config, { databases: ["default"], registryImport: "db", migrationsImport: "migrations", runtimeImport: "runtime" })).toThrow(expect.objectContaining({
       code: "DATABASE_MIGRATIONS_OLD_LAYOUT",
       why: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`),
     }))
+    const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
+    expect(shipped.databases.default).toEqual({ problem: expect.stringContaining(`The migrations of the database "default" in ${project.database.migrationsDir} use the layout of Drizzle Kit 0.x`) })
     const client = createTestDatabaseClient(project.rootDir, "migrations")
     await expect(client.execute("SELECT 1")).rejects.toMatchObject({ code: "DATABASE_MIGRATIONS_OLD_LAYOUT" })
+  })
+})
+
+describe("vitehub database generate", () => {
+  async function projectWithAmbiguousChange() {
+    const project = await createProject()
+    await project.writeSchema(["title", "body"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await project.writeSchema(["title", "content"])
+    await nextSecond()
+    return project
+  }
+
+  it("fails without a terminal with the changes to answer, and writes no migration", async () => {
+    const project = await projectWithAmbiguousChange()
+    const before = await migrationTags(project.database.migrationsDir)
+
+    const result = await project.run("generate", ["--name", "notes_content"])
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).toContain("DATABASE_GENERATE_AMBIGUOUS_CHANGE")
+    expect(result.stderr).toContain("The Definitions of the database \"default\" add a column or table and remove another one")
+    expect(result.stderr).toContain("The changes to answer:\n  - column public.notes.content")
+    expect(result.stderr).toContain(`rename: vitehub database generate --name notes_content --hints '[{"type":"rename","kind":"column","from":["public","notes","<old_name>"],"to":["public","notes","content"]}]'`)
+    expect(result.stderr).toContain(`create: vitehub database generate --name notes_content --hints '[{"type":"create","kind":"column","entity":["public","notes","content"]}]'`)
+    expect(result.stderr).not.toContain("drizzle-kit generate failed")
+    await expect(migrationTags(project.database.migrationsDir)).resolves.toEqual(before)
+  }, 120_000)
+
+  it("writes the migration that --hints chooses", async () => {
+    const project = await projectWithAmbiguousChange()
+    const rename = [{ type: "rename", kind: "column", from: ["public", "notes", "body"], to: ["public", "notes", "content"] }]
+    await expect(project.run("generate", ["--name", "rename_body", "--hints", JSON.stringify(rename)])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const renamed = (await migrationTags(project.database.migrationsDir)).at(-1)!
+    expect(renamed).toMatch(/_rename_body$/)
+    await expect(readFile(join(project.database.migrationsDir, renamed, "migration.sql"), "utf8")).resolves.toBe("ALTER TABLE `notes` RENAME COLUMN `body` TO `content`;")
+  }, 120_000)
+
+  it("reads --hints-file and keeps it in the commands of the error", async () => {
+    const project = await projectWithAmbiguousChange()
+    const file = join(project.rootDir, "hints.json")
+    await writeFile(file, "[]")
+    const missing = await project.run("generate", ["--hints-file", file])
+    expect(missing.exitCode).toBe(2)
+    expect(missing.stderr).toContain(`Add one answer per change to the array in ${file}, then run vitehub database generate --hints-file ${file}:`)
+    expect(missing.stderr).toContain(`create: {"type":"create","kind":"column","entity":["public","notes","content"]}`)
+
+    await writeFile(file, JSON.stringify([{ type: "create", kind: "column", entity: ["public", "notes", "content"] }]))
+    await expect(project.run("generate", ["--name", "new_content", "--hints-file", file])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const created = (await migrationTags(project.database.migrationsDir)).at(-1)!
+    const sql = await readFile(join(project.database.migrationsDir, created, "migration.sql"), "utf8")
+    expect(sql).toContain("ADD `content` text")
+    expect(sql).toContain("DROP COLUMN `body`")
+  }, 120_000)
+
+  it("generates a change that needs no answer with CI set, and never lets Drizzle Kit read stdin", async () => {
+    const project = await createProject()
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await project.writeSchema(["title", "body"])
+    await nextSecond()
+
+    const spawn = vi.fn(realSpawn)
+    await expect(project.run("generate", ["--name", "add_body"], { ...process.env, CI: "1" }, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]![2]).toMatchObject({ stdin: "ignore" })
+    const added = (await migrationTags(project.database.migrationsDir)).at(-1)!
+    await expect(readFile(join(project.database.migrationsDir, added, "migration.sql"), "utf8")).resolves.toBe("ALTER TABLE `notes` ADD `body` text;")
+  }, 120_000)
+
+  it("gives Drizzle Kit the terminal for its questions, unless CI or --non-interactive is set", async () => {
+    const project = await createProject()
+    const spawn = vi.fn<typeof realSpawn>(async () => ({ exitCode: 0 }))
+    const env = { ...process.env, CI: undefined }
+    const isTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY")
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true })
+    try {
+      await project.run("generate", [], env, spawn)
+      await project.run("generate", [], { ...env, CI: "false" }, spawn)
+      await project.run("generate", [], { ...env, CI: "true" }, spawn)
+      await project.run("generate", ["--non-interactive"], env, spawn)
+    }
+    finally {
+      if (isTTY) Object.defineProperty(process.stdin, "isTTY", isTTY)
+      else delete (process.stdin as { isTTY?: boolean }).isTTY
+    }
+    expect(spawn.mock.calls.map(([, args, options]) => [options?.stdin, args.includes("--non-interactive")])).toEqual([
+      [undefined, false],
+      [undefined, false],
+      ["ignore", false],
+      ["ignore", false],
+    ])
   })
 })
 
@@ -284,6 +398,20 @@ describe("vitehub database migrate", () => {
     expect(result.stderr).toContain(`${init}/migration.sql`)
     expect(result.stdout).not.toContain("no pending migrations")
   }, 120_000)
+
+  it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await mkdir(project.database.migrationsDir, { recursive: true })
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+
+    // No URL and no PG* variables: the generated Kit config uses PGlite in .vitehub/data/database/pglite.
+    await expect(project.run("migrate", [], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]).toEqual(expect.arrayContaining([expect.arrayContaining(["migrate"])]))
+    expect(existsSync(join(project.rootDir, ".vitehub/data/database"))).toBe(true)
+  })
 
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
@@ -606,7 +734,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
       expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
       await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
-        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"],
+        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"], ["0004_cli_auth.sql"],
       ])
       const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
       expect(columns).toContain("key_sealed")
@@ -616,7 +744,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
       const staged = join(project.rootDir, "staged")
       await copyD1MigrationFiles(migrationsDir, staged)
-      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql"])
+      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql", "0004_cli_auth.sql"])
       await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
     }
     finally {
@@ -704,7 +832,8 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     const failed = await project.migrate(["--allow-data-loss"])
 
     expect(failed.exitCode).toBe(1)
-    expect(failed.stderr).toContain("[vitehub] D1 migration failed for the database \"default\". Cloudflare D1 returned HTTP 400")
+    expect(failed.stderr).toContain("DATABASE_D1_MIGRATION_FAILED")
+    expect(failed.stderr).toContain("D1 migration failed for the database \"default\". Cloudflare D1 returned HTTP 400")
     await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([])
     d1.client.close()
   }, 120_000)

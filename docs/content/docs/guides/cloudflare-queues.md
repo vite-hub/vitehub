@@ -7,17 +7,17 @@ navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
-Set `preset: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
+Set `host: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
 
 ## What Cloudflare Queues is
 
 [Cloudflare Queues](https://developers.cloudflare.com/queues/) is the message queue of Cloudflare Workers, on the Free and Paid plans. A Worker sends messages through a producer binding. A consumer Worker gets them in batches, and Cloudflare retries failed messages.
 
-You write the handler and the send call. ViteHub makes the bindings, queue names, and consumer entry, and the same files run on [Vercel Queues](/docs/guides/vercel-queues) with another preset.
+You write the handler and the send call. ViteHub makes the bindings, queue names, and consumer entry, and the same files run on [Vercel Queues](/docs/guides/vercel-queues) with another host.
 
 ## Set up Cloudflare Queues
 
-### Enable Queue with the Cloudflare preset
+### Enable Queue with the Cloudflare host
 
 ```bash [Terminal]
 pnpm add vite-hub @vite-hub/queue
@@ -29,7 +29,7 @@ pnpm add -D wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare', queue: true },
 })
 ```
 :::
@@ -41,7 +41,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
 })
 ```
 :::
@@ -52,13 +52,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 :::
 ::
 
-The `cloudflare` preset picks the Cloudflare Queue Provider and Worker output. `vitehub()` includes the Nitro Vite plugin. Wrangler runs the built Worker locally and reads its logs. See [Queue configuration](/docs/queue/configure).
+The `cloudflare` host picks the Cloudflare Queue Provider and Worker output. `vitehub()` includes the Nitro Vite plugin. Wrangler runs the built Worker locally and reads its logs. See [Queue configuration](/docs/queue/configure).
 
 ### Define a queue
 
@@ -176,8 +176,8 @@ Wrangler runs them through Miniflare. See Cloudflare's [Queues local development
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token must be allowed to create Queues and deploy Workers. Preview, then create the queues:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again and deploy with Nitro:
@@ -222,7 +222,7 @@ ViteHub writes each consumer entry with the queue name only, so Cloudflare's def
 
 The queue file and route stay the same. To move to Vercel Queues:
 
-1. Change `preset: 'cloudflare'` to `preset: 'vercel'`.
+1. Change `host: 'cloudflare'` to `host: 'vercel'`.
 2. Install `@vercel/queue`.
 3. Remove `contentType` from `sendQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.

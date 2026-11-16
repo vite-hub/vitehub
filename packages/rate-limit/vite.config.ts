@@ -11,9 +11,11 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/durability.ts",
       "src/index.ts",
       "src/cli.ts",
       "src/drivers/cloudflare.ts",
+      "src/drivers/kv.ts",
       "src/drivers/memory.ts",
       "src/operations.ts",
       "src/runtime.ts",

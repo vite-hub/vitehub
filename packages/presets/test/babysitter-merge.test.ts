@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
-import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
+import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { directMergeBranchSafety, foldMethod, foldParent, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
 function snapshot(): Snapshot {
@@ -59,6 +59,55 @@ describe("Babysitter merge evidence", () => {
     s.comments.person = { id: 9, body: "Please also update the docs.", user: { login: "maintainer", type: "User" } };
     expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
     expect(directMergeReadiness(s, "failed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
+  });
+
+  it("needs an assessment of a P0 or P1 bot finding after the budget, until twice the budget", () => {
+    const s = snapshot();
+    s.reviews.bot = { id: 5, state: "COMMENTED", commit_id: head, body: "**P1 · Class: lost MAIL_KEY.** The tuple form drops it.", user: { login: "pullfrog[bot]", type: "Bot" } };
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true })).toEqual({ ready: false, reason: "1 new feedback item needs assessment" });
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, severeReviewSettled: true })).toEqual({ ready: true, head });
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, assessedFeedback: new Set(feedbackFingerprints(s)) })).toEqual({ ready: true, head });
+    // A configured author stays ignored whatever its label.
+    s.reviews.bot.user = { login: "chatgpt-codex-connector[bot]", type: "Bot" };
+    expect(directMergeReadiness(s, "passed", { automatedReviewSettled: true, ignoreFeedbackAuthors: new Set(["chatgpt-codex-connector[bot]"]) })).toEqual({ ready: true, head });
+  });
+
+  it("waits for a person while a declined P0 or P1 thread is open", () => {
+    const s = snapshot();
+    s.threads = [{ id: "T1", node_id: "T1", isResolved: false, comments: [{ id: 7 }] }, { id: "T2", node_id: "T2", isResolved: false, comments: [{ id: 8 }] }];
+    const policy = { ignoreAssessedBotThreads: true, workerAuthors: new Set<string>() };
+    s.threads.forEach(thread => { thread.comments = [{ id: 7, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] });
+    expect(directMergeReadiness(s, "passed", policy)).toEqual({ ready: true, head });
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: false, reason: "a person to resolve a review thread the worker declined although the reviewer labeled it P0 or P1" });
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1", "T2"]) })).toEqual({ ready: false, reason: "a person to resolve 2 review threads the worker declined although the reviewer labeled them P0 or P1" });
+    // Without ignoreAssessedBotThreads, an open bot thread blocks as open work, but a held one waits for a person.
+    expect(directMergeReadiness(s, "passed", { heldThreads: new Set(["T1"]) })).toEqual({ ready: false, reason: "unresolved review threads" });
+    expect(directMergeReadiness(s, "passed", { heldThreads: new Set(["T1", "T2"]) })).toMatchObject({ ready: false, reason: expect.stringMatching(/^a person to resolve 2/) });
+    s.threads[0]!.isResolved = true;
+    expect(directMergeReadiness(s, "passed", { ...policy, heldThreads: new Set(["T1"]) })).toEqual({ ready: true, head });
+  });
+
+  it("does not wait for a running review once automated review is settled", () => {
+    const s = snapshot();
+    s.checks.review = { id: 6, name: "pullfrog", head_sha: head, status: "queued", app: { id: 9 } };
+    s.statuses.approval = { context: "pullfrog-approval", sha: head, state: "pending" };
+    const policy = { pendingReviewChecks: new Set(["pullfrog", "pullfrog-approval"]) };
+    expect(directMergeReadiness(s, "passed", policy)).toEqual({ ready: false, reason: "a current-head review is still running" });
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: true, head });
+  });
+
+  it("merges past assessed bot-only threads with ignoreAssessedBotThreads, but not past a person's thread", () => {
+    const s = snapshot();
+    const finding = { id: 7, body: "P2: handle aliases.", commit_id: head, user: { login: "chatgpt-codex-connector[bot]", type: "Bot" } };
+    s.reviewComments["7"] = finding;
+    s.threads = [{ id: "T1", isResolved: false, isOutdated: true, comments: [{ id: 7, body: finding.body, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }] }];
+    const assessedFeedback = new Set(feedbackFingerprints(s));
+    expect(directMergeReadiness(s, "passed", { assessedFeedback })).toEqual({ ready: false, reason: "unresolved review threads" });
+    expect(directMergeReadiness(s, "passed", { assessedFeedback, ignoreAssessedBotThreads: true })).toEqual({ ready: true, head });
+    // A new bot comment still needs a pass first.
+    expect(directMergeReadiness(s, "passed", { ignoreAssessedBotThreads: true }).ready).toBe(false);
+    s.threads.push({ id: "T2", isResolved: false, comments: [{ id: 8, body: "Why?", author: { login: "maintainer", __typename: "User" } }] });
+    expect(directMergeReadiness(s, "passed", { assessedFeedback, ignoreAssessedBotThreads: true })).toEqual({ ready: false, reason: "unresolved review threads" });
   });
 
   it("requires explicit assessment for findings in a review body without inline threads", () => {
@@ -128,6 +177,13 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", feedbackPolicy)).toEqual({ ready: true, head });
     expect(feedbackFingerprints(s, feedbackPolicy)).toEqual([]);
     expect(directMergeReadiness(s, "passed").ready).toBe(false);
+  });
+
+  it("ignores configured and worker authors in either bot spelling", () => {
+    const s = snapshot();
+    s.comments.preview = { id: 3, body: "Preview ready", author: { login: "preview", __typename: "Bot" } };
+    s.reviewComments.own = { id: 5, body: "Fixed in abc123.", author: { login: "Repair", __typename: "Bot" } };
+    expect(directMergeReadiness(s, "passed", feedbackPolicy)).toEqual({ ready: true, head });
   });
 
   it.each(["maintainer", "preview[bot]", "repair[bot]"])("always counts requested changes from %s, even without a body", (login) => {
@@ -242,13 +298,159 @@ describe("Babysitter stacked PR preservation", () => {
     expect(children[0]!.base.ref).toBe("fix");
   });
 
-  it("retargets only after the parent has landed on the default branch", () => {
+  it("retargets only after the parent has landed on another branch", () => {
     const s = snapshot();
     s.pr!.base!.ref = "parent";
     s.pr!.base!.repo!.owner = { login: "acme" };
     const parent = { head: { ref: "parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" }, state: "closed", merged_at: "2026-10-01" };
     expect(stackRetargetBase(s.pr!, [parent])).toBe("main");
     expect(stackRetargetBase(s.pr!, [{ ...parent, state: "open" }])).toBeUndefined();
-    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBeUndefined();
+    // A parent that folded into another branch moves its child to that branch, not to main.
+    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBe("feature");
+  });
+
+  it("folds only into the one open pull request whose same-repository branch is the base", () => {
+    const s = snapshot();
+    s.pr!.base!.ref = "parent";
+    const parent = { number: 7, state: "open", head: { ref: "parent", repo: { full_name: "acme/app" } }, base: { ref: "main" } };
+    expect(foldParent(s.pr, [parent])).toEqual({ number: 7, branch: "parent" });
+    // A long-lived branch with no open pull request keeps the old refusal.
+    expect(foldParent(s.pr, [])).toBeUndefined();
+    expect(foldParent(s.pr, [{ ...parent, state: "closed" }])).toBeUndefined();
+    expect(foldParent(s.pr, [parent, { ...parent, number: 8 }])).toBeUndefined();
+    // Forks keep today's behavior: the parent branch and the child must both be in the repository.
+    expect(foldParent(s.pr, [{ ...parent, head: { ref: "parent", repo: { full_name: "someone/app" } } }])).toBeUndefined();
+    expect(foldParent({ ...s.pr, head: { ...s.pr!.head, repo: { full_name: "someone/app" } } }, [parent])).toBeUndefined();
+    expect(foldParent({ ...s.pr, base: { ...s.pr!.base, ref: "main" } }, [{ ...parent, head: { ref: "main", repo: { full_name: "acme/app" } } }])).toBeUndefined();
+  });
+
+  it("folds with a merge commit unless the repository disallows it", () => {
+    expect(foldMethod("squash", { allow_merge_commit: true })).toBe("merge");
+    expect(foldMethod("rebase", {})).toBe("merge");
+    expect(foldMethod("squash", { allow_merge_commit: false })).toBe("squash");
+  });
+
+  it("accepts the verified parent branch as a fold target only", () => {
+    const s = snapshot();
+    const live = { ...s.pr, base: { ...s.pr!.base, ref: "parent" }, mergeable: true, mergeable_state: "clean" };
+    expect(liveMergeReadiness(live, head)).toEqual({ ready: false, reason: "base parent is not the default branch" });
+    expect(liveMergeReadiness(live, head, { foldInto: "parent" })).toEqual({ ready: true, head });
+    expect(liveMergeReadiness(live, head, { foldInto: "other" }).ready).toBe(false);
+  });
+
+  it("validates merge.foldStacks and turns it on by default", () => {
+    expect(resolveBabysitterMerge("direct")).toMatchObject({ foldStacks: true });
+    expect(resolveBabysitterMerge({ strategy: "direct", foldStacks: false })).toMatchObject({ foldStacks: false });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", foldStacks: "yes" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+  });
+});
+
+describe("Babysitter approved-if-outside merge gate", () => {
+  const merge = resolveBabysitterMerge({ strategy: "direct", ready: "approved-if-outside" });
+  const ready = (s: Snapshot) => {
+    if (merge.mode !== "direct" || !merge.ready) throw new Error("expected a direct merge with a ready gate");
+    return merge.ready({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+  };
+  const outside = (association: string | undefined = "CONTRIBUTOR") => {
+    const s = snapshot();
+    s.pr = { ...s.pr!, user: { login: "outsider" }, author_association: association };
+    return s;
+  };
+  let at = 0;
+  const review = (login: string, state: string, commit = head, association = "MEMBER") =>
+    ({ id: ++at, user: { login }, state, commit_id: commit, author_association: association, submitted_at: `2026-11-12T10:00:${String(at).padStart(2, "0")}Z` });
+
+  it("merges a PR from an author with write access without a review", async () => {
+    for (const association of ["OWNER", "MEMBER", "COLLABORATOR", "member"]) {
+      const s = snapshot();
+      s.pr = { ...s.pr!, author_association: association };
+      expect(await ready(s)).toBe(true);
+    }
+  });
+
+  it("holds a PR from an author without write access until a maintainer approves its head", async () => {
+    for (const association of ["CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "NONE", undefined]) {
+      expect(await ready(outside(association))).toBe("a maintainer's approval of aaaaaaa");
+    }
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED");
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("needs a new approval after a push", async () => {
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED", "b".repeat(40));
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("ignores approvals from reviewers without write access, deleted reviews and pending ones", async () => {
+    const s = outside();
+    s.reviews.a = review("friend", "APPROVED", head, "CONTRIBUTOR");
+    s.reviews.b = { ...review("maintainer", "APPROVED"), deleted: true };
+    s.reviews.c = review("maintainer", "PENDING");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("keeps an approval standing through later comments and dismissed reviews", async () => {
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED");
+    s.reviews.b = review("maintainer", "COMMENTED");
+    s.reviews.c = review("maintainer", "DISMISSED");
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("blocks while any maintainer's latest decisive review requests changes", async () => {
+    const s = outside();
+    s.reviews.a = review("alice", "APPROVED");
+    s.reviews.b = review("Bob", "CHANGES_REQUESTED", "b".repeat(40), "COLLABORATOR");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa: bob requested changes");
+    s.reviews.c = review("bob", "APPROVED", head, "COLLABORATOR");
+    expect(await ready(s)).toBe(true);
+    s.reviews.d = review("alice", "CHANGES_REQUESTED");
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa: alice requested changes");
+  });
+
+  it("orders reviews by submission time, not by key", async () => {
+    const s = outside();
+    s.reviews.z = { ...review("maintainer", "CHANGES_REQUESTED"), submitted_at: "2026-11-12T09:00:00Z" };
+    s.reviews.a = { ...review("maintainer", "APPROVED"), submitted_at: "2026-11-12T11:00:00Z" };
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("reads GraphQL-shaped reviews and authors", async () => {
+    const s = snapshot();
+    s.pr = { ...s.pr!, user: undefined, author: { login: "outsider" }, authorAssociation: "NONE" };
+    s.reviews.a = { author: { login: "maintainer" }, authorAssociation: "OWNER", state: "APPROVED", commit: { oid: head }, submittedAt: "2026-11-12T10:00:00Z" };
+    expect(await ready(s)).toBe(true);
+  });
+
+  it("merges a trusted bot's PR without an approval, and holds a user of the same name", async () => {
+    const trusted = resolveBabysitterMerge({ strategy: "direct", trustedAuthors: ["Renovate[bot]", "octocat"] });
+    if (trusted.mode !== "direct" || !trusted.ready) throw new Error("expected a direct merge with a ready gate");
+    const gate = (user: Record<string, string>) => {
+      const s = outside("CONTRIBUTOR");
+      s.pr = { ...s.pr!, user };
+      return trusted.ready!({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+    };
+    expect(await gate({ login: "renovate[bot]", type: "Bot" })).toBe(true);
+    expect(await gate({ login: "renovate", __typename: "Bot" })).toBe(true);
+    expect(await gate({ login: "OctoCat", type: "User" })).toBe(true);
+    expect(await gate({ login: "renovate", type: "User" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "octocat[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "dependabot[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await ready(outside("NONE"))).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("rejects trustedAuthors that are not logins or that come with a ready callback", () => {
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [" "] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: "renovate[bot]" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", ready: () => true, trustedAuthors: ["renovate[bot]"] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true });
+  });
+
+  it("keeps the callback form and rejects other ready values", () => {
+    const callback = () => true as const;
+    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback, foldStacks: true });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", ready: "approved" })).toThrow('Babysitter merge.ready must be a function or "approved-if-outside".');
   });
 });

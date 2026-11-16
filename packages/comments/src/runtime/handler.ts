@@ -1,6 +1,6 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { installRequestStandardContext } from "@vite-hub/runtime"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import * as v from "valibot"
 

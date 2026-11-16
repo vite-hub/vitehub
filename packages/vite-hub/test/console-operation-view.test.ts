@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { loadOperationItems, operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
+import { loadOperationItems, operationActionCall, operationActionQuestion, operationActions, operationActionUrl, operationCell, operationItems, operationLink, operationStatus, operationTime, operationValue } from "../src/console/runtime/client/operation-view.ts"
 import { consoleCommentsTransport, consoleCommentSubjectLabel, isConsoleCommentThread, readConsoleCommentSession } from "../src/console/runtime/client/comment-thread.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { ConsoleRequestError, requestConsoleOperation } from "../src/console/runtime/client/request.ts"
@@ -53,6 +53,31 @@ describe("operation view", () => {
     expect(operationLink({ kind: "page" }, section.view)).toBeUndefined()
   })
 
+  it("opens a page link on the app origin when the Console forwards its calls", () => {
+    if (section.view.kind !== "operation-view") throw new Error("expected an operation view")
+    setConsoleProject({ app: { base: "", origin: "https://app.example.com" }, base: "/p/one", origin: "", remote: true })
+    expect(operationLink({ id: "7", kind: "page" }, section.view)).toBe("https://app.example.com/items/7")
+  })
+
+  it("reads status and time cells", () => {
+    const column = { format: "status", key: "status", label: "Status", tones: { resolved: "success" } } as const
+    expect(operationStatus({ status: "resolved" }, column)).toEqual({ label: "Resolved", tone: "success" })
+    expect(operationStatus({ status: "open" }, column)).toEqual({ label: "Open", tone: "neutral" })
+    expect(operationStatus({ status: "toString" }, column)).toEqual({ label: "ToString", tone: "neutral" })
+    expect(operationStatus({}, column)).toBeUndefined()
+    expect(operationTime({ at: Date.UTC(2026, 0, 2, 3, 4) }, { format: "datetime", key: "at", label: "" })).toBe("2026-01-02T03:04:00.000Z")
+    expect(operationTime({ at: "soon" }, { format: "datetime", key: "at", label: "" })).toBeUndefined()
+  })
+
+  it("keeps the status tones of a section and drops unknown ones", () => {
+    const parsed = parseConsoleContributedSection({
+      ...section,
+      view: { columns: [{ format: "status", key: "status", label: "Status", tones: { done: "success", odd: "purple" } }], kind: "operation-view", notice: "N.", operation: "x.list" },
+    })
+    const view = parsed?.view.kind === "operation-view" ? parsed.view : undefined
+    expect(view?.columns).toEqual([{ format: "status", key: "status", label: "Status", tones: { done: "success" } }])
+  })
+
   it("takes the objects of an operation result", () => {
     expect(operationItems([{ id: 1 }, null, "x", [1]])).toEqual([{ id: 1 }])
     expect(operationItems({ id: 1 })).toEqual([])
@@ -93,6 +118,31 @@ describe("operation view", () => {
     const catalog = installConsoleDefinitions("/operation-view-test", { fixtures: { kind: "operation-view" } }, [described as never])
     expect(catalog.sections[0]!.view).toEqual(section.view)
     expect(catalog.content.fixtures).toEqual({ kind: "operation-view" })
+  })
+
+  it("offers the row actions whose conditions match, and opens only web URLs from their result", () => {
+    const view = {
+      ...section.view,
+      actions: [
+        { input: { name: "name" }, label: "Connect", operation: "fixtures.connect", tab: true, when: { kind: ["oauth2"], status: ["disconnected", "revoked"] } },
+        { confirm: "Revoke {name}?", input: { name: "name" }, label: "Revoke", operation: "fixtures.revoke", when: { status: ["connected"] } },
+      ],
+    } as const
+    expect(describeViteHubConsoleSection({ ...section, view }).view).toEqual(view)
+    expect(parseConsoleContributedSection(describeViteHubConsoleSection({ ...section, view }))?.view).toEqual(view)
+    expect(() => describeViteHubConsoleSection({ ...section, view: { ...view, actions: [{ ...view.actions[0], operation: "nope" }] } })).toThrowError(/operation name/)
+
+    const github = { kind: "oauth2", name: "github", status: "disconnected" }
+    expect(operationActions(github, view).map(action => action.label)).toEqual(["Connect"])
+    expect(operationActions({ ...github, kind: "api-key" }, view)).toEqual([])
+    expect(operationActions({ ...github, status: "connected" }, view).map(action => action.label)).toEqual(["Revoke"])
+    expect(operationActionCall(github, view.actions[0])).toEqual({ input: { name: "github" }, operation: "fixtures.connect" })
+    expect(operationActionCall({ status: "disconnected" }, view.actions[0])).toBeUndefined()
+    expect(operationActionQuestion(github, view.actions[1])).toBe("Revoke github?")
+
+    expect(operationActionUrl({ url: "https://github.com/login/oauth/authorize?state=s" })).toBe("https://github.com/login/oauth/authorize?state=s")
+    expect(operationActionUrl({ url: "http://127.0.0.1:3000/authorize" })).toBe("http://127.0.0.1:3000/authorize")
+    for (const url of ["javascript:alert(1)", "http://example.com/authorize", "/relative", 42]) expect(operationActionUrl({ url })).toBeUndefined()
   })
 
   it("drops a detail panel that the Console does not know", () => {

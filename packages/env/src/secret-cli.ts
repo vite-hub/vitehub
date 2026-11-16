@@ -44,7 +44,7 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
     context.stdout.write([
       `Usage: ${deriveUsage}`,
       "",
-      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET (or NUXT_APP_SECRET).",
+      "Print the secret that deriveSecret(<purpose>) returns for VITEHUB_SECRET.",
       "For example, `vitehub secret derive myapp:webhooks` prints the same key on every machine with the same root secret.",
       "",
     ].join("\n"))
@@ -77,7 +77,7 @@ async function consoleKey(args: string[], context: Pick<SecretCliContext, "stder
     context.stdout.write([
       `Usage: ${consoleKeyUsage}`,
       "",
-      "Print a new key pair for signed Console requests. Set the first line on the app (console: { auth: \"token\" }),",
+      "Print a new key pair for signed Console requests. Set the first line on the app (console: true),",
       "and the second line where the CLI runs, such as a CI secret. The name defaults to CLI.",
       "",
     ].join("\n"))

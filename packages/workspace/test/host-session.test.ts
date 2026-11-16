@@ -5,7 +5,13 @@ import { join, posix } from "node:path"
 import { promisify } from "node:util"
 import { describe, expect, it, vi } from "vitest"
 import { noExecutionAuthority, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { createClient } from "@libsql/client"
+import { drizzle } from "drizzle-orm/libsql"
+import { sql } from "drizzle-orm"
+import { createBlobStorage } from "../../blob/src/storage.ts"
+import { createDriver } from "../../blob/src/drivers/fs.ts"
 
+import { createBlobDatabaseWorkspaceStore } from "../src/blob-database.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { custom } from "../src/sources/custom.ts"
@@ -252,7 +258,76 @@ function workspace() {
   })
 }
 
+async function retainedWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-session-history-"))
+  const client = createClient({ url: "file::memory:" })
+  const database = drizzle({ client })
+  const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
+  for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
+  const store = createBlobDatabaseWorkspaceStore({
+    blob: createBlobStorage(createDriver({ driver: "fs", base: root })),
+    database,
+    workspace: "docs",
+  })
+  return {
+    docs: createWorkspace({ name: "docs", store }),
+    async dispose() {
+      client.close()
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+
 describe("workspace host sessions", () => {
+  it.each([false, undefined] as const)("records the copied Blob Database revision with writeBack %s", async (writeBack) => {
+    const { docs, dispose } = await retainedWorkspace()
+    try {
+      const first = await docs.history.commit({ ifHead: null, files: { "docs/README.md": "before", "image.bin": new Uint8Array([0, 255, 128]) } })
+      const session = await docs.startSession({ host: memoryHost(), writeBack })
+      expect(session.revision).toBe(first.id)
+      await expect(session.readFile("docs/README.md")).resolves.toBe("before")
+      if (writeBack !== false) {
+        await session.writeFile("docs/README.md", "published")
+        await session.commit()
+        await expect(docs.readFile("docs/README.md")).resolves.toBe("published")
+      }
+      await docs.history.commit({ ifHead: (await docs.history.head())?.id ?? null, files: { "docs/README.md": "later" } })
+      expect(session.revision).toBe(first.id)
+      await session.close()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it.each(["draft", "during-copy", "added", "removed", "head", "open", "digest"])("omits an unverified retained revision: %s", async (change) => {
+    const { docs, dispose } = await retainedWorkspace()
+    try {
+      await docs.history.commit({ ifHead: null, files: { "README.md": "before" } })
+      if (change === "draft") await docs.writeFile("README.md", "edited")
+      if (change === "added") await docs.writeFile("extra.txt", "extra")
+      if (change === "removed") await docs.rm("README.md")
+      if (change === "during-copy") {
+        const read = docs.readFile.bind(docs)
+        vi.spyOn(docs, "readFile").mockImplementation(async (...args) => {
+          await docs.writeFile("README.md", "edited")
+          return await read(...args)
+        })
+      }
+      if (change === "head" || change === "open") {
+        vi.spyOn(docs.history, change).mockRejectedValue(new Error("history unavailable"))
+      }
+      if (change === "digest") docs.history.digest = async () => { throw new Error("digest unavailable") }
+      const session = await docs.startSession({ host: memoryHost(), writeBack: false })
+      expect(session.revision).toBeUndefined()
+      if (change !== "removed") await expect(session.readFile("README.md")).resolves.toBe(change === "draft" || change === "during-copy" ? "edited" : "before")
+      await session.close()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it("prunes reserved local-store metadata during Session materialization", async () => {
     const source = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-source-"))
     const targetParent = await mkdtemp(join(tmpdir(), "vitehub-local-workspace-target-"))
@@ -345,6 +420,7 @@ describe("workspace host sessions", () => {
       })
       await expect(session.readFile("README.md")).resolves.toBe("# Docs\n")
       await expect(session.readFile("UNSAFE.md")).resolves.toBe("../../../../outside")
+      expect(session.revision).toBe("0123456789012345678901234567890123456789")
       await expect(session.readFile(".vitehub-revision/kept.txt")).resolves.toBe("kept")
       await expect(session.readFile(".vitehub-revision.tar.gz")).resolves.toBe("kept archive name")
       await expect(session.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([

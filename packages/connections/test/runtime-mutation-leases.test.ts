@@ -28,7 +28,7 @@ it("waits for grant-wide revocation before exchanging a concurrent callback", as
   const options = { definitions: { mail: mailConnection() }, fetch: providerFetch, now: () => test.now.value, store: test.store }
   const first = createConnectionsRuntime(options)
   const second = createConnectionsRuntime({ ...options, store: { ...test.store } })
-  const revoking = first.revoke({ name: "mail" })
+  const revoking = first.revoke({ actor: "user:owner", name: "mail" })
   await entered.promise
   const reconnecting = connect({ ...test, runtime: second }, { access_token: "reconnected-access", refresh_token: "reconnected-refresh" })
   let exchangesWhileRevoking: number
@@ -78,7 +78,7 @@ it("waits for callback persistence before revoking its newly issued grant", asyn
   const second = createConnectionsRuntime({ ...options, store: { ...test.store } })
   const callback = connect({ ...test, runtime: first }, { access_token: "next-access", refresh_token: "next-refresh" })
   await entered.promise
-  const revoking = second.revoke({ name: "mail" })
+  const revoking = second.revoke({ actor: "user:owner", name: "mail" })
   let prematureRevokes: number
   try {
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -99,7 +99,7 @@ it("retains an unconfirmed revoke lease instead of reconnecting while the provid
     return await test.provider.fetch(input, init)
   }
   const runtime = createConnectionsRuntime({ definitions: { mail: mailConnection() }, fetch: providerFetch, now: () => test.now.value, store: test.store })
-  await expect(runtime.revoke({ name: "mail" })).rejects.toBeDefined()
+  await expect(runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toBeDefined()
   const before = test.provider.calls.length
   test.now.value += 60_001
   await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
@@ -108,8 +108,8 @@ it("retains an unconfirmed revoke lease instead of reconnecting while the provid
 
 it("releases a settled rejected callback so a later authorization can succeed", async () => {
   const test = createTestRuntime()
-  const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
-  await expect(test.runtime.complete({ code: "invalid-code", state })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+  const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+  await expect(test.runtime.complete({ actor: "user:owner", code: "invalid-code", state })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   await connect(test)
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
 })
@@ -148,7 +148,7 @@ it("rejects unsupported provider revocation without discarding the connected gra
   const test = createTestRuntime(async () => ({ default: defineConnection({ provider: { ...testProvider(), revocationEndpoint: undefined }, scopes: ["mail.modify"] }) }))
   await connect(test)
   const before = await test.store.secrets.read("connection/mail")
-  await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
+  await expect(test.runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
   expect(await test.store.secrets.read("connection/mail")).toEqual(before)
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected", account: { id: "account-1" } })
   expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toEqual([])
@@ -251,7 +251,7 @@ it.each(["marker audit", "state write", "marker write", "response body"] as cons
     }
   }
   if (stage === "marker write") test.store.bridge.replace = async () => { throw new Error("Revoke marker unavailable") }
-  await expect(runtime.revoke({ name: "mail" })).rejects.toBeDefined()
+  await expect(runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toBeDefined()
   expect(test.provider.valid.has(ACCESS_TOKEN)).toBe(false)
   expect(await runtime.inspect("mail")).toMatchObject({ status: stage === "marker write" || stage === "response body" ? "reauth_required" : "revoked" })
   const current = await test.store.secrets.read("connection/mail")
@@ -275,7 +275,7 @@ it("does not quarantine a newer token revision after confirmed revocation of the
     await test.store.secrets.replace({ expectedRevision: input.expectedRevision, key: input.key, value: JSON.stringify({ ...JSON.parse(original.value), accessToken: "new-access", grantId: "new-grant" }) })
     throw new Error("A newer grant won before the revoke marker was saved")
   }
-  await expect(test.runtime.revoke({ name: "mail" })).rejects.toBeDefined()
+  await expect(test.runtime.revoke({ actor: "user:owner", name: "mail" })).rejects.toBeDefined()
   const replacement = await test.store.secrets.read("connection/mail")
   expect(replacement?.revision).not.toBe(original.revision)
   expect(JSON.parse(replacement!.value)).toMatchObject({ accessToken: "new-access", grantId: "new-grant" })

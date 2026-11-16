@@ -17,8 +17,6 @@ export interface EnvField {
   variable: string
   /** Other host variables to read after `variable`. */
   extraVariables?: string[]
-  /** Treat an empty variable as unset, as `process.env.NAME || fallback` did. */
-  skipEmpty?: boolean
   kind: EnvFieldKind
   values?: string[]
   required: boolean

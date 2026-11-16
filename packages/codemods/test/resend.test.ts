@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { detectCodemods, formatReport, runCodemod } from "../src/index.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/resend-test/", import.meta.url))
@@ -17,7 +18,7 @@ async function app(source: string, config = "", dependency = "resend") {
   await mkdir(join(cwd, "server"))
   await writeFile(join(cwd, "server/mail.ts"), source)
   await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { [dependency]: "^1.0.0" } }))
-  await writeFile(join(cwd, "nuxt.config.ts"), `export default defineNuxtConfig({ modules: ${dependency === "nuxt-resend" ? '["nuxt-resend"]' : "[]"}, vitehub: { preset: "node" }, ${config} })\n`)
+  await writeFile(join(cwd, "nuxt.config.ts"), `export default defineNuxtConfig({ modules: ${dependency === "nuxt-resend" ? '["nuxt-resend"]' : "[]"}, vitehub: { host: "node" }, ${config} })\n`)
   return cwd
 }
 
@@ -200,7 +201,7 @@ describe.each([
     const run = await runCodemod("resend", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after ?? "(deleted)\n").toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      await expect(withVersionPlaceholder(edit.after ?? "(deleted)\n")).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })
@@ -220,7 +221,7 @@ await ${destructured ? "emails" : "resend.emails"}.send({ from: "from@example.co
 `
     await writeFile(join(cwd, "server/mail.ts"), source)
     await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { [dependency]: "^1.0.0" } }))
-    await writeFile(join(cwd, "nuxt.config.ts"), `export default defineNuxtConfig({ modules: ${dependency === "nuxt-resend" ? '["nuxt-resend"]' : "[]"}, vitehub: { preset: "node" } })\n`)
+    await writeFile(join(cwd, "nuxt.config.ts"), `export default defineNuxtConfig({ modules: ${dependency === "nuxt-resend" ? '["nuxt-resend"]' : "[]"}, vitehub: { host: "node" } })\n`)
 
     const run = await runCodemod("resend", { cwd, dryRun: true })
     const mail = run.result.edits.find(edit => edit.path === "server/mail.ts")?.after

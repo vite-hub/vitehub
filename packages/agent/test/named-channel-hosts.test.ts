@@ -13,7 +13,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
   const root = await mkdtemp(join(tmpdir(), "vitehub-named-channel-host-"))
   const packageRoot = resolve(import.meta.dirname, "..")
   try {
-    if (hosting === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    if (hosting === "netlify") vi.stubEnv("VITEHUB_HOST", "netlify")
     await cp(join(packageRoot, "node_modules"), join(root, "node_modules"), { recursive: true })
     await symlink(packageRoot, join(root, "node_modules/@vite-hub/agent"), "dir")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "named-channel-host", type: "module" }))

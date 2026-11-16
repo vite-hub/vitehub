@@ -6,6 +6,7 @@ import { agentConnectionsRuntime, connectionNameSchema, useAgentConnectionClient
 import type {
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityRuntimeContext,
   AgentRunInput,
   AgentRuntimeConfig,
 } from "../types.ts"
@@ -47,6 +48,19 @@ function isMcpClientConfig(value: McpClient | McpClientConfig | McpConnectionSer
 
 function namesConnection(value: McpClientConfig | McpConnectionServerConfig): value is McpConnectionServerConfig | (McpClientConfig & { connection: string }) {
   return value.connection !== undefined
+}
+
+/**
+ * Whether a server's `channels` admit the Channel that started the Invocation. A server without
+ * `channels` applies to every Invocation.
+ */
+function serverAppliesToChannel(context: Pick<AgentCapabilityRuntimeContext, "context" | "run">, server: string, config: McpClientConfig | McpConnectionServerConfig): boolean {
+  if (config.channels === undefined) return true
+  if (!Array.isArray(config.channels) || config.channels.some(channel => typeof channel !== "string")) {
+    throw agentDiagnostics.AGENT_R0083({ message: `[vitehub] mcp({ servers }) server "${server}" requires channels to be an array of Channel names.` })
+  }
+  const channelId = context.run?.channelId || context.context.get("agent.trigger")?.channelId
+  return channelId !== undefined && config.channels.includes(channelId)
 }
 
 /** A static server config that names a Connection. A resolver can also return `connection`; `useAgentConnectionClient()` checks the primitive when it runs. */
@@ -204,6 +218,7 @@ function createMcpCapability<
         const owned = typeof server === "function"
         const connection = owned ? await server(context) : server
         if (connection === false || connection === null || connection === undefined) return
+        if (isMcpClientConfig(connection) && !serverAppliesToChannel(context, name, connection)) return
         let resolved: McpClient | McpClientConfig
         let bound: Awaited<ReturnType<typeof withMcpConnection>> | undefined
         if (!isMcpClientConfig(connection)) resolved = connection
