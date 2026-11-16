@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 import { consoleMcpAccount, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
 import ConsoleMcpContent from "./console-mcp-content.vue";
@@ -100,9 +101,9 @@ async function load(): Promise<void> {
         emit("connection", response.connection);
         cursor = response.nextCursor;
         if (!cursor) break;
-        if (cursors.has(cursor)) throw new Error("The server returned a repeated pagination cursor. It could not finish the list.");
+        if (cursors.has(cursor)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE({ reason: "repeated-cursor" });
         cursors.add(cursor);
-        if (page + 1 === maximumListPages) throw new Error("The server returned more than 1,000 pages. It could not finish the list.");
+        if (page + 1 === maximumListPages) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE({ reason: "too-many-pages" });
       }
       return all;
     };
@@ -326,7 +327,7 @@ onBeforeUnmount(() => request?.abort());
 <style>
 /* One row of the item list: the name and one quiet line under it, like the detailed rows of the section sidebar. */
 .vitehub-mcp-item {
-  border-radius: calc(var(--ui-radius) * 1.5);
+  border-radius: calc(var(--radius) * 1.5);
   display: grid;
   gap: 0.125rem;
   min-height: 2.75rem;
@@ -336,7 +337,7 @@ onBeforeUnmount(() => request?.abort());
 }
 
 .vitehub-mcp-item:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-mcp-item[aria-current="true"] {

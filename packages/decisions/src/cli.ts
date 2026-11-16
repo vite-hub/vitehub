@@ -3,6 +3,8 @@ import { relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { withStdoutOnStderr } from "@vite-hub/internal/cli"
+
+import { decisionsDiagnostics } from "./diagnostics.ts"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { ChoicesError, ChoicesPlan, ChoicesResult } from "./types.ts"
 
@@ -30,8 +32,6 @@ interface ListedFile {
   error?: string
   file: string
 }
-
-class UsageError extends Error {}
 
 const sourceExtensions = /\.(?:[cm]?[jt]s)$/
 const testFiles = /\.(?:test|spec)\.[cm]?[jt]s$/
@@ -125,7 +125,7 @@ function parseContext(value: string | undefined): { context?: unknown } {
     return { context: JSON.parse(value) }
   }
   catch {
-    throw new UsageError(`--context must be JSON, such as '{"tenantId":"t1"}'.`)
+    throw decisionsDiagnostics.DECISIONS_CLI_ARGUMENTS_INVALID({ problem: `--context must be JSON, such as '{"tenantId":"t1"}'.` })
   }
 }
 
@@ -142,10 +142,10 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   })
   const [file, ...words] = positionals
   const text = words.join(" ")
-  if (!file || !text) throw new UsageError(`Give a file and a text. Usage: ${runUsage}`)
+  if (!file || !text) throw decisionsDiagnostics.DECISIONS_CLI_ARGUMENTS_INVALID({ problem: `Give a file and a text. Usage: ${runUsage}` })
   const request = parseContext(values.context)
   const path = resolve(context.rootDir, file)
-  if (!(await stat(path).catch(() => undefined))?.isFile()) throw new UsageError(`${file} is not a file. Run vitehub decisions list to find the files that call defineChoices().`)
+  if (!(await stat(path).catch(() => undefined))?.isFile()) throw decisionsDiagnostics.DECISIONS_CLI_CHOICES_NOT_FOUND({ problem: `${file} is not a file. Run vitehub decisions list to find the files that call defineChoices().` })
 
   const found = await withStdoutOnStderr(async () => {
     await loadProjectEnv(context)
@@ -153,9 +153,9 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   }, context.stderr)
   const names = found.map(item => item.export).join(", ")
   const chosen = values.export === undefined ? found : found.filter(item => item.export === values.export)
-  if (!found.length) throw new UsageError(`${file} has no export from defineChoices().`)
-  if (!chosen.length) throw new UsageError(`${file} has no export "${values.export}". Its exports from defineChoices() are: ${names}.`)
-  if (chosen.length > 1) throw new UsageError(`${file} has several exports from defineChoices(): ${names}. Pick one with --export.`)
+  if (!found.length) throw decisionsDiagnostics.DECISIONS_CLI_CHOICES_NOT_FOUND({ problem: `${file} has no export from defineChoices().` })
+  if (!chosen.length) throw decisionsDiagnostics.DECISIONS_CLI_CHOICES_NOT_FOUND({ problem: `${file} has no export "${values.export}". Its exports from defineChoices() are: ${names}.` })
+  if (chosen.length > 1) throw decisionsDiagnostics.DECISIONS_CLI_ARGUMENTS_INVALID({ problem: `${file} has several exports from defineChoices(): ${names}. Pick one with --export.` })
 
   const choices = chosen[0]!.choices
   const [error, data] = await withStdoutOnStderr(() => values.inspect ? choices.inspect(text, request) : choices.resolve(text, request), context.stderr)
@@ -165,6 +165,14 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   }
   context.stdout.write(`${JSON.stringify(data, null, 2)}\n`)
   return 0
+}
+
+/** The fix of a usage error of these commands, or `undefined` for another error. */
+function cliFix(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined
+  const code: unknown = Reflect.get(error, "code")
+  const fix: unknown = Reflect.get(error, "fix")
+  return typeof code === "string" && code.startsWith("DECISIONS_CLI_") && typeof fix === "string" ? fix : undefined
 }
 
 function guard(usage: string, run: (args: string[], context: CliContext) => Promise<number>) {
@@ -178,8 +186,9 @@ function guard(usage: string, run: (args: string[], context: CliContext) => Prom
     }
     catch (error) {
       // `parseArgs` throws a TypeError for unknown or malformed options.
-      if (!(error instanceof UsageError) && !(error instanceof TypeError && "code" in error)) throw error
-      context.stderr.write(`${error.message}\n${error instanceof UsageError ? "" : `Usage: ${usage}\n`}`)
+      const fix = cliFix(error)
+      if (fix === undefined && !(error instanceof TypeError && "code" in error)) throw error
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : `Usage: ${usage}\n`}`)
       return 1
     }
   }

@@ -1,4 +1,4 @@
-import { FormSubmitError } from "./client.ts"
+import { formSubmitError, type FormSubmitError } from "./client.ts"
 import { formsDiagnostics } from "./errors.ts"
 import { unwrap } from "./schema.ts"
 
@@ -271,9 +271,9 @@ export async function checkForm<TSchema extends StandardSchemaV1>(source: FormSo
   const schema = schemaOf(source)
   const result = await schema["~standard"].validate(values)
   if (result.issues) {
-    return [new FormSubmitError("Check the form and try again.", 400, result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) }))), undefined]
+    return [formSubmitError("Check the form and try again.", 400, result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) }))), undefined]
   }
   const data = jsonData(result.value as StandardSchemaV1.InferOutput<TSchema>)
-  if (!data) return [new FormSubmitError("Check the form and try again.", 400, [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }]), undefined]
+  if (!data) return [formSubmitError("Check the form and try again.", 400, [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }]), undefined]
   return [undefined, data.value]
 }

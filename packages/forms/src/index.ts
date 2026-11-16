@@ -1,4 +1,5 @@
-export { FormSubmitError, fieldErrors } from "./client.ts"
+export { fieldErrors } from "./client.ts"
+export type { FormSubmitError } from "./client.ts"
 export type { FormFieldErrors } from "./client.ts"
 export { defineForm, isFormDefinition } from "./define.ts"
 export { checkForm, formFields } from "./fields.ts"

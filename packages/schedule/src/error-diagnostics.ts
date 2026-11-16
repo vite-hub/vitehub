@@ -94,6 +94,10 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set Schedule `runtime.leaseTtlMs` to a finite number greater than zero, or omit it to use the 60000 ms default.",
     },
+    SCHEDULE_DEFINITION_EXPORT_INVALID: {
+      why: ({ name }: { name: string }) => `Schedule "${name}" has no default export of defineSchedule() with a cron and a handler.`,
+      fix: "Default-export `defineSchedule({ cron, handler })` from the Schedule file that the message names, in `server/schedules/`.",
+    },
     SCHEDULE_RUNTIME_CATCH_UP_INVALID: {
       why: "Schedule Process Runtime catchUpMs must be a non-negative number.",
       fix: "Set `runtime.catchUpMs` in `hubSchedule()` or in `vitehub({ schedule })` to a number of 0 or more, or remove it to use one hour (`3600000`).",
