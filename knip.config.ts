@@ -305,6 +305,8 @@ const config: KnipConfiguration = {
     },
     // A type contract that `tsc` checks. Nothing imports it.
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
+    // `icons.html` loads `icons.ts`, the icon parity page that `packages/vite-hub/test/console-icon.browser.mjs` opens.
+    "playground/console": { entry: ["icons.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
       entry: appEntries("playground/content"),

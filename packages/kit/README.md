@@ -20,6 +20,7 @@ Import each part from its own entry. There is no root entry.
 | `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
 | `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light, dark, and system dark. The values are those of `@vite-hub/ui/theme.css`. |
 | `@vite-hub/kit/styles/default.css` | The `default` style family: ui-sdk's `web.css` on the tokens above, and the rules for the kit parts. Only for apps without Nuxt UI. |
+| `@vite-hub/kit/styles/default.scoped.css` | The `default` family under a `.ui-sdk` root, for apps that still render Nuxt UI. See [Next to Nuxt UI](#next-to-nuxt-ui). |
 
 ## Migrate from `@vite-hub/kit/<name>`
 
@@ -138,9 +139,9 @@ The parts have no styles until you load a style family. A family is CSS that sty
 
 1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.5.patch`, which we send to ui-sdk.
 2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
-3. The rules for the kit's `TagsInput`, the text field focus, and the dialog close button, in web.css's `ui-sdk` cascade layer.
+3. The rules for the kit's `TagsInput`, the text field focus, the dialog close button, and the looks that the ui-sdk set of `@vite-hub/ui` asks for (see below), in web.css's `ui-sdk` cascade layer.
 
-**Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components. See [Installation](https://vitehub.dev/docs/ui/installation).
+**Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components (see [Installation](https://vitehub.dev/docs/ui/installation)), or the scoped family to move to ui-sdk part by part (see [Next to Nuxt UI](#next-to-nuxt-ui)).
 
 - **No Tailwind needed.** web.css is plain CSS in the `ui-sdk` cascade layer, so utility classes and your own CSS win over it. With Tailwind, put the `ui-sdk` layer after `base`, or Preflight resets the parts: `@layer theme, base, ui-sdk, components, utilities;` above the imports.
 - **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`. Before the app sets one, the page follows the system, unless `<html>` has `.light` or a `data-theme`.
@@ -149,6 +150,36 @@ The parts have no styles until you load a style family. A family is CSS that sty
 - **Focus** is a 2px ring in `--ring`, 2px outside the part. A text field turns its own frame blue instead.
 - Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
 - **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (14px here), after the import.
+- **Buttons** also take `data-variant="soft"`, `"ghost"`, and `"link"`, and `data-size="xs"` (24px) and `"sm"` (28px). An icon with `data-slot="spinner"` turns. `data-slot="dialog-footer"` lines up a dialog's actions at the end, and `menu-item-description` and `tabs-tab-badge` are small muted text. `uiSdkComponents` of `@vite-hub/ui` uses them.
+
+### Next to Nuxt UI
+
+`default.scoped.css` is `default.css` with every rule under `:where(.ui-sdk)`. It styles only the elements inside an element with the `ui-sdk` class, the scope root. An app that still renders Nuxt UI loads it and moves to ui-sdk one page or one part at a time.
+
+```css
+/* The app's global stylesheet. The layer order comes first. */
+@layer theme, base, ui-sdk, components, utilities;
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.scoped.css";
+```
+
+```vue
+<template>
+  <section class="ui-sdk">
+    <Tabs default-value="logs">...</Tabs>
+  </section>
+</template>
+```
+
+- **A scope root holds no Nuxt UI component.** Inside the root, the generic `[data-slot]` rules of web.css apply, `a`, `kbd`, `code`, and `hr` take the web.css look, and `--ui-radius` is the whole radius, where Nuxt UI reads it as a base step. Outside the root, no rule of the file applies.
+- **Write the layer order line first.** `@import "tailwindcss"` names the layers `theme, base, components, utilities`. Without the line, `ui-sdk` comes after `utilities`, and web.css beats the utility classes.
+- The `:where()` prefix adds no specificity, so the rules win over each other as they do in `default.css`. `@keyframes`, `@property`, and `@font-face` stay global.
+- **The scope root takes the rules of `:root` and `html`**: the `--ui-*` variables and the page base (background, text color, and font). The page base is outside a layer, so a utility class such as `bg-muted` on the root itself loses to it. Put that class on a child or a wrapper.
+- **Dark mode** applies under `.dark` or `[data-theme="dark"]` on `<html>`, on the scope root, or on an element inside it. The scope root takes the page's `color-scheme`.
+- **Tokens** stay global: `tokens.css` sets its shadcn/ui names on `:root`. `@vite-hub/ui/theme.css` sets the same names, and the file that loads last wins for Nuxt UI and for the kit.
+- **Popups** render in place, in the top layer, so a dialog, menu, or tooltip stays inside its root. A popup's `container` must be inside a scope root. Mount `OverlayHost` and a `ToastRegion` in a scope root of their own, such as `<div class="ui-sdk"><OverlayHost /></div>` near the app root. `NumberInputScrubAreaCursor` always renders in `<body>`, outside every root, so give its icon its own size.
 
 ## Nuxt
 
