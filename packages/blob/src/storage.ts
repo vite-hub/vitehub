@@ -211,11 +211,11 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   }
   // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
   async function deletePrefix(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>> {
-    const prefix = typeof options.prefix === "string" ? options.prefix : ""
-    if (!prefix) {
+    // Check after decoding, so `/` or `%2F` cannot become the empty prefix that matches the whole store.
+    const normalizedPrefix = typeof options.prefix === "string" ? normalizePathname(options.prefix, { prefix: true }) : ""
+    if (!normalizedPrefix) {
       throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: "Blob delete({ prefix }) needs a non-empty prefix. Use list() and delete() to empty a whole store." }))
     }
-    const normalizedPrefix = normalizePathname(prefix, { prefix: true })
     // `_vitehub` alone is reserved as a pathname, but as a prefix it also matches app objects such as `_vitehub-notes.txt`.
     const reservedPrefix = resolvedParts(normalizedPrefix).length > 1 && isReservedPath(normalizedPrefix)
     return blobResult("delete", store, async () => {

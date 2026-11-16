@@ -87,6 +87,9 @@ describe("blob.delete({ prefix }) on fs", () => {
     await expect(storage.delete({ prefix: "" })).rejects.toMatchObject({ code: "BLOB_R0034", status: 400 })
     await expect(storage.delete({} as { prefix: string })).rejects.toMatchObject({ code: "BLOB_R0034" })
     await expect(storage.delete({ prefix: "../a" })).rejects.toMatchObject({ code: "BLOB_R0034" })
+    for (const prefix of ["/", "///", "%2F"]) {
+      await expect(storage.delete({ prefix })).rejects.toMatchObject({ code: "BLOB_R0034", status: 400 })
+    }
     expect(await pathnames(storage)).toEqual(["a.txt"])
   })
 })
