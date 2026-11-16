@@ -21,7 +21,9 @@ import {
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -92,6 +94,9 @@ const notEnabledPrimitives = computed(() =>
     : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+// The build that serves the app, from `project.get`. A development server has none.
+const projects = useConsoleProjects();
+const build = computed(() => projects.info.value?.build);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -303,6 +308,22 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
+              <section v-if="build" class="vitehub-console__overview-block" aria-labelledby="console-home-deploy">
+                <h2 id="console-home-deploy" class="vitehub-console__overview-label">Last deploy</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li class="vitehub-console__overview-row">
+                    <UIcon name="i-lucide-git-commit-horizontal" class="vitehub-console__overview-icon" />
+                    <span class="vitehub-console__overview-name font-mono text-xs">{{ build.commit ? build.commit.sha.slice(0, 7) : "No commit" }}</span>
+                    <span class="vitehub-console__overview-description">{{ build.commit?.message }}</span>
+                    <span class="vitehub-console__overview-meta">
+                      <span v-if="build.commit?.author" class="hidden truncate sm:inline">{{ build.commit.author }}</span>
+                      <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
+                      <ConsoleRelativeTime :value="build.time" />
+                    </span>
+                  </li>
+                </ul>
+              </section>
+
               <section v-if="agentsEnabled" class="vitehub-console__overview-block" aria-labelledby="console-home-sessions">
                 <h2 id="console-home-sessions" class="vitehub-console__overview-label">Recent sessions</h2>
                 <ul class="vitehub-console__overview-list">
@@ -471,7 +492,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-label {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.25rem;
@@ -487,7 +508,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 /* Rows reach past the text edge, so the hover tint has room and the icons still line up with the header. */
@@ -524,11 +545,11 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover {
-    background: var(--ui-bg-elevated);
+    background: var(--muted);
   }
 
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover .vitehub-console__overview-icon {
-    color: var(--ui-text-highlighted);
+    color: var(--foreground);
   }
 }
 
@@ -540,7 +561,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-icon {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   height: 1rem;
@@ -551,7 +572,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   flex: none;
   font-weight: 500;
   max-width: 45%;
@@ -562,7 +583,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-description {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -573,7 +594,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-meta {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   font-family: var(--font-mono);
@@ -600,7 +621,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-docs:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   text-decoration: underline;
 }
 

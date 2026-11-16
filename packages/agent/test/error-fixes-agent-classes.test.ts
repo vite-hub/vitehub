@@ -14,28 +14,28 @@ import type { OperationContext } from "@vite-hub/internal/operations"
 
 // The codes that replace the Agent error classes.
 const codes = [
-  "AGENT_CONVERSATIONS_ARGUMENTS_INVALID",
-  "AGENT_CONVERSATIONS_DEV_SERVER_MISSING",
-  "AGENT_CONVERSATIONS_MEDIA_PATH_INVALID",
-  "AGENT_CONVERSATIONS_OUTPUT_EXISTS",
+  "AGENT_CONVERSATIONS_EXPORT_ARGUMENTS_INVALID",
+  "AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING",
+  "AGENT_CONVERSATIONS_EXPORT_PATH_UNSAFE",
+  "AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS",
   "AGENT_GMAIL_CERTIFICATES_FAILED",
   "AGENT_GMAIL_REQUEST_FAILED",
   "AGENT_GMAIL_TOKEN_REFRESH_FAILED",
   "AGENT_INVOCATION_CLAIM_CONFLICT",
   "AGENT_INVOCATION_ID_AMBIGUOUS",
-  "CHANNELS_ADAPTER_MISSING",
-  "CHANNELS_CURSOR_INVALID",
-  "CHANNELS_EXPORT_TOO_LARGE",
-  "CHANNELS_FORBIDDEN",
-  "CHANNELS_HOST_UNAVAILABLE",
-  "CHANNELS_NOT_FOUND",
-  "CHANNELS_NO_CONVERSATIONS",
-  "CHANNELS_NO_STATUS",
-  "CHANNELS_PROVIDER_FAILED",
-  "CHANNELS_THREAD_UNKNOWN",
+  "AGENT_CHANNELS_ADAPTER_MISSING",
+  "AGENT_CHANNELS_CURSOR_INVALID",
+  "AGENT_CHANNELS_EXPORT_TOO_LARGE",
+  "AGENT_CHANNELS_FORBIDDEN",
+  "AGENT_CHANNELS_HOST_UNAVAILABLE",
+  "AGENT_CHANNELS_NOT_FOUND",
+  "AGENT_CHANNELS_NO_CONVERSATIONS",
+  "AGENT_CHANNELS_NO_STATUS",
+  "AGENT_CHANNELS_PROVIDER_FAILED",
+  "AGENT_CHANNELS_THREAD_UNKNOWN",
 ] as const
 
-const params = { agent: "a", channel: "c", detail: "d", directory: "/tmp/out", method: "GET", need: "all", path: "p", problem: "p", rootDir: "/app", status: 500, thread: "t" } as const
+const params = { agent: "a", channel: "c", detail: "d", directory: "/tmp/out", method: "GET", need: "all", path: "p", archive: "history", read: "host", problem: "missing", root: "/app", rootDir: "/app", status: 500, thread: "t" } as const
 
 const directories: string[] = []
 afterEach(async () => {
@@ -45,8 +45,12 @@ afterEach(async () => {
 
 it("gives each code that replaces an Agent error class a fix and its own docs page", () => {
   for (const code of codes) {
-    // SAFETY: each code reads only the params it declares from this shared object.
-    const error = (agentDiagnostics[code] as (input: typeof params) => Error & { fix?: string, docs?: string })(params)
+    const error = code === "AGENT_CHANNELS_FORBIDDEN"
+      ? agentDiagnostics.AGENT_CHANNELS_FORBIDDEN({ problem: "conversations" })
+      : code === "AGENT_CHANNELS_NOT_FOUND"
+        ? agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ agent: "a", problem: "agent" })
+        // SAFETY: the other codes read compatible fields from this shared object.
+        : (agentDiagnostics[code] as (input: typeof params) => Error & { fix?: string, docs?: string })(params)
     expect(error.message, code).toMatch(/\S/)
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${code.toLowerCase()}`)
@@ -66,16 +70,16 @@ it("prints the fix of a bad conversations export command", async () => {
   })
   expect(code).toBe(1)
   expect(stderr.join("")).toContain("--media needs --output")
-  expect(stderr.join("")).toContain("Fix: Run `vitehub conversations export <agent> <channel> <thread>`")
+  expect(stderr.join("")).toContain("Fix: Pass the Agent, the Channel, and the thread")
 })
 
 it("answers a Channel operation failure with its code, status, and fix", async () => {
   const context: OperationContext = { env: {}, surface: "console" } as OperationContext
   const list = agentChannelOperations[0]
-  await expect(list.run({}, context)).rejects.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL"), status: 503 })
+  await expect(list.run({}, context)).rejects.toMatchObject({ code: "AGENT_CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL"), status: 503 })
   installChannelsConsoleHost({ agents: {}, handlers: {}, options: () => ({}) })
   const threads = agentChannelOperations[1]
-  await expect(threads.run({ agent: "ghost", channel: "telegram" }, context)).rejects.toMatchObject({ code: "CHANNELS_NOT_FOUND", fix: expect.stringContaining("vitehub channels list"), status: 404 })
+  await expect(threads.run({ agent: "ghost", channel: "telegram" }, context)).rejects.toMatchObject({ code: "AGENT_CHANNELS_NOT_FOUND", fix: expect.stringContaining("vitehub channels list"), status: 404 })
 })
 
 it("keeps the status and message of an Agent HTTP error and gives it a fix", async () => {

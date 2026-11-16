@@ -15,7 +15,7 @@ import { isRecord } from "@vite-hub/internal/object"
 import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "./envelope.ts"
+import { setupExitCodes, setupFailure, type SetupFailure } from "./envelope.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -105,7 +105,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function invalidResponse(host: string): Error {
-  return cliErrorDiagnostics.CLI_R0001({ message: `[vitehub] The ${host} API returned an unexpected response.` })
+  return cliErrorDiagnostics.CLI_HOST_RESPONSE_INVALID({ host })
 }
 
 /** The same normalization as the deployment identity of `vitehub({ name })`. */
@@ -126,7 +126,7 @@ async function packageName(root: string): Promise<string | undefined> {
 }
 
 function nameRequired(): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
+  return setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
 }
 
 /** `--project`, else the literal `name` of vitehub(), else the package.json name, normalized as the build does. */
@@ -153,7 +153,7 @@ function linkHost(project: SetupProject, option: string | undefined, env: NodeJS
   const chosen = readLinkHostOption(option)
   if (chosen) return chosen
   const host = setupStatus(project, env).host.name
-  if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict, { missing: [{ field: "host", choices: linkHosts.map(id => ({ id })) }], rerun: "vitehub link --host <host>" })
+  if (!isLinkHost(host)) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict, { missing: [{ field: "host", choices: linkHosts.map(id => ({ id })) }], rerun: "vitehub link --host <host>" })
   return host
 }
 
@@ -163,7 +163,7 @@ function rerunCommand(host: SetupLinkHost, name: string, options: SetupLinkOptio
 
 function notFound(host: SetupLinkHost, name: string, options: SetupLinkOptions, account: string | undefined): SetupFailure {
   const rerun = rerunCommand(host, name, options, "--create")
-  return new SetupFailure(cliErrorDiagnostics.SETUP_LINK_PROJECT_NOT_FOUND({ account, host, project: name, rerun }), setupExitCodes.conflict, { rerun })
+  return setupFailure(cliErrorDiagnostics.SETUP_LINK_PROJECT_NOT_FOUND({ account, host, project: name, rerun }), setupExitCodes.conflict, { rerun })
 }
 
 /** Returns undefined when the host API answers 404. */
@@ -203,7 +203,7 @@ async function linkCloudflare(name: string, options: SetupLinkOptions, token: st
     const accounts = listed.result ?? []
     const count = Math.max(accounts.length, listed.result_info?.total_count ?? 0)
     if (count !== 1 || !accounts[0]) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_ACCOUNT_REQUIRED({ count }), setupExitCodes.inputNeeded, {
+      throw setupFailure(cliErrorDiagnostics.SETUP_LINK_ACCOUNT_REQUIRED({ count }), setupExitCodes.inputNeeded, {
         missing: [{ choices: accounts, field: "account" }],
         rerun: rerunCommand("cloudflare", name, { ...options, account: undefined }, "--account <id>"),
       })
@@ -311,7 +311,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
     linked = { ...(options.account ? { account: { id: options.account } } : {}), created: false, project: { name }, verified: false }
   }
   else if (!credentials.ok) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: credentials.fix, host }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: credentials.fix, host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),
     })
   }
@@ -463,7 +463,7 @@ export function selectSetupLink(links: SetupLinks, host?: SetupLinkHost): SetupL
 
 /** The failure for several targets and no default. `command` is the command to run again with `--host`. */
 export function hostRequired(hosts: readonly SetupLinkHost[], command: string): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_REQUIRED({ command, hosts: hosts.join(", ") }), setupExitCodes.inputNeeded, {
+  return setupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_REQUIRED({ command, hosts: hosts.join(", ") }), setupExitCodes.inputNeeded, {
     missing: [{ choices: hosts.map(id => ({ id })), field: "host" }],
     rerun: `${command} --host ${hosts[0]}`,
   })
@@ -474,7 +474,7 @@ export function readLinkHostOption(value: string | undefined): SetupLinkHost | u
   if (value === undefined) return
   const host = hostFromNitroPreset(value)
   if (!host) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(value)}. Use cloudflare, vercel, netlify, or deno.` })
-  if (!isLinkHost(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (!isLinkHost(host)) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
   return host
 }
 

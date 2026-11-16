@@ -55,6 +55,10 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 
+## Build identity
+
+`@vite-hub/forge/build/node` exports `readForgeBuild(root, env)`, the commit, branch, repository and pull request of a build, from the CI or host, else Git. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH` and `VITEHUB_BUILD_REPOSITORY` each replace their own field. `@vite-hub/forge/build` has no Node code and exports `buildMetaName`, `buildMetaContent(build)` and `parseBuildMeta(content)` for the `<meta name="vitehub:build">` tag. The tag is a claim; check it against the Forge. See [Name the build of a page](https://vitehub.dev/docs/forge/server-api#name-the-build-of-a-page).
+
 ## Public imports
 
 `useForge()` is the app API. The other exports are the building blocks that ViteHub packages use.
@@ -80,7 +84,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeBlob(provider, repo, sha, { signal })` | The bytes of one blob by sha. GitHub only. |
 | `forgeCommitFiles(provider, repo, input, options)` | `contents.commitFiles()` that can also set git file modes (`100644`, `100755`, `120000`). Returns the commit sha. |
 | `BranchMovedError` | The bundled `forges` error for a branch that moved before a commit. |
-| `forgeErrorStatus(error)`, `ForgeResponseError` | Classify Forge request failures. |
+| `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |
 
 ## Diagnostics

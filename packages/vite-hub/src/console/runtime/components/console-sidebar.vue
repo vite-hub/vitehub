@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { defineShortcuts } from "@nuxt/ui/composables";
 import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 
-import { closeConsoleSidebarDrawer, consoleSidebarDrawer, consoleSidebarOpen } from "../client/sidebar";
+import { closeConsoleSidebarDrawer, consoleSidebarDrawer, consoleSidebarOpen, toggleConsoleSidebar } from "../client/sidebar";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
 
@@ -12,12 +13,14 @@ import ConsoleSidebarItem from "./console-sidebar-item.vue";
  *
  * On a narrow screen the rail stays, and the open sidebar covers the page as a drawer.
  */
-defineProps<{
+withDefaults(defineProps<{
   /** Where the brand row leads: the apps of the team, or the Overview of the only app. */
   homeHref: string;
   homeLabel: string;
   team?: string;
-}>();
+  /** Show the Search row. Pages without a search palette, such as the pages of a team, turn it off. */
+  search?: boolean;
+}>(), { search: true });
 
 const emit = defineEmits<{ home: [event: MouseEvent], search: [] }>();
 
@@ -25,6 +28,9 @@ const emit = defineEmits<{ home: [event: MouseEvent], search: [] }>();
 const ready = ref(false);
 
 const surface = useTemplateRef<HTMLElement>("surface");
+
+// `[` opens and closes the sidebar on every page, as in Linear. It does not run while a field has focus.
+defineShortcuts({ "[": toggleConsoleSidebar });
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Escape" || !consoleSidebarDrawer.value || !consoleSidebarOpen.value) return;
@@ -67,7 +73,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         </ConsoleSidebarItem>
       </div>
 
-      <ConsoleSidebarItem class="vitehub-sidebar__search" label="Search" icon="i-lucide-search" :shortcut="['meta', 'k']" @click="emit('search')">
+      <ConsoleSidebarItem v-if="search" class="vitehub-sidebar__search" label="Search" icon="i-lucide-search" :shortcut="['meta', 'k']" @click="emit('search')">
         <template #trailing>
           <UKbd value="meta" size="sm" class="vitehub-sidebar__fade" /><UKbd value="k" size="sm" class="vitehub-sidebar__fade" />
         </template>
@@ -75,7 +81,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
       <slot name="app" />
 
-      <div class="vitehub-sidebar__rule" />
+      <div v-if="search || $slots.app" class="vitehub-sidebar__rule" />
       <div class="vitehub-sidebar__scroll">
         <slot />
       </div>
@@ -107,7 +113,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 .vitehub-sidebar__surface {
   background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -128,7 +134,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__scrim {
-  background: color-mix(in oklab, var(--ui-bg-inverted) 20%, transparent);
+  background: color-mix(in oklab, var(--foreground) 20%, transparent);
   inset: 0;
   position: fixed;
 }
@@ -147,7 +153,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 /* The brand row is as tall as the page header, so its bottom line continues the header line. */
 .vitehub-sidebar__top {
   align-items: center;
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex: none;
   height: var(--ui-header-height);
@@ -160,7 +166,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   background: none;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   flex: none;
   font-size: 0.8125rem;
@@ -175,13 +181,13 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__item:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
   color: var(--ui-text);
 }
 
 .vitehub-sidebar__item[aria-current="page"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-sidebar__icon {
@@ -217,7 +223,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__brand {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-sidebar__brand:hover {
@@ -241,7 +247,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__brand-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -256,8 +262,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 /* Open, Search looks like a field. Collapsed, it is one more icon. */
 .vitehub-sidebar[data-open] .vitehub-sidebar__search {
-  background: var(--ui-bg);
-  box-shadow: inset 0 0 0 1px var(--ui-border);
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--ui-text-dimmed);
 }
 
@@ -274,7 +280,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__rule {
-  background: var(--ui-border);
+  background: var(--border);
   flex: none;
   height: 1px;
   margin: 0.375rem 0.25rem;

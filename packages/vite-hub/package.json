@@ -117,6 +117,16 @@
       "import": "./dist/agent/state.js",
       "default": "./dist/agent/state.js"
     },
+    "./agent/ui": {
+      "types": "./dist/agent/ui.d.ts",
+      "import": "./dist/agent/ui.js",
+      "default": "./dist/agent/ui.js"
+    },
+    "./agent/ui/vue": {
+      "types": "./dist/agent/ui/vue.d.ts",
+      "import": "./dist/agent/ui/vue.js",
+      "default": "./dist/agent/ui/vue.js"
+    },
     "./agent/vite": {
       "types": "./dist/agent/vite.d.ts",
       "import": "./dist/agent/vite.js",
@@ -914,8 +924,8 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/vue-3": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
-    "@ui-sdk/core": "0.1.0-beta.2",
-    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/vue": "0.1.0-beta.5",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
@@ -937,8 +947,8 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@ui-sdk/core": "0.1.0-beta.2",
-    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",

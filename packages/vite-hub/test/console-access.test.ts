@@ -272,7 +272,7 @@ describe("Console access policies", () => {
   })
 
   it("rejects invalid policies", () => {
-    expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow("known access mode")
+    expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
     expect(() => installConsoleAccess({ mode: "open", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
     expect(() => defineConsoleAuthorize(JSON.parse("true"))).toThrow("requires a function")
   })
