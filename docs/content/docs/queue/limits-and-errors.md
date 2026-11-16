@@ -51,8 +51,8 @@ Config errors throw instead, such as an unknown queue name or a missing Cloudfla
 | `QUEUE_PROVIDER_FAILED` | Every send method | `useQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `sendQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
-| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_DRIVER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_DRIVER`, `QUEUE_MISSING_DRIVER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
 
 ### Errors in a Queue handler
 
@@ -131,6 +131,10 @@ The Postgres Queue runtime is shutting down. It rejects new sends and connection
 
 The postgres provider has no connection. It uses the Default Database's connection when the build found it on Postgres, and `QUEUE_POSTGRES_URL` otherwise. Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server.
 
+### QUEUE_DRIVER_MISMATCH
+
+The generated runtime got another driver. Set `queue.driver` to match the deployment host, and build again.
+
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
 The Queue runtime has no client factory, which the generated server output installs. Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build and run the built server.
@@ -168,6 +172,14 @@ Queue files changed after Vite resolved the config. Generate them before that.
 ### QUEUE_INVALID_NAME
 
 The generated Cloudflare queue name has characters that Cloudflare rejects. Use only letters, numbers, and dashes in `queue.namePrefix`.
+
+### QUEUE_INVALID_DRIVER
+
+`queue.driver` is not `cloudflare`, `local`, `postgres`, or `vercel`.
+
+### QUEUE_MISSING_DRIVER
+
+ViteHub cannot pick a driver for the host, such as Netlify or Deno. Set `queue.driver`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 

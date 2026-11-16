@@ -36,6 +36,7 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
 | `REALTIME_MISSING_ACCESS`, `REALTIME_INVALID_ACCESS`, `REALTIME_CHECKPOINT_UNSUPPORTED` | Thrown by `defineRealtime()` and when the server loads the definition |
 | `REALTIME_INVALID_PERSISTENCE`, `REALTIME_INVALID_USER`, `REALTIME_MISSING_DIGEST` | Thrown on the server when a room opens or saves |
+| `REALTIME_DRIVER_CONFLICT`, `REALTIME_MISSING_DRIVER` | Thrown when Vite reads the config |
 
 ## Limits
 
@@ -168,3 +169,13 @@ Saves of one room run one at a time across Node instances. An instance waited 30
 ### REALTIME_MISSING_DIGEST
 
 A save needs file digests from the Workspace Store, or a checkpoint found no stored document after its save. Use a Workspace Store that returns digests, or return `digest` from the adapter's `save()`.
+
+## Build errors
+
+### REALTIME_DRIVER_CONFLICT
+
+`driver: "cloudflare"` needs a Cloudflare host. `driver: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
+
+### REALTIME_MISSING_DRIVER
+
+A production build with `driver: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.
