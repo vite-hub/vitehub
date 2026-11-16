@@ -638,8 +638,14 @@ export interface GitHubPullRequestTriggerEvent {
   payload: GitHubIssueCommentPayload
 }
 
-/** The answer of a GitHub pull request trigger: Agent input to start the Agent on the pull request, or a `Response` such as `ignored()`. */
-export type GitHubPullRequestTriggerResult = Response | { input: AgentRunInput }
+/**
+ * The answer of a GitHub pull request trigger: Agent input to start the Agent on the pull request, or a `Response` such
+ * as `ignored()`. `prompt` is text, because it becomes the request line of the pull request prompt.
+ */
+export type GitHubPullRequestTriggerResult = Response | { input: GitHubPullRequestTriggerInput }
+
+/** The Agent input that a GitHub pull request trigger returns. */
+export type GitHubPullRequestTriggerInput = Omit<AgentRunInput, "prompt"> & { prompt?: string }
 
 export interface GitHubPullRequestTriggerOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   events: readonly GitHubPullRequestTriggerEventName[]
@@ -3623,7 +3629,7 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   command: GitHubPullRequestCommand & { trigger: string },
   input: unknown,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
-): Promise<Response | AgentRunInput> {
+): Promise<Response | GitHubPullRequestTriggerInput> {
   if (!Object.hasOwn(pullRequestTriggers, command.trigger)) return ignored(`pull request trigger "${command.trigger}" no longer exists`)
   // The Channel delivery journal records which trigger ran and how it answered.
   const delivery = agentChannelDeliveryTracker(context)
@@ -3652,8 +3658,8 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
 }
 
 /** The command whose request is the trigger's `prompt`, when it returned one. */
-function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, input: AgentRunInput | undefined): GitHubPullRequestCommand {
-  return typeof input?.prompt === "string" && input.prompt ? { ...command, body: input.prompt } : command
+function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, input: GitHubPullRequestTriggerInput | undefined): GitHubPullRequestCommand {
+  return input?.prompt ? { ...command, body: input.prompt } : command
 }
 
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -3681,7 +3687,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
             deliveryId: acceptedCommand.deliveryId,
           }
-          let triggerInput: AgentRunInput | undefined
+          let triggerInput: GitHubPullRequestTriggerInput | undefined
           if (acceptedCommand.trigger) {
             const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, input, app)
             if (isResponse(result)) return { ...accepted, webhook: { ...ownership, rehydrate: () => result } }
@@ -3809,7 +3815,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.key}` } }
             : githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`)),
         } : undefined
-        let triggerInput: AgentRunInput | undefined
+        let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger && !ownership) {
           const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
           if (isResponse(result)) return result
@@ -3894,7 +3900,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
-        let triggerInput: AgentRunInput | undefined
+        let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger) {
           const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
           if (isResponse(result)) return result
