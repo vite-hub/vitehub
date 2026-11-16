@@ -547,5 +547,13 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
+    VITE_HUB_SECURITY_HEADER_INVALID: {
+      why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,
+      fix: "Use a header name such as `X-Robots-Tag`, and a value on one line. Use `false` to remove a default header.",
+    },
+    VITE_HUB_SECURITY_MAX_BODY_SIZE_INVALID: {
+      why: ({ value }: { value: string }) => `\`security.maxBodySize\` is ${value}, which is not a size.`,
+      fix: "Set `security.maxBodySize` to a whole number of bytes greater than 0, or to a size such as `\"500kb\"`, `\"1mb\"`, or `\"2gb\"`.",
+    },
   },
 })

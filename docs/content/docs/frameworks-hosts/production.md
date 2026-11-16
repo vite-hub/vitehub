@@ -58,6 +58,60 @@ The Console endpoint takes only [signed requests](/docs/development/console#sign
 
 Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
+### Add security headers and a body limit
+
+Set `security` to add safe response headers and to refuse large request bodies, on every host.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    security: {
+      headers: { 'X-Robots-Tag': 'noindex' },
+      maxBodySize: '1mb',
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      security: {
+        headers: { 'X-Robots-Tag': 'noindex' },
+        maxBodySize: '1mb',
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+- `headers: true` adds these headers to each response that does not set them itself:
+
+  | Header | Value |
+  | --- | --- |
+  | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, in built output only |
+  | `X-Content-Type-Options` | `nosniff` |
+  | `Referrer-Policy` | `strict-origin-when-cross-origin` |
+  | `X-Frame-Options` | `SAMEORIGIN` |
+  | `Permissions-Policy` | `camera=(), geolocation=(), microphone=()` |
+
+- An object keeps this set and changes one header: a string replaces a value or adds a header, such as `'X-Robots-Tag': 'noindex'`, and `false` removes a header, such as `'X-Frame-Options': false` for a page that other sites embed.
+- A route that sets one of these headers keeps its own value.
+- Static files get the same headers. On Cloudflare and Netlify, ViteHub adds a rule to `_headers`; on Vercel, it adds a route for static files to the Build Output config. A header that `_headers` or `routeRules` already sets for any path is left out of that rule, because the host would join the two values.
+- `maxBodySize` takes bytes or a size such as `'500kb'` or `'1mb'` (1kb is 1024 bytes). A larger body gets `413` with `data.code` set to `VITE_HUB_REQUEST_BODY_TOO_LARGE`. The limit applies to every route, so raise it when the app takes file uploads.
+- `security` adds no Content Security Policy. Set a `Content-Security-Policy` header in `headers` or in `routeRules` when your app needs one.
+
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 
 ## Verify retries and shutdown

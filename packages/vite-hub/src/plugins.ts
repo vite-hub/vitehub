@@ -41,6 +41,7 @@ import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
+import type { SecurityOptions } from "./security-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -96,6 +97,7 @@ export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
 export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
+export type { SecurityHeaders, SecurityOptions } from "./security-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -474,6 +476,13 @@ export interface ViteHubOptions {
    * Default: `false`.
    */
   sameOriginWrites?: boolean | SameOriginWritesOptions
+  /**
+   * Response headers and a request body limit for every route. `{ headers: true }` adds `Strict-Transport-Security`
+   * (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each
+   * response that does not set them itself, and to static files on Cloudflare, Netlify, and Vercel. `{ maxBodySize: "1mb" }`
+   * answers 413 to a larger request body. It adds no Content Security Policy. Default: off.
+   */
+  security?: SecurityOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -1490,7 +1499,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
-  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
+  if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
 
