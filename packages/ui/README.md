@@ -23,6 +23,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 | `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
+| `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 

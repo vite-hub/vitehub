@@ -271,10 +271,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove the obsolete option from `vitehub()` or the `vitehub` options in nuxt.config.ts, and apply the migration shown in the error message.",
     },
-    VITE_HUB_SETUP_BODY_TOO_LARGE: {
-      why: ({ limit }: { limit: number }) => `The request body is too large. The dev Setup endpoints accept at most ${limit} bytes.`,
-      fix: "Send one Setup plan or apply request at a time, with only the fields that `vitehub add` and `vitehub remove` take.",
-    },
     VITE_HUB_CONSOLE_ACCESS_HANDLER_INVALID: {
       why: "[vitehub] withConsoleAccess() requires a handler function.",
       fix: "Pass the route handler function as the first argument of `withConsoleAccess(handler, { section })`.",
@@ -364,6 +360,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
       ...dynamicError,
       fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
+    VITE_HUB_SETUP_BODY_TOO_LARGE: {
+      why: ({ limit }: { limit: number }) => `The request body is too large. The dev Setup endpoints accept at most ${limit} bytes.`,
+      fix: "Send one Setup plan or apply request at a time, with only the fields that `vitehub add` and `vitehub remove` take.",
     },
   },
 })

@@ -12,9 +12,12 @@ describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {
     expectTypeOf<DatabaseCatalogCode>().toEqualTypeOf<
       | "DATABASE_BINDING_CONFLICT"
+      | "DATABASE_CHUNK_INVALID_COUNT"
+      | "DATABASE_CHUNK_VALUE_TOO_LARGE"
       | "DATABASE_D1_INVALID_RESPONSE"
       | "DATABASE_D1_MIGRATIONS_DIR_INVALID"
       | "DATABASE_D1_MIGRATIONS_DIR_OVERLAP"
+      | "DATABASE_D1_MIGRATION_FAILED"
       | "DATABASE_D1_MIGRATION_INVALID"
       | "DATABASE_D1_REQUEST_FAILED"
       | "DATABASE_D1_STATEMENT_TOO_LONG"

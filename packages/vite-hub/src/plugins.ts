@@ -1011,6 +1011,10 @@ function deploymentPlugins(
             const wasm = cloneRecord(nitro.wasm)
             if (wasm.lazy === undefined) wasm.lazy = true
             nitro.wasm = wasm
+            // workerd reads every export of the Worker entry as a handler and refuses to start on a shared value, such as
+            // a number that another chunk imports from the entry. Keep shared values in internal chunks.
+            const rollupConfig = cloneRecord(nitro.rollupConfig)
+            if (rollupConfig.preserveEntrySignatures === undefined) nitro.rollupConfig = { ...rollupConfig, preserveEntrySignatures: "strict" }
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)

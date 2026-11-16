@@ -115,7 +115,7 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
           bundle: true,
           format: "esm",
           platform: "neutral",
-          stdin: { contents: 'export { invariant } from "@vite-hub/internal/invariant"', resolveDir: root },
+          stdin: { contents: 'export { invariant, invariantError } from "@vite-hub/internal/invariant"', resolveDir: root },
           write: false,
         })).outputFiles[0]!.text,
       },

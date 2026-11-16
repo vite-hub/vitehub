@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-label {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.25rem;
@@ -508,7 +508,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 /* Rows reach past the text edge, so the hover tint has room and the icons still line up with the header. */
@@ -545,11 +545,11 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover {
-    background: var(--ui-bg-elevated);
+    background: var(--muted);
   }
 
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover .vitehub-console__overview-icon {
-    color: var(--ui-text-highlighted);
+    color: var(--foreground);
   }
 }
 
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-icon {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   height: 1rem;
@@ -572,7 +572,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   flex: none;
   font-weight: 500;
   max-width: 45%;
@@ -583,7 +583,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-description {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -594,7 +594,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-meta {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   font-family: var(--font-mono);
@@ -621,7 +621,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-docs:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   text-decoration: underline;
 }
 

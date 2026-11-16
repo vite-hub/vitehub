@@ -1,7 +1,45 @@
 const authBase = "/api/auth"
 
-// The page runs in the browser, so its errors are plain: run() catches each one and shows its message in the alert.
-// It sends only the parameters that the provider signed back to the provider.
+/**
+ * Browser code that asks for a passkey: `passkeyAssertion()` returns the answer for
+ * `/api/auth/passkey/verify-authentication`. It throws a `NotAllowedError` when the person closes the passkey sheet.
+ */
+export const passkeyHelpers = `
+function fromBase64url(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+}
+function toBase64url(buffer) {
+  let binary = "";
+  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+}
+async function passkeyAssertion() {
+  const options = await fetch(${JSON.stringify(`${authBase}/passkey/generate-authenticate-options`)}, { credentials: "same-origin" }).then(response => response.ok ? response.json() : null).catch(() => null);
+  // The caller shows this message in the alert.
+  if (!options || !options.challenge) throw new Error("The passkey sign-in did not start. Try again.");
+  const credential = await navigator.credentials.get({ publicKey: {
+    ...options,
+    challenge: fromBase64url(options.challenge),
+    allowCredentials: (options.allowCredentials || []).map(entry => ({ ...entry, id: fromBase64url(entry.id) })),
+  } });
+  const answer = credential.response;
+  return {
+    id: credential.id,
+    rawId: toBase64url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment || undefined,
+    response: {
+      authenticatorData: toBase64url(answer.authenticatorData),
+      clientDataJSON: toBase64url(answer.clientDataJSON),
+      signature: toBase64url(answer.signature),
+      userHandle: answer.userHandle ? toBase64url(answer.userHandle) : undefined,
+    },
+  };
+}
+`
+
+// The page runs in the browser. It sends only the parameters that the provider signed back to the provider.
 export const oauthPageScript = `
 const params = new URLSearchParams(location.search);
 const $ = selector => document.querySelector(selector);
@@ -14,15 +52,7 @@ const signed = new URLSearchParams();
 for (const [key, value] of params) if (key === "sig" || key === "ba_param" || names.has(key)) signed.append(key, value);
 const oauthQuery = signed.toString();
 
-function fromBase64url(value) {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
-  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
-}
-function toBase64url(buffer) {
-  let binary = "";
-  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-}
+${passkeyHelpers}
 async function run(action) {
   const controls = document.querySelectorAll("button");
   for (const control of controls) control.disabled = true;
@@ -63,26 +93,7 @@ async function post(path, body) {
 const read = path => fetch(path, { credentials: "same-origin" }).then(response => response.ok ? response.json() : null).catch(() => null);
 
 async function signInWithPasskey() {
-  const options = await read(${JSON.stringify(`${authBase}/passkey/generate-authenticate-options`)});
-  if (!options || !options.challenge) throw new Error("The passkey sign-in did not start. Try again.");
-  const credential = await navigator.credentials.get({ publicKey: {
-    ...options,
-    challenge: fromBase64url(options.challenge),
-    allowCredentials: (options.allowCredentials || []).map(entry => ({ ...entry, id: fromBase64url(entry.id) })),
-  } });
-  const answer = credential.response;
-  const response = {
-    id: credential.id,
-    rawId: toBase64url(credential.rawId),
-    type: credential.type,
-    authenticatorAttachment: credential.authenticatorAttachment || undefined,
-    response: {
-      authenticatorData: toBase64url(answer.authenticatorData),
-      clientDataJSON: toBase64url(answer.clientDataJSON),
-      signature: toBase64url(answer.signature),
-      userHandle: answer.userHandle ? toBase64url(answer.userHandle) : undefined,
-    },
-  };
+  const response = await passkeyAssertion();
   leave(await post("/passkey/verify-authentication", { response }), "The passkey sign-in did not finish. Try again.");
 }
 
