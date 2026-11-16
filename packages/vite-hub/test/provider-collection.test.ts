@@ -17,14 +17,14 @@ it("links cursor and get adapters to the loader item", () => {
     cursorSchema: v.string(),
   }
   // @ts-expect-error The cursor must accept the rows returned by load.
-  defineCollection({ source })
+  defineCollection({ route: false, source })
   // @ts-expect-error Transforms cannot conceal an incompatible cursor.
-  defineCollection({ source, transform: (row: Row) => row.id })
+  defineCollection({ route: false, source, transform: (row: Row) => row.id })
   const valid = { ...source, cursor: (row: { id: string }) => row.id }
-  expectTypeOf(defineCollection({ source: valid }).all).returns.toEqualTypeOf<Promise<Row[]>>()
+  expectTypeOf(defineCollection({ route: false, source: valid }).all).returns.toEqualTypeOf<Promise<Row[]>>()
   const invalidGet = { ...valid, get: async () => ({ slug: "one" }) }
   // @ts-expect-error Direct reads must return the loader's item shape.
-  defineCollection({ source: invalidGet })
+  defineCollection({ route: false, source: invalidGet })
 })
 
 it("preserves provider schemas, required query fields, and get-capable sources", async () => {
@@ -52,7 +52,7 @@ it("preserves cursor sources with get adapters and required query fields", async
     load: async ({ query }) => [{ id: query.tenant, count: query.count }],
     get: async key => ({ id: key, count: 2 }),
   }
-  const collection = defineCollection({ source })
+  const collection = defineCollection({ route: false, source })
   expectTypeOf(collection.query).parameter(0).toEqualTypeOf<QueryInput | undefined>()
   expectTypeOf(collection.all).returns.toEqualTypeOf<Promise<Row[]>>()
   await expect(collection.query({ tenant: "one", count: "3" }).all()).resolves.toEqual([{ id: "one", count: 3 }])
@@ -65,15 +65,15 @@ it("requires valid provider page results at the adapter boundary", () => {
     load: async () => ({ items: [{ id: "one", count: 1 }], nextCursor: 1 }),
   }
   // @ts-expect-error Provider continuation cursors must be strings or null.
-  defineCollection({ source: invalidCursor })
+  defineCollection({ route: false, source: invalidCursor })
   const invalidItems = { pagination: "provider" as const, load: async () => [{ id: "one", count: 1 }] }
   // @ts-expect-error Provider loaders return a page, not a cursor-managed array.
-  defineCollection({ source: invalidItems })
+  defineCollection({ route: false, source: invalidItems })
   const source = {
     pagination: "provider" as const,
     load: async () => ({ items: [{ id: "one", count: 1 }], nextCursor: "" }),
   }
-  const collection = defineCollection({ source })
+  const collection = defineCollection({ route: false, source })
   expectTypeOf(collection.all).returns.toEqualTypeOf<Promise<Row[]>>()
 })
 
@@ -83,10 +83,10 @@ it("continues through empty opaque provider cursors and stops repeated cursors",
     items: [{ id: cursor === undefined ? "first" : "second", count: 1 }],
     nextCursor: cursor === undefined ? "" : null,
   }))
-  const collection = defineCollection({ source: { pagination: "provider", load } })
+  const collection = defineCollection({ route: false, source: { pagination: "provider", load } })
   await expect(collection.all()).resolves.toEqual([{ id: "first", count: 1 }, { id: "second", count: 1 }])
   expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "" }))
-  const repeating = defineCollection({ source: {
+  const repeating = defineCollection({ route: false, source: {
     pagination: "provider", load: async () => ({ items: [], nextCursor: "" }),
   } })
   await expect(repeating.all()).rejects.toThrow("repeated a pagination cursor")
@@ -94,7 +94,7 @@ it("continues through empty opaque provider cursors and stops repeated cursors",
 
 it("appends large provider pages without argument spreading", async () => {
   const items = Array.from({ length: 150_000 }, (_, index) => ({ id: String(index) }))
-  const collection = defineCollection({ source: {
+  const collection = defineCollection({ route: false, source: {
     pagination: "provider", maxLimit: items.length,
     load: async () => ({ items, nextCursor: null }),
   } })
@@ -105,10 +105,10 @@ it("rejects source schemas whose output is incompatible with the loader query", 
   const load = async ({ query }: { query: { tenant: string } }) => [{ id: query.tenant, count: 1 }]
   const cursorSource = { load, cursor: (row: Row) => row.id, cursorSchema: v.string(), querySchema: v.object({ account: v.number() }) }
   // @ts-expect-error Schema output must satisfy the loader's query contract.
-  defineCollection({ source: cursorSource })
+  defineCollection({ route: false, source: cursorSource })
   const providerSource = { pagination: "provider" as const, load: async (options: { query: { tenant: string } }) => ({ items: await load(options), nextCursor: null }), querySchema: cursorSource.querySchema }
   // @ts-expect-error Schema output must satisfy the provider loader's query contract.
-  defineCollection({ source: providerSource })
+  defineCollection({ route: false, source: providerSource })
   // @ts-expect-error Transformed sources enforce the same schema relationship.
-  defineCollection({ source: providerSource, transform: (row: Row) => row.id })
+  defineCollection({ route: false, source: providerSource, transform: (row: Row) => row.id })
 })

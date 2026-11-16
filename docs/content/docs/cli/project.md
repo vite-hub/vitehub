@@ -18,7 +18,7 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --yes
 pnpm dlx vite-hub init my-app --host vercel --features email --option email.driver=resend --yes --json
 ```
 
-A new or empty folder gets the starter app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files, and `init` registers `vitehub()` or the Nuxt module in its config.
+A new or empty folder gets the starter app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore` that ignores every `.env*` file except `.env.example`. A folder with a Vite or Nuxt app keeps its files, and `init` registers `vitehub()` or the Nuxt module in its config.
 
 | Flag | What it does |
 | --- | --- |
@@ -57,6 +57,7 @@ pnpm vitehub status --json
 | `framework` | `vite`, `nuxt`, or `none`, from the config files and the dependencies. |
 | `config` | The file and the config form, or `manual` with the reason when the options are not an object literal. |
 | `host` | The configured `host`, else the one `detectHost()` reads from the environment, else `node`, with `source` saying which. A dynamic host or config reports `name: "unknown"` and support `level: "unknown"`. |
+| `link`, `targets`, `default` | The host targets in `.vitehub/link.json`, the selected target, and the default host. |
 | `live` | The deployment that receives production traffic, and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](/docs/cli/deploy#list-deployments). |
 | `features` | Each feature as `on`, `off`, or `unknown` (an expression, or a key a spread overrides), with the reason `config`, `default`, or `implied`. An enabled feature lists `missingPackages` and a `fix`. |
 | `checkouts` | With `vitehub.lock`, each checkout folder with its local changes and conflicts. See [Work on Workspace files in a local folder](/docs/cli/content#work-on-workspace-files-in-a-local-folder). |
@@ -83,7 +84,7 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 
 `add` sets `<feature>: true`, or the object from `--option`, and a feature that is already on prints `"status": "unchanged"`. Features it turns on as well, such as Workflow for Agent, are listed in `implied`. A feature that requires Database turns Database on, so on Netlify or Deno `add comments` needs `--option database.connection.url=libsql://your-host`.
 
-The host decides what `add` accepts. An unsupported feature exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`, and when ViteHub can choose the values, `rerun` succeeds as it is. Node Schedules need `--option schedule.runtime.driver=process`, or `schedule.providerOutput=false` when you wake them yourself. A provider option such as `workflow.provider=openworkflow` or `blob.driver=s3` adds its packages to the install.
+The host decides what `add` accepts. An unsupported feature exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`, and when ViteHub can choose the values, `rerun` succeeds as it is. Node Schedules need `--option schedule.runtime.driver=process`, or `schedule.providerOutput=false` when you wake them yourself. A provider option such as `blob.driver=s3` adds its packages to the install.
 
 ::note
 Some host defaults build and run but keep state in one process. Workspace on Vercel, for example, keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. `nextSteps` names each one with the option that selects a durable provider.

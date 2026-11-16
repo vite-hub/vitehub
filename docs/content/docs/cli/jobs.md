@@ -15,6 +15,20 @@ A **task** is a [Nitro task](https://nitro.build/docs/tasks): a file in `server/
 
 This seed task adds a row to the `notes` table of the default Database:
 
+```ts [server/databases/default.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
 ```ts [server/tasks/db/seed.ts]
 import { useDatabase } from 'vite-hub/database'
 import { defineTask } from 'nitro/task'
@@ -138,7 +152,7 @@ pnpm vitehub workflow runs clear --yes
 
 The argument after the Workflow name or token is the payload, a JSON value, and `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`, and every command takes `--json`, `--url <origin>`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. The `workflows` grant allows every command, and `workflows:read` only `get`, `runs list`, and `runs show`.
 
-Resume takes an opaque hook token, not a run id or a signal name. Inline runs stay readable with `get` for five minutes. Inline cancel, Cloudflare cancel and resume, and OpenWorkflow resume return an unsupported-operation error, and an OpenWorkflow start only enqueues work, so a worker must run it.
+Resume takes an opaque hook token, not a run id or a signal name. Inline runs stay readable with `get` for five minutes. Inline cancel, Cloudflare resume, and OpenWorkflow resume return an unsupported-operation error, and an OpenWorkflow start only enqueues work, so a worker must run it.
 
 ## Inspect runs in development
 
@@ -150,4 +164,4 @@ Resume takes an opaque hook token, not a run id or a signal name. Inline runs st
 | `runs show <runId>` | Prints each step with its status and times, the error of a failed step, and the run's result. `--json` adds the step outputs. |
 | `runs clear --yes` | Removes every recorded run and prints the count, so a test can start from an empty history. It does not cancel active runs. |
 
-The history keeps the newest 200 runs, redacts credentials, and is empty after a restart. Inline runs do not retry, so each step runs once. Runs that Cloudflare Workflows, OpenWorkflow, or native Vercel Workflows start are not recorded, and neither is anything in a build. On a deployment, the `runs` commands fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`), so read one run with `vitehub workflow get <runId> --workflow <name>`. An unknown id fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
+The history keeps the newest 200 runs, redacts credentials, and is empty after a restart. Inline runs do not retry, so each step runs once. With the `node` preset, `vite dev` uses OpenWorkflow, so the history is empty; read a run with `vitehub workflow get`. Runs that Cloudflare Workflows, OpenWorkflow, or native Vercel Workflows start are not recorded, and neither is anything in a build. On a deployment, the `runs` commands fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`), so read one run with `vitehub workflow get <runId> --workflow <name>`. An unknown id fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).

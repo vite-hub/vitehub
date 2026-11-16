@@ -17,6 +17,8 @@ import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { clearGmailSkippedMessages, getGmailMessage, getGmailThread, GmailApiError, gmailMessagePrompt, gmailMessageSchema, gmailSettings, readGmailChannelStatus, splitAddresses, verifyGoogleOidcToken, syncGmailMailbox, gmailClientFromSettings } from "../src/internal/gmail-channel.ts"
 import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
+import { createCloudflareAgentState } from "../src/state/providers/cloudflare.ts"
+import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-namespace.ts"
 import { channelMessageRunId, createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
 
 import type { Lock, StateAdapter } from "chat"
@@ -219,6 +221,37 @@ function stream() {
   }
 }
 
+/** Cloudflare Agent State that counts its Durable Object requests: one per stub call. */
+function countingCloudflareState() {
+  const namespace = createFakeCloudflareStateNamespace()
+  const calls: string[] = []
+  const stub = namespace.get(namespace.idFromName("default"))
+  const counted = new Proxy(stub, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      return typeof value === "function" ? (...args: unknown[]) => { calls.push(String(property)); return value.apply(target, args) } : value
+    },
+  })
+  const state = createCloudflareAgentState({ namespace: { get: () => counted, idFromName: name => namespace.idFromName(name) } })
+  /** Runs `task` and returns the Durable Object requests that it sent. */
+  const requests = async (task: () => Promise<unknown>): Promise<string[]> => {
+    calls.length = 0
+    await task()
+    return [...calls]
+  }
+  return { requests, state }
+}
+
+/** The history cursor that a Gmail sync stored. */
+async function storedCursor(state: Pick<StateAdapter, "get">, keyPrefix = "mail:") {
+  return (await state.get<{ historyId?: string }>(`${keyPrefix}mailbox`))?.historyId ?? null
+}
+
+/** The checkpoint of an unfinished Gmail sync. */
+async function storedProgress(state: Pick<StateAdapter, "get">, keyPrefix = "mail:") {
+  return (await state.get<{ progress?: Record<string, unknown> }>(`${keyPrefix}mailbox`))?.progress ?? null
+}
+
 const durableWebhookFixtures: Array<{ directory: string, state: ReturnType<typeof createLibsqlAgentState> }> = []
 
 async function createDurableGmailWebhookHandler(...args: Parameters<typeof createChannelWebhookRouteHandler>) {
@@ -343,7 +376,7 @@ describe("gmail() Channel", () => {
     expect(google.calls.filter(call => call.path === "history").every(call => call.query.getAll("historyTypes").join() === "messageAdded")).toBe(true)
   })
 
-  it.each(["initialize", "advance", "pending"] as const)("atomically fences %s after lease takeover between renewal and mutation", async (phase) => {
+  it.each(["initialize", "advance", "pending"] as const)("atomically fences %s after lease takeover before the write", async (phase) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-fencing-"))
     const url = `file:${join(root, "state.db")}`
     const first = createLibsqlAgentState({ url })
@@ -353,21 +386,21 @@ describe("gmail() Channel", () => {
     try {
       const google = await createGoogle()
       google.history.set("100", { historyId: "105", ids: [] })
-      if (phase === "advance") await first.set("mail:history-id", "100")
+      if (phase !== "initialize") await first.set("mail:mailbox", { historyId: "100" })
       let successor: Lock | null = null
-      let renewals = 0
+      // A busy lock makes the sync mark a pending notification, which it clears first when it gets the lock.
+      let busy = phase === "pending"
       const state = new Proxy(first, {
         get(target, property) {
-          if (property === "extendLock") return async (held: Lock, ttl: number) => {
-            const renewed = await target.extendLock(held, ttl)
-            renewals++
-            if (renewed && renewals === (phase === "pending" ? 1 : 2)) {
+          if (property === "acquireLock" && busy) return async () => { busy = false; return null }
+          if (property === "mutateWithLock") return async (held: Lock, mutations: readonly AgentStateCacheMutation[]) => {
+            if (!successor) {
               await second.forceReleaseLock(held.threadId)
               successor = await second.acquireLock(held.threadId, 60_000)
-              await second.set("mail:history-id", "200")
+              await second.set("mail:mailbox", { historyId: "200" })
               await second.set("mail:sync-pending", "successor-notification")
             }
-            return renewed
+            return await target.mutateWithLock(held, mutations)
           }
           const value: unknown = Reflect.get(target, property, target)
           return typeof value === "function" ? value.bind(target) : value
@@ -380,7 +413,7 @@ describe("gmail() Channel", () => {
         notificationHistoryId: "105",
         state: { keyPrefix: "mail:", state },
       })).rejects.toThrow("Lost ownership")
-      await expect(second.get("mail:history-id")).resolves.toBe("200")
+      await expect(storedCursor(second)).resolves.toBe("200")
       await expect(second.get("mail:sync-pending")).resolves.toBe("successor-notification")
       expect(successor).not.toBeNull()
       await expect(second.extendLock(successor!, 60_000)).resolves.toBe(true)
@@ -418,10 +451,10 @@ describe("gmail() Channel", () => {
     await expect(verifyGoogleOidcToken("not-a-token", expected)).resolves.toBe("malformed token")
   })
 
-  it.each([false, true])("renews a long mailbox sync and fences its cursor after lease loss: %s", async loseOwnership => {
+  it.each([false, true])("renews a long mailbox sync until its deadline and fences its cursor after lease loss: %s", async loseOwnership => {
     const google = await createGoogle()
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
-    const values = new Map<string, unknown>([["mail:history-id", "100"]])
+    const values = new Map<string, unknown>([["mail:mailbox", { historyId: "100" }]])
     let lock: Lock | undefined
     let nextToken = 0
     let lost = false
@@ -462,28 +495,34 @@ describe("gmail() Channel", () => {
       return { failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }
     })
     vi.useFakeTimers()
-    const sync = syncGmailMailbox({
-      bodyLimit: 1000,
-      client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
-      dispatch,
-      notificationHistoryId: "105",
-      state: { keyPrefix: "mail:", state },
-    })
+    const options = { bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch), state: { keyPrefix: "mail:", state } }
+    const sync = syncGmailMailbox({ ...options, dispatch, notificationHistoryId: "105" })
     try {
       await Promise.race([running, sync])
       expect(dispatch).toHaveBeenCalledOnce()
       lost = loseOwnership
-      await vi.advanceTimersByTimeAsync(11 * 60_000)
-      expect(extendLock.mock.calls.length).toBeGreaterThan(2)
+      await vi.advanceTimersByTimeAsync(4.5 * 60_000)
+      // The 1 minute lease renews every 20 seconds until the 4 minute deadline, then runs out within a minute.
+      if (loseOwnership) expect(extendLock).toHaveBeenCalledOnce()
+      else expect(extendLock.mock.calls.length).toBeGreaterThan(10)
       if (loseOwnership) {
         expect(await state.acquireLock("mail:sync", 600_000)).not.toBeNull()
-        values.set("mail:history-id", "200")
+        values.set("mail:mailbox", { historyId: "200" })
       } else expect(await state.acquireLock("mail:sync", 600_000)).toBeNull()
       release()
       if (loseOwnership) await expect(sync).rejects.toThrow("Lost ownership")
-      else await sync
-      expect(values.get("mail:history-id")).toBe(loseOwnership ? "200" : "105")
-      expect(dispatch).toHaveBeenCalledTimes(loseOwnership ? 1 : 2)
+      else await expect(sync).resolves.toEqual({ finished: false })
+      // After the deadline, the sync saves m2 for the next sync instead of reading it.
+      await expect(storedCursor({ get: async <T>(key: string) => values.get(key) as T })).resolves.toBe(loseOwnership ? "200" : "100")
+      expect(dispatch).toHaveBeenCalledOnce()
+      if (!loseOwnership) {
+        expect(values.get("mail:mailbox")).toMatchObject({ progress: { pendingIds: ["m2"] } })
+        // The stopped sync released the mailbox, and the next sync continues with m2.
+        const next = vi.fn(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+        await syncGmailMailbox({ ...options, dispatch: next, notificationHistoryId: "106" })
+        expect(next).toHaveBeenCalledOnce()
+        await expect(storedCursor({ get: async <T>(key: string) => values.get(key) as T })).resolves.toBe("105")
+      }
     } finally {
       release()
       await sync.catch(() => undefined)
@@ -491,11 +530,42 @@ describe("gmail() Channel", () => {
     }
   })
 
+  it("stops renewing a stuck sync at its deadline, so the next sync gets the mailbox and status reports it", async () => {
+    vi.useFakeTimers()
+    try {
+      const google = await createGoogle()
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      const state = createCloudflareAgentState({ namespace: createFakeCloudflareStateNamespace() })
+      await state.connect()
+      await state.set("mail:mailbox", { historyId: "100" })
+      const binding = { keyPrefix: "mail:", state }
+      const options = { bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch), state: binding }
+      // A dispatch that never settles, like a request without a timeout.
+      const stuck = vi.fn(() => new Promise<never>(() => {}))
+      void syncGmailMailbox({ ...options, dispatch: stuck, notificationHistoryId: "105" })
+      await vi.waitFor(() => expect(stuck).toHaveBeenCalledOnce())
+      const startedAt = (await state.get<{ syncStartedAt?: string }>("mail:mailbox"))?.syncStartedAt
+      expect(startedAt).toEqual(expect.any(String))
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({
+        error: `A sync started at ${startedAt} and did not finish.`, failingSince: startedAt, status: "failing",
+      })
+      // The lease that the stuck sync renewed last runs out within one TTL (1 minute) after the deadline.
+      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      await syncGmailMailbox({ ...options, dispatch, notificationHistoryId: "106", throwOnDispatchFailure: true })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("105")
+      await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ failures: 0, status: "ok" })
+    }
+    finally { vi.useRealTimers() }
+  })
+
   it("checks current labels before reading bodies, including archived and restored history entries", async () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const messages = [apiMessage("sent", "Sent"), apiMessage("empty", "Empty"), apiMessage("inbox", "Inbox"), apiMessage("unknown", "Unknown"), apiMessage("archived", "Archived"), apiMessage("restored", "Restored")]
       messages[0]!.labelIds = ["SENT"]
       messages[1]!.labelIds = []
@@ -525,7 +595,7 @@ describe("gmail() Channel", () => {
       expect(client.mock.calls.filter(([request]) => request.query?.format === "full").map(([request]) => request.path)).toEqual([
         "messages/inbox", "messages/unknown", "messages/restored",
       ])
-      expect(await state.get("mail:history-id")).toBe("200")
+      expect(await storedCursor(state)).toBe("200")
     } finally {
       await state.disconnect()
     }
@@ -535,7 +605,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const dispatch = vi.fn()
       const client: GmailClient = async request => {
         if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: [{ message: { id: "archived" } }] }] }
@@ -544,7 +614,78 @@ describe("gmail() Channel", () => {
       }
       await syncGmailMailbox({ bodyLimit: 1000, client, dispatch, notificationHistoryId: "200", state: { keyPrefix: "mail:", state } })
       expect(dispatch).not.toHaveBeenCalled()
+      expect(await storedCursor(state)).toBe("200")
+    } finally { await state.disconnect() }
+  })
+
+  it("continues from the cursor of an earlier version and keeps writing it for that version", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      await state.set("mail:history-id", "100")
+      const client = vi.fn<GmailClient>(async () => ({ historyId: "200" }))
+      await syncGmailMailbox({ bodyLimit: 1000, client, dispatch: vi.fn(), notificationHistoryId: "200", state: { keyPrefix: "mail:", state } })
+      expect(client.mock.calls.map(([request]) => `${request.path} ${request.query?.startHistoryId}`)).toEqual(["history 100"])
+      expect(await storedCursor(state)).toBe("200")
+      // An app that pins an earlier version again continues from here.
       expect(await state.get("mail:history-id")).toBe("200")
+    } finally { await state.disconnect() }
+  })
+
+  it("reads history after it clears a pending mark, even when its own notification is covered", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const google = await createGoogle()
+      google.history.set("105", { historyId: "110", ids: ["m1"] })
+      await state.set("mail:mailbox", { historyId: "100" })
+      let busy = true
+      // Push B (105) finds the lock busy. Before its retry, the holder advances the cursor to 105, push C (110, new mail)
+      // marks a pending sync and gets 204, and the holder releases the lock.
+      const contended = new Proxy(state, {
+        get(target, property) {
+          if (property === "acquireLock" && busy) return async () => {
+            busy = false
+            await target.set("mail:mailbox", { historyId: "105" })
+            await target.set("mail:sync-pending", true)
+            return null
+          }
+          const value: unknown = Reflect.get(target, property, target)
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      })
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      await syncGmailMailbox({
+        bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+        dispatch, notificationHistoryId: "105", state: { keyPrefix: "mail:", state: contended },
+      })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("110")
+      expect(await state.get("mail:sync-pending")).toBeNull()
+    } finally { await state.disconnect() }
+  })
+
+  it("starts a new cursor when the credentials belong to another mailbox", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      const google = await createGoogle()
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      await state.set("mail:mailbox", { historyId: "500", mailbox: "max@example.com" })
+      const cursors = new Map<string, string>()
+      const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
+      const options = {
+        bodyLimit: 1000, client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+        cursors, dispatch, state: { keyPrefix: "mail:", state },
+      }
+      // The old mailbox's cursor is in State and in process memory.
+      await syncGmailMailbox({ ...options, mailbox: "max@example.com", notificationHistoryId: "400" })
+      // The other mailbox has smaller history IDs. Its first push starts its own cursor.
+      await syncGmailMailbox({ ...options, mailbox: "other@example.com", notificationHistoryId: "100" })
+      await expect(state.get("mail:mailbox")).resolves.toMatchObject({ historyId: "100", mailbox: "other@example.com" })
+      await syncGmailMailbox({ ...options, mailbox: "other@example.com", notificationHistoryId: "105" })
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("105")
     } finally { await state.disconnect() }
   })
 
@@ -552,7 +693,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       let fail = true
       const error = Object.assign(new Error("Metadata temporarily unavailable"), { status: 503 })
       const client = vi.fn<GmailClient>(async request => {
@@ -565,14 +706,15 @@ describe("gmail() Channel", () => {
       const dispatch = vi.fn(async (messages: readonly { id: string }[]) => ({ failed: 0, items: [], nextCursor: null, processed: messages.length, skipped: 0 }))
       const sync = { bodyLimit: 1000, client, dispatch, notificationHistoryId: "200", state: { keyPrefix: "mail:", state } }
       await expect(syncGmailMailbox(sync)).rejects.toBe(error)
-      expect(await state.get("mail:history-id")).toBe("100")
+      expect(await storedCursor(state)).toBe("100")
       expect(dispatch).not.toHaveBeenCalled()
       fail = false
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledTimes(1)
-      expect(await state.get("mail:history-id")).toBe("200")
-      expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.startHistoryId)).toEqual(["100", "200"])
-      expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.historyTypes)).toEqual([["messageAdded"], ["messageAdded"]])
+      expect(await storedCursor(state)).toBe("200")
+      // The resumed sync reached the notification's history ID, so it does not read history again.
+      expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.startHistoryId)).toEqual(["100"])
+      expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.historyTypes)).toEqual([["messageAdded"]])
     } finally { await state.disconnect() }
   })
 
@@ -580,7 +722,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const client: GmailClient = async request => {
         if (request.path === "history" && request.query?.startHistoryId === "200") return { historyId: "200" }
         if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: ["broken", "next"].map(id => ({ message: { id } })) }] }
@@ -597,7 +739,7 @@ describe("gmail() Channel", () => {
       const sync = { bodyLimit: 1000, client, dispatch, maxAttempts: 3, notificationHistoryId: "200", state: binding }
       for (const attempts of [1, 2]) {
         await expect(syncGmailMailbox(sync)).rejects.toThrow("HTTP 500")
-        expect(await state.get("mail:history-id")).toBe("100")
+        expect(await storedCursor(state)).toBe("100")
         await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({
           error: "Gmail GET messages/broken failed with HTTP 500: Backend Error.",
           failures: attempts,
@@ -610,7 +752,7 @@ describe("gmail() Channel", () => {
       expect(delivered).toEqual([])
       await syncGmailMailbox(sync)
       expect(delivered).toEqual(["next"])
-      expect(await state.get("mail:history-id")).toBe("200")
+      expect(await storedCursor(state)).toBe("200")
       const status = await readGmailChannelStatus(binding)
       expect(status).toMatchObject({
         failures: 0,
@@ -631,7 +773,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       let rateLimited = true
       const client: GmailClient = async request => {
         if (request.path === "history" && request.query?.startHistoryId === "200") return { historyId: "200" }
@@ -653,14 +795,14 @@ describe("gmail() Channel", () => {
       await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ failures: 1, retrying: [] })
       // A failed dispatch keeps the cursor without throwing.
       await syncGmailMailbox(sync)
-      expect(await state.get("mail:history-id")).toBe("100")
+      expect(await storedCursor(state)).toBe("100")
       const retrying = await readGmailChannelStatus(binding)
       expect(retrying).toMatchObject({ failures: 2, retrying: [{ attempts: 1, id: "m1" }], status: "failing" })
       expect(retrying.retrying[0]!.error).toBe("The Invocation failed.")
       expect(retrying.retrying[0]!.error).not.toContain("sk-secret")
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledTimes(2)
-      expect(await state.get("mail:history-id")).toBe("200")
+      expect(await storedCursor(state)).toBe("200")
       await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ failures: 0, retrying: [], skipped: [{ attempts: 2, id: "m1" }], status: "ok" })
     } finally { await state.disconnect() }
   })
@@ -669,12 +811,11 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
       const progress = {
-        startHistoryId: "100", historyId: "200", mode: "history", pageLoaded: true, done: false,
+        historyId: "200", mode: "history", pageLoaded: true, done: false,
         pendingIds: ["m1"], retryIds: [], attempts: { m1: { attempts: 1, error: "Earlier body fetch failure" } },
       }
-      await state.set("mail:sync-progress", progress)
+      await state.set("mail:mailbox", { historyId: "100", progress })
       let refreshFails = true
       const fetch: typeof globalThis.fetch = async input => {
         if (String(input) === "https://oauth2.googleapis.com/token") {
@@ -696,15 +837,15 @@ describe("gmail() Channel", () => {
       }
       for (let attempt = 0; attempt < 3; attempt++) {
         await expect(syncGmailMailbox(sync)).rejects.toThrow(failure === "network" ? "Token endpoint unavailable" : "token refresh failed")
-        expect(await state.get("mail:history-id")).toBe("100")
-        expect(await state.get("mail:sync-progress")).toEqual(progress)
+        expect(await storedCursor(state)).toBe("100")
+        expect(await storedProgress(state)).toEqual(progress)
         expect((await readGmailChannelStatus(binding)).skipped).toEqual([])
       }
       expect(dispatch).not.toHaveBeenCalled()
       refreshFails = false
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledTimes(1)
-      expect(await state.get("mail:history-id")).toBe("200")
+      expect(await storedCursor(state)).toBe("200")
       await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ failures: 0, retrying: [], skipped: [] })
     } finally { await state.disconnect() }
   })
@@ -713,7 +854,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const binding = { keyPrefix: "mail:", state }
       const options = { bodyLimit: 1000, notificationHistoryId: "200", state: binding,
         dispatch: async () => ({ failed: 0, items: [], nextCursor: null, processed: 0, skipped: 0 }) }
@@ -724,7 +865,7 @@ describe("gmail() Channel", () => {
         await release(lock)
         if (lock.threadId === "mail:sync" && !newerRan) {
           newerRan = true
-          await expect(syncGmailMailbox({ ...options, client: failingClient })).rejects.toThrow("Mailbox unavailable")
+          await expect(syncGmailMailbox({ ...options, client: failingClient, notificationHistoryId: "300" })).rejects.toThrow("Mailbox unavailable")
         }
       })
       const earlier = syncGmailMailbox({ ...options, client: earlierFails ? failingClient : async () => ({ historyId: "200" }) })
@@ -746,22 +887,22 @@ describe("gmail() Channel", () => {
     const blocked = new Promise<void>(resolve => { reading = resolve })
     let earlier: Promise<void> | undefined
     try {
-      await state.set("mail:history-id", "100")
-      const get = state.get.bind(state)
+      await state.set("mail:mailbox", { historyId: "100" })
+      const mutateWithLock = state.mutateWithLock.bind(state)
       let first = true
-      vi.spyOn(state, "get").mockImplementation(async <T>(key: string) => {
-        if (key === "mail:sync-health" && first) {
+      vi.spyOn(state, "mutateWithLock").mockImplementation(async (lock, mutations) => {
+        if (first && JSON.stringify(mutations).includes('"health"')) {
           first = false
           reading()
           await gate
         }
-        return get<T>(key)
+        return await mutateWithLock(lock, mutations)
       })
       const binding = { keyPrefix: "mail:", state }
       const options = { bodyLimit: 1000, notificationHistoryId: "200", state: binding, dispatch: vi.fn() }
       earlier = expect(syncGmailMailbox({ ...options, client: async () => { throw new Error("Earlier failure") } })).rejects.toThrow("Earlier failure")
       await blocked
-      // Simulate expiry while the first owner is waiting for its health read.
+      // Simulate expiry while the first owner is about to write its health.
       await state.forceReleaseLock("mail:sync")
       await expect(syncGmailMailbox({ ...options, client: async () => { throw new Error("Newer failure") } })).rejects.toThrow("Newer failure")
       resume()
@@ -774,7 +915,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const unsupported = { id: "unsupported", threadId: "thread-unsupported", labelIds: ["INBOX"], payload: {
         mimeType: "text/plain", headers: [{ name: "Content-Type", value: `text/plain; charset=${charset}` }], body: { data: base64Url("Fallback café") },
       } }
@@ -791,8 +932,8 @@ describe("gmail() Channel", () => {
         return { failed: 0, items: [], nextCursor: null, processed: batch.length, skipped: 0 }
       } })
       expect(delivered).toEqual(["unsupported", "next"])
-      expect(await state.get("mail:history-id")).toBe("200")
-      expect(await state.get("mail:sync-progress")).toBeNull()
+      expect(await storedCursor(state)).toBe("200")
+      expect(await storedProgress(state)).toBeNull()
     } finally { await state.disconnect() }
   })
 
@@ -802,7 +943,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const mailbox = [apiMessage("m1", "First"), apiMessage("m2", "Second"), apiMessage("m3", "Third"), apiMessage("sent", "Sent")]
       mailbox[3]!.labelIds = ["SENT"]
       const delivered: string[] = []
@@ -837,7 +978,7 @@ describe("gmail() Channel", () => {
         },
       })
       expect(delivered).toEqual(["m1", "m2", "m3"])
-      expect(await state.get("mail:history-id")).toBe("300")
+      expect(await storedCursor(state)).toBe("300")
       expect(listings).toHaveLength(4)
       if (mode === "recovery") {
         expect(listings[0]?.query).toMatch(/^after:\d+$/)
@@ -857,7 +998,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       const ids = Array.from({ length: 6 }, (_, index) => `m${index + 1}`)
       google.history.set("100", { historyId: "110", ids })
       google.history.set("110", { historyId: "110", ids: [] })
@@ -899,12 +1040,12 @@ describe("gmail() Channel", () => {
       }
       await expect(syncGmailMailbox(sync)).rejects.toBe(failure)
       expect([...delivered]).toEqual(ids.slice(0, failureKind === "body" ? 5 : 2))
-      expect(await state.get("mail:history-id")).toBe("100")
+      expect(await storedCursor(state)).toBe("100")
       await syncGmailMailbox(sync)
       expect([...delivered]).toEqual(ids)
       expect(bodyFetches).toEqual(failureKind === "body" ? [...ids, "m6"] : [...ids.slice(0, 5), ...ids.slice(2)])
-      expect(await state.get("mail:history-id")).toBe(mode === "history" ? "110" : "300")
-      expect(await state.get("mail:sync-progress")).toBeNull()
+      expect(await storedCursor(state)).toBe(mode === "history" ? "110" : "300")
+      expect(await storedProgress(state)).toBeNull()
     }
     finally {
       await state.disconnect()
@@ -915,7 +1056,7 @@ describe("gmail() Channel", () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
-      await state.set("mail:history-id", "100")
+      await state.set("mail:mailbox", { historyId: "100" })
       let retrying = false
       const delivered: string[] = []
       const bodies: string[] = []
@@ -951,8 +1092,8 @@ describe("gmail() Channel", () => {
       await syncGmailMailbox(sync)
       expect(delivered).toEqual(["m1", "m2"])
       expect(bodies).toEqual(["m1", "m2"])
-      expect(await state.get("mail:history-id")).toBe("300")
-      expect(await state.get("mail:sync-progress")).toBeNull()
+      expect(await storedCursor(state)).toBe("300")
+      expect(await storedProgress(state)).toBeNull()
       expect(await state.get("mail:sync-seen-ids")).toBeNull()
       if (mode !== "history-token") {
         expect(profileReads).toBe(1)
@@ -962,12 +1103,52 @@ describe("gmail() Channel", () => {
     finally { await state.disconnect() }
   })
 
-  it("discards progress from another cursor and retries archived recovery failures", async () => {
+  it("migrates unfinished legacy syncs and retries archived dispatches", async () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
     try {
+      const progress = {
+        startHistoryId: "100", historyId: "200", mode: "history", pageLoaded: false, done: true,
+        pendingIds: [], retryIds: ["m1"], attempts: { m1: { attempts: 1, error: "The Invocation failed." } },
+      }
       await state.set("mail:history-id", "100")
-      await state.set("mail:sync-progress", { startHistoryId: "old", pendingIds: ["wrong-message"] })
+      await state.set("mail:sync-progress", progress)
+      await state.set("mail:sync-seen-ids", ["m1"])
+      const client: GmailClient = async request => {
+        if (request.path === "history") return { historyId: "200", history: [{ messagesAdded: [{ message: { id: "m1" } }] }] }
+        if (request.query?.format === "minimal") return { labelIds: [] }
+        return { ...apiMessage("m1", "Archived failed dispatch"), labelIds: [] }
+      }
+      let failed = true
+      const dispatch = vi.fn(async () => {
+        // The old cursor key stays for apps that pin an earlier version again.
+        expect(await state.get("mail:history-id")).toBe("100")
+        expect(await state.get("mail:sync-progress")).toBeNull()
+        expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"], attempts: progress.attempts })
+        expect(await state.get("mail:sync-seen-ids")).toEqual(["m1"])
+        return { failed: failed ? 1 : 0, items: [], nextCursor: null, processed: failed ? 0 : 1, skipped: 0 }
+      })
+      const sync = { bodyLimit: 1000, client, dispatch, notificationHistoryId: "200", state: { keyPrefix: "mail:", state } }
+      await syncGmailMailbox(sync)
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(await storedCursor(state)).toBe("100")
+      expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"], attempts: { m1: { attempts: 2 } } })
+      failed = false
+      dispatch.mockImplementation(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+      await syncGmailMailbox(sync)
+      expect(dispatch).toHaveBeenCalledTimes(2)
+      expect(await storedCursor(state)).toBe("200")
+      expect(await storedProgress(state)).toBeNull()
+      expect(await state.get("mail:sync-seen-ids")).toBeNull()
+    }
+    finally { await state.disconnect() }
+  })
+
+  it("ignores seen IDs without a checkpoint and retries archived recovery failures", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    try {
+      await state.set("mail:mailbox", { historyId: "100" })
       await state.set("mail:sync-seen-ids", ["m1"])
       const message = apiMessage("m1", "First")
       const client: GmailClient = async request => {
@@ -986,13 +1167,13 @@ describe("gmail() Channel", () => {
       const sync = { bodyLimit: 1000, client, dispatch, notificationHistoryId: "300", state: { keyPrefix: "mail:", state } }
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledOnce()
-      expect(await state.get("mail:history-id")).toBe("100")
-      expect(await state.get("mail:sync-progress")).toMatchObject({ startHistoryId: "100", retryIds: ["m1"] })
+      expect(await storedCursor(state)).toBe("100")
+      expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"] })
       failed = false
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledTimes(2)
-      expect(await state.get("mail:history-id")).toBe("300")
-      expect(await state.get("mail:sync-progress")).toBeNull()
+      expect(await storedCursor(state)).toBe("300")
+      expect(await storedProgress(state)).toBeNull()
       expect(await state.get("mail:sync-seen-ids")).toBeNull()
     }
     finally { await state.disconnect() }
@@ -1019,20 +1200,20 @@ describe("gmail() Channel", () => {
       notificationHistoryId: "105",
       state: { keyPrefix: "mail:", state },
     }
-    await state.set("mail:history-id", "100")
+    await state.set("mail:mailbox", { historyId: "100" })
     const push = syncGmailMailbox(sync)
     try {
       await entered
       await expect(syncGmailMailbox({ ...sync, throwOnDispatchFailure: true })).rejects.toThrow("already running")
       release()
       await push
-      expect(await state.get("mail:history-id")).toBe("100")
-      expect(await state.get("mail:sync-progress")).toMatchObject({ retryIds: ["m1"] })
+      expect(await storedCursor(state)).toBe("100")
+      expect(await storedProgress(state)).toMatchObject({ retryIds: ["m1"] })
       const retry = vi.fn(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
       await syncGmailMailbox({ ...sync, dispatch: retry, throwOnDispatchFailure: true })
       expect(retry).toHaveBeenCalledOnce()
-      expect(await state.get("mail:history-id")).toBe("105")
-      expect(await state.get("mail:sync-progress")).toBeNull()
+      expect(await storedCursor(state)).toBe("105")
+      expect(await storedProgress(state)).toBeNull()
     }
     finally {
       release()
@@ -1050,7 +1231,7 @@ describe("gmail() Channel", () => {
     await second.connect()
     const google = await createGoogle()
     google.history.set("100", { historyId: "105", ids: ["m1"] })
-    await first.set("mail:history-id", "100")
+    await first.set("mail:mailbox", { historyId: "100" })
     let release!: () => void
     let started!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
@@ -1090,7 +1271,7 @@ describe("gmail() Channel", () => {
       release()
       expect(await settled).toBe(failure)
       expect(delivered).toContain("m2")
-      expect(await second.get("mail:history-id")).toBe("110")
+      expect(await storedCursor(second)).toBe("110")
       expect(await second.get("mail:sync-pending")).toBeNull()
     }
     finally {
@@ -1102,11 +1283,11 @@ describe("gmail() Channel", () => {
     }
   })
 
-  it("retains overlapping notifications through a dispatch longer than the lease TTL", async () => {
+  it("keeps an overlapping notification pending through a dispatch longer than the deadline", async () => {
     const google = await createGoogle()
     google.history.set("100", { historyId: "105", ids: ["m1"] })
     google.history.set("105", { historyId: "110", ids: ["m2"] })
-    const values = new Map<string, { value: unknown, expires?: number }>([["mail:history-id", { value: "100" }]])
+    const values = new Map<string, { value: unknown, expires?: number }>([["mail:mailbox", { value: { historyId: "100" } }]])
     let lock: Lock | undefined
     const adapter: unknown = {
       acquireLock: async (key: string, ttl: number) => {
@@ -1149,16 +1330,21 @@ describe("gmail() Channel", () => {
     try {
       await Promise.race([running, sync])
       await syncGmailMailbox({ ...options, notificationHistoryId: "110" })
-      await vi.advanceTimersByTimeAsync(11 * 60_000)
+      await vi.advanceTimersByTimeAsync(4.5 * 60_000)
       release()
-      await sync
+      await expect(sync).resolves.toEqual({ finished: false })
+      // The sync used its time budget, so the pending notification waits for the next sync.
+      expect(dispatch).toHaveBeenCalledOnce()
+      expect(values.get("mail:mailbox")?.value).toMatchObject({ historyId: "105" })
+      expect(values.has("mail:sync-pending")).toBe(true)
+      await syncGmailMailbox({ ...options, notificationHistoryId: "111" })
       expect(dispatch).toHaveBeenCalledTimes(2)
-      expect(values.get("mail:history-id")?.value).toBe("110")
+      expect(values.get("mail:mailbox")?.value).toMatchObject({ historyId: "110" })
       expect(values.has("mail:sync-pending")).toBe(false)
     } finally { release(); await sync.catch(() => undefined); vi.useRealTimers() }
   })
 
-  it.each(["matches", "foreign", "failure"] as const)("acknowledges a cold %s mailbox before its profile lookup finishes", async result => {
+  it.each(["matches", "foreign", "failure"] as const)("checks a cold %s mailbox before it answers", async result => {
     stubGmailEnv()
     const google = await createGoogle()
     let release!: () => void
@@ -1175,36 +1361,133 @@ describe("gmail() Channel", () => {
     })
     const errors = vi.spyOn(console, "error").mockImplementation(() => {})
     const driver = vi.fn(() => "ok")
-    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: driver }, name: `ack-profile-${result}` })
+    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: driver }, name: `cold-profile-${result}` })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const tasks: Promise<unknown>[] = []
-    let response: Response | undefined
-    const request = new Request(audience, {
-      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: result === "foreign" ? "other@example.com" : "max@example.com", historyId: 100 })), messageId: "profile-push" }, subscription }),
+    const push = async (emailAddress: string, historyId: number) => await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress, historyId })), messageId: `profile-${historyId}` }, subscription }),
       headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
-    })
-    const delivery = handler(request, "gmail", { agentName: `ack-profile-${result}`, waitUntil: task => void tasks.push(task) }).then(value => { response = value; return value })
+    }), "gmail", { agentName: `cold-profile-${result}`, waitUntil: vi.fn() })
+    let response: Response | undefined
+    const delivery = push(result === "foreign" ? "other@example.com" : "max@example.com", 100).then(value => { response = value; return value })
     try {
-      await vi.waitFor(() => expect(response?.status).toBe(204))
-      expect(driver).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(vi.mocked(client)).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      expect(response).toBeUndefined()
       release()
-      await delivery
-      await Promise.all(tasks)
+      expect((await delivery).status).toBe({ failure: 503, foreign: 400, matches: 204 }[result])
       expect(vi.mocked(client).mock.calls.map(([request]) => request.path)).toEqual(result === "matches" ? ["profile", "watch"] : ["profile"])
+      if (result === "failure") expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
       if (result !== "matches") {
-        expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
+        // Pub/Sub sends a failed notification again. A rejected or failed one did not initialize a cursor.
         profileFailed = false
-        const retry = await handler(new Request(audience, {
-          body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: 200 })), messageId: "profile-retry" }, subscription }),
-          headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
-        }), "gmail", { agentName: `ack-profile-${result}`, waitUntil: task => void tasks.push(task) })
-        await Promise.all(tasks)
-        expect(retry.status).toBe(204)
-        // A failed/foreign lookup did not initialize a cursor: retry initializes
-        // from its own notification instead of requesting Gmail history.
+        expect((await push("max@example.com", 100)).status).toBe(204)
         expect(vi.mocked(client).mock.calls.map(([request]) => request.path)).toEqual(["profile", "profile", "watch"])
       }
-    } finally { release(); await delivery; await Promise.all(tasks); errors.mockRestore() }
+      expect(driver).not.toHaveBeenCalled()
+    } finally { release(); await delivery; errors.mockRestore() }
+  })
+
+  it("answers a push after its sync: 503 when it fails or another sync runs, 204 when a sync covers it", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    let historyFails = true
+    let holdHistory = false
+    let release!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const running = new Promise<void>(resolve => { entered = resolve })
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/history")) {
+        if (historyFails) return Response.json({ error: { code: 500, message: "Backend Error" } }, { status: 500 })
+        if (holdHistory) {
+          holdHistory = false
+          entered()
+          await gate
+        }
+      }
+      return await google.fetch(input, init)
+    }
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    const driver = vi.fn(() => "ok")
+    const agent = defineAgent({ channels: { gmail: gmail({ fetch }) }, driver: { run: driver }, name: "answer-after-sync" })
+    const handler = await createDurableGmailWebhookHandler(agent)
+    const push = async (historyId: number) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `answer-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+    }), "gmail", { agentName: "answer-after-sync", waitUntil: vi.fn() })).status
+    try {
+      expect(await push(100)).toBe(204)
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      expect(await push(105)).toBe(503)
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
+      expect(driver).not.toHaveBeenCalled()
+      // Pub/Sub sends the failed notification again. A push during that sync marks it pending and gets 503.
+      historyFails = false
+      holdHistory = true
+      const retry = push(105)
+      await running
+      expect(await push(106)).toBe(503)
+      release()
+      expect(await retry).toBe(204)
+      expect(driver).toHaveBeenCalledOnce()
+      expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100", "105"])
+      // The running sync read once more for it, so its next delivery is covered.
+      expect(await push(106)).toBe(204)
+    } finally { release(); errors.mockRestore() }
+  })
+
+  it("answers a covered push with a custom client without a Gmail or State request", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const broker = gmailClientFromSettings({ clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" }, google.fetch)
+    const gmailRequests: string[] = []
+    const client: GmailClient = async (request) => {
+      gmailRequests.push(request.path)
+      return await broker(request)
+    }
+    const { requests, state } = countingCloudflareState()
+    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: () => "ok" }, name: "covered-broker" })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const push = async (historyId: number) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "Max@example.com", historyId })), messageId: `covered-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+    }), "gmail", { agentName: "covered-broker", waitUntil: vi.fn(), webhookState: () => state })).status
+    expect(await push(100)).toBe(204)
+    google.history.set("100", { historyId: "105", ids: [] })
+    expect(await push(105)).toBe(204)
+    gmailRequests.length = 0
+    // Pub/Sub sends the notification again: the custom client could change mailboxes, but a covered push does no work.
+    expect(await requests(async () => expect(await push(105)).toBe(204))).toEqual([])
+    expect(gmailRequests).toEqual([])
+    // A newer notification still checks the mailbox before it syncs.
+    expect(await push(106)).toBe(204)
+    expect(gmailRequests).toEqual(["profile", "history"])
+  })
+
+  it("saves a checkpoint after the push time budget and continues on the next delivery", async () => {
+    stubGmailEnv()
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      const google = await createGoogle()
+      // Each Invocation takes 3 seconds of the 5 second push budget.
+      const driver = vi.fn(({ input }: { input: { prompt?: unknown } }) => {
+        vi.setSystemTime(Date.now() + 3_000)
+        return String(input.prompt)
+      })
+      const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch, prompt: message => message.id }) }, driver: { run: driver }, name: "push-budget" })
+      const handler = await createDurableGmailWebhookHandler(agent)
+      const push = async (historyId: number) => (await handler(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `budget-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+      }), "gmail", { agentName: "push-budget", waitUntil: vi.fn() })).status
+      expect(await push(100)).toBe(204)
+      google.history.set("100", { historyId: "105", ids: ["m1", "m2", "m3"] })
+      expect(await push(105)).toBe(503)
+      expect(driver.mock.calls.map(([{ input }]) => input.prompt)).toEqual(["m1", "m2"])
+      // Pub/Sub sends the same notification again, and the push continues from the checkpoint.
+      expect(await push(105)).toBe(204)
+      expect(driver.mock.calls.map(([{ input }]) => input.prompt)).toEqual(["m1", "m2", "m3"])
+    }
+    finally { vi.useRealTimers() }
   })
 
   it.each(["default", "injected"] as const)("refreshes OAuth credentials after client secret rotation with %s fetch", async transport => {
@@ -1285,18 +1568,20 @@ describe("gmail() Channel", () => {
     try {
       expect((await push("max@example.com", 100)).status).toBe(204)
       current = gmailClientFromSettings({ ...credentials, refreshToken: "rotated-token" }, second.fetch)
-      second.history.set("100", { historyId: "110", ids: ["m1"] })
-      expect((await push(notification === "current" ? "other@example.com" : "max@example.com", 110)).status).toBe(204)
+      second.history.set("110", { historyId: "115", ids: ["m1"] })
+      expect((await push(notification === "current" ? "other@example.com" : "max@example.com", 110)).status).toBe(notification === "current" ? 204 : 400)
       expect(second.calls.filter(call => call.path === "profile")).toHaveLength(1)
-      expect(driver).toHaveBeenCalledTimes(notification === "current" ? 1 : 0)
       if (notification === "stale") {
         expect(second.calls.map(call => call.path)).toEqual(["profile"])
-        expect(errors).toHaveBeenCalledWith(expect.stringContaining("Gmail notification belongs to another mailbox."))
-        // The stale notification did not advance the cursor or dispatch the current mailbox's message.
+        // The stale notification did not start a cursor for the current mailbox.
         expect((await push("other@example.com", 110)).status).toBe(204)
-        expect(second.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100"])
-        expect(driver).toHaveBeenCalledOnce()
       }
+      // The other mailbox starts its own cursor, because history IDs of two mailboxes cannot be compared.
+      expect(second.calls.filter(call => call.path === "history")).toEqual([])
+      expect(driver).not.toHaveBeenCalled()
+      expect((await push("other@example.com", 115)).status).toBe(204)
+      expect(second.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["110"])
+      expect(driver).toHaveBeenCalledOnce()
     }
     finally { errors.mockRestore() }
   })
@@ -1329,14 +1614,11 @@ describe("gmail() Channel", () => {
     const google = await createGoogle()
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const prompts: string[] = []
-    let releaseDriver!: () => void
-    const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
 
     const agent = defineAgent({
       channels: { gmail: gmail({ fetch: google.fetch }) },
       driver: {
-        run: async ({ input }) => {
-          await driverGate
+        run: ({ input }) => {
           prompts.push(String(input.prompt))
           return "ok"
         },
@@ -1345,7 +1627,7 @@ describe("gmail() Channel", () => {
       name: "labeller",
     })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const push = async (historyId: string, options: { authorization?: string, subscription?: string, emailAddress?: string, onResponse?: () => void } = {}) => {
+    const push = async (historyId: string, options: { authorization?: string, subscription?: string, emailAddress?: string } = {}) => {
       const tasks: Promise<unknown>[] = []
       const response = await handler(new Request(audience, {
         body: JSON.stringify({
@@ -1355,7 +1637,6 @@ describe("gmail() Channel", () => {
         headers: { authorization: options.authorization ?? `Bearer ${await google.token()}`, "content-type": "application/json" },
         method: "POST",
       }), "gmail", { agentName: "labeller", waitUntil: task => void tasks.push(task) })
-      options.onResponse?.()
       await Promise.all(tasks)
       return response
     }
@@ -1364,7 +1645,7 @@ describe("gmail() Channel", () => {
     expect((await push("100", { authorization: "Bearer forged" })).status).toBe(401)
     expect((await push("100", { subscription: "projects/example/subscriptions/other" })).status).toBe(400)
 
-    expect((await push("999", { emailAddress: "other@example.com" })).status).toBe(204)
+    expect((await push("999", { emailAddress: "other@example.com" })).status).toBe(400)
     expect(google.calls.filter(call => call.path === "history")).toHaveLength(0)
 
     // The first notification starts the cursor. Earlier mail belongs to replay.
@@ -1374,7 +1655,7 @@ describe("gmail() Channel", () => {
     expect(google.calls.filter(call => call.path === "profile")).toHaveLength(1)
 
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
-    expect((await push("105", { onResponse: releaseDriver })).status).toBe(204)
+    expect((await push("105")).status).toBe(204)
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain("Subject: Invoice")
     expect(prompts[1]).toContain("Hello Receipt")
@@ -1393,7 +1674,8 @@ describe("gmail() Channel", () => {
 
     // The first sync with a topic starts the watch; later syncs keep it until it is due.
     expect(google.writes().filter(write => write === "POST watch")).toHaveLength(1)
-    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("labelId"))).toEqual([null, null, null])
+    // A redelivered notification reads no history.
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("labelId"))).toEqual([null, null])
   })
 
   it("polls the mailbox from a Schedule without Pub/Sub and shares the cursor with push", async () => {
@@ -1452,6 +1734,47 @@ describe("gmail() Channel", () => {
     expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305", "310"])
 
     await expect(pollGmailChannel(gmail({ fetch: google.fetch }))).rejects.toThrow("found no Agent that uses this Channel")
+  })
+
+  it("sends few Durable Object requests for a push or poll that finds no new mail", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const { requests, state } = countingCloudflareState()
+    const run = vi.fn(() => "ok")
+    const routeOptions = { agentName: "labeller", webhookState: () => state }
+    const labeller = () => {
+      const inbox = gmail({ fetch: google.fetch })
+      const agent = defineAgent({ channels: { gmail: inbox }, driver: { run }, invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), name: "labeller" })
+      return { agent, handler: createChannelWebhookRouteHandler(agent), inbox }
+    }
+    const { agent, handler, inbox } = labeller()
+    installChannelsConsoleHost({ agents: { labeller: agent }, handlers: { labeller: handler }, options: () => routeOptions })
+    const push = async (historyId: number, route = handler) => await requests(async () => {
+      const tasks: Promise<unknown>[] = []
+      const response = await route(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `cost-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+      }), "gmail", { ...routeOptions, waitUntil: task => void tasks.push(task) })
+      await Promise.all(tasks)
+      expect(response.status).toBe(204)
+    })
+
+    await push(100)
+    // Pub/Sub sends the notification again, or Gmail notifies about a change that the last sync already read.
+    const notNewer = await push(100)
+    google.history.set("100", { historyId: "105", ids: [] })
+    // The labeller's own label changes notify, but add no message.
+    const nothingNew = await push(105)
+    const pollNothingNew = await requests(() => pollGmailChannel(inbox))
+    google.history.set("105", { historyId: "110", ids: ["m1"] })
+    const oneNewMessage = await push(110)
+    // A new Worker isolate does not remember the cursor, so it reads it once.
+    const notNewerInNewProcess = await push(110, labeller().handler)
+    expect(run).toHaveBeenCalledOnce()
+    const calls = { notNewer, notNewerInNewProcess, nothingNew, pollNothingNew, oneNewMessage }
+    expect(Object.fromEntries(Object.entries(calls).map(([name, list]) => [name, list.length])), JSON.stringify(calls)).toEqual({
+      notNewer: 0, notNewerInNewProcess: 1, nothingNew: 6, pollNothingNew: 6, oneNewMessage: 8,
+    })
   })
 
   it("preserves the polling runtime and reads Gmail credentials from Server Env with its Cloudflare bindings", async () => {
@@ -1631,19 +1954,14 @@ describe("gmail() Channel", () => {
       name: agentName,
     })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const push = async () => {
-      const tasks: Promise<unknown>[] = []
-      const response = await handler(new Request(audience, {
-        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: "105" })), messageId: "paged-recovery" }, subscription }),
-        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
-        method: "POST",
-      }), "gmail", { agentName, waitUntil: task => void tasks.push(task) })
-      expect(response.status).toBe(204)
-      return tasks
-    }
-    await Promise.all(await push())
+    const push = async (historyId: string) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `paged-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
+      method: "POST",
+    }), "gmail", { agentName, waitUntil: vi.fn() })).status
+    expect(await push("105")).toBe(204)
     if (mode === "recovery") google.expiredHistory.add("105")
-    const tasks = await push()
+    const interruptedPush = push("106")
     try {
       expect(await Promise.race([firstDispatch.then(() => "dispatch"), nextPage.then(() => "pagination")])).toBe("dispatch")
       await nextPage
@@ -1652,14 +1970,15 @@ describe("gmail() Channel", () => {
     }
     finally {
       releaseNextPage()
-      await Promise.all(tasks)
     }
-    await Promise.all(await push())
+    // The interrupted sync answers 503, so Pub/Sub sends the notification again.
+    expect(await interruptedPush).toBe(503)
+    expect(await push("107")).toBe(204)
     expect(prompts).toEqual(["m1", "m2"])
     expect(pages).toEqual([null, "page-2", "page-2"])
-    expect(historyCursors).toEqual(mode === "history" ? ["105", "105", "105", "300"] : ["105", "300"])
+    expect(historyCursors).toEqual(mode === "history" ? ["105", "105", "105"] : ["105"])
     expect(google.calls.filter(call => call.path === "messages/m1" && call.query.get("format") === "full")).toHaveLength(1)
-    await Promise.all(await push())
+    expect(await push("301")).toBe(204)
     expect(prompts).toEqual(["m1", "m2"])
     expect(historyCursors.at(-1)).toBe("300")
   })
@@ -1689,15 +2008,13 @@ describe("gmail() Channel", () => {
     const handler = createChannelWebhookRouteHandler(agent)
     const routeOptions = { agentName: "labeller", webhookState: () => state }
     installChannelsConsoleHost({ agents: { labeller: agent }, handlers: { labeller: handler }, options: () => routeOptions })
-    const push = async (historyId: string) => {
-      const tasks: Promise<unknown>[] = []
+    const push = async (historyId: string, status = 204) => {
       const response = await handler(new Request(audience, {
         body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `status-${historyId}` }, subscription }),
         headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
         method: "POST",
-      }), "gmail", { ...routeOptions, waitUntil: task => void tasks.push(task) })
-      expect(response.status).toBe(204)
-      await Promise.all(tasks)
+      }), "gmail", { ...routeOptions, waitUntil: vi.fn() })
+      expect(response.status).toBe(status)
     }
     const status = async () => await agentChannelOperations[4].run({ agent: "labeller", channel: "gmail" }, {
       access: { mode: "open", sections: "all" },
@@ -1709,7 +2026,7 @@ describe("gmail() Channel", () => {
     await push("100")
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
     if (mode === "poll") await expect(pollGmailChannel(inbox)).rejects.toThrow("HTTP 500")
-    else await push("105")
+    else await push("105", 503)
     await expect(status()).resolves.toMatchObject({ agent: "labeller", channel: "gmail", failures: 1, retrying: [{ attempts: 1, id: "m1" }], skipped: [] })
     if (mode === "poll") await pollGmailChannel(inbox)
     else await push("105")
@@ -1778,11 +2095,11 @@ describe("gmail() Channel", () => {
     await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [{ attempts: 1, error: "The Invocation failed.", id: "m1" }] })
     await push("105")
     await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [{ attempts: 2, id: "m1" }], status: "failing" })
-    expect(JSON.stringify(await state.get(`${binding.keyPrefix}sync-progress`))).not.toContain("Invoice")
+    expect(JSON.stringify(await storedProgress(state, binding.keyPrefix))).not.toContain("Invoice")
     await push("105")
     expect(driver).toHaveBeenCalledTimes(1)
     await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [], skipped: [{ attempts: 3, error: "The Invocation failed.", id: "m1" }], status: "ok" })
-    expect(await state.get(`${binding.keyPrefix}history-id`)).toBe("105")
+    expect(await storedCursor(state, binding.keyPrefix)).toBe("105")
     // Existing failed Invocations still deduplicate ordinary replay, and only a successful forced replay clears the entry.
     await expect(replayChannel(agent, "gmail", { query: { ids: ["m1"] } })).resolves.toMatchObject({ processed: 0, skipped: 1 })
     expect((await readGmailChannelStatus(binding)).skipped).toHaveLength(1)
@@ -1826,7 +2143,8 @@ describe("gmail() Channel", () => {
     fail = false
     await push("105")
     expect(prompts).toEqual(expired ? ["m1", "m3", "m2"] : ["m1", "m2"])
-    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100", expired ? "300" : "105"])
+    // The retry finished at or past the notification's history ID, so it reads no newer history.
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100"])
     expect(google.calls.filter(call => call.path === "messages/m1" && call.query.get("format") === "full")).toHaveLength(1)
     expect(google.calls.filter(call => call.path === "messages/m2" && call.query.get("format") === "full")).toHaveLength(2)
     if (expired) expect(google.calls.filter(call => call.path === "messages").map(call => call.query.get("pageToken"))).toEqual([null, "page-2"])
@@ -2004,7 +2322,7 @@ describe("gmail() Channel", () => {
     })
 
     const result = await replayChannel(agent, "gmail", { dryRun: true, limit: 1 })
-    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", status: "completed" }])
+    expect(result.items).toEqual([{ id: channelMessageRunId("gmail", "m1", { dryRun: true }), key: "m1", output: "Work", status: "completed" }])
     expect(subject).toBe("Invoice")
     expect(google.writes()).toEqual([])
     const record = await invocations.getByRunId(channelMessageRunId("gmail", "m1", { dryRun: true }), "labeller")
@@ -2324,6 +2642,32 @@ describe("gmail() Channel", () => {
     await expect(resolved({ method: "GET", path: "messages" })).resolves.toEqual({ messages: [] })
     expect(client).toHaveBeenCalledWith({ method: "GET", path: "messages" })
     await expect(gmailClient({ ...channel, kind: "http" })).rejects.toThrow(/expects a Channel from gmail/)
+  })
+
+  it("splits a label change into modify requests of at most 100 label IDs each", async () => {
+    const labels = Array.from({ length: 151 }, (_, index) => ({ id: `Label_${index}`, name: `L${index}` }))
+    const modifies: { addLabelIds: string[], removeLabelIds: string[] }[] = []
+    const agent = defineAgent({
+      channels: {
+        gmail: gmail({
+          async client(request) {
+            if (request.path === "labels") return { labels }
+            if (request.path === "messages/m9/modify") modifies.push(request.body as typeof modifies[number])
+            return {}
+          },
+        }),
+      },
+      driver: { run: () => "done" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.modify({ addLabels: ["L0"], removeLabels: labels.slice(1).map(label => label.name) })
+        },
+      },
+    })
+    const message = { attachments: [], body: "", cc: [], date: "", from: "ada@example.com", headers: {}, id: "m9", labelIds: ["INBOX"], snippet: "", subject: "Hello", threadId: "t9", to: [] }
+    await runAgentTrigger(agent, runtimeContext(), "gmail.received", message)
+    expect(modifies.map(body => [body.addLabelIds, body.removeLabelIds.length])).toEqual([[["Label_0"], 100], [[], 50]])
+    expect(modifies.flatMap(body => body.removeLabelIds)).toEqual(labels.slice(1).map(label => label.id))
   })
 
   it("runs a received message through a custom Gmail client", async () => {

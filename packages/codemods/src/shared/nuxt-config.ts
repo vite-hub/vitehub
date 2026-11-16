@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { findProperty, keyName, parseProgram, walk } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
-import { CodemodError } from "../types.ts"
+import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 
 import type { ArrayExpression, Expression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
 
@@ -23,9 +23,14 @@ export interface NuxtConfigFile {
   root: ObjectExpression
 }
 
+/** The file name of the project's nuxt.config, or `undefined` when it has none. */
+export function findNuxtConfigName(cwd: string): string | undefined {
+  return configNames.find(name => existsSync(join(cwd, name)))
+}
+
 export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
-  const fileName = configNames.find(name => existsSync(join(cwd, name)))
-  if (!fileName) throw new CodemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
+  const fileName = findNuxtConfigName(cwd)
+  if (!fileName) throw codemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
   const path = join(cwd, fileName)
   const code = await readFile(path, "utf8")
   let program: File
@@ -33,10 +38,10 @@ export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
     program = parseProgram(code)
   }
   catch (error) {
-    throw new CodemodError(`Cannot parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`)
+    throw codemodError(`Cannot parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`)
   }
   const root = findConfigObject(program)
-  if (!root) throw new CodemodError(`${fileName} must export an object literal, for example \`export default defineNuxtConfig({ ... })\`.`)
+  if (!root) throw codemodError(`${fileName} must export an object literal, for example \`export default defineNuxtConfig({ ... })\`.`)
   return { path, fileName, code, program, root }
 }
 
@@ -133,12 +138,12 @@ export async function loadNuxtConfig(path: string): Promise<Record<string, unkno
     const jiti = createJiti(path, { moduleCache: false, fsCache: false, interopDefault: false })
     const loaded = defaultExport(await jiti.import(path))
     const value: unknown = typeof loaded === "function" ? await Reflect.apply(loaded, undefined, []) : loaded
-    if (typeof value !== "object" || value === null) throw new CodemodError(`${path} did not export a config object.`)
+    if (typeof value !== "object" || value === null) throw codemodError(`${path} did not export a config object.`)
     return Object.fromEntries(Object.entries(value))
   }
   catch (error) {
-    if (error instanceof CodemodError) throw error
-    throw new CodemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
+    if (isCodemodError(error)) throw error
+    throw codemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
     if (hadPrevious) Reflect.set(globalThis, "defineNuxtConfig", previous)

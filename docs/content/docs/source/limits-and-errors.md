@@ -18,6 +18,8 @@ icon: i-lucide-circle-alert
 - `array()` Collections tie each cursor to the data digest and query. A cursor used after the data changed, or with another filter or search, returns HTTP `409` with `SOURCE_R0027`. Reload from the first page.
 - `array()` loads the whole array on each request. Keep it small enough to filter in memory, or use `table()`.
 - Collection `authorize` controls the whole route. It does not filter rows per user.
+- Each routed Collection must set `authorize` or `access: 'public'`. `access: 'public'` is the only way to make a route public.
+- A public Collection over `table()` must set `transform`, because `table()` selects every column.
 
 ## SOURCE_R0034
 

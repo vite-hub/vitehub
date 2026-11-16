@@ -15,7 +15,8 @@ Find the message you got, then apply the fix. Every CLI error code also has its 
 | --- | --- | --- |
 | `Unknown ViteHub CLI namespace` | The package plugin is missing or off. | Turn the feature on in the ViteHub options, or add the package's `hubX()` plugin to `vite.config.ts`. |
 | `Unknown Definition kind` | No active package has that kind. | Use a kind from the printed list, or turn the package on. |
-| `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider. |
+| `Provision requires --host cloudflare\|vercel` | The host flag is missing or misspelled. | Pass a supported provider. |
+| `Option --provider is now --host` | The command uses the old flag. | Run the command in the `fix:` line. |
 | Provision fails before applying actions | Provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or `VERCEL_TOKEN`. |
 | Provision dry run reports no actions | A package skipped the provider lookup because its read credentials are missing. | Set the provider credentials. `--dry-run` still never applies. |
 | Vercel Provision reports no Blob resources | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel-blob`. | Set the project id and the Vercel Blob driver, then run again. |

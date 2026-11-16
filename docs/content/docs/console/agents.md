@@ -114,4 +114,4 @@ The Console stores no invocations. It reads the app-wide journal of `@vite-hub/a
 
 A journal from `defineAgent({ invocations })` or [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) replaces it. The Console reads one combined journal, so every discovered Agent must use the same one, or setup fails. With `invocations: false` an Agent records no sessions, and `agent: { invocations: false }` leaves the Console with none.
 
-In production, you still decide how long to keep records that can hold sensitive data. To build your own inspection page, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace), and see [Agent Invocations](/docs/agents/invocations) for custom stores.
+In production, you still decide how long to keep records that can hold sensitive data. To build your own inspection page, use [AI components](/docs/ui/ai-components) such as [Trace](/docs/ui/trace), and see [Agent Invocations](/docs/agents/invocations) for custom stores.

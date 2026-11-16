@@ -13,16 +13,16 @@ icon: i-lucide-wrench
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { ToolList } from "@vite-hub/ui";
+import { ToolList } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
+import { ToolList, type AgentToolInspection } from "vite-hub/ui";
 ```
 
 ```vue

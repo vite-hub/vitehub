@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 const MAX_CURSOR_HISTORIES = 1_024
@@ -28,7 +30,7 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
   const historyTag = continuationTag([...history].join("\u0000"))
   const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, historyCount: history.size, historyTag }))
   const token = `vhc1:${nonce}:${payload}:${continuationTag(payload)}`
-  if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
+  invariant(token.length <= MAX_CONTINUATION_LENGTH, "a KV continuation cursor stays below 128 KiB, because provider cursors are far shorter")
   return token
 }
 

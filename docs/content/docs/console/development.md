@@ -11,57 +11,13 @@ In `vite dev` without a `console` option, the app serves the Operations endpoint
 
 ## Turn off signatures in development
 
-When the app sets `console: true`, set `console: { auth: false }` for the dev server only. It works like the local policy, and the build keeps signed calls:
+A dev server with `console: true` and no `VITEHUB_CONSOLE_KEY_<NAME>` answers unsigned calls from this machine, so you can keep `console: true` in every environment:
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    console: true,
-    kv: true,
-    host: 'node',
-  },
-  $development: {
-    vitehub: { console: { auth: false } },
-  },
-})
+```bash [Terminal]
+pnpm vitehub kv list
 ```
-:::
 
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig(({ command }) => ({
-  plugins: [vitehub({
-    console: command === 'serve' ? { auth: false } : true,
-    kv: true,
-    host: 'node',
-  }), nitro()],
-}))
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-import { defineConfig } from 'vite'
-
-export default defineConfig(({ command }) => ({
-  plugins: [vitehub({
-    console: command === 'serve' ? { auth: false } : true,
-    kv: true,
-    host: 'node',
-  })],
-}))
-```
-:::
-::
-
+Once the dev server has a key in its environment, it takes only signed calls, like a deployment. You can also set `console: { auth: false }` for development only; a production build refuses it.
 
 The dev server then prints a note at startup, or a warning when it listens beyond loopback, as with `--host`. An unsigned call must come from the app origin, or send `x-vitehub-console: 1` with no `Origin` header. Otherwise it gets `403` with `CONSOLE_ORIGIN_REJECTED`, so browsers on other origins cannot call it.
 
@@ -77,7 +33,7 @@ While the endpoint takes unsigned calls, a request gets `403` with `CONSOLE_LOOP
 
 ## Share a development server
 
-A tunnel or reverse proxy on this machine, such as `cloudflared`, `ngrok`, `tailscale serve`, `ssh -R` or Caddy, also connects from `127.0.0.1`, and an unsigned dev server trusts whoever reaches it. To share one, remove `console.auth` so it takes only [signed calls](/docs/console/signed-requests#sign-calls-to-a-development-server).
+A tunnel or reverse proxy on this machine, such as `cloudflared`, `ngrok`, `tailscale serve`, `ssh -R` or Caddy, also connects from `127.0.0.1`, and an unsigned dev server trusts whoever reaches it. To share one, remove `console.auth` and set a `VITEHUB_CONSOLE_KEY_<NAME>` on it so it takes only [signed calls](/docs/console/signed-requests#sign-calls-to-a-development-server).
 
 ::warning
 A forwarder that copies raw TCP bytes, such as `ssh -R` or `tailscale serve --tcp`, adds no header, so ViteHub cannot tell its requests from yours. Only signed calls protect a dev server behind one.
@@ -85,7 +41,7 @@ A forwarder that copies raw TCP bytes, such as `ssh -R` or `tailscale serve --tc
 
 ## The development user
 
-```ts
+```ts fragment
 context.user = { id: 'local', name: 'You' }
 ```
 

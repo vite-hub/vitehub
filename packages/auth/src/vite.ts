@@ -9,11 +9,13 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
 import { resolveAuthViteConfig } from "./config.ts"
+import { authDeploymentEnv } from "./deployment-env.ts"
 import { authMemoryDatabaseError } from "./database-options.ts"
 import { authAbilitiesCandidates, discoverAuthClient, discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { authTableNames } from "./table-names.ts"
 
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -31,8 +33,9 @@ export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
-const RESOLVED_AUTH_ABILITIES_ID = `\0${AUTH_ABILITIES_ID}`
-const RESOLVED_AUTH_CLIENT_ID = `\0${AUTH_CLIENT_ID}`
+// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment.
+const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
+const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`
 const RESOLVED_AUTH_SERVER_ID = `\0${AUTH_SERVER_ID}`
 const authPackageName = "@vite-hub/auth"
@@ -53,6 +56,8 @@ type NitroBuild = {
 }
 
 export interface AuthVitePluginAPI {
+  /** The variables that Auth reads on the deployed host. See `authDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => ResolvedAuthViteConfig | undefined
   refresh: () => ResolvedAuthViteConfig | undefined
 }
@@ -363,6 +368,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
     name: AUTH_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: () => authDeploymentEnv(runtimeConfig),
       getConfig: () => runtimeConfig,
       refresh: refreshRuntimeConfig,
     },
@@ -504,7 +510,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       },
     },
     load: {
-      filter: { id: /^\0#vitehub\/auth\/(?:abilities|client|definition|server)$/ },
+      filter: { id: /^\0(?:virtual:vitehub\/auth\/(?:abilities|client)|#vitehub\/auth\/(?:definition|server))$/ },
       handler(id) {
         if (id === RESOLVED_AUTH_ABILITIES_ID) return renderAuthAbilitiesModule(runtimeConfig)
         if (id === RESOLVED_AUTH_CLIENT_ID) return "export default undefined\n"

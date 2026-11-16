@@ -1,5 +1,7 @@
 import { toJsonSchema } from "@valibot/to-json-schema"
 
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 
 /** The JSON Schema dialects that Valibot converts to. */
@@ -26,7 +28,7 @@ export function withValibotJsonSchema<TSchema extends StandardSchemaV1>(schema: 
   if (Object.hasOwn(standard, "jsonSchema") && (standard as Partial<StandardJSONSchemaV1["~standard"]>).jsonSchema) return schema
   const convert = (typeMode: "input" | "output") => (request: StandardJSONSchemaV1.Options): Record<string, unknown> => {
     const target = options.target ?? request.target
-    if (!isValibotTarget(target)) throw new Error(`[vitehub] Valibot cannot convert a schema to the ${String(target)} JSON Schema target.`)
+    if (!isValibotTarget(target)) throw internalErrorDiagnostics.INTERNAL_VALIBOT_JSON_SCHEMA_TARGET_UNSUPPORTED({ target: String(target) })
     // SAFETY: The vendor marks a Valibot schema, and Valibot's JsonSchema object is a JSON Schema record without an index signature.
     return toJsonSchema(schema as never, { target, typeMode, errorMode: "ignore" }) as Record<string, unknown>
   }

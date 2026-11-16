@@ -15,6 +15,7 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentInvocationReference, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { invocationDiagnostics } from "./invocation-diagnostics.ts"
 import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
@@ -380,6 +381,11 @@ interface AgentInvocationBindOptions {
   agentName?: string
   cancellationDriver?: AgentInvocationCancellationDriver
   deferClaim?: boolean
+  /**
+   * A Workflow attempt of an Agent turn. A record that an earlier attempt left `running` may have started its Driver,
+   * so this attempt does not start the Driver again, even when the earlier claim has expired. See {@link AgentInvocationJournal.driverInterrupted}.
+   */
+  driverAtMostOnce?: boolean
   /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
@@ -429,6 +435,7 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
+// Internal invariant: Channel replay and the Workflow dispatch catch this conflict and skip the duplicate run.
 export class AgentInvocationClaimConflict extends Error {
   constructor() {
     super("Invocation already exists or is claimed.")
@@ -443,6 +450,11 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   /** Whether this journal holds the store execution claim, lost it, or could not reach the store. */
   readonly createdNew: boolean
   readonly reusedTerminal: boolean
+  /**
+   * An earlier attempt of this turn reached `running`, so its Driver may have started, even if the record is now `failed`.
+   * An expired claim does not prove that the Driver stopped. Only set when the bind used `driverAtMostOnce`; the Driver must not start.
+   */
+  readonly driverInterrupted: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
   /** The record `id` of this Invocation. */
@@ -2101,7 +2113,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       throw error
     })
     const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
-    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+    if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store open", ms: STORE_OPEN_TIMEOUT_MS })
   })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
     if (openStore) {
@@ -2119,7 +2131,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
     const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
-      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store operation", ms: storeTimeoutMs })
     }
     return result as T
   }
@@ -2225,6 +2237,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatRenewal: Promise<unknown> = Promise.resolve()
       let workflowDispatchAllowed = false
       let createdNew = false
+      let driverInterrupted = false
       let creationTimedOut = false
       let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
       let runningPersisted = false
@@ -2327,6 +2340,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 boundToTerminalRecord = finished
                 workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
                 createdNew = result.created
+                // startedAt survives terminal transitions and error redaction. A failed Workflow
+                // attempt that reached running must not enter the reused-terminal dispatch path.
+                driverInterrupted = bindOptions.driverAtMostOnce === true && !result.created
+                  && (result.record.status === "running" || (result.record.status === "failed" && result.record.startedAt !== undefined))
                 created = true
                 cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
                   || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
@@ -2701,6 +2718,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
+        get driverInterrupted() { return driverInterrupted },
         get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStore(() => store.getSummary(recordId))
@@ -2948,14 +2966,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           return true
         },
         dispatchAllowed() {
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           return !strict || ownsRecord
         },
         driverStarted() {
           // Keep the final ownership check adjacent to the dispatch marker.
           // A renewal can confirm a claim loss after the caller's check but
           // before this boundary is reached; do not start the Driver then.
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           if (finished || finishing || driverDispatched) return true
           driverDispatched = true
           if (!cancellationDriver || cancellationDriver.enforced) return true
@@ -3081,7 +3099,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
         const result = await storeOperation(operation, storeTimeoutMs, true)
-        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "cancellation store operation", ms: storeTimeoutMs })
         return result
       }
       const timestamp = new Date().toISOString()
@@ -3163,7 +3181,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
@@ -3185,7 +3203,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
@@ -3208,7 +3226,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const seenCursors = new Set<string>()
       do {
         const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
-        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor && seenCursors.has(page.cursor)) throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
         if (page.cursor) seenCursors.add(page.cursor)
         const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {

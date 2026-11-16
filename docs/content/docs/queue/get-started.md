@@ -176,8 +176,8 @@ Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your terminal. The tok
 See what ViteHub will create, then create it:
 
 ```bash [commands/provision]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again, so the output has the IDs of the new resources. Then deploy the Vite app with Nitro:

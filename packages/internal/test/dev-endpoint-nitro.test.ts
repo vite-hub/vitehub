@@ -291,7 +291,7 @@ describe("Nitro dev endpoint", () => {
     const [, otherGrant] = guarded({ body: "{}", method: "POST" })
     const req = incoming({ body: "{}", headers: json, method: "POST" })
     await expect(forwardViteHubDevRequestToNitro({ environments: { nitro: { dispatchFetch } } }, req, otherGrant, { ...guard, runtimeRoute }))
-      .rejects.toThrow("requires the grant of a checked dev request")
+      .rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" })
     expect(dispatchFetch).not.toHaveBeenCalled()
   })
 
@@ -382,7 +382,7 @@ describe("Nitro dev handler", () => {
   it("rejects a forged grant, a missing grant, and a grant of another request", async () => {
     const request = nitroRequest()
     const { grant } = await validateViteHubNitroDevRequest(nitroRequest(), guard)
-    const message = "[vitehub] This dev-only operation requires the grant of a checked dev request."
+    const message = expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("the grant of the dev request") })
     // SAFETY: the test forges a grant at runtime, as JavaScript callers can.
     expect(() => assertViteHubDevRequestGrant({ label: "Test Dev" } as unknown as ViteHubDevRequestGrant, request)).toThrow(message)
     // SAFETY: the test passes no grant at runtime, as JavaScript callers can.
@@ -439,6 +439,6 @@ describe("Nitro dev handler", () => {
       "}",
       "",
     ].join("\n"))
-    expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(TypeError)
+    expect(() => renderViteHubNitroDevHandler({ export: "default; evil()", module: "x" })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })
 })

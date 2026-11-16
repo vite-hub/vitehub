@@ -9,23 +9,12 @@ const slots = defineSlots<{ default?: () => VNode[] }>()
 const { mcp, site } = useDocsConfig()
 
 const tabs = [
-  { id: "client", label: "Client" },
-  { id: "prompt", label: "Prompt" },
-  { id: "url", label: "MCP URL" },
-  { id: "command", label: "Command" },
-] as const
-type TabId = typeof tabs[number]["id"]
-const tab = ref<TabId>("client")
-const tabButtons = useTemplateRef<HTMLButtonElement[]>("tabButtons")
-
-function moveTab(event: KeyboardEvent, index: number) {
-  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
-  if (!step) return
-  event.preventDefault()
-  const next = (index + step + tabs.length) % tabs.length
-  tab.value = tabs[next]!.id
-  tabButtons.value?.[next]?.focus()
-}
+  { value: "client", label: "Client", slot: "client" },
+  { value: "prompt", label: "Prompt", slot: "prompt" },
+  { value: "url", label: "MCP URL", slot: "url" },
+  { value: "command", label: "Command", slot: "command" },
+]
+const tab = ref("client")
 
 // Comark wraps children in fragments. A client is any node with a `label` prop.
 function clientNodes(nodes: VNode[]): VNode[] {
@@ -60,62 +49,45 @@ const command = computed(() => mcp ? `npx add-mcp ${mcp.url} --name ${mcp.name}`
 
 <template>
   <div v-if="mcp" class="vh-mcp not-prose">
-    <div class="vh-mcp-tabs" role="tablist" aria-label="Setup method">
-      <button
-        v-for="(item, index) in tabs"
-        :id="`vh-mcp-tab-${item.id}`"
-        :key="item.id"
-        ref="tabButtons"
-        type="button"
-        role="tab"
-        class="vh-mcp-tab"
-        :aria-selected="tab === item.id"
-        :aria-controls="`vh-mcp-panel-${item.id}`"
-        :tabindex="tab === item.id ? 0 : -1"
-        @click="tab = item.id"
-        @keydown="moveTab($event, index)"
-      >
-        {{ item.label }}
-      </button>
-    </div>
+    <UTabs v-model="tab" :items="tabs" class="vh-mcp-tabs" aria-label="Setup method">
+      <template #client>
+        <div class="vh-mcp-clients" role="group" aria-label="Choose your client">
+          <button
+            v-for="client in clients"
+            :key="client.label"
+            type="button"
+            class="vh-mcp-client"
+            :aria-pressed="current === client.label"
+            @click="choose(client.label)"
+          >
+            <span class="vh-mcp-client-logo"><UIcon :name="client.icon" aria-hidden="true" /></span>
+            <span class="vh-mcp-client-name">{{ client.label }}</span>
+          </button>
+        </div>
+        <div v-for="client in clients" v-show="current === client.label" :key="client.label">
+          <component :is="client.node" />
+        </div>
+      </template>
 
-    <div id="vh-mcp-panel-client" v-show="tab === 'client'" role="tabpanel" aria-labelledby="vh-mcp-tab-client">
-      <div class="vh-mcp-clients" role="group" aria-label="Choose your client">
-        <button
-          v-for="client in clients"
-          :key="client.label"
-          type="button"
-          class="vh-mcp-client"
-          :aria-pressed="current === client.label"
-          @click="choose(client.label)"
-        >
-          <span class="vh-mcp-client-logo"><UIcon :name="client.icon" aria-hidden="true" /></span>
-          <span class="vh-mcp-client-name">{{ client.label }}</span>
-        </button>
-      </div>
-      <div v-for="client in clients" v-show="current === client.label" :key="client.label">
-        <component :is="client.node" />
-      </div>
-    </div>
+      <template #prompt>
+        <p class="vh-mcp-hint">Send this to your agent. It adds the server for you.</p>
+        <p class="vh-mcp-prompt">{{ prompt }}</p>
+        <CopyButton :value="prompt" label="Copy prompt" variant="solid" size="sm" />
+      </template>
 
-    <div id="vh-mcp-panel-prompt" v-show="tab === 'prompt'" role="tabpanel" aria-labelledby="vh-mcp-tab-prompt">
-      <p class="vh-mcp-hint">Send this to your agent. It adds the server for you.</p>
-      <p class="vh-mcp-prompt">{{ prompt }}</p>
-      <CopyButton :value="prompt" label="Copy prompt" variant="solid" size="sm" />
-    </div>
+      <template #url>
+        <p class="vh-mcp-hint">Add a Streamable HTTP MCP server named <code>{{ mcp.name }}</code> with this URL.</p>
+        <div class="vh-mcp-field">
+          <code>{{ mcp.url }}</code>
+          <CopyButton :value="mcp.url" label="Copy" size="sm" variant="outline" />
+        </div>
+      </template>
 
-    <div id="vh-mcp-panel-url" v-show="tab === 'url'" role="tabpanel" aria-labelledby="vh-mcp-tab-url">
-      <p class="vh-mcp-hint">Add a Streamable HTTP MCP server named <code>{{ mcp.name }}</code> with this URL.</p>
-      <div class="vh-mcp-field">
-        <code>{{ mcp.url }}</code>
-        <CopyButton :value="mcp.url" label="Copy" size="sm" variant="outline" />
-      </div>
-    </div>
-
-    <div id="vh-mcp-panel-command" v-show="tab === 'command'" role="tabpanel" aria-labelledby="vh-mcp-tab-command">
-      <p class="vh-mcp-hint">Run this in your project, then pick the agents to add the server to. Add <code>-g</code> to add it for every project.</p>
-      <DocsCodePre :code="command" language="bash" filename="Terminal">{{ command }}</DocsCodePre>
-    </div>
+      <template #command>
+        <p class="vh-mcp-hint">Run this in your project, then pick the agents to add the server to. Add <code>-g</code> to add it for every project.</p>
+        <DocsCodePre :code="command" language="bash" filename="Terminal">{{ command }}</DocsCodePre>
+      </template>
+    </UTabs>
   </div>
 </template>
 
@@ -126,41 +98,7 @@ const command = computed(() => mcp ? `npx add-mcp ${mcp.url} --name ${mcp.name}`
 }
 
 .vh-mcp-tabs {
-  display: flex;
-  gap: 1.5rem;
   margin-bottom: 1rem;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.vh-mcp-tab {
-  position: relative;
-  padding-block: 0.5rem 0.625rem;
-  font-size: 0.8125rem;
-  color: var(--ui-text-muted);
-  cursor: pointer;
-  transition: color 150ms ease;
-}
-
-.vh-mcp-tab:hover,
-.vh-mcp-tab[aria-selected="true"] {
-  color: var(--ui-text-highlighted);
-}
-
-.vh-mcp-tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--ui-text-highlighted);
-}
-
-.vh-mcp-tab:focus-visible,
-.vh-mcp-client:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: 2px;
-  border-radius: calc(var(--ui-radius) * 1.5);
 }
 
 .vh-mcp-clients {

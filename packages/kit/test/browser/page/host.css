@@ -1,0 +1,8 @@
+/* What a page with Nuxt UI sets around a scope root: its own canvas, and `--ui-radius` as Nuxt UI's base step. */
+html {
+  background: var(--background);
+}
+
+:root {
+  --ui-radius: 0.25rem;
+}

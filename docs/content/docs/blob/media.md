@@ -314,11 +314,25 @@ Photon reads JPEG, PNG, WebP, and GIF. It turns JPEG images upright from their E
 
 `responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
 
-Photon decodes the full source first, at about 19 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
+Photon decodes the full source first, at about 17 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
 
-The Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+Set `maxPixels` to change the pixel limit:
 
-- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+```ts fragment
+images: { transformer: 'photon', maxPixels: 6_000_000 }
+```
+
+| Source | WebAssembly memory for one variant |
+| --- | --- |
+| 4 MP (default) | about 67 MB |
+| 6 MP | about 96 MB |
+| 8 MP | about 123 MB |
+
+On a Worker, the JavaScript heap and the rest of the app share the same 128 MB, so stay at 6 megapixels or less there. On Node, the limit is the memory of the server. `maxPixels` works only with `transformer: 'photon'`. With another transformer, the build fails with `BLOB_C0015`.
+
+The Nitro plugin imports Photon with a dynamic `import()`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+
+- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression. ViteHub turns on Nitro's `wasm.lazy` for Cloudflare, and Photon loads with or without it.
 - On Node, the `node` entry embeds the WebAssembly in JavaScript and compiles it on the first variant.
 - In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node host in development, or run the built Worker with `wrangler dev`.
 

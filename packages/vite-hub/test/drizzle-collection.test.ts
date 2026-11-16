@@ -70,6 +70,7 @@ describe("table Collection source", () => {
     ])
 
     const meals = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -103,6 +104,7 @@ describe("table Collection source", () => {
     })
 
     const publishedMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -124,6 +126,7 @@ describe("table Collection source", () => {
     await expect(meals.page({ query: {}, signal: controller.signal })).rejects.toThrow("collection request stopped")
 
     const dinners = defineCollection({
+      route: false,
       source: table({
         db,
         defaultLimit: 2,
@@ -180,6 +183,7 @@ describe("table Collection source", () => {
 
     expect(() =>
       defineCollection({
+        route: false,
         source: table({
           db,
           orderBy: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
-import { checksStillRunning, createCheckWait, dailyPassExemption, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
-import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { checksStillRunning, conflictOnlyBlockers, createCheckWait, dailyPassExemption, failureKeys, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { feedbackFingerprints, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../src/github/required-checks.ts";
 
@@ -326,6 +326,43 @@ describe("Babysitter daily pass budget", () => {
   });
 });
 
+describe("Babysitter conflict-only repairs", () => {
+  const conflicting = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => {
+    s.checks = {};
+    s.pr!.mergeable_state = "dirty";
+    update(s);
+  });
+
+  it("needs no model pass when the conflict is the only work", async () => {
+    expect(conflictOnlyBlockers(await conflicting(), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual([]);
+    // Bot threads that a person never joined stay settled, and assessed feedback needs no new pass.
+    const comment = { id: 9, body: "Please fix", user: { login: "reviewer" } };
+    const assessed = await conflicting(s => { s.comments["9"] = comment });
+    expect(conflictOnlyBlockers(assessed, { state: "pending", inheritedCheckIds: [] }, policy, new Set(feedbackFingerprints(assessed, policy)))).toEqual([]);
+  });
+
+  it("names the work that still needs a model pass", async () => {
+    const human = { id: "C1", body: "Rename this", author: { login: "reviewer", __typename: "User" } };
+    expect(conflictOnlyBlockers(await conflicting(), { state: "failed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["failed-check"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.comments["9"] = { id: 9, body: "Please fix", user: { login: "reviewer" } } }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["feedback"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.threads = [{ id: "T1", isResolved: false, comments: [human] }] }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["unresolved-thread"]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.threads = [{ id: "T1", isResolved: false, comments: [human] }] }), { state: "passed", inheritedCheckIds: [] }, { ...policy, heldThreads: new Set(["T1"]) }, new Set())).toEqual([]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.humanFeedbackGeneration = s.generation }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["human-feedback"]);
+    // Required lint passes, but the optional build fails because of the PR: the model has work.
+    const build = await conflicting(s => {
+      s.checks = {
+        "check_run:1": { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } },
+        "check_run:2": { id: 2, name: "build", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } },
+      };
+    });
+    expect(failureKeys(build)).toEqual(["2:failure"]);
+    expect(conflictOnlyBlockers(build, { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["failed-check"]);
+    // The same failure on the base is the base's work.
+    expect(conflictOnlyBlockers(build, { state: "passed", inheritedCheckIds: [2] }, policy, new Set())).toEqual([]);
+    expect(conflictOnlyBlockers(await conflicting(s => { s.attempts = 1 }), { state: "passed", inheritedCheckIds: [] }, policy, new Set())).toEqual(["unfinished-pass"]);
+  });
+});
+
 describe("Babysitter required checks", () => {
   it("matches a required check bound to an app ID", async () => {
     const snapshot = await parked(s => { s.checks = { "check_run:1": { id: 1, name: "test", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } } } });
@@ -339,11 +376,11 @@ describe("Babysitter required checks", () => {
 describe("Babysitter stacked PRs", () => {
   const pr = { number: 7, base: { ref: "feat/parent", repo: { full_name: repository, default_branch: "main", owner: { login: "acme" } } } };
   const parent = (state: string, merged: boolean, base: string) => ({ state, merged_at: merged ? "2026-10-01T00:00:00Z" : null, head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: base } });
-  it("retargets only after the parent merged into the default branch", () => {
+  it("retargets only after the parent merged", () => {
     expect(stackRetargetBase(pr, [parent("closed", true, "main")])).toBe("main");
     expect(stackRetargetBase(pr, [parent("open", false, "main")])).toBeUndefined();
     expect(stackRetargetBase(pr, [parent("closed", false, "main")])).toBeUndefined();
-    expect(stackRetargetBase(pr, [parent("closed", true, "feat/grandparent")])).toBeUndefined();
+    expect(stackRetargetBase(pr, [parent("closed", true, "feat/grandparent")])).toBe("feat/grandparent");
     expect(stackRetargetBase({ ...pr, base: { ...pr.base, ref: "main" } }, [parent("closed", true, "main")])).toBeUndefined();
   });
 });

@@ -9,6 +9,8 @@ icon: i-lucide-door-open
 
 From the Console you can open your app already signed in, sign in a phone and invite guests. One-time links open drafts and impersonation on your app's own origin, and your pages can link back to the Console.
 
+With `console.authorize`, a member needs the `site` section. The result’s `grants` selects their [page tool roles](/docs/console/access#what-authorize-returns).
+
 ## Sign browsers in
 
 With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
@@ -17,9 +19,10 @@ With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the
 | --- | --- |
 | **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own. |
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
+| **`/_vitehub`** | Add `/_vitehub` to the app address to sign in through the Console and return with the pill. Add `?page=/guide/day-2` to return to that page. In development it opens the page with `?vitehub` instead. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
 A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
 
@@ -29,7 +32,7 @@ A guest is an app user with a session, so routes that let in any signed-in user 
 
 | Operation | Does |
 | --- | --- |
-| `site.link` | Returns a one-time link that signs the browser in as you and opens `path`, or the app home. `qr: true` makes it last 10 minutes. |
+| `site.link` | Returns a one-time link that signs the browser in as you and opens `path`, or the app home. `qr: true` makes it last 10 minutes. With the `state` of `/_vitehub`, it works only in the browser that opened `/_vitehub`. |
 | `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default) or 30. |
 | `site.invites`, `site.revoke-invite` | List unopened invites, and revoke one. |
 | `site.sessions`, `site.revoke-session` | List the browsers of members and guests, and sign one out. |
@@ -58,7 +61,7 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 // https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
 ```
 
-`hostedConsoleUrl()` builds a link to one Console page of a project, as `consoleInvocationUrl()` and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both, and throws a `TypeError` for a URL or path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
+`hostedConsoleUrl()` builds a link to one Console page of a project, as `consoleInvocationUrl()` and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both. It throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` for a project URL and `RUNTIME_CONSOLE_PATH_INVALID` for a path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
 The link opens that page of your team's app with that URL, or Home when your team has not linked it.
 
@@ -88,3 +91,67 @@ export default defineConsoleAuthorize((context) => {
 An `authorize` that returns `true` for every context shows the link to every visitor, so check `context.via` first.
 
 The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
+The link adds the [page tools script](/docs/comments/configure#turn-comment-mode-on-and-off) to every HTML page, about 320 bytes inline. To leave the link and the script out, set `pill: false`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { pill: false },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { pill: false },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { pill: false },
+  })],
+})
+```
+:::
+::
+
+The pages then have no page tools script, unless Comments is on. The Console has no **Site access** section, because Site access opens the app with the pill.
+
+## Site access from the terminal
+
+Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](/docs/console/signed-requests), it calls the deployed app.
+
+```bash [Terminal]
+pnpm vitehub site sessions
+pnpm vitehub site revoke <id> --yes
+pnpm vitehub site invite Ana --grants comments-write --expires-in-days 7
+pnpm vitehub site invites
+pnpm vitehub site revoke-invite <id> --yes
+pnpm vitehub site grants
+```
+
+`vitehub site sessions` prints the id, kind, person, device, last use, and expiry of each browser. `--json` prints the operation result.
+
+`vitehub site open [path]` runs `site.link`, but a command cannot sign a browser in as you. The link opens the app as the person who asks, and a command signs its calls with a key, not as a person. A development server knows you only as the local developer, without an email. So the command fails with `403` and `CONSOLE_TICKET_NO_PERSON`, and so does `vitehub site invite` against a deployed app, since an invite records the member who made it:
+
+- For a deployed app, use **Open site**, **Link a phone**, or **Invite someone** in the Console.
+- On a development server, which the Console cannot reach, invite your own browser as a guest with the roles you need: `vitehub site invite Me --grants comments-read,comments-write`, then open the link that it prints in a browser on the same machine, since the development server answers only this machine. `vitehub site grants` lists the roles.

@@ -9,7 +9,7 @@ import type { AgentInput, AgentCallbackContext } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter } from "@vite-hub/agent/channels";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
-import { createProcessAgentHost } from "@vite-hub/agent/process";
+import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
 import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
@@ -21,6 +21,7 @@ import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { babysitterRepositories } from "./repositories.ts";
+import { createWebhookRedelivery } from "./webhook-redelivery.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 import { createPullRequestWorkspaces, type BabysitterWarmWorkspaces, type PullRequestWorkspaceStatus } from "./pr-workspaces.ts";
 
@@ -151,6 +152,14 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
+  const capacity = {
+    ...agent.options.capacity,
+    ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
+    concurrency: agent.options.concurrency,
+  };
+  // Conflict preparation installs like a worker before its model pass starts, so it samples memory and
+  // pressure the same way. Its own sampler keeps the worker sampler's pause hysteresis intact.
+  const hostSample = createProcessAgentCapacity(capacity).adaptive!;
   const host = await createProcessAgentHost({
     name: context.agentName,
     dataDir: context.dataDir,
@@ -160,9 +169,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     // durable wait. Keep transient provider pressure in this host queue rather
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
-      ...agent.options.capacity,
-      ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
-      concurrency: agent.options.concurrency,
+      ...capacity,
       queue: {
         maxPending: agent.options.concurrency,
         timeout: 36e5,
@@ -205,6 +212,16 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error: host.error,
     wake: () => host.wake(),
     admission,
+    // A sample that times out while the disk is busy keeps the worker queue's fallback slots instead of none.
+    hostCapacity: async ({ active, signal }) => {
+      try {
+        return await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return { concurrency: hostSample.fallbackConcurrency ?? 1, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
   });
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.
@@ -219,6 +236,9 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error => host.error("babysitter.workspaces.prune_failed", error, { reason }),
   );
   let workspaceSweep: ReturnType<typeof setInterval> | undefined;
+  // GitHub does not retry failed webhook deliveries. Lost check results leave green PRs waiting.
+  const redelivery = createWebhookRedelivery({ source: credentials, event: host.event, error: host.error });
+  let redeliverySweep: ReturnType<typeof setInterval> | undefined;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -243,6 +263,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
         .finally(() => {
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
+          redeliverySweep = setInterval(() => void redelivery.sweep().catch(error => host.error("babysitter.webhook.redelivery_failed", error)), 5 * 60_000);
+          redeliverySweep.unref();
           if (workspaces) {
             void sweepWorkspaces("startup");
             if (workspaces.sweepMs > 0) {
@@ -258,6 +280,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
     async close() {
       clearInterval(workspaceSweep);
+      clearInterval(redeliverySweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
       await inbox.close();

@@ -89,3 +89,22 @@ pnpm vitehub rate-limit reset <id> <key> [--yes]
 `<id>` is the stable ID of `requireRateLimit()`, and `<key>` is the limited key, such as a client IP or a user ID. Put `--` before a key that starts with a dash. `peek` reads without using a token. `reset` deletes the counter, so it asks first on a terminal and refuses elsewhere without `--yes`. Both take `--json`, `--url`, and `--timeout <ms>`.
 
 The memory provider keeps counters in the server process, so you see only the process that answers. The Cloudflare binding has only `limit()`, which uses a token, so both commands report `unsupported` and exit with status 1.
+
+## Read and invalidate the cache
+
+With `cache` set in `vitehub()`, `vitehub cache` reads Nitro's `cache` mount, where `defineCachedFunction()` and `defineCachedHandler()` keep their entries. The commands run the `cache.*` [operations](/docs/console/operations) of the Console Cache section, on the dev server or with `--url` on a deployed app.
+
+```bash [Terminal]
+pnpm vitehub cache list
+pnpm vitehub cache list --prefix nitrofunctions --limit 20
+pnpm vitehub cache get 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete 'nitrofunctions.Cm3ZWo:getStars:a1b2.json'
+pnpm vitehub cache delete --prefix 'nitrofunctions.Cm3ZWo:getStars'
+```
+
+- Keys show as Nitro stores them: `<group>:<name>:<hash>.json`. Nitro adds a hash to a group or name that has other characters than letters, digits, and `_`, so `nitro/functions` is `nitrofunctions.<hash>`. Copy keys and prefixes from `cache list`.
+- `cache list` reads at most 100 entries per page. Pass the printed `--cursor` for the next page. The group is `functions` or `handlers`, and the name is the `name` option, or `_` without one.
+- `cache get` cuts the value at 256 KiB.
+- `cache delete` removes one key, or at most 1,000 entries under `--prefix` per call. There is no command that clears the whole cache. Nitro computes a removed value again on the next call.
+- The driver must list keys. Vercel Runtime Cache cannot, so `cache list` fails there.
+- Access needs the `cache` section. `cache:read` allows `list` and `get` only.

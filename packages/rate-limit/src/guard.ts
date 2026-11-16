@@ -2,7 +2,7 @@ import { toResultError } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"
@@ -11,6 +11,7 @@ import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys 
 import { getRuntimeRateLimiter, resolveRateLimitProvider } from "./runtime/state.ts"
 
 import type { Result, ResultError, ViteHubContext } from "@vite-hub/runtime"
+import type { Diagnostic } from "nostics"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
 import type { CheckRateLimitErrorCode, RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequest, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
@@ -78,7 +79,7 @@ function checkError<TCode extends CheckRateLimitErrorCode>(code: TCode, message:
     ? rateLimitErrorDiagnostics.RATE_LIMIT_R0009({ message })
     : rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message })
   // SAFETY: Nostics sets `code` to the catalog key, which is `code`.
-  return toResultError(diagnostic as typeof diagnostic & { readonly code: TCode })
+  return toResultError(diagnostic as Diagnostic<undefined, TCode>)
 }
 
 function getCloudflareRateLimiter(scope: RateLimitRequestScope, name: string, policy: RateLimitPolicy): Result<RateLimiter, "RATE_LIMIT_R0009"> {

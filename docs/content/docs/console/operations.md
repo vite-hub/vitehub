@@ -13,7 +13,7 @@ An **operation** is one named action of your app, such as `content.publish` or `
 | Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
-| MCP | `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
+| MCP | `read_operation` or `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
 
 ## Define an operation
 
@@ -224,7 +224,9 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 | --- | --- |
 | `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
 | [Blob](/docs/cli/storage#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
+| [Env](/docs/env) (Env section) | `env.inspect` |
 | [KV](/docs/cli/storage#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
+| [Cache](/docs/cli/storage#read-and-invalidate-the-cache) (`cache` option) | `cache.list`, `cache.get`, `cache.delete` |
 | [Email](/docs/cli/env#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
 | [Rate Limit](/docs/cli/storage#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
@@ -237,3 +239,5 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 `blob.put`, `blob.delete`, `kv.set` and `kv.delete` write, so a read-only role needs `'blob:read'` or `'kv:read'`. `databases.browse` and `databases.tables` run as `vitehub database rows` and `tables`, and the Workspace operations, which read kept history, as `vitehub workspace history`, `refs` and `show`. An app without `server/content.ts` has no Content operations.
 
 The task operations exist only when the app has tasks, and `task.run` is `destructive`, so the CLI asks for `--yes` and Agents need approval. The Console shows no `tasks` section, but `authorize` can grant it by name. Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
+
+`cache.list`, `cache.get`, and `cache.delete` exist only when the app sets `cache`. They run as `vitehub cache list`, `get`, and `delete`. `cache.delete` is destructive, so a role needs `cache`. `cache:read` lists and reads.
