@@ -162,6 +162,16 @@ async function probeSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, 
   for (const comment of Object.values(snapshot.reviewComments ?? {})) await ingest('pull_request_review_comment', { action: 'edited', pull_request: snapshot.pr, comment })
   for (const check_run of Object.values(snapshot.checks ?? {})) await ingest('check_run', { action: check_run.status, check_run })
   for (const status of Object.values(snapshot.statuses ?? {}) ) await ingest('status', { ...status, sha: snapshot.pr.head?.sha })
+  // Workflow runs and check suites come only from webhooks, and the check runs read above do not
+  // replace them. On 2026-11-16 a lost `workflow_run.completed` kept a green PR not merge-ready
+  // after every probe. Read again each one that still runs on the current head.
+  for (const [key, item] of Object.entries(s.checks)) {
+    const kind = key.slice(0, key.indexOf(':'))
+    if ((kind !== 'workflow_run' && kind !== 'check_suite') || item.deleted || item.status === 'completed' || item.head_sha !== snapshot.pr.head?.sha) continue
+    const [fresh] = await read(kind === 'workflow_run' ? `repos/${s.repository}/actions/runs/${item.id}` : `repos/${s.repository}/check-suites/${item.id}`, '.')
+    const evidence = parseEvidence(fresh)
+    await ingest(kind, { action: evidence.status === 'completed' ? 'completed' : String(evidence.status ?? ''), [kind]: evidence })
+  }
 }
 
 const OPEN_PULL_REQUESTS = `query BabysitterOpenPullRequests($owner:String!,$name:String!,$after:String) {

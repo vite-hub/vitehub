@@ -13,7 +13,7 @@ vi.mock("../src/console/runtime/client/request", async (original) => ({
 vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 
-const { ConsoleNetworkError, ConsoleRequestError } = await import("../src/console/runtime/client/request.ts")
+const { consoleNetworkError, ConsoleRequestError } = await import("../src/console/runtime/client/request.ts")
 const { default: Env } = await import("../src/console/runtime/components/console-env.vue")
 
 const renderer = createRenderer({
@@ -112,11 +112,11 @@ describe("Env status view", () => {
   })
 
   it("shows an error state when the app is unreachable", async () => {
-    mocks.request.mockRejectedValue(new ConsoleNetworkError(new TypeError("fetch failed")))
-    mocks.operation.mockRejectedValue(new ConsoleNetworkError(new TypeError("fetch failed")))
+    mocks.request.mockRejectedValue(consoleNetworkError(new TypeError("fetch failed")))
+    mocks.operation.mockRejectedValue(consoleNetworkError(new TypeError("fetch failed")))
     const { state, unmount } = await mountEnv()
     try {
-      expect(state.failed).toBeInstanceOf(ConsoleNetworkError)
+      expect(state.failed).toMatchObject({ code: "CONSOLE_UNAVAILABLE", message: "fetch failed" })
       expect(state.statuses).toBeUndefined()
     }
     finally {

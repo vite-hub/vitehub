@@ -425,3 +425,47 @@ test('a main repair never exhausts its no-progress budget', async () => {
     assert.equal((await inbox.get(repository, 2))?.progressBudget?.exhausted, true)
   } finally { await inbox.close() }
 })
+
+test('a fold into a parent branch and the parent merge never hold their fences at the same time', async () => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
+  const pr = (number: number, head: string, base: string) => ({ number, state: 'open', user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },
+    base: { sha: 'base', ref: base }, title: 'Test', html_url: `https://github.com/vite-hub/vitehub/pull/${number}`, updated_at: '2026-09-13T00:00:00Z' })
+  try {
+    await inbox.seed('vite-hub/vitehub', pr(1, 'parent', 'main'))
+    await inbox.seed('vite-hub/vitehub', pr(2, 'child', 'parent'))
+    const claims = await inbox.claim(2)
+    const parent = claims.find(claim => claim.snapshot.number === 1)!
+    const child = claims.find(claim => claim.snapshot.number === 2)!
+    assert.equal(await inbox.beginDirectMerge(child, 'child-sha', true, 1), true)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 2)
+    // The parent cannot merge while the fold's outcome is unknown.
+    assert.equal(await inbox.beginDirectMerge(parent, 'parent-sha', true), false)
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 2, child.token), true)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), undefined)
+    assert.equal(await inbox.beginDirectMerge(parent, 'parent-sha', true), true)
+    // A child cannot fold into a parent whose own merge is in flight.
+    await inbox.deleteMeta('direct-merge:vite-hub/vitehub:2')
+    assert.equal(await inbox.beginDirectMerge(child, 'child-sha', true, 1), false)
+  } finally { await inbox.close() }
+})
+
+test('a sibling fold never replaces an earlier fold that still holds the parent', async () => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
+  const pr = (number: number, head: string, base: string) => ({ number, state: 'open', user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },
+    base: { sha: 'base', ref: base }, title: 'Test', html_url: `https://github.com/vite-hub/vitehub/pull/${number}`, updated_at: '2026-09-13T00:00:00Z' })
+  try {
+    await inbox.seed('vite-hub/vitehub', pr(1, 'parent', 'main'))
+    await inbox.seed('vite-hub/vitehub', pr(2, 'first', 'parent'))
+    await inbox.seed('vite-hub/vitehub', pr(3, 'second', 'parent'))
+    const claims = await inbox.claim(3)
+    const claim = (number: number) => claims.find(item => item.snapshot.number === number)!
+    assert.equal(await inbox.beginDirectMerge(claim(2), 'first-sha', true, 1), true)
+    assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), false)
+    // Ending the refused sibling's attempt leaves the first fold's hold in place.
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 3, claim(3).token), false)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 2)
+    assert.equal(await inbox.beginDirectMerge(claim(1), 'parent-sha', true), false)
+    assert.equal(await inbox.clearDirectMerge('vite-hub/vitehub', 2, claim(2).token), true)
+    assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), true)
+  } finally { await inbox.close() }
+})

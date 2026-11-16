@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation, AgentInvocationInspector } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationActivities } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 import { delivery, delta, event, invocation, message, notices, openWork, receipts, runSummary, threadRows, tool } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const shortened = "Part of this activity was shortened when it was recorded.";
+
+beforeAll(loadMarkdown);
 
 describe("Invocation truncation", () => {
   it("discloses traces truncated by the invocation journal", () => {

@@ -24,6 +24,7 @@ export default defineConfig({
         for (const [name, source] of [
           ["default.css", family],
           ["default.scoped.css", scopeStyles(family)],
+          ["tailwind.css", readStyle("tailwind.css")],
           ["tokens.css", readStyle("tokens.css")],
           ["tailwind.css", readStyle("tailwind.css")],
         ]) {
