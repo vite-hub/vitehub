@@ -82,8 +82,9 @@ export async function importForge<T>(load: () => Promise<T>, feature: string): P
   }
 }
 
-// Node: Cannot find package '@vite-hub/forge'. workerd: No such module "@vite-hub/forge". A missing dependency of
-// Forge itself names that dependency, so it stays a plain load error.
+// Node: Cannot find package '@vite-hub/forge'. workerd: No such module "@vite-hub/forge". A Vite build without the
+// optional peer: Could not resolve "@vite-hub/forge". A missing dependency of Forge itself names that dependency, so it
+// stays a plain load error.
 function isMissingForge(error: unknown): boolean {
-  return error instanceof Error && /(?:cannot find (?:package|module)|no such module) ['"]@vite-hub\/forge['"]/i.test(error.message)
+  return error instanceof Error && /(?:cannot find (?:package|module)|no such module|could not resolve) ['"]@vite-hub\/forge['"]/i.test(error.message)
 }

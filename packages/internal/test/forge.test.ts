@@ -14,6 +14,7 @@ describe("importForge()", () => {
   it.each([
     ["Node", missing("Cannot find package '@vite-hub/forge' imported from /app/.output/server/index.mjs", "ERR_MODULE_NOT_FOUND")],
     ["workerd", missing("No such module \"@vite-hub/forge\".")],
+    ["a Vite build", missing("Could not resolve \"@vite-hub/forge\" imported by \"@vite-hub/workspace\". Is it installed?")],
   ])("names the install command when %s cannot find the package", async (_host, error) => {
     await expect(importForge(async () => { throw error }, "A GitHub Workspace")).rejects.toMatchObject({
       code: "INTERNAL_FORGE_NOT_INSTALLED",
