@@ -7,6 +7,45 @@
 
 const authBase = "/api/auth"
 
+/**
+ * Browser code that asks for a passkey: `passkeyAssertion()` returns the answer for
+ * `/api/auth/passkey/verify-authentication`. It throws a `NotAllowedError` when the person closes the passkey sheet.
+ */
+export const passkeyHelpers = `
+function fromBase64url(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+}
+function toBase64url(buffer) {
+  let binary = "";
+  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+}
+async function passkeyAssertion() {
+  const options = await fetch(${JSON.stringify(`${authBase}/passkey/generate-authenticate-options`)}, { credentials: "same-origin" }).then(response => response.ok ? response.json() : null).catch(() => null);
+  // Internal invariant: the caller shows this message in the alert.
+  if (!options || !options.challenge) throw new Error("The passkey sign-in did not start. Try again.");
+  const credential = await navigator.credentials.get({ publicKey: {
+    ...options,
+    challenge: fromBase64url(options.challenge),
+    allowCredentials: (options.allowCredentials || []).map(entry => ({ ...entry, id: fromBase64url(entry.id) })),
+  } });
+  const answer = credential.response;
+  return {
+    id: credential.id,
+    rawId: toBase64url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment || undefined,
+    response: {
+      authenticatorData: toBase64url(answer.authenticatorData),
+      clientDataJSON: toBase64url(answer.clientDataJSON),
+      signature: toBase64url(answer.signature),
+      userHandle: answer.userHandle ? toBase64url(answer.userHandle) : undefined,
+    },
+  };
+}
+`
+
 // The page runs in the browser. It sends only the parameters that the provider signed back to the provider.
 const script = `
 const params = new URLSearchParams(location.search);
@@ -20,15 +59,7 @@ const signed = new URLSearchParams();
 for (const [key, value] of params) if (key === "sig" || key === "ba_param" || names.has(key)) signed.append(key, value);
 const oauthQuery = signed.toString();
 
-function fromBase64url(value) {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
-  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
-}
-function toBase64url(buffer) {
-  let binary = "";
-  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-}
+${passkeyHelpers}
 async function run(action) {
   const controls = document.querySelectorAll("button");
   for (const control of controls) control.disabled = true;
@@ -71,27 +102,7 @@ async function post(path, body) {
 const read = path => fetch(path, { credentials: "same-origin" }).then(response => response.ok ? response.json() : null).catch(() => null);
 
 async function signInWithPasskey() {
-  const options = await read(${JSON.stringify(`${authBase}/passkey/generate-authenticate-options`)});
-  // Internal invariant: run() catches this error and shows its message in the alert.
-  if (!options || !options.challenge) throw new Error("The passkey sign-in did not start. Try again.");
-  const credential = await navigator.credentials.get({ publicKey: {
-    ...options,
-    challenge: fromBase64url(options.challenge),
-    allowCredentials: (options.allowCredentials || []).map(entry => ({ ...entry, id: fromBase64url(entry.id) })),
-  } });
-  const answer = credential.response;
-  const response = {
-    id: credential.id,
-    rawId: toBase64url(credential.rawId),
-    type: credential.type,
-    authenticatorAttachment: credential.authenticatorAttachment || undefined,
-    response: {
-      authenticatorData: toBase64url(answer.authenticatorData),
-      clientDataJSON: toBase64url(answer.clientDataJSON),
-      signature: toBase64url(answer.signature),
-      userHandle: answer.userHandle ? toBase64url(answer.userHandle) : undefined,
-    },
-  };
+  const response = await passkeyAssertion();
   leave(await post("/passkey/verify-authentication", { response }), "The passkey sign-in did not finish. Try again.");
 }
 
@@ -145,7 +156,7 @@ async function main() {
 main();
 `
 
-const styles = `
+export const standalonePageStyles = `
 :root { color-scheme: light dark; --text: #171717; --muted: #666; --line: #e5e5e5; --surface: #fff; --page: #fafafa; --accent: #171717; --accent-text: #fff; }
 @media (prefers-color-scheme: dark) { :root { --text: #ededed; --muted: #a1a1a1; --line: #2e2e2e; --surface: #111; --page: #0a0a0a; --accent: #ededed; --accent-text: #0a0a0a; } }
 * { box-sizing: border-box; }
@@ -170,8 +181,13 @@ a { color: var(--text); text-underline-offset: 0.2em; }
 [hidden] { display: none !important; }
 `
 
-/** The `/oauth` page. Its script runs with a nonce, and it sends requests only to the Console origin. */
-export function renderOAuthPage(): Response {
+const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>`
+
+/**
+ * A small page of the Console outside the Console app, such as `/oauth` and `/device`: the mark, `body`, and `script`.
+ * The script runs with a nonce, and the page sends requests only to the Console origin.
+ */
+export function renderStandalonePage(input: { title: string, body: string, script: string, styles?: string }): Response {
   const nonce = crypto.randomUUID()
   const page = `<!doctype html>
 <html lang="en">
@@ -179,24 +195,15 @@ export function renderOAuthPage(): Response {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <title>Connect an agent · ViteHub Console</title>
-    <style>${styles}</style>
+    <title>${input.title} · ViteHub Console</title>
+    <style>${standalonePageStyles}${input.styles ?? ""}</style>
   </head>
   <body>
     <main>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>
-      <h1>Connect an agent</h1>
-      <p id="text">One moment.</p>
-      <div id="account" class="panel" hidden>
-        <span class="who"><span id="name"></span><span id="email"></span></span>
-        <button id="switch" type="button" class="link">Switch account</button>
-      </div>
-      <p id="redirect" class="note" hidden></p>
-      <div id="buttons" class="actions"></div>
-      <p id="new" class="note" hidden>New to ViteHub? <a href="/" target="_blank" rel="noopener">Create an account</a>, then sign in here.</p>
-      <p role="alert" hidden></p>
+      ${mark}
+${input.body}
     </main>
-    <script nonce="${nonce}">${script}</script>
+    <script nonce="${nonce}">${input.script}</script>
   </body>
 </html>`
   return new Response(page, {
@@ -209,5 +216,23 @@ export function renderOAuthPage(): Response {
       "x-frame-options": "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
+  })
+}
+
+/** The `/oauth` page. */
+export function renderOAuthPage(): Response {
+  return renderStandalonePage({
+    title: "Connect an agent",
+    script,
+    body: `      <h1>Connect an agent</h1>
+      <p id="text">One moment.</p>
+      <div id="account" class="panel" hidden>
+        <span class="who"><span id="name"></span><span id="email"></span></span>
+        <button id="switch" type="button" class="link">Switch account</button>
+      </div>
+      <p id="redirect" class="note" hidden></p>
+      <div id="buttons" class="actions"></div>
+      <p id="new" class="note" hidden>New to ViteHub? <a href="/" target="_blank" rel="noopener">Create an account</a>, then sign in here.</p>
+      <p role="alert" hidden></p>`,
   })
 }

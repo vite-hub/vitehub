@@ -1,16 +1,20 @@
-`--help` output of the host CLIs that `vitehub deploy` runs, recorded on 2026-11-06 with color codes removed. `src/setup/deploy/*.ts` uses only the flags here. No test runs a real host CLI: `test/fixtures/fake-host-cli.cjs` stands in for all four.
+`--help` output of the host CLIs that `vitehub deploy`, `vitehub env diff`, and `vitehub env push` run, recorded on 2026-11-06 with color codes removed. `src/setup/deploy/*.ts` uses only the flags here. No test runs a real host CLI: `test/fixtures/fake-host-cli.cjs` stands in for all four.
 
-- Wrangler 4.158.0 (the npx cache; the `wrangler` catalog entry in `pnpm-workspace.yaml` pins 4.147.0): `wrangler-deploy.txt`, `wrangler-versions-upload.txt`.
+- Wrangler 4.158.0 (the npx cache; the `wrangler` catalog entry in `pnpm-workspace.yaml` pins 4.147.0): `wrangler-deploy.txt`, `wrangler-versions-upload.txt`, `wrangler-secret-put.txt`, `wrangler-secret-list.txt` (restored from before #4069).
   - `--temporary` is a global flag that the help does not list. Wrangler's source names it in `WRANGLER_CLI.temporaryAccountFlag`, and a failed login suggests "rerun this command with `--temporary`". It prints `Claim within: <duration>` and `Claim URL: <url>`. Docs: https://developers.cloudflare.com/workers/wrangler/commands/#deploy
+  - `secret put` reads the value from stdin when stdin is not a terminal, and creates a draft Worker without a prompt when the Worker does not exist (Wrangler source, `createDraftWorker`, `fallbackValue: true`). `secret list --format json` prints `[{ name, type }]`.
   - `WRANGLER_OUTPUT_FILE_PATH` gets one JSON object per line: `{ type: "deploy", version_id, targets }` or `{ type: "version-upload", version_id, preview_url }`.
 - Wrangler 4.157.0 (the workspace install), recorded on 2026-11-13: `wrangler-d1-migrations-apply.txt`, for the `database.migrateOnDeploy` steps.
   - Without a terminal or with `CI` set, Wrangler skips the confirmation and applies. A failed migration exits with an error and keeps the migrations before it.
-- Vercel CLI 65.11.0: `vercel-deploy.txt`.
+- Vercel CLI 65.11.0: `vercel-deploy.txt`, `vercel-env-add.txt`, `vercel-env-ls.txt` (restored from before #4069).
   - `deploy --json` prints `{ id, url, productionUrl }`, or `{ status, deployment }` without a terminal.
+  - `env add` reads the value from stdin. ViteHub reads `envs[].key` and `envs[].target` from the last JSON object of `env ls --json`. The help says that output includes readable values, so its stdout never goes into an error. Not checked against a live account.
   - `deploy --temporary` keeps `{ projectId, token, claimUrl, expiresAt }` in `.vercel/anonymous.json`. It refuses in CI and in a folder with `.vercel/project.json`.
-- Netlify CLI 27.11.2: `netlify-deploy.txt`.
+- Netlify CLI 27.11.2: `netlify-deploy.txt`, `netlify-env-list.txt`, `netlify-env-import.txt`, recorded on 2026-11-15.
+  - `env:list --context <context> --json` prints `{ KEY: value }`. `env:set` takes the value as an argument, and `env:import` deletes and creates each variable in every context (`dist/commands/env/env-import.js`), so `vitehub env push` writes through the API: https://open-api.netlify.com/#tag/environmentVariables
   - `deploy` adds `.netlify/functions-internal` and `.netlify/v1/functions` by itself. `--allow-anonymous` makes a password-protected claimable site, so `vitehub deploy` offers no temporary Netlify deploy.
-- Deno Deploy CLI 0.0.9909 (`deno deploy`, Deno 2.9.7): `deno-deploy.txt`.
+- Deno Deploy CLI 0.0.9909 (`deno deploy`, Deno 2.9.7): `deno-deploy.txt`, and `deno-deploy-env-list.txt` and `deno-deploy-env-load.txt`, recorded on 2026-11-15.
+  - `env add` takes the value as an argument. `env load <file>` reads a dotenv file with `@std/dotenv`, so a value goes through `/dev/stdin` as one single-quoted line. `env load` sets a variable for every context, `--replace` replaces an existing one without a prompt, and `--non-secrets` keeps a value readable; otherwise Deno decides from the name whether it is secret (`deploy/env.ts` in `jsr:@deno/deploy@0.0.9909`).
 
 `vitehub deployments` and the `live` line of `vitehub status` read Cloudflare, Vercel, and Netlify through their REST APIs (see `test/fixtures/host-api/README.md`), and Deno through its CLI:
 

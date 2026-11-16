@@ -181,3 +181,13 @@ export function detectHost(env: Record<string, string | undefined> = process.env
   }
   return providerHosts.find(([name]) => env[name]?.trim())?.[1]
 }
+
+/**
+ * Returns the host that `vitehub()` builds for. `vitehub deploy --host` sets `VITEHUB_HOST` with
+ * `VITEHUB_HOST_SOURCE=cli`, and that host wins over the `host` option. Otherwise the `host` option wins, then
+ * `detectHost()`, then `"node"`.
+ */
+export function resolveBuildHost(configured: ViteHubHost | undefined, env: Record<string, string | undefined> = process.env): ViteHubHost {
+  const fromCli = env.VITEHUB_HOST_SOURCE === "cli" ? hostFromNitroPreset(env.VITEHUB_HOST) : undefined
+  return fromCli ?? configured ?? detectHost(env) ?? "node"
+}
