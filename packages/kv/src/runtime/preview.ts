@@ -1,3 +1,5 @@
+import { invariantError } from "@vite-hub/internal/invariant"
+
 const maximumValueBytes = 256 * 1_024
 
 export interface KVPreview {
@@ -78,7 +80,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      throw new TypeError("Cannot serialize bigint as JSON.")
+      // previewKVValue() catches it and shows the value as text, so no reader sees this error.
+      throw invariantError("JSON has no bigint without `toJSON()`")
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
@@ -101,7 +104,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       return serialize(boxed, depth, arrayValue, key)
     }
-    if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    // previewKVValue() catches it and shows the value as text, so no reader sees this error.
+    if (ancestors.has(object)) throw invariantError("JSON has no circular value")
     if (seen.has(object)) editable = false
     seen.add(object)
     ancestors.add(object)

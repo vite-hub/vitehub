@@ -57,9 +57,9 @@ function interruptibleStore(backing: AgentInvocationStore, { failFirstRunningWri
 }
 
 describe.each(stores)("Workflow retry of an interrupted Agent turn (%s)", (_name, createStore) => {
-  async function interruptTurn() {
+  async function interruptTurn(redactError = false) {
     const { store, runFirstAttempt, stop } = interruptibleStore(await createStore())
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ store, ...(redactError ? { redactError: () => undefined } : {}) })
     let driverStarted: () => void = () => {}
     const firstDriver = new Promise<void>(resolve => { driverStarted = resolve })
     const run = vi.fn(async () => "The Driver ran again.")
@@ -78,6 +78,15 @@ describe.each(stores)("Workflow retry of an interrupted Agent turn (%s)", (_name
   }
 
   const interrupted = { code: "AGENT_INVOCATION_DRIVER_INTERRUPTED", isRetryable: false }
+
+  it.each([false, true])("keeps the interrupted decision after failure (redactError: %s)", async (redactError) => {
+    const { agent, attempt, invocations, run } = await interruptTurn(redactError)
+    await new Promise(resolve => setTimeout(resolve, leaseMs * 2))
+    await expect(runAgentWorkflowDefinition(agent, attempt, runAgentInline)).rejects.toMatchObject(interrupted)
+    await expect(invocations.getByRunId(attempt.id, "interrupted-turn")).resolves.toMatchObject({ status: "failed", startedAt: expect.any(String) })
+    await expect(runAgentWorkflowDefinition(agent, attempt, runAgentInline)).rejects.toMatchObject(interrupted)
+    expect(run).toHaveBeenCalledOnce()
+  })
 
   it("does not run the Driver again after the claim of the stopped attempt expired", async () => {
     const { agent, attempt, invocations, run } = await interruptTurn()

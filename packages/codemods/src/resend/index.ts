@@ -11,7 +11,7 @@ import { addViteHubOptions, bindingFree, ConfigEditor, createLineResolver, useVi
 import { detectNuxtModule, readDependencies } from "../shared/detect.ts"
 import { findModuleEntry, objectProperty, readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { hasResendClient, rewriteResendCallSites } from "./call-sites.ts"
 
 import type { Node } from "@vite-hub/internal/ast"
@@ -51,10 +51,10 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
   const calls = await rewriteResendCallSites(cwd)
   const usesModule = Boolean(findModuleEntry(config, moduleName)) || (await readDependencies(cwd)).has(moduleName)
-  if (!calls.sends && !usesModule) throw new CodemodError("No server code calls emails.send() on a Resend client, so there is nothing to migrate.")
+  if (!calls.sends && !usesModule) throw codemodError("No server code calls emails.send() on a Resend client, so there is nothing to migrate.")
 
   if (!calls.sends && calls.useResendRemaining.length) {
-    throw new CodemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email, then run the codemod again.`)
+    throw codemodError(`useResend() is used in ways the codemod does not rewrite (${calls.useResendRemaining.join(", ")}), so nothing was migrated. Replace those emails.send() calls with email.send() from vite-hub/email, then run the codemod again.`)
   }
   // nuxt-resend provides useResend(), so it stays while any call is left.
   const keepModule = calls.useResendRemaining.length > 0

@@ -15,7 +15,7 @@ const channelTaskErrors = /*#__PURE__*/ defineErrors({
     },
     CHANNEL_TASK_REJECTED: {
       why: ({ detail }: { detail: string }) => detail,
-      fix: "Pass a Channel and task that a trigger declares, a non-empty `key`, and `notBefore` or `delayMs`, not both. Call from the persistent Node server that hosts the Channel webhook, with SQLite or libSQL Agent State.",
+      fix: "Read `error.cause.fix` for the change that the call needs.",
     },
   },
 })
@@ -23,9 +23,24 @@ const channelTaskErrors = /*#__PURE__*/ defineErrors({
 /** Codes of the errors that `enqueueChannelTask()` and `cancelChannelTask()` return. */
 export type ChannelTaskErrorCode = "CHANNEL_TASK_FAILED" | "CHANNEL_TASK_REJECTED"
 
+// The Agent codes of a call that cannot run as written. `CHANNEL_TASK_REJECTED` keeps the code with its fix as `cause`.
+const channelTaskRejections = new Set([
+  "AGENT_CHANNEL_STATE_QUEUE_UNSUPPORTED",
+  "AGENT_CHANNEL_TASK_AGENT_AMBIGUOUS",
+  "AGENT_CHANNEL_TASK_DELAY_INVALID",
+  "AGENT_CHANNEL_TASK_KEY_INVALID",
+  "AGENT_CHANNEL_TASK_NAME_MISSING",
+  "AGENT_CHANNEL_TASK_NOT_BEFORE_INVALID",
+  "AGENT_CHANNEL_TASK_QUEUE_MISSING",
+  "AGENT_CHANNEL_TASK_START_CONFLICT",
+  "AGENT_CHANNEL_TASK_TRIGGER_AMBIGUOUS",
+  "AGENT_CHANNEL_TASK_UNDECLARED",
+  "AGENT_CHANNEL_WEBHOOK_MISSING",
+])
+
 function channelTaskError(error: unknown, channel: unknown, task: unknown): ResultError<ChannelTaskErrorCode> {
-  if (isRuntimeDiagnostic(error) && error.code === "AGENT_R1025") {
-    return channelTaskErrors.CHANNEL_TASK_REJECTED({ detail: error.why.replace(/^\[vitehub\] /, "") })
+  if (isRuntimeDiagnostic(error) && channelTaskRejections.has(error.code)) {
+    return channelTaskErrors.CHANNEL_TASK_REJECTED({ cause: error, detail: error.why.replace(/^\[vitehub\] /, "") })
   }
   return channelTaskErrors.CHANNEL_TASK_FAILED({ cause: error, channel: String(channel), task: String(task) })
 }
@@ -125,9 +140,9 @@ async function channelTaskQueue(channel: string): Promise<ChannelTaskQueue> {
   const registered = [...registry.queues.get(channel) ?? []]
   if (registered.length === 1) return registered[0]!
   if (registered.length > 1) {
-    throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" is served by more than one Agent (${registered.map(queue => queue.agentName).join(", ")}). Give the Channel one Agent.` })
+    throw agentDiagnostics.AGENT_CHANNEL_TASK_AGENT_AMBIGUOUS({ channel, agents: registered.map(queue => queue.agentName).join(", ") })
   }
-  throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no running webhook queue. Channel tasks need a declared Channel webhook and durable SQLite or libSQL Agent State in the same persistent Node server. Standalone serverless Schedule and API entries are not supported.` })
+  throw agentDiagnostics.AGENT_CHANNEL_TASK_QUEUE_MISSING({ channel })
 }
 
 function validTaskName(channel: unknown, task: unknown): channel is string {
@@ -137,15 +152,15 @@ function validTaskName(channel: unknown, task: unknown): channel is string {
 function startTime(options: EnqueueChannelTaskOptions): number {
   const { delayMs, notBefore } = options
   if (notBefore !== undefined && delayMs !== undefined) {
-    throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] enqueueChannelTask() takes notBefore or delayMs, not both." })
+    throw agentDiagnostics.AGENT_CHANNEL_TASK_START_CONFLICT()
   }
   if (delayMs !== undefined) {
-    if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] enqueueChannelTask() delayMs must be a non-negative integer." })
+    if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw agentDiagnostics.AGENT_CHANNEL_TASK_DELAY_INVALID()
     return Date.now() + delayMs
   }
   if (notBefore === undefined) return Date.now()
   const at = notBefore instanceof Date ? notBefore.getTime() : notBefore
-  if (!Number.isFinite(at)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] enqueueChannelTask() notBefore must be a valid Date or a finite timestamp." })
+  if (!Number.isFinite(at)) throw agentDiagnostics.AGENT_CHANNEL_TASK_NOT_BEFORE_INVALID()
   return at
 }
 
@@ -175,8 +190,8 @@ export async function enqueueChannelTask(
   options: EnqueueChannelTaskOptions = {},
 ): Promise<Result<ChannelTaskReceipt, ChannelTaskErrorCode>> {
   try {
-    if (!validTaskName(channel, task)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] enqueueChannelTask() needs a non-empty Channel name and task name." })
-    if (options.key !== undefined && !validKey(options.key)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] enqueueChannelTask() key must be a non-empty string." })
+    if (!validTaskName(channel, task)) throw agentDiagnostics.AGENT_CHANNEL_TASK_NAME_MISSING({ method: "enqueueChannelTask", target: "task" })
+    if (options.key !== undefined && !validKey(options.key)) throw agentDiagnostics.AGENT_CHANNEL_TASK_KEY_INVALID({ method: "enqueueChannelTask" })
     const notBefore = startTime(options)
     return [undefined, await (await channelTaskQueue(channel)).enqueue(channel, task, input, { ...options, notBefore })]
   }
@@ -192,8 +207,8 @@ export async function cancelChannelTask(
   options: CancelChannelTaskOptions,
 ): Promise<Result<{ cancelled: number }, ChannelTaskErrorCode>> {
   try {
-    if (!validTaskName(channel, task)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] cancelChannelTask() needs a non-empty Channel name and task name." })
-    if (!validKey(options?.key)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] cancelChannelTask() needs the non-empty key that the task was enqueued with." })
+    if (!validTaskName(channel, task)) throw agentDiagnostics.AGENT_CHANNEL_TASK_NAME_MISSING({ method: "cancelChannelTask", target: "task" })
+    if (!validKey(options?.key)) throw agentDiagnostics.AGENT_CHANNEL_TASK_KEY_INVALID({ method: "cancelChannelTask" })
     return [undefined, { cancelled: await (await channelTaskQueue(channel)).cancel(channel, task, options) }]
   }
   catch (error) {
@@ -211,7 +226,7 @@ export function channelTaskDebounceKey(trigger: string, task: string, key: strin
 const triggerDispatcherKey = Symbol.for("vitehub.channels.triggerDispatcher")
 
 async function dispatchChannelTrigger(channel: string, trigger: string, input: unknown): Promise<{ deliveryId: string, queued: boolean }> {
-  if (!validTaskName(channel, trigger)) throw agentDiagnostics.AGENT_R1025({ message: "[vitehub] sendChannelTrigger() needs a non-empty Channel name and trigger name." })
+  if (!validTaskName(channel, trigger)) throw agentDiagnostics.AGENT_CHANNEL_TASK_NAME_MISSING({ method: "sendChannelTrigger", target: "trigger" })
   return await (await channelTaskQueue(channel)).trigger(channel, trigger, input)
 }
 

@@ -83,11 +83,11 @@ describe("Channels section", () => {
     }
   })
 
-  it("answers CHANNELS_HOST_UNAVAILABLE until the webhook routes have started", async () => {
+  it("answers AGENT_CHANNELS_HOST_UNAVAILABLE until the webhook routes have started", async () => {
     installConsoleOperations([{ operations: agentChannelOperations, plugin: "agent" }])
     Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.channels-console"))
     const response = await rpc("channels.list")
     expect(response.status).toBe(503)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "AGENT_CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
   })
 })

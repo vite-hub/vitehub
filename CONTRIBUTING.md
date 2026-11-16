@@ -93,6 +93,8 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
@@ -145,6 +147,7 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
 5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
+6. Every thrown error is a diagnostic. For a state that only a ViteHub bug can reach, call `invariant(condition, what)` or throw `invariantError(what)` from `@vite-hub/internal/invariant`. Both raise `INTERNAL_INVARIANT_FAILED`, whose fix asks for a bug report. When a developer can cause the error or fix it, throw a code from the package catalog instead.
 
 ### Documentation structure
 
@@ -241,7 +244,7 @@ The fix is complete when the consumer works without the patch. Retire combined p
 - Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
 - Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
-- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Prefer dense layouts, small icons, minimal copy, a near black page in dark mode (the tokens of `@vite-hub/ui/theme.css`), white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.

@@ -61,7 +61,7 @@ const tabs = Object.entries(snippets).map(([value, item]) => ({ label: item.labe
 }
 
 .vitehub-account-snippet__header[data-slot="code-block-header"] {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   padding-block: 0;
   padding-inline-start: 0.25rem;
 }

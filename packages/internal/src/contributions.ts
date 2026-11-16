@@ -117,13 +117,13 @@ export async function flattenPluginOptions(plugins: readonly unknown[] | undefin
   return flattened
 }
 
-function readModule(value: string): string {
+function readModule(value: string): string | undefined {
   if (!/^file:/i.test(value)) return value
   // `fileURLToPath` normalizes relative spellings such as `file:../x` to an
   // absolute path, so validate the original URL form before converting it.
   const url = value.slice("file:".length)
-  if (!url.startsWith("/")) throw new TypeError("relative file URL")
-  return fileURLToPath(`file:${url}`)
+  // A relative file URL has no path. The caller reports it as a bad definition.module.
+  return url.startsWith("/") ? fileURLToPath(`file:${url}`) : undefined
 }
 
 function isRelative(module: string): boolean {
@@ -206,10 +206,13 @@ function readContribution(
   if (nameProblem) return fail(`${options.kind} ${JSON.stringify(name)}: ${nameProblem}`)
   if (!isPlainObject(definition)) return fail(`${options.kind} ${JSON.stringify(name)} needs \`definition: { module, export? }\`.`)
   if (!isNonEmptyString(definition.module)) return fail(`\`definition.module\` of ${options.kind} ${JSON.stringify(name)} must be a non-empty string.`)
-  let module: string
+  let module: string | undefined
   try {
     module = readModule(definition.module)
   } catch {
+    module = undefined
+  }
+  if (module === undefined) {
     return fail(`\`definition.module\` of ${options.kind} ${JSON.stringify(name)} must be a valid file URL or module specifier.`)
   }
   if (isRelative(module)) {

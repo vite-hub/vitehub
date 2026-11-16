@@ -167,15 +167,19 @@ function cursorScope(options: UsageQuery): string {
   ]);
 }
 
+function invalidUsageCursor(): Error {
+  return viteHubErrorDiagnostics.VITE_HUB_R0115({ message: "Invalid usage cursor" })
+}
+
 function decodeUsageCursor(value: string): Uint8Array {
   // Cursors are emitted as unpadded Base64url. Reject standard Base64 and
   // whitespace so malformed transport values cannot be accepted differently
   // by the host's atob implementation.
-  if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) throw new Error("Invalid usage cursor encoding")
+  if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) throw invalidUsageCursor()
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
   // atob ignores unused pad bits, so require the canonical spelling too.
-  if (btoa(binary).replace(/=+$/, "") !== normalized) throw new Error("Invalid usage cursor encoding")
+  if (btoa(binary).replace(/=+$/, "") !== normalized) throw invalidUsageCursor()
   return Uint8Array.from(binary, character => character.charCodeAt(0))
 }
 
@@ -194,7 +198,7 @@ export function usageQueryWindow(options: UsageQuery): {
   let after: v.InferOutput<typeof historyCursorSchema> | undefined;
   if (options.cursor !== undefined) {
     try {
-      if (options.cursor.length > 32_768) throw new Error("Cursor too long");
+      if (options.cursor.length > 32_768) throw invalidUsageCursor();
       after = v.parse(
         historyCursorSchema,
         JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
@@ -208,10 +212,10 @@ export function usageQueryWindow(options: UsageQuery): {
         after.at > after.to ||
         Date.parse(after.at) < Date.parse(after.to) - window.durationMs
       ) {
-        throw new Error("Cursor does not match this query");
+        throw invalidUsageCursor();
       }
     } catch {
-      throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0115({ message: "Invalid usage cursor" }));
+      throw consoleHttpError(400, invalidUsageCursor());
     }
   }
   const now = new Date(after?.to ?? options.now ?? Date.now());

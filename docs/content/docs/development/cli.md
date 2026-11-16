@@ -82,11 +82,14 @@ Available namespaces:
 | `vitehub remove` | Available | ViteHub CLI | Turn off features: edit the `vitehub()` options, delete unchanged starter Definitions, and uninstall packages that nothing else uses. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
-| `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
-| `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
-| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret and pushes the checkout folders of `vitehub.lock`. Does not load the project config. |
-| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
+| `vitehub link` | Available | ViteHub CLI | Link the project to a project on a host in `.vitehub/link.json`. Each host is one target, and linking another host keeps the others. Does not load the project config. |
+| `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`, or only one host target with `--host`. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Create the missing host resources, build the app for the default host target, or the one of `--host`, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Loads the project config only after the deploy question, to read the Provision Steps. |
+| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. `--host` picks a target. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
+| `vitehub login` | Available | ViteHub CLI | Sign in to a ViteHub Console with the device flow and save an API key for this machine. `--console` names a self-hosted Console. Does not load the project config. |
+| `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
+| `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
@@ -127,6 +130,10 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub env diff` | Available | ViteHub CLI | Compare the env names of the last build with the variables of the linked host. Exits with `1` when a required name is missing. Does not load the project config. |
+| `vitehub env push` | Available | ViteHub CLI | Set the host variables of the build's env names from the shell and `.env.<stage>`, with the host CLI. Does not load the project config. |
+| `vitehub env pull` | Available | ViteHub CLI | With `--from console`, write the env values of a stage from a self-hosted Console to `.env.<stage>`, with mode `600`. Does not load the project config. |
+| `vitehub env status` | Available | Env Package | Ask a running app, such as a deployment, for the status of its Server Env, without values. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub secret console-key` | Available | Env Package | Print a new key pair for signed Console requests. |
@@ -206,7 +213,7 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --yes
 pnpm dlx vite-hub init my-app --host vercel --features email --option email.driver=resend --yes --json
 ```
 
-- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
+- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ host })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore` that ignores every `.env*` file except `.env.example`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
 - `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `host`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
@@ -251,7 +258,8 @@ pnpm vitehub status --json
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
 - `host`: the `host` from the config, else the host from the environment, as `detectHost()` reads it, else `node`. `source` tells which one. A dynamic host or config reports `name: "unknown"` and feature support with `level: "unknown"`.
-- `live`: the deployment that receives production traffic, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
+- `link`, `targets`, and `default`: the host targets of `.vitehub/link.json`. `link` is the target that `vitehub deploy` uses without `--host`. See [Link a project to its host](#link-a-project-to-its-host).
+- `live`: the deployment that receives production traffic of the `link` target, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
 With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
@@ -276,7 +284,7 @@ The command sets `<feature>: true`, or the object from `--option`. A feature tha
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
-Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
+Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `blob.driver=s3`, adds them to the install.
 
 `vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/development/console#sign-console-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
 
@@ -375,11 +383,13 @@ A page gets its session token only over a loopback TCP connection. For a remote 
 
 ## Link a project to its host
 
-`vitehub link` connects the project to a project on its host, so later commands know where to deploy. It runs on your machine with your host login. It does not add a CI workflow.
+`vitehub link` connects the project to a project on a host, so later commands know where to deploy. It runs on your machine with your host login. It does not add a CI workflow.
 
 ```bash [Terminal]
 pnpm vitehub link
 pnpm vitehub link --host cloudflare --account <id> --create
+pnpm vitehub link --host vercel
+pnpm vitehub unlink --host vercel
 pnpm vitehub unlink
 ```
 
@@ -387,27 +397,46 @@ pnpm vitehub unlink
 - `--project`: the project name on the host. The default is the `name` of `vitehub({ name })`, else the package.json name, in the same form that the build uses.
 - `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
 - `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
+- `--default`: make this host the target that `vitehub deploy` uses without `--host`. The first linked host is the default.
 
 The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
-The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`:
+The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
 
 ```json [.vitehub/link.json]
 {
-  "schemaVersion": 1,
-  "host": "cloudflare",
-  "account": { "id": "023e105f4ecef8ad9ca31a8372d0c353" },
-  "project": { "id": "e8f70fdbc8b1fb0b8ddb1af166186758", "name": "my-app" },
-  "verified": true,
-  "linkedAt": "2026-11-05T12:00:00.000Z"
+  "schemaVersion": 2,
+  "default": "cloudflare",
+  "targets": {
+    "cloudflare": {
+      "account": { "id": "023e105f4ecef8ad9ca31a8372d0c353" },
+      "project": { "id": "e8f70fdbc8b1fb0b8ddb1af166186758", "name": "my-app" },
+      "verified": true,
+      "linkedAt": "2026-11-05T12:00:00.000Z"
+    },
+    "vercel": {
+      "account": { "id": "team_a1b2c3d4e5f6g7h8i9j0" },
+      "project": { "id": "prj_12HKQaOmR5t5Uy6vdcQsNIiZgHGB", "name": "my-app" },
+      "verified": true,
+      "linkedAt": "2026-11-06T09:00:00.000Z"
+    }
+  }
 }
 ```
 
-The file holds no secret, but it is local to your machine. `link` adds `.vitehub` to the project `.gitignore` when it is not there. `vitehub status` shows the link in `link` and where the credentials come from in `credentials`. `vitehub unlink` removes the file and does not change the project on the host.
+`vitehub link --host <host>` adds the target of that host, or replaces it, and keeps the other targets. A file with `schemaVersion: 1` from an older CLI holds one host link. The CLI reads it as one target that is also the default, and the next write saves version 2.
+
+Resources such as D1 databases, KV namespaces, R2 buckets, and libSQL databases are separate on each host. A second host starts with its own empty data. `link` and `deploy` print this once, when they add a second host.
+
+The file holds no secret, but it is local to your machine. `link` adds `.vitehub` to the project `.gitignore` when it is not there. `vitehub status` shows the targets in `targets`, the default host in `default`, the target that deploy uses in `link`, and where its credentials come from in `credentials`. `vitehub unlink` removes the file, and `vitehub unlink --host <host>` removes one target. Neither changes the project on the host. When the default target goes and one target stays, that one becomes the default.
 
 ### `SETUP_LINK_HOST_UNSUPPORTED`
 
 The host is `node`, a self-hosted server, which has no project to link. Pass `--host`, or set `host` in `vitehub()`. The command exits with `3`.
+
+### `SETUP_LINK_HOST_REQUIRED`
+
+The project links several hosts and none is the default, so `vitehub deploy` or `vitehub deployments` does not know which one to use. Pass `--host <host>`, or run `vitehub link --host <host> --default`. The command exits with `2` and lists the hosts in `missing[0].choices`.
 
 ### `SETUP_LINK_CREDENTIALS_MISSING`
 
@@ -427,25 +456,33 @@ The host has no project with that name. Run the command in `rerun`, which adds `
 
 ## Deploy from your machine
 
-`vitehub deploy` builds the app, then runs the deploy that the build wrote for its host. It runs on your machine with your host login. It does not add a CI workflow.
+`vitehub deploy` creates the missing resources of the app on one host target, builds the app for that host, then runs the deploy that the build wrote. It runs on your machine with your host login. It does not add a CI workflow.
 
 ```bash [Terminal]
 pnpm vitehub deploy
+pnpm vitehub deploy --host vercel
 pnpm vitehub deploy --preview
+pnpm vitehub deploy --push-env
 pnpm vitehub deploy --temporary --yes --json
 ```
 
+- `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. Without it, the command uses the default target of `.vitehub/link.json`, else the only target, else the host that `vitehub status` reports. With several targets and no default, it exits with `SETUP_LINK_HOST_REQUIRED`.
 - `--preview`: a preview deploy instead of production. Deno has none. A preview does not push the checkout folders of `vitehub.lock`.
+- `--push-env`: set every env value that is available locally on the host, also the names that the host has. See [Check Env before a deploy](#check-env-before-a-deploy).
 - `--no-build`: deploy the build output that is there.
+- `--no-provision`: do not create the missing host resources first.
 - `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
-- `--yes`: deploy without the question. Without a terminal, the command needs it and exits with `2` and a `rerun`.
+- `--yes`: deploy and create resources without the questions, and generate a missing `VITEHUB_SECRET`. Without a terminal, the command needs it and exits with `2` and a `rerun`.
+
+The build runs with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, so it uses the preset of that host even when `vitehub()` sets another `host`. A `nitro.preset`, `NITRO_PRESET`, or `SERVER_PRESET` for another host still fails the build. With `--no-build`, the build output must be for the same host.
+
 
 The command runs each host CLI with an argument array and no shell. It runs only the deploy command that ViteHub's build writes, and refuses any other command.
 
 | Host | Deploy |
 | --- | --- |
-| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. `--preview` runs `wrangler versions upload` and applies no migrations. |
+| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit, and `--secrets-file` when deploy sets env values. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. `--preview` runs `wrangler versions upload` and applies no migrations. |
 | Vercel | `vercel deploy --prebuilt --prod --project <name>`, with `--meta vitehubCommit=<sha>` |
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` |
@@ -454,7 +491,75 @@ The credentials are the ones that `vitehub link` reads, and the host CLIs read t
 
 A temporary deploy has no account. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 
-After a first deploy, `.vitehub/link.json` gets the host project with `verified: false`, so `vitehub status` finds it. Run `vitehub link` to verify it.
+After a first deploy to a host, `.vitehub/link.json` gets the target of that host with `verified: false`, so `vitehub status` finds it, and keeps the other targets. Run `vitehub link --host <host>` to verify it.
+
+### Create the host resources
+
+On Cloudflare and Vercel, the deploy runs the [provision](/docs/development/provisioning) plan of the host before the build. It creates the missing D1 databases, KV namespaces, R2 buckets, Queues, and Vercel Blob stores of the app, and records their ids in `.vitehub/provision.json`. The build binds those ids. A second deploy finds the resources and creates nothing. The order is provision, build, D1 migrations, deploy.
+
+```txt [vitehub deploy]
+Provision on cloudflare:
+create	cloudflare-d1	my-app
+Create or change 1 resource on cloudflare? [y/N] y
+Provisioned 1 resource on cloudflare. Ids are in .vitehub/provision.json.
+```
+
+- Provision uses the credentials of the deploy: environment variables first, then a `wrangler login`. A Cloudflare login with several accounts needs `CLOUDFLARE_ACCOUNT_ID`, or the account of the link.
+- Vercel Blob needs `VERCEL_TOKEN` and the project id of the link, or `VERCEL_PROJECT_ID`. A saved `vercel login` can deploy but cannot create resources.
+- When a step cannot check its resources, the deploy stops before it builds or deploys, with `SETUP_DEPLOY_PROVISION_UNCHECKED`.
+- The deploy asks before it creates or changes a resource. `--yes` skips the question. A preview deploy also provisions, because it binds the same resources. A temporary deploy does not.
+- `--json` returns the result in `provision`: `changed` lists what the deploy created or changed, and `ids` the ids of the host resources. It is missing when the app declares no host resource, or with `--no-provision`.
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "provision": {
+    "changed": [{ "status": "create", "kind": "cloudflare-d1", "name": "my-app", "step": "database:cloudflare-d1" }],
+    "ids": { "d1": { "DB": "8f3c..." } }
+  }
+}
+```
+
+### Check Env before a deploy
+
+After provisioning and the build, before migrations, env writes, or publishing code, deploy checks the env names that the build wrote to `deployment.json`. The stage picks the local values and the host environment:
+
+| Command | Stage | Local values | Host environment |
+| --- | --- | --- | --- |
+| `vitehub deploy` | `production` | The shell, then `.env.production.local`, `.env.production`, `.env.local`, `.env` | Production |
+| Preview (`vitehub deploy --preview`) | `preview` | The shell, then `.env.preview.local`, `.env.preview`, `.env.local`, `.env` | Preview. Cloudflare re-supplies this stage’s local secrets with each version. |
+
+1. Deploy reads the names that the host has, as `vitehub env diff` does. It reads them only when the build lists env names.
+2. Each required name must be on the host or have a local value. When one has neither, nothing is deployed and the command exits with `SETUP_DEPLOY_ENV_MISSING`.
+3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it reads the env files in the recorded `envDir`, refuses a secret from a file that git tracks or does not ignore, never deletes a host variable, and prints names, never values.
+4. An optional name that is on neither prints one warning line.
+
+Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or a stage env file that git ignores. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
+
+On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
+
+A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. Vercel, Netlify, and Deno need the project before deploy can set values: run `vitehub link --host <host> --create` first, or the command exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
+
+When the build lists `VITEHUB_SECRET` as required and neither the host nor a local value has it, deploy asks to generate one. `--yes` generates it without the question. Deploy sets it on the host and prints only that it did.
+
+`--json` returns the check in `env`, with names only:
+
+```json
+{
+  "schemaVersion": 1,
+  "env": {
+    "stage": "production",
+    "checked": ["VITEHUB_SECRET", "API_KEY", "SENTRY_DSN"],
+    "missing": [{ "names": ["SENTRY_DSN"], "path": "env.server.sentryDsn", "secret": false }],
+    "pushed": ["VITEHUB_SECRET", "API_KEY"],
+    "generated": ["VITEHUB_SECRET"]
+  }
+}
+```
+
+`missing` lists the optional names without a value. `pushed` lists the names that deploy set.
 
 ### Push the checkout folders
 
@@ -508,7 +613,7 @@ The build output has no `deployment.json` or no deploy command for the host. Bui
 
 ### `SETUP_DEPLOY_HOST_MISMATCH`
 
-The configured host conflicts with the link, or the build output is for another host. A configured host conflict is rejected before building or uploading existing output. The command exits with `3`.
+The build output is for another host than the deploy target, for example after `--no-build` with an output of an earlier build. Deploy again without `--no-build`. The command exits with `3`.
 
 ### `SETUP_DEPLOY_COMMAND_REJECTED`
 
@@ -518,6 +623,14 @@ The deploy command in the build output is not the one that ViteHub writes, so th
 
 A host CLI exited with an error. The reason shows its last lines. The command exits with `1`.
 
+### `SETUP_DEPLOY_PROVISION_UNCHECKED`
+
+A Provision Step could not read the host resources, so the deploy created, built, and deployed nothing. The reason names what is missing, such as `CLOUDFLARE_ACCOUNT_ID` for a `wrangler login` with several accounts, or `VERCEL_TOKEN` for a saved `vercel login`. `rerun` deploys with `--no-provision`. The command exits with `2`.
+
+### `SETUP_DEPLOY_PROVISION_NEEDS_BUILD`
+
+The deploy must create or change resources, but `--no-build` would deploy an output that was built without their ids. Nothing was created or deployed. Deploy again without `--no-build`. The command exits with `3`.
+
 ### `SETUP_DEPLOY_CHECKOUT_CONFLICT`
 
 A checkout folder of `vitehub.lock` has a file with conflict markers or an open binary conflict. Nothing was built or deployed. Remove the markers, or run `vitehub resolve` for a binary file, then deploy again. `--no-push` deploys without the push. The command exits with `1`.
@@ -526,9 +639,87 @@ A checkout folder of `vitehub.lock` has a file with conflict markers or an open 
 
 The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/checkout`, but the module does not load: it has a syntax error, a missing dependency, an error when it starts, or no `localCheckoutStatus` and `pushWorkspaces` exports. Nothing was built or deployed. Reinstall the dependencies and use the same version of the Workspace package as the CLI. `--no-push` deploys without the push. The command exits with `1`.
 
+### `SETUP_DEPLOY_ENV_MISSING`
+
+A required env name is on neither the host nor a local value for the stage. Nothing was deployed. Run `vitehub env push --host <host>`, set the name in the host dashboard, or set it in the shell or `.env.<stage>`. On a first deploy, every required name needs a local value. `missing` lists the names, and `env` the check. The command exits with `2`.
+
+### `SETUP_DEPLOY_ENV_NOT_LINKED`
+
+Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. Run `vitehub link --host <host> --create`, then deploy again. The command exits with `2`.
+
 ### `SETUP_DEPLOY_PUSH_FAILED`
 
 The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
+
+## Sign in to a Console
+
+`vitehub login` signs the CLI in to a ViteHub Console with the device flow of RFC 8628. It needs no project.
+
+```bash [Terminal]
+vitehub login                                         # console.vitehub.dev
+vitehub login --console https://console.example.com   # a self-hosted Console
+```
+
+```txt [Output]
+Open https://console.vitehub.dev/device and enter the code WDJB-MJHT
+Or open https://console.vitehub.dev/device?user_code=WDJBMJHT
+Waiting for approval...
+Signed in to https://console.vitehub.dev as Ada (ada@example.com) in team Acme.
+The API key expires on 13 Feb 2027. Saved in /home/ada/.config/vitehub/credentials.json.
+```
+
+1. The CLI asks the Console for a code and prints it with the `/device` address.
+2. In the browser, you sign in, check the machine name and the code, choose a team, and click **Approve** or **Deny**.
+3. The CLI gets an API key for that team, valid for 90 days. The Console keeps only a SHA-256 hash of the key, and the CLI never prints it.
+
+The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. `--console` and `VITEHUB_CONSOLE_URL` name the Console. Plain `http://` works only for `localhost`.
+
+- `vitehub whoami` shows the person, the team, the role, and the projects of the key.
+- `vitehub logout` revokes the key on the Console and removes it from the file.
+- In CI, set `VITEHUB_CONSOLE_TOKEN` to an API key from **Account settings** > **API keys** in the Console. It wins over the saved key.
+
+A key acts as you in one team. A key made in the Console can name some projects of the team: it then opens only those and cannot link or unlink projects. Revoke a key in **Account settings** > **API keys**.
+
+### `CLI_CONSOLE_LOGIN_FAILED`
+
+The device flow did not finish: the Console did not answer, the person denied the code, or the code expired after 15 minutes. Run `vitehub login` again.
+
+### `CLI_CONSOLE_SIGNED_OUT`
+
+The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
+
+## Pull env values from a Console
+
+A self-hosted Console can keep the env values of each app and stage when its operator turns them on. The hosted Console at console.vitehub.dev never stores values. `vitehub env pull --from console` writes the values of one stage to `.env.<stage>` with the key of `vitehub login`. It needs no project config.
+
+```bash [Terminal]
+vitehub env pull --from console                                # production of the only project of the key
+vitehub env pull --from console --stage preview --project <id>
+vitehub env pull --from console --yes                          # replace the file
+```
+
+```txt [Output]
+Wrote 2 values of production to .env.production (mode 600): API_TOKEN, DATABASE_URL.
+```
+
+- Values retain literal dollar expressions, quotes and newlines when Vite loads the file. If dotenv cannot represent a value faithfully (such as a carriage return or a value containing every quote delimiter), the pull fails before writing the file.
+- With `--yes`, the command replaces the file entry; it never writes through a symlink to another file.
+- The command prints names, never values. The Console logs each value that it gives out, with the key and the person.
+- You must be an owner or admin of the team. A member gets `CONSOLE_ENV_FORBIDDEN`.
+- `--project` is needed when the key opens more than one project.
+- In a git repository, git must ignore the file and must not track it. The command checks this before it calls the Console.
+
+### `CLI_ENV_FILE_EXISTS`
+
+`.env.<stage>` exists. Pass `--yes` to replace it. A replaced file gets mode `600`.
+
+### `CLI_ENV_FILE_NOT_IGNORED`
+
+git tracks `.env.<stage>`, or `.gitignore` does not cover it, so the values could be committed. Add `.env.*` to `.gitignore`, and run `git rm --cached .env.<stage>` for a tracked file.
+
+### `CLI_ENV_PULL_FAILED`
+
+The Console refused the pull. The message has the Console's code, such as `CONSOLE_ENV_VALUES_OFF` when the Console stores no values, or `CONSOLE_ENV_FORBIDDEN` for a member.
 
 ## List deployments
 
@@ -537,9 +728,10 @@ The app is deployed, but the Workspace push failed. `checkouts.error` has the co
 ```bash [Terminal]
 pnpm vitehub deployments
 pnpm vitehub deployments --limit 20 --json
+pnpm vitehub deployments --host vercel
 ```
 
-Each deployment has `id`, `url`, `createdAt`, `state` (`ready`, `building`, `error`, `canceled`, or `unknown`), `target` (`production` or `preview`), `live` (true for the one that receives production traffic), `source` (`cli`, `git`, `dashboard`, `api`, or `unknown`), and `commit`. `commit.from` is `vitehub` for the marker that `vitehub deploy` writes, and `host` for the commit of a Git integration build. `--limit` is 1 to 100, and the default is 10.
+Each deployment has `id`, `url`, `createdAt`, `state` (`ready`, `building`, `error`, `canceled`, or `unknown`), `target` (`production` or `preview`), `live` (true for the one that receives production traffic), `source` (`cli`, `git`, `dashboard`, `api`, or `unknown`), and `commit`. `commit.from` is `vitehub` for the marker that `vitehub deploy` writes, and `host` for the commit of a Git integration build. `--limit` is 1 to 100, and the default is 10. `--host` reads another target than the default.
 
 ```json [vitehub deployments --json]
 {
@@ -573,7 +765,7 @@ Each deployment has `id`, `url`, `createdAt`, `state` (`ready`, `building`, `err
 
 ### `SETUP_DEPLOYMENTS_NOT_LINKED`
 
-The project has no host link. Run `vitehub link`. The command exits with `2`.
+The project has no host link, or no target for `--host`. Run `vitehub link`, or `vitehub link --host <host>`. The command exits with `2`.
 
 ### `SETUP_DEPLOYMENTS_CREDENTIALS_MISSING`
 
@@ -665,7 +857,127 @@ pnpm vitehub env inspect [--stage <name>] [--json]
 pnpm vitehub env check [--stage <name>] [--json]
 ```
 
-Both load the Vite config in the stage mode, with `.env.<stage>` files, and process values win. They list each declared variable with status, source, and required and secret flags. `env check` exits with status `1` when Server Env would fail to load, so it can gate CI or deploys.
+Both load the Vite config in the stage mode, with `.env.<stage>` files, and process values win. They list each declared variable with status, source, and required and secret flags. `--json` also lists the host variable `names` of each env declaration, in read order. `env check` exits with status `1` when Server Env would fail to load, so it can gate CI or deploys.
+
+## Check and push host env
+
+`vitehub env diff` and `vitehub env push` compare and set the variables that the deployed app reads. They read the names of the last build in `deployment.json` and the target of the host in `.vitehub/link.json`, and they run the host CLI with your login. Neither loads the project config.
+
+```bash [Terminal]
+pnpm vitehub env diff [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--json]
+pnpm vitehub env push [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--only <NAME>]... [--yes] [--json]
+```
+
+- `--host`: the link target to use. Without it, the default target.
+- `--stage`: `production` (the default) or `preview`. A stage selects the host environment and the `.env.<stage>` file.
+- `--only`: push only these names. Repeat it for more names.
+- `--yes`: push without the question. Without a terminal, `env push` needs it and exits with `2` and a `rerun`.
+
+When the build output for the host is missing, both commands build first, as `vitehub deploy` does. `vitehub deploy` runs the same check before it deploys: see [Check Env before a deploy](#check-env-before-a-deploy).
+
+`env diff` prints three lists: missing required names, missing optional names, and extra names on the host that no declaration reads. An entry with several names, such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN`, is set when one of them is. Hosts do not return values, so `env diff` compares names only and never says that a value changed. It exits with `1` when a required name is missing, so it can gate a deploy step.
+
+`env push` reads each value from the shell first, then from `.env.<stage>.local`, `.env.<stage>`, `.env.local`, and `.env`, as Vite does. It reads the files in the `envDir` that the build recorded in `deployment.json`, so `envDir: "config"` reads `config/.env.production`, and `envDir: false` reads the shell only. For each entry it pushes the first name in read order that has a value. It does not push an entry without a local value, and it never deletes a host variable. It prints the names and where each value came from, never a value. Values go to the host CLI on stdin, or in an API request body, never in argv, and host CLI errors have the values replaced by `<redacted>`.
+
+A secret from an env file must come from a file that git ignores and does not track. `env push` checks every file that the value reads: its own file, the files of the names that it expands with `$NAME`, and the real path of a symlink. When git cannot answer inside a repository, nothing is pushed. A file outside any git repository passes with a warning, because git cannot commit it. A secret from the shell is not checked.
+
+| Host | Names | Values | Stages |
+| --- | --- | --- | --- |
+| Cloudflare | `wrangler secret list --name <worker>` | `wrangler secret put <name> --name <worker>`. Every value becomes a Worker secret. The Worker gets the new secret at once. Deploy sends values with the new version instead. | `production` only. A Worker has one set of secrets for every version. |
+| Vercel | `vercel env ls --environment <target>` | `vercel env add <name> --environment <target> --force`, with `--sensitive` for a secret | `production` and `preview` |
+| Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
+| Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno infers secrecy from the name. Secret declarations with names outside its supported secret suffixes, such as `DATABASE_URL`, are refused before writing; set those in the Deno dashboard. A plain declaration gets `--non-secrets`. | `production` only |
+
+### GitHub Actions secrets
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host. Use it when your own GitHub workflow runs the deploy. It does not create a workflow or set up CI deploy: `vitehub deploy` runs on your machine by default.
+
+```bash [Terminal]
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --yes
+pnpm vitehub env push --to github --repo acme/web --environment production --yes
+```
+
+- `--repo`: the repository as `owner/name`. Without it, the GitHub repository of the git remote `origin`.
+- `--environment`: write the secrets of this GitHub deployment environment instead of the repository secrets. The environment must exist.
+- `--host`: the build that lists the names. Without it, the default link target.
+- `--stage`: only picks the `.env.<stage>` file. Any stage name works.
+
+The token comes from `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`, then an installation token of the GitHub App that `@vite-hub/forge` reads when `VITEHUB_GITHUB_APP_ID` is set. It needs write access to the repository secrets. The CLI encrypts each value with the repository public key (a libsodium sealed box) before the request, so the value is not in argv, in output, or in plain text on the wire. GitHub reserves names that start with `GITHUB_`, so an entry such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN` uses `VITEHUB_GITHUB_TOKEN` there.
+
+### Encrypted env files
+
+To keep values in git, commit a `.env.<stage>` file that [dotenvx](https://dotenvx.com/encryption) encrypted, and keep its private key out of git. `env push` decrypts each `encrypted:` value before it sends it, with the same stdin and redaction rules as a plain value. `vitehub deploy` decrypts the same way after its Env check, before it sets or uploads a value.
+
+```bash [Terminal]
+npx @dotenvx/dotenvx encrypt -f .env.production
+DOTENV_PRIVATE_KEY_PRODUCTION=<private key> pnpm vitehub env push --yes
+```
+
+- The key name follows dotenvx: `DOTENV_PRIVATE_KEY_PRODUCTION` for `.env.production`, `DOTENV_PRIVATE_KEY` for `.env`, or the name that matches the `DOTENV_PUBLIC_KEY_*` line of the file. `env push` reads it from the shell first, then from `.env.keys`. A comma-separated list of keys works, as in `dotenvx rotate`.
+- A git-tracked file may hold encrypted secrets. A plaintext secret in a tracked file is still refused.
+- `env push` refuses to decrypt when git tracks `.env.keys`, and fails with the key name when the key is missing or wrong.
+
+`vitehub init` ignores `.env*` except `.env.example`. To commit an encrypted stage file, add an exception, and keep `.env.keys` ignored:
+
+```txt [.gitignore]
+.env*
+!.env.example
+!.env.production
+```
+
+Vite does not decrypt the file for `vite dev` or `vite build`. Run them through dotenvx when the app reads these values at build time, such as `npx @dotenvx/dotenvx run -f .env.production -- vite build`.
+
+### `SETUP_ENV_FILE_TRACKED`
+
+A plaintext secret value comes from an env file that git tracks, directly, through `$NAME` expansion, or through a symlink. An `encrypted:` value is allowed. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+
+### `SETUP_ENV_DECRYPT_FAILED`
+
+The private key cannot decrypt an `encrypted:` value, for example because the file was encrypted with another key. `why` names the dotenvx error code, such as `WRONG_PRIVATE_KEY`. Nothing was pushed. The command exits with `1`.
+
+### `SETUP_ENV_KEYS_TRACKED`
+
+Git tracks `.env.keys`, so everyone with the repository can decrypt the encrypted env files. Nothing was pushed. Remove the file from git, ignore it, and rotate the keys with `dotenvx rotate`. The command exits with `3`.
+
+### `SETUP_ENV_FILE_NOT_IGNORED`
+
+A plaintext secret value comes from an env file that git does not track and does not ignore, so the next commit can add it. Nothing was pushed. Add `.env*` to `.gitignore`. The command exits with `3`.
+
+### `SETUP_ENV_GIT_FAILED`
+
+A secret value comes from an env file in a git repository, but `git ls-files` or `git check-ignore` failed, so the CLI cannot tell whether git has the secret. Nothing was pushed. Fix the repository, or set the value in the shell. The command exits with `1`.
+
+### `SETUP_ENV_NAME_UNKNOWN`
+
+`--only` names a variable that the build output does not list. The command exits with `2`.
+
+### `SETUP_ENV_PRIVATE_KEY_MISSING`
+
+An env file holds `encrypted:` values, and its private key is not in the shell or in `.env.keys`. The fix names the variable, such as `DOTENV_PRIVATE_KEY_PRODUCTION`. Nothing was pushed. The command exits with `2`.
+
+### `SETUP_ENV_STAGE_UNSUPPORTED`
+
+The stage is not `production` or `preview`, or the host has no preview environment. The command exits with `3`.
+
+### `SETUP_GITHUB_REPOSITORY_REQUIRED`
+
+`--to github` found no `--repo` and no github.com remote named `origin`. The command exits with `2`.
+
+### `SETUP_GITHUB_REQUEST_FAILED`
+
+The GitHub API refused a request, for example because the token cannot write secrets or the environment does not exist. The command exits with `1`.
+
+### `SETUP_ENV_VALUE_UNSUPPORTED`
+
+The host cannot safely store this value, such as a Deno value with a single quote or a line break, a secret name Deno cannot classify, or an existing Netlify variable without Functions scope or secret storage. Set it in the host dashboard. The command exits with `3`.
+`env status` asks the running app instead of a local stage, through the `env.inspect` [operation](/docs/development/operations). Pass `--url` to check a deployment:
+
+```bash [Terminal]
+pnpm vitehub env status --url https://my-app.example.com
+```
+
+It returns `ok` and, for each declaration, the status, the `names` it reads, the `name` that supplied the value, and the required, secret, and blocking flags. Values never leave the app.
 
 ## Generate and derive secrets
 
@@ -709,7 +1021,7 @@ pnpm vitehub inspect output --json
 
 `--json` includes the parsed content of each JSON file. The CLI redacts values under secret keys such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with credentials. See [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
 
-`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, and the Vercel Blob store. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
+`inspect resources` lists the host resource behind each Definition or store: D1 databases, Workers KV namespaces, R2 buckets, Cloudflare Queues, the Vercel Blob store, and the Durable Object and Container that run Sandbox Tasks on Cloudflare. Each entry shows the host, the resource kind, the Definition or store, the resource name, the binding, the id if one is known, and where the id came from. Like `inspect output`, it loads the configuration that a production build uses. It reads local files only and never calls a provider API.
 
 ```bash [Terminal]
 pnpm vitehub inspect resources
@@ -1098,7 +1410,7 @@ The generated commands need the Console RPC. `vitehub()` installs it. Standalone
 
 Operations that run app code (`workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`) exist only when `console.invoke` is on. It is on in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|undo|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|undo|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub site sessions|revoke|invite|invites|revoke-invite|grants|open`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins.
 
 | Option | Use it for |
 | --- | --- |
@@ -1220,7 +1532,7 @@ pnpm vitehub agent invocations cancel ainv_0123 --json
 ainv_0123 cancel requested, not enforced by run
 ```
 
-`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Use `--server` or `VITEHUB_DEV_SERVER_URL` when Vite is not on `http://localhost:5173`, and `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
+`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--server`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. Use `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
 
 Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the endpoint returns `501`, and the command prints the reason and exits with status 1.
 
@@ -1407,8 +1719,8 @@ Use `--dry-run` before you create provider resources.
 Provision never deletes or changes existing resources. It writes non-secret ids only when a real run applies actions.
 
 ```bash [Terminal]
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --provider cloudflare --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
+CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --host cloudflare --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
 ```
 
 ## Troubleshooting
@@ -1417,8 +1729,9 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | --- | --- | --- |
 | `Unknown ViteHub CLI namespace` | The package plugin is missing or off. | Turn the feature on in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, or add the package's `hubX()` plugin to `vite.config.ts`. |
 | `Unknown Definition kind` | No active package has that kind. | Use a kind from the printed list, or turn on the package. |
-| `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider explicitly. |
-| Provision fails before applying actions | Required provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`. |
+| `Provision requires --host cloudflare\|vercel` | The host flag is missing or misspelled. | Pass a supported host explicitly. |
+| `Option --provider is now --host` | The command uses the old flag. | Run the command in the `fix:` line. |
+| Provision fails before applying actions | Required host credentials are missing. | Run `wrangler login` or set `CLOUDFLARE_API_TOKEN`, and set `CLOUDFLARE_ACCOUNT_ID` for a login with several accounts. On Vercel, set `VERCEL_TOKEN`. |
 | Provision dry-run reports no actions | A package plan skipped the provider lookup, because its read credentials are missing. | Set the provider credentials. `--dry-run` still blocks `apply()`. |
 | Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel-blob`. | Set the project id and the Vercel Blob driver, then run again. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` turns off the eval runner. | Turn the option back on for local development. |
@@ -1461,10 +1774,10 @@ pnpm vitehub workflow runs clear --yes
 
 The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` and `runs clear` ask for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows them all; `workflows:read` allows only `get`, `runs list`, and `runs show`.
 
-Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name.
+Inline runs can be read with `get` for five minutes. Inline cancellation, Cloudflare resume, and OpenWorkflow resume return unsupported-operation errors. `cancel` terminates a Cloudflare run through its Workflow binding. OpenWorkflow starts enqueue work. The worker that each Node server starts executes it. Resume uses an opaque hook token, not a run ID or signal name.
 
 ### Inspect runs in development
 
 `vite dev` records every inline run: the runs that `vitehub workflow start`, the Console, and app code start. `vitehub workflow runs list` lists them newest first, with their status and step count. Filter with `--workflow <name>`, `--status queued|running|completed|failed`, and `--limit <n>`. `vitehub workflow runs show <runId>` prints the run with each step, its status and times, the error of a failed step, and the result of the run. Add `--json` for the step outputs. Credentials in results, outputs, and error messages are redacted. `vitehub workflow runs clear --yes` removes all recorded runs and prints how many it removed, so a test or an agent can start from an empty history without a restart. It does not cancel active runs and does not change what `get` returns.
 
-The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).
+The history lives in the memory of the dev server. It keeps the newest 200 runs and is empty after a restart or `runs clear`. It records the steps of a folder Workflow, the numbered files that run through `steps`. Inline runs do not retry a failed step, so each step runs once. The history records inline runs only: a run that a Cloudflare Workflow binding, OpenWorkflow storage, or a native Vercel Workflow starts is not in it. With the `node` preset, `vite dev` runs Workflows on OpenWorkflow, so the history is empty there; read a run with `vitehub workflow get`. Only the dev Nitro plugin imports the history code, so a build does not include it and never records runs. On a deployment, `runs list`, `runs show`, and `runs clear` fail with `WORKFLOW_RUNS_UNAVAILABLE` (`409`). Read one deployed run with `vitehub workflow get <runId> --workflow <name>`. An id that the history does not have fails with `WORKFLOW_RUN_NOT_FOUND` (`404`).

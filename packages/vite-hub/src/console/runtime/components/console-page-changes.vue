@@ -114,7 +114,7 @@ async function undo(change: InvocationPageChangeView): Promise<void> {
 .console-page-changes__hint,
 .console-page-changes__empty,
 .console-page-changes__meta {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
@@ -125,7 +125,7 @@ async function undo(change: InvocationPageChangeView): Promise<void> {
 
 .console-page-changes__row {
   align-items: flex-start;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
@@ -170,7 +170,7 @@ async function undo(change: InvocationPageChangeView): Promise<void> {
 }
 
 .console-page-changes__before {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
@@ -179,7 +179,7 @@ async function undo(change: InvocationPageChangeView): Promise<void> {
 }
 
 .console-page-changes__row[data-undone] .console-page-changes__after {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
@@ -200,7 +200,7 @@ async function undo(change: InvocationPageChangeView): Promise<void> {
 }
 
 .console-page-changes__undone {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   padding-top: 0.125rem;
 }

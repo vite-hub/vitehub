@@ -6,11 +6,7 @@ navigation.order: 8
 icon: i-lucide-panels-top-left
 ---
 
-`vite-hub/forms/vue` needs `vue` and `@formisch/vue`:
-
-```bash [terminal]
-pnpm add @formisch/vue
-```
+`vite-hub/forms/vue` needs only `vue`. Only `vite-hub/forms/formisch` needs `@formisch/vue`.
 
 ## `AutoForm`
 
@@ -114,16 +110,18 @@ const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 | `pending` | `true` while the form sends. |
 | `clear(name?)` | Removes the error of one field, or of every field. |
 
-`vite-hub/forms/vue` also loads `@formisch/vue` for `AutoForm`, so install it as above.
-
 ## `useFormSubmit()`
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the input of the form, puts each server error under its field, and resets the form after a success. Nuxt imports it for you.
+If your app uses [Formisch](https://formisch.dev), use `useFormSubmit()` from `vite-hub/forms/formisch`. It sends the input of the form, puts each server error under its field, and resets the form after a success. Install `@formisch/vue` first. When it is installed, Nuxt imports `useFormSubmit()` for you.
+
+```bash [terminal]
+pnpm add @formisch/vue
+```
 
 ```vue [app/components/FeedbackForm.vue] fragment
 <script setup lang="ts">
 import { Field, Form, useForm } from '@formisch/vue'
-import { useFormSubmit } from 'vite-hub/forms/vue'
+import { useFormSubmit } from 'vite-hub/forms/formisch'
 
 const form = useForm({ schema: FeedbackSchema })
 const { send, sent } = useFormSubmit('feedback', form)

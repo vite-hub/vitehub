@@ -57,39 +57,11 @@ export default defineConfig({
 | `sqlite.path` | `WorkflowRuntimeConfigValue` | none | OpenWorkflow SQLite path. |
 | `sqlite.namespaceId` | `string` | provider default | OpenWorkflow SQLite namespace id. |
 | `sqlite.runMigrations` | `boolean` | provider default | Runs OpenWorkflow SQLite migrations. |
-| `worker.concurrency` | `number` | provider default | OpenWorkflow worker concurrency. |
+| `worker` | `false` or `{ concurrency }` | started | The OpenWorkflow worker that each Nitro server starts. `false` keeps the server from starting it. |
+| `remote` | `boolean` | `false` | Lets `vite dev` keep OpenWorkflow runs in the Postgres of `OPENWORKFLOW_POSTGRES_URL` or the Postgres Default Database. Without it, `vite dev` uses the local SQLite file. Builds ignore it. |
+| `worker.concurrency` | `number` | `1` | The number of runs that one worker executes at the same time. |
 
-Without `provider`, ViteHub picks Cloudflare on Cloudflare and Vercel on Vercel. On other hosts, such as Node, Docker, and Deno, it picks OpenWorkflow when you set `postgres.url` or `sqlite.path`. Without them, the build fails with `WORKFLOW_C0020`. Add the provider and storage:
-
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts] fragment
-export default defineNuxtConfig({
-  vitehub: { workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } } },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts] fragment
-vitehub({
-  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts] fragment
-vitehub({
-  workflow: { provider: 'openworkflow', sqlite: { path: '.vitehub/data/workflow.sqlite' } },
-})
-```
-:::
-::
-
-Then [start an OpenWorkflow worker](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker). Netlify cannot infer a provider, so set `provider` or turn Workflow off there.
-
-In `vite dev`, a Workflow without `provider` or storage runs inline in the dev server. The Workflow that only `agent` turns on also runs inline on these hosts. Run `vitehub durability list` to see the store that the app uses.
+Without `provider`, ViteHub picks Cloudflare on Cloudflare, OpenWorkflow on Node or Docker (also in `vite dev` with the `node` host), and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Each Node server starts the OpenWorkflow worker. [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node) tells how it picks storage. Netlify cannot infer a provider, so set `provider` or turn Workflow off there. An explicit `provider` always wins.
 
 ## Define a workflow
 
@@ -116,7 +88,7 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 | --- | --- | --- |
 | `id` | `string` | Static provider id for the workflow. |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
-| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
+| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps). |
 
 The handler gets `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 

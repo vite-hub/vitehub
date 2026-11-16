@@ -8,6 +8,7 @@ import { consoleBytes } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { useConsoleWordWrap } from "./console-wrap";
 import "./console-session.css";
 
@@ -304,7 +305,7 @@ onBeforeUnmount(() => {
         <span class="session-inspector__repository">{{ name }}</span>
         <template v-if="selectedPath">
           <template v-for="(segment, index) in selectedPath.split('/')" :key="`${segment}-${index}`">
-            <UIcon name="i-lucide-chevron-right" />
+            <Icon name="i-lucide-chevron-right" />
             <span :data-current="index === selectedPath.split('/').length - 1">{{ segment }}</span>
           </template>
         </template>
@@ -340,7 +341,7 @@ onBeforeUnmount(() => {
         <ConsoleState v-if="error && !descriptor" :error="error" title="Couldn't open this Workspace" :retry="load" />
         <ConsoleState v-else-if="fileError" :error="fileError" title="Couldn't open this file" :retry="() => selectedPath && loadFile(selectedPath)" />
         <div v-else-if="fileLoading" class="session-inspector__state">
-          <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
+          <Icon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
         </div>
         <ConsoleFileDiff
           v-else-if="selectedPath && file && showDiff"
@@ -391,7 +392,7 @@ onBeforeUnmount(() => {
 
 .workspace-browser__refs,
 .workspace-browser__tree {
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
@@ -440,11 +441,11 @@ onBeforeUnmount(() => {
 
 .workspace-browser__refs button:hover,
 .workspace-browser__refs button[aria-current="true"] {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .workspace-browser__ref-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   overflow: hidden;
@@ -467,7 +468,7 @@ onBeforeUnmount(() => {
 
 .workspace-browser__note,
 .workspace-browser__hint {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   line-height: 1.5;
   margin: 0;
