@@ -44,7 +44,7 @@ The check uses installed Playwright Chromium, the real Console components, and i
 To prove that a change does not move pixels, such as a token rename, capture every Console route on the base and on your branch, and compare the captures:
 
 ```bash
-pnpm exec vp run --cache -t @vite-hub/auth#build
+pnpm exec vp run --cache -t @vite-hub/auth#build   # and the same for @vite-hub/kit#build and @vite-hub/ui#build, one task per run
 node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/base   # on the base commit
 node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/head   # on your branch
 node packages/vite-hub/test/console-pixels.browser.mjs compare .cache/console-pixels/base .cache/console-pixels/head

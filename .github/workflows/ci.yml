@@ -750,11 +750,12 @@ jobs:
       - name: Install Chromium
         if: ${{ steps.changed.outputs.run == 'true' }}
         run: ./packages/vite-hub/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
-      # The playground loads the Console from source. Auth, the kit styles, and theme.css load from dist.
+      # The playground loads the Console from source. Auth, the kit styles, and theme.css load from dist. One `vp run`
+      # takes one task.
       - name: Capture the pull request
         if: ${{ steps.changed.outputs.run == 'true' }}
         run: |
-          vp run --cache -t @vite-hub/auth#build -t @vite-hub/kit#build -t @vite-hub/ui#build
+          for task in @vite-hub/auth#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
           node packages/vite-hub/test/console-pixels.browser.mjs capture "$RUNNER_TEMP/console-pixels/head"
       # The base runs the oracle of the pull request, so a change to the oracle applies to both sides.
       - name: Capture the base
@@ -769,7 +770,7 @@ jobs:
           git checkout --quiet --detach "$BASE_REF"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
           if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
-          vp run --cache -t @vite-hub/auth#build -t @vite-hub/kit#build -t @vite-hub/ui#build
+          for task in @vite-hub/auth#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
           node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
       - name: Compare
         id: compare
