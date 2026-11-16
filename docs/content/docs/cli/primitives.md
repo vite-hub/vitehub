@@ -102,7 +102,7 @@ pnpm vitehub env push [--host <host>] [--stage <name>] [--only <NAME>]... [--yes
 - `--only`: push only these names. Repeat it for more names.
 - `--yes`: push without the question. Without a terminal, `env push` needs it and exits with `2` and a `rerun`.
 
-When the build output for the host is missing, both commands build first, as `vitehub deploy` does.
+When the build output for the host is missing, both commands build first, as `vitehub deploy` does. `vitehub deploy` runs the same check before it deploys: see [Check Env before a deploy](/docs/cli/project#check-env-before-a-deploy).
 
 `env diff` prints three lists: missing required names, missing optional names, and extra names on the host that no declaration reads. An entry with several names, such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN`, is set when one of them is. Hosts do not return values, so `env diff` compares names only and never says that a value changed. It exits with `1` when a required name is missing, so it can gate a deploy step.
 
@@ -110,7 +110,7 @@ When the build output for the host is missing, both commands build first, as `vi
 
 | Host | Names | Values | Stages |
 | --- | --- | --- | --- |
-| Cloudflare | `wrangler secret list --name <worker>` | `wrangler secret put <name> --name <worker>`. Every value becomes a Worker secret. The Worker gets the new secret at once. | `production` only. A Worker has one set of secrets for every version. |
+| Cloudflare | `wrangler secret list --name <worker>` | `wrangler secret put <name> --name <worker>`. Every value becomes a Worker secret. The Worker gets the new secret at once. Deploy sends values with the new version instead. | `production` only. A Worker has one set of secrets for every version. |
 | Vercel | `vercel env ls --environment <target>` | `vercel env add <name> --environment <target> --force`, with `--sensitive` for a secret | `production` and `preview` |
 | Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
 | Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno infers secrecy from the name. Secret declarations with names outside its supported secret suffixes, such as `DATABASE_URL`, are refused before writing; set those in the Deno dashboard. A plain declaration gets `--non-secrets`. | `production` only |

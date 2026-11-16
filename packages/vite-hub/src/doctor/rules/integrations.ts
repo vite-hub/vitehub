@@ -321,18 +321,10 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
-    const value = unwrap(property.value)
-    const isObject = isNodeType(value, "ObjectExpression")
     let report: { why: string, fix: string } | undefined
     const removed = name !== undefined && Object.hasOwn(removedViteHubOptions, name) ? removedViteHubOptions[name] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
-    }
-    else if (name === "sandboxTask" && isObject) {
-      report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The host selects the provider.",
-        fix: "Set `sandboxTask: true`.",
-      }
     }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }

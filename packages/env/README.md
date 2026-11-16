@@ -89,7 +89,7 @@ export async function sync(event: ViteHubContext) {
 
 ## Set the values on the host
 
-The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
 
 ## Derive secrets from one root secret
 
@@ -352,7 +352,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 vitehub env status --url https://my-app.example.com
 ```
 
-The result has `ok` and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
+The result has `ok`, the `host` that the app runs on when it is known, and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
 
 ### Managed credentials
 
