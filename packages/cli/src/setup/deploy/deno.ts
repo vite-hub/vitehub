@@ -4,7 +4,7 @@ import process from "node:process"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
 import { findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
 
 import type { SetupLink } from "../link.ts"
@@ -18,8 +18,8 @@ const runnerFirstLine = "import { spawn } from \"node:child_process\""
 export async function denoAdapter(context: DeployContext, organization: string): Promise<DeployAdapter> {
   const runner = join(context.outputDir, "deploy.mjs")
   const source = await readFile(runner, "utf8").catch(() => undefined)
-  if (source === undefined) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: runner }), setupExitCodes.error)
-  if (!source.startsWith(runnerFirstLine)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command: runner }), setupExitCodes.error)
+  if (source === undefined) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: runner }), setupExitCodes.error)
+  if (!source.startsWith(runnerFirstLine)) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_COMMAND_REJECTED({ command: runner }), setupExitCodes.error)
   const env = { ...context.env, DENO_DEPLOY_APP: context.projectName, DENO_DEPLOY_ORG: organization }
 
   return {
@@ -37,7 +37,7 @@ export async function denoAdapter(context: DeployContext, organization: string):
 /** The Deno Deploy organization: the linked account, else `DENO_DEPLOY_ORG`. */
 export function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
   const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
-  if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
+  if (!organization) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
   return organization
 }
 
@@ -46,7 +46,7 @@ export function denoOrganization(link: SetupLink | undefined, env: NodeJS.Proces
  * is taken as it is. A value with a quote or a line break has no safe dotenv form, so it is refused.
  */
 function dotenvLine(name: string, value: string): string {
-  if (/['\r\n]/u.test(value)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "It has a single quote or a line break, and `deno deploy env load` reads a dotenv file." }), setupExitCodes.conflict)
+  if (/['\r\n]/u.test(value)) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "It has a single quote or a line break, and `deno deploy env load` reads a dotenv file." }), setupExitCodes.conflict)
   return `${name}='${value}'\n`
 }
 
@@ -78,10 +78,10 @@ export function denoEnv(context: HostEnvContext): HostEnv {
       return Array.isArray(value) ? value.flatMap(item => isRecord(item) && typeof item.key === "string" ? [item.key] : []) : []
     },
     async setSecret(name, value, { secret }) {
-      if (process.platform === "win32") throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
+      if (process.platform === "win32") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
       // env load infers secrecy from the key; accept only known secret suffixes without a public prefix.
       // Omitting --non-secrets cannot force a name such as DATABASE_URL to stay secret.
-      if (secret && (!/_(?:KEY|SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIALS|AUTH)$/u.test(name) || /^(?:PUBLIC|VITE|NEXT_PUBLIC|NUXT_PUBLIC|REACT_APP|EXPO_PUBLIC|GATSBY)_/u.test(name))) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "The Deno CLI cannot enforce secret storage for this name. Set it as a secret in Deno Deploy before continuing." }), setupExitCodes.conflict)
+      if (secret && (!/_(?:KEY|SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIALS|AUTH)$/u.test(name) || /^(?:PUBLIC|VITE|NEXT_PUBLIC|NUXT_PUBLIC|REACT_APP|EXPO_PUBLIC|GATSBY)_/u.test(name))) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "The Deno CLI cannot enforce secret storage for this name. Set it as a secret in Deno Deploy before continuing." }), setupExitCodes.conflict)
       const result = await run(["load", "/dev/stdin", "--replace", ...(secret ? [] : ["--non-secrets", name])], dotenvLine(name, value))
       if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
     },

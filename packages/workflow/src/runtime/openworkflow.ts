@@ -2,6 +2,7 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -395,8 +396,8 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
       // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
       return output as Awaited<ReturnType<typeof run>>
     },
-    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
-    sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
+    // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
+    sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
   }
 }
 
@@ -457,13 +458,15 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
 
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
   const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
+  const status = normalizeOpenWorkflowStatus(run.status)
   return {
+    ...(status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
     ...(run.finishedAt ? { completedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     // The id that the caller passed is the run id. OpenWorkflow keeps it as the idempotency key.
     id: run.idempotencyKey || run.id,
-    metadata: run.error || {
+    metadata: {
       namespaceId: run.namespaceId,
       version: run.version,
       workflowName: run.workflowName,
@@ -471,7 +474,7 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
     payload: run.input,
     provider: "openworkflow",
     result,
-    status: normalizeOpenWorkflowStatus(run.status),
+    status,
   }
 }
 
@@ -492,6 +495,7 @@ function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunSte
       ...(attempt.status === "failed" || nonRetryable ? { error: toWorkflowRunStepError(nonRetryable ?? attempt.error) } : {}),
       id: attempt.id,
       name: attempt.stepName,
+      ...(attempt.context?.kind === "sleep" ? { sleepUntil: new Date(attempt.context.resumeAt) } : {}),
       ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
       status: nonRetryable ? "failed" : normalizeOpenWorkflowStatus(attempt.status),
     })
@@ -548,9 +552,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
     return {
       ...serialized,
-      metadata: serialized.status === "failed"
-        ? serialized.metadata
-        : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
+      metadata: { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
       // A start with the id of an existing run returns that run, so report the payload that it stored.
       // SAFETY: OpenWorkflow stores the payload of this Workflow Definition as the run input.
       payload: handle.workflowRun.input as TPayload,

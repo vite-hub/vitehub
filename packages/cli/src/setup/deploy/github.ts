@@ -4,7 +4,7 @@ import { hsalsa, xsalsa20poly1305 } from "@noble/ciphers/salsa.js"
 import { blake2b } from "@noble/hashes/blake2.js"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
 import { redact } from "./host.ts"
 
 import type { DeployRun, HostEnv } from "./host.ts"
@@ -40,7 +40,7 @@ export async function resolveGitHubRepository(repo: string | undefined, options:
   const result = await options.run("git", ["remote", "get-url", "origin"], { cwd: options.root, env: options.env }).catch(() => undefined)
   const remote = result?.exitCode === 0 ? result.stdout.trim() : undefined
   const repository = remote ? githubRepositoryFromRemote(remote) : undefined
-  if (!repository) throw new SetupFailure(cliErrorDiagnostics.SETUP_GITHUB_REPOSITORY_REQUIRED({ remote: remote ?? "" }), setupExitCodes.inputNeeded, { missing: [{ field: "repo" }] })
+  if (!repository) throw setupFailure(cliErrorDiagnostics.SETUP_GITHUB_REPOSITORY_REQUIRED({ remote: remote ?? "" }), setupExitCodes.inputNeeded, { missing: [{ field: "repo" }] })
   return repository
 }
 
@@ -61,13 +61,13 @@ export async function resolveGitHubToken(repository: string, options: { root: st
     // An optional peer: apps with a GitHub App have it through `vite-hub`.
     const forge = await import("@vite-hub/forge").catch(() => undefined)
     if (!forge) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: "Install @vite-hub/forge to use the GitHub App of VITEHUB_GITHUB_APP_ID, or set GITHUB_TOKEN.", host: "GitHub" }), setupExitCodes.inputNeeded, { missing: [{ field: "GITHUB_TOKEN" }] })
+      throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: "Install @vite-hub/forge to use the GitHub App of VITEHUB_GITHUB_APP_ID, or set GITHUB_TOKEN.", host: "GitHub" }), setupExitCodes.inputNeeded, { missing: [{ field: "GITHUB_TOKEN" }] })
     }
     const [error, token] = await forge.useForge({ env: options.env, fetch: options.fetch }).token({ repository })
-    if (error) throw new SetupFailure(cliErrorDiagnostics.SETUP_GITHUB_REQUEST_FAILED({ operation: `GitHub App token for ${repository}`, reason: error.message }), setupExitCodes.error)
+    if (error) throw setupFailure(cliErrorDiagnostics.SETUP_GITHUB_REQUEST_FAILED({ operation: `GitHub App token for ${repository}`, reason: error.message }), setupExitCodes.error)
     return token.token
   }
-  throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({
+  throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({
     fix: "Set GITHUB_TOKEN or GH_TOKEN to a token that can write the Actions secrets of the repository, run `gh auth login`, or set VITEHUB_GITHUB_APP_ID and the private key of a GitHub App that is installed on it.",
     host: "GitHub",
   }), setupExitCodes.inputNeeded, { missing: [{ field: "GITHUB_TOKEN" }] })
@@ -152,7 +152,7 @@ export function githubEnv(context: GitHubEnvContext): HostEnv {
     const hint = response.status === 404 && context.environment
       ? ` The environment ${context.environment} may not exist: create it in the repository settings.`
       : response.status === 404 || response.status === 403 ? " The token needs write access to the repository secrets." : ""
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_GITHUB_REQUEST_FAILED({ operation, reason: `${response.status} ${redact(message, [...context.secrets, context.token])}.${hint}` }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_GITHUB_REQUEST_FAILED({ operation, reason: `${response.status} ${redact(message, [...context.secrets, context.token])}.${hint}` }), setupExitCodes.error)
   }
 
   let publicKey: Promise<{ key_id: string, key: Uint8Array }> | undefined
