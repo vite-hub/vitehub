@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { MaybePromise } from "../types.ts"
 import type { Papercut } from "./papercuts.ts"
 
@@ -88,9 +89,9 @@ export function papercutSimilarity(left: ReadonlySet<string>, right: ReadonlySet
   return (2 * shared) / (left.size + right.size)
 }
 
-function positive(value: number | undefined, fallback: number, name: string): number {
+function positive(value: number | undefined, fallback: number, name: "maxEntries" | "windowMs"): number {
   if (value === undefined) return fallback
-  if (!Number.isFinite(value) || value <= 0) throw new TypeError(`[vitehub] createPapercutIndex({ ${name} }) must be a positive number.`)
+  if (!Number.isFinite(value) || value <= 0) throw agentDiagnostics.AGENT_PAPERCUT_INDEX_OPTION_INVALID({ name })
   return value
 }
 
@@ -99,7 +100,7 @@ export function createPapercutIndex(options: PapercutIndexOptions = {}): MemoryP
   const windowMs = positive(options.windowMs, 7 * 24 * 60 * 60 * 1000, "windowMs")
   const maxEntries = positive(options.maxEntries, 500, "maxEntries")
   const threshold = options.similarity ?? 0.4
-  if (!(threshold > 0 && threshold <= 1)) throw new TypeError("[vitehub] createPapercutIndex({ similarity }) must be greater than 0 and at most 1.")
+  if (!(threshold > 0 && threshold <= 1)) throw agentDiagnostics.AGENT_PAPERCUT_INDEX_SIMILARITY_INVALID()
   const now = options.now || Date.now
   const entries = new Map<string, { occurrence: PapercutOccurrence, terms: Set<string>, lastAt: number }>()
 
