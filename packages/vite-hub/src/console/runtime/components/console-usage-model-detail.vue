@@ -21,6 +21,7 @@ import {
 } from "./console-usage-model";
 import ConsoleSection from "./console-section.vue";
 import ConsoleStatGrid from "./console-stat-grid.vue";
+import Icon from "./console-icon.vue";
 
 const props = defineProps<{
   /** Period totals decide whether a period without this model is zero or unavailable. */
@@ -130,7 +131,7 @@ function formatChartNumber(value: number): string {
       :note="segments.complete ? undefined : 'Recorded evidence only. Some sessions did not report every token type. Input can include their cache tokens.'"
     />
     <p v-if="costSupported && !priced" class="flex items-start gap-2 text-xs text-muted">
-      <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
       No session recorded a cost for this model. Its cost is unavailable, not zero.
     </p>
   </div>
