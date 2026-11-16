@@ -84,6 +84,19 @@ describe("built-in host integration", () => {
     else await expect(resolve()).resolves.toBeTruthy()
   })
 
+  it("lets a Vitest config use vitehub() without agent when server/agents has Agents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
+    // Vitest resolves the config with the `test` mode. The tests import Agent Definitions, and no Agent route runs.
+    await expect(resolveConfig({
+      mode: "test",
+      root,
+      plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
+    }, "serve")).resolves.toBeTruthy()
+  })
+
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {

@@ -1254,14 +1254,15 @@ const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
 /**
  * Fails when the app defines Agents under `server/agents/` but leaves `agent` unset. Without the option, ViteHub
- * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent.
+ * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent. A Vitest config runs no
+ * routes: its tests import the Agent Definitions that they check.
  */
 function agentOptionMissingPlugin(): Plugin {
   return {
     name: "vite-hub/agent-option-missing",
     configResolved(config) {
-      // An app can add hubAgent() itself.
-      if (config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      // An app can add hubAgent() itself. Vitest resolves its config with the `test` mode.
+      if (config.mode === "test" || config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
       const root = resolveViteHubProjectRoot(config.root)
       // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]
