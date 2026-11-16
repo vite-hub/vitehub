@@ -26,6 +26,9 @@ function placeDraft(point: AnchorPoint, page: boolean, width: number, viewport: 
   return { x, y: point.y, flipX, left: left - x };
 }
 
+/** A pin on an area or an image is round. Elsewhere it is a drop whose small corner points at the spot. */
+const pinShape = (kind: CommentThreadModel["anchor"]["kind"]) => (kind === "area" || kind === "image" ? "round" : "point");
+
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
 // The room of one pin. Pins closer than this to each other stack.
@@ -135,12 +138,12 @@ export const CommentLayer = defineComponent({
     const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
 
     const user = computed(() => state.user.value);
-    const pinned = computed(() => {
-      const threads = [...state.pageThreads.value];
-      const opened = state.opened.value;
-      if (opened && opened.subject.kind === state.subject.value.kind && opened.subject.id === state.subject.value.id && !threads.includes(opened)) threads.push(opened);
-      return threads;
-    });
+    const pinned = computed(() => state.threads.value.filter(thread =>
+      state.pageThreads.value.includes(thread) || state.shown.value.has(thread.id) || state.leaving.value.has(thread.id),
+    ));
+    // While comments are hidden, only the threads that still show get a pin, and one that stops showing stays for its
+    // pop-out. Opening or writing a comment never shows the others.
+    const drawn = computed(() => pinned.value.filter((thread) => state.shown.value.has(thread.id) || state.leaving.value.has(thread.id)));
 
     // A pin drops on pointer up, and only if the pointer stayed put: a touch that scrolls the page is not a click. A mouse
     // or a pen that moves draws an area instead, and the area becomes the comment's anchor.
@@ -378,7 +381,7 @@ export const CommentLayer = defineComponent({
     const marginLayout = (spots: Map<string, ResolvedAnchor>, draftY?: number) => {
       type Entry = { key: string; y: number; thread?: CommentThreadModel; active: boolean };
       const entries: Entry[] = pinned.value.flatMap((thread) => {
-        const spot = spots.get(thread.id);
+        const spot = state.shown.value.has(thread.id) ? spots.get(thread.id) : undefined;
         return spot ? [{ active: state.openId.value === thread.id, key: thread.id, thread, y: spot.y }] : [];
       });
       if (draftY !== undefined) entries.push({ active: true, key: draftPositionKey, y: draftY });
@@ -435,7 +438,7 @@ export const CommentLayer = defineComponent({
       // Pins that would cover each other, such as two quotes of one paragraph in its gutter, stack downward, or upward
       // at the bottom of the screen, so each stays visible and takes its own click.
       const spots = new Map<string, ResolvedAnchor>();
-      for (const thread of pinned.value) {
+      for (const thread of drawn.value) {
         const position = state.positions.value.get(thread.id);
         if (!position || position.detached || position.clipped || thread.anchor.kind === "page") continue;
         const taken = (y: number) => [...spots.values()].some((spot) => Math.abs(spot.x - position.x) < pinSpacing && Math.abs(spot.y - y) < pinSpacing);
@@ -448,18 +451,21 @@ export const CommentLayer = defineComponent({
         }
         spots.set(thread.id, { ...position, y });
       }
-      const items = pinned.value.flatMap((thread) => {
+      const items = drawn.value.flatMap((thread) => {
         const position = spots.get(thread.id);
         if (!position) return [];
+        const leaving = !state.shown.value.has(thread.id);
         const open = state.openId.value === thread.id;
-        const hover = state.hoverId.value === thread.id && !open && !state.draft.value && !inMargin.value;
+        const hover = state.hoverId.value === thread.id && !leaving && !open && !state.draft.value && !inMargin.value;
         return [
           h(
             "div",
             {
               ...side(position.x, position.y),
               "data-kind": thread.anchor.kind,
+              "data-leaving": leaving ? "true" : undefined,
               "data-slot": "comment-layer-item",
+              inert: leaving || undefined,
               key: thread.id,
               style: place(position),
             },
@@ -467,6 +473,7 @@ export const CommentLayer = defineComponent({
               h(CommentPin, {
                 active: open,
                 author: thread.author,
+                "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
                 n: thread.n,
@@ -536,7 +543,7 @@ export const CommentLayer = defineComponent({
                 style: place(placement),
               },
               [
-                h(CommentPin, { author: user.value, draft: true }),
+                h(CommentPin, { author: user.value, "data-shape": pinShape(draft.anchor.kind), draft: true }),
                 h(
                   "div",
                   {

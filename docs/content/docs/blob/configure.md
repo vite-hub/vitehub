@@ -176,7 +176,7 @@ export default defineConfig({
 :::
 ::
 
-To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ event, request, session, user }` and returns `true`, `false`, or a `Response`. `event` is the H3 event of the serve route, so the callback can pass it to your own server functions, such as a lookup that caches on `event.context`.
 
 ```ts [server/blob.ts]
 import type { BlobServeAuthorize } from 'vite-hub/blob'
@@ -454,6 +454,7 @@ export default defineConfig({
 | `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
 | `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
 | `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |
+| `maxPixels` | `number` | Largest source that `photon` decodes, in pixels. Defaults to 4,000,000. Only with `transformer: 'photon'`. See [Photon on Workers and Node](/docs/blob/media#photon-on-workers-and-node). |
 
 Set `images: false` to always serve originals. `images` applies to every store.
 
