@@ -256,3 +256,23 @@ test("no scoped rule reaches an element outside the scope root", async () => {
     assert.deepEqual(scoped.values, none.values)
   }
 })
+
+test("explicit custom dark palettes override tokens under either system preference", async () => {
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    await page.setContent('<html class="dark"><head></head><body></body></html>')
+    await page.addStyleTag({ content: readFileSync(join(styles, "tokens.css"), "utf8") })
+    await page.addStyleTag({ content: ".dark { --background: rgb(10 20 30); --primary: rgb(30 40 50); }" })
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme })
+      const tokens = await page.evaluate(() => {
+        const style = getComputedStyle(document.documentElement)
+        return ["--background", "--primary"].map(token => style.getPropertyValue(token).trim())
+      })
+      assert.deepEqual(tokens, ["rgb(10 20 30)", "rgb(30 40 50)"], colorScheme)
+    }
+  } finally {
+    await context.close()
+  }
+})

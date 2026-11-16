@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { defineConfig } from "vite-plus";
 
@@ -11,21 +11,25 @@ const entries = readdirSync(new URL("src/", import.meta.url))
   .filter((file) => file.endsWith(".ts"))
   .map((file) => `src/${file}`);
 
-// The packed `default.css` holds the patched web.css itself, and `default.scoped.css` is the same family under `.ui-sdk`.
-function writeStyles() {
-  const file = new URL("dist/styles/default.css", import.meta.url);
-  const webCss = readFileSync(createRequire(import.meta.url).resolve("@ui-sdk/core/web.css"), "utf8");
-  const family = inlineWebCss(readFileSync(file, "utf8"), webCss);
-  writeFileSync(file, family);
-  writeFileSync(new URL("dist/styles/default.scoped.css", import.meta.url), scopeStyles(family));
-}
-
 export default defineConfig({
   pack: {
     ...packDefaults,
-    // The style family and its tokens ship as plain CSS: `@vite-hub/kit/styles/<file>.css`.
-    copy: [{ from: "src/styles", to: "dist" }],
-    hooks: { "build:done": writeStyles },
+    // Emit the style family before publint validates the package exports.
+    plugins: [{
+      name: "kit-styles",
+      generateBundle() {
+        const readStyle = (name: string) => readFileSync(new URL(`src/styles/${name}`, import.meta.url), "utf8");
+        const webCss = readFileSync(createRequire(import.meta.url).resolve("@ui-sdk/core/web.css"), "utf8");
+        const family = inlineWebCss(readStyle("default.css"), webCss);
+        for (const [name, source] of [
+          ["default.css", family],
+          ["default.scoped.css", scopeStyles(family)],
+          ["tokens.css", readStyle("tokens.css")],
+        ]) {
+          this.emitFile({ type: "asset", fileName: `styles/${name}`, source });
+        }
+      },
+    }],
     deps: {
       neverBundle: [/^@ui-sdk\//, "@nuxt/kit", "vue"],
       onlyBundle: false,

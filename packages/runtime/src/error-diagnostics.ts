@@ -29,6 +29,7 @@ type RuntimeErrorCode =
   | "RUNTIME_CONSOLE_PATH_INVALID"
   | "RUNTIME_CONSOLE_PROJECT_URL_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID"
+  | "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
   | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
   | "RUNTIME_SERIALIZED_RESPONSE_INVALID"
 
@@ -62,6 +63,10 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID: {
     why: ({ counter }) => `[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`,
     fix: "Pass `consume()` and the `record*()` methods of the execution budget a finite number of 0 or more.",
+  },
+  RUNTIME_EXECUTION_BUDGET_EXCEEDED: {
+    why: ({ counter }) => `[vitehub] Execution budget exhausted for ${counter}.`,
+    fix: "Raise the `executionBudget` limit that `error.counter` names, such as `maxToolCalls`, `maxRetries`, `maxInputBytes`, or `maxOutputBytes`, or give the run less work.",
   },
   RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID: {
     why: () => "[vitehub] Execution budget limits must be finite non-negative numbers.",
