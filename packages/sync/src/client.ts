@@ -1,6 +1,7 @@
-import { syncRoute } from "./protocol.ts"
+import { syncLiveRoute, syncRoute } from "./protocol.ts"
 import { createBrowserEnvironment, postClear } from "./client/environment.ts"
 import { createIndexedDBStorage } from "./client/indexeddb.ts"
+import { createSyncLive } from "./client/live.ts"
 import { createMemoryStorage } from "./client/storage.ts"
 import { actionCalls, createSyncStore } from "./client/store.ts"
 import { SyncError } from "./client/types.ts"
@@ -8,8 +9,9 @@ import { whereKey } from "./client/view.ts"
 import { syncErrors } from "./errors.ts"
 
 import type { SyncRow, SyncValues } from "./protocol.ts"
+import type { SyncLive } from "./client/live.ts"
 import type { SyncStorage } from "./client/storage.ts"
-import type { SyncOptimisticAction, SyncStoreWithReset } from "./client/store.ts"
+import type { SyncOptimisticAction, SyncPage, SyncStoreWithReset } from "./client/store.ts"
 import type { SyncOptions, SyncState, SyncStore } from "./client/types.ts"
 import type { SyncActionsOf, SyncName, SyncRowOf } from "./types.ts"
 
@@ -28,6 +30,11 @@ let memoryStorage: SyncStorage | undefined
 let indexedDBStorage: SyncStorage | undefined
 // The storages whose stored writes this page sends, with the fetch of the last `createSync()` that used each one.
 const senders = new Map<SyncStorage, typeof fetch>()
+// The live stream of this tab, for each `fetch` and live route. Every store of the tab shares it.
+const streams = new Map<typeof fetch, Map<string, SyncLive>>()
+const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init)
+// The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
+const page: SyncPage = { stores: new Set(), version: 0 }
 
 const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
@@ -44,9 +51,18 @@ function storageFor(persist: boolean): SyncStorage {
   return indexedDBStorage ??= createIndexedDBStorage(memory)
 }
 
-function routeOf(name: string, baseURL: string | undefined): string {
+function baseOf(baseURL: string | undefined): string {
   const base = baseURL ?? (typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__)
-  return `${base.replace(/\/+$/, "")}${syncRoute(name)}`
+  return base.replace(/\/+$/, "")
+}
+
+function liveOf(baseURL: string | undefined, fetch: typeof globalThis.fetch): SyncLive {
+  const url = `${baseOf(baseURL)}${syncLiveRoute}`
+  let byRoute = streams.get(fetch)
+  if (!byRoute) streams.set(fetch, byRoute = new Map())
+  let live = byRoute.get(url)
+  if (!live) byRoute.set(url, live = createSyncLive({ url, fetch, environment: createBrowserEnvironment() }))
+  return live
 }
 
 /**
@@ -127,7 +143,7 @@ function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
  */
 function createSync<TName extends SyncName>(name: TName, options: SyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>> = {}): SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>> {
   if (!isBrowser()) return createIdleStore()
-  const url = routeOf(name, options.baseURL)
+  const url = `${baseOf(options.baseURL)}${syncRoute(name)}`
   const where: Record<string, unknown> = { ...options.where }
   const subset = whereKey(where)
   const sharedKey = subset ? `${url}?${subset}` : url
@@ -135,7 +151,7 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
   const actions = options.actions as Record<string, SyncOptimisticAction | undefined> | undefined
   let entry = shared.get(sharedKey)
   if (!entry) {
-    const fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+    const fetch = options.fetch ?? defaultFetch
     const storage = storageFor(options.persist !== false)
     entry = {
       store: createSyncStore<SyncRow>(name, {
@@ -145,7 +161,9 @@ function createSync<TName extends SyncName>(name: TName, options: SyncOptions<Sy
         fetch,
         storage,
         environment: createBrowserEnvironment(),
+        live: liveOf(options.baseURL, fetch),
         interval: options.interval ?? 30_000,
+        page,
         onStop: () => {
           if (entry) draining.delete(entry.store)
         },

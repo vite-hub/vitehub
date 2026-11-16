@@ -3,9 +3,11 @@
  * crosses the network. Each Sync definition `server/sync/<name>.ts` has one route: `/api/_vitehub/sync/<name>`.
  *
  * - `GET ?cursor&scope&version&where` pulls changes (`SyncPullQuery`). Leave out `cursor` for a full snapshot.
- * - `GET ?live&cursor&scope&version&where` streams pulls as Server-Sent Events while the connection is open
- *   (`SyncLiveEvent`). The server ends the stream after a while, and the client opens a new one.
  * - `POST` with a `SyncPushRequest` body applies writes in order and answers with the results and a pull.
+ *
+ * One more route, `/api/_vitehub/sync`, streams the pulls of several stores in one connection: `POST` a
+ * `SyncLiveRequest`, and the answer is Server-Sent Events (`SyncLiveEvent`) while the connection is open. The server
+ * ends the stream after a while, and the client opens a new one.
  *
  * Every response has `Cache-Control: private, no-store`. Errors use the ViteHub error body with a `SYNC_*` code.
  */
@@ -48,6 +50,21 @@ export interface SyncPullQuery {
    * that `where` allows, else the pull is refused with `SYNC_OUT_OF_SCOPE`.
    */
   where?: string
+}
+
+/** One store of a live stream: a Sync name, its subset, and what the client holds, as in a pull. */
+export interface SyncLivePull {
+  name: string
+  /** The subset, as in `SyncPushRequest.where`. */
+  where?: SyncValues
+  cursor?: number
+  scope?: string
+  version?: string
+}
+
+/** The body of `POST /api/_vitehub/sync`: the stores that one live stream sends pulls for. */
+export interface SyncLiveRequest {
+  pulls: SyncLivePull[]
 }
 
 /** The answer to a pull. */
@@ -136,19 +153,22 @@ export interface SyncPushResponse {
 }
 
 /**
- * One event of a live stream (`GET ?live`), as Server-Sent Events. The event name is the `type`, the data is the JSON
- * of the rest, and the event id is the cursor after it.
+ * One event of a live stream (`POST /api/_vitehub/sync`), as Server-Sent Events. The event name is the `type`, and
+ * the data is the JSON of the rest. `name` and `where` tell the store of the event, as the `SyncLivePull` had them.
  *
+ * - `error`: the server refused this store, such as a caller without a session or a subset outside `where`. The
+ *   stream goes on for the other stores, and ends when no store is left. These come first.
+ * - `open`: the stream is open for every store that the server did not refuse.
  * - `pull`: the changes since the client's cursor, as a normal pull. The server sends one when the stream opens if
  *   anything changed, then one after each change that the caller can see. A pull with `reset: true` replaces the rows.
- * - `error`: the server refused the caller, such as after a sign-out. The stream ends.
  *
  * The server sends a comment line (`: open`) when the stream opens, so the headers reach the client at once, and
  * `: ping` every 15 seconds, so proxies keep the connection open.
  */
 export type SyncLiveEvent =
-  | { type: "pull", pull: SyncPullResponse }
-  | { type: "error", error: SyncWireError }
+  | { type: "error", name: string, where?: SyncValues, error: SyncWireError }
+  | { type: "open" }
+  | { type: "pull", name: string, where?: SyncValues, pull: SyncPullResponse }
 
 /** An error on the wire. `code` is a `SYNC_*` diagnostic code. */
 export interface SyncWireError {
@@ -181,9 +201,12 @@ export type SyncErrorCode =
   | "SYNC_TOO_MANY_MUTATIONS"
   | "SYNC_BAD_REQUEST"
 
+/** The route of the live stream of every Sync definition, below the app's base URL. */
+export const syncLiveRoute = "/api/_vitehub/sync"
+
 /** The route of a Sync definition, below the app's base URL. */
 export function syncRoute(name: string): string {
-  return `/api/_vitehub/sync/${encodeURIComponent(name)}`
+  return `${syncLiveRoute}/${encodeURIComponent(name)}`
 }
 
 /** The most mutations in one push. */

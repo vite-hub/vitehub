@@ -24,7 +24,7 @@ export default defineSync({
 | `write` | Without it, only a caller with a user writes (`SYNC_FORBIDDEN` for visitors). `true` lets visitors write too, `false` makes the table read-only in the browser, and a function of `{ request, user, session, op, row }` decides for each write. |
 | `identify` | `({ request }) => user \| null` for apps with their own sign-in. It replaces the ViteHub Auth user. The account of queued writes is `user.id`. |
 | `schema` | A Standard Schema that checks the whole row after each insert and update. |
-| `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. |
+| `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. `sync("comments")` in an action writes another definition, and `local.sync("comments")` in an optimistic function changes its open stores. |
 | `live` | `true` (default) lets browsers keep a live stream open. `false` leaves only pulls. |
 
 Sync uses the default Database, else the only one. `defineSync()` throws `SYNC_UNSUPPORTED_TABLE` for a Postgres table, an integer key, a composite key, or a `blob({ mode: "buffer" })` column, and `SYNC_INVALID_DEFINITION` for other wrong options.
@@ -40,8 +40,9 @@ A value of `where` is one value, or a list that matches any of its values, such 
 Each definition has one route, `syncRoute(name)`: `/api/_vitehub/sync/<name>`. `protocol.ts` has the types of every request and answer.
 
 - `GET ?cursor=<n>&scope=<id>&version=<v>&where=<json>` pulls the changes since `cursor`. Without `cursor`, with another `scope` or `version`, or with a cursor that is older than the oldest kept change, the answer is a full snapshot with `reset: true`. A pull sends at most 500 changes, then `more: true`. Each pull has `account`, `version`, and `defaults`.
-- `GET ?live&...` with the same fields streams pulls as Server-Sent Events: an `event: pull` with `id: <cursor>` for each change that the caller can see. The server checks the change log each second, a push in the same process wakes the stream at once, and the stream ends after 25 seconds.
 - `POST` with `{ account, scope, version, cursor, where, mutations }` applies at most `syncPushLimit` (100) mutations in order and answers `{ results, pull }`. Each result is `applied` (with the `result` of an action), `duplicate`, or `rejected` with a `SYNC_*` error.
+
+The live stream of every definition has one route, `syncLiveRoute`: `/api/_vitehub/sync`. A tab sends one `POST` with `{ pulls: [{ name, where, cursor, scope, version }] }`, one item for each store, and gets Server-Sent Events: an `event: pull` with `{ name, where, pull }` for each change that the caller can see. The server checks each store as its pull, with the `where` of its definition. A store that the caller may not see gets an `event: error` with `{ name, where, error }`, and the other stores stream on. The server reads the change log once each second for the whole stream, and pulls the stores whose table changed in one batch. A push in the same process wakes the stream of each table that it wrote at once. The stream ends after 25 seconds, or before a check could pass 40 Database calls (a batch is one call): on the Workers Free plan, D1 allows 50 calls in an invocation. Set both with `live: { seconds, calls }` of the services.
 
 `where` in a pull or a push is a subset: single column values, such as `{ issueId }`, that narrow the scope. A subset outside the caller's `where` gets 403 `SYNC_OUT_OF_SCOPE`.
 
@@ -51,12 +52,12 @@ What the server guarantees:
 - Each mutation applies in one atomic batch that starts with its id in the ledger. A retried mutation, such as after a lost answer, is a `duplicate` and writes nothing. A duplicate of an action has the `result` of its first run.
 - A push made for another account, such as before a sign-in as another user, gets 409 `SYNC_ACCOUNT_CHANGED` and writes nothing. The account is a fingerprint of the user id, so a push of the same user after a team change applies under the current `where`.
 - The change log keeps the key and the scope columns of each row that left a scope, because it was deleted or moved. A pull sends the key in `deleted` only to callers whose `where` matched that row and does not match the row now, so keys do not leak to other callers.
-- An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them.
+- An action applies all its writes, with the same checks as browser writes, in one batch with its ledger entry, or none of them. This includes its writes to other definitions with `sync(name)`: each one has the `where`, `write`, and `schema` of its own definition for the same caller. Every definition uses the one default Database, so one batch holds them all.
 - Unknown columns and a changed primary key are refused with `SYNC_INVALID`.
-- A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams.
+- A pull reads the changed rows with a join, and a list in `where` is one `json_each()` parameter, so the number of query parameters stays below the D1 limit of 100 for any number of keys or teams. The check that the rows a write read did not change has one `json_each()` parameter for each table, also when an action reads hundreds of rows.
 - `POST` needs a JSON body of at most 1 MB from the app's own origin. Every answer has `Cache-Control: private, no-store`.
 
-Without a ViteHub app, call `handleSyncRequest(name, definition, request, { db, identify })` from your own route. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
+Without a ViteHub app, make one services object, `{ db, identify, definitions }`, and pass it to `handleSyncRequest(name, definition, request, services)` from the route of each name and to `handleSyncLiveRequest(request, services)` from the live route. `definitions` has every definition by name, such as `{ todos, comments }`, for `sync(name)` in actions and for the live stream. The live route needs it: type the object as `SyncLiveServices` when you declare its type. With one object, a push wakes the live streams of its process. `db` is a Drizzle SQLite Database with `batch()`: libSQL or D1.
 
 ## Change capture
 
