@@ -2045,7 +2045,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     return await forgeIdentity(provider, { kind: "token" })
   }
   catch (error) {
-    if (forgeErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
+    if (forgeErrorStatus(error) === undefined && !agentDiagnostics.AGENT_R0356.is(error)) throw error
   }
   const processEnv = globalThis.process?.env
   if (
