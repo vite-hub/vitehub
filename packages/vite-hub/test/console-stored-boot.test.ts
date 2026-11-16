@@ -241,19 +241,19 @@ describe("account Console with stored reads", () => {
   it("deletes the stored answers on sign-out, in every tab", async () => {
     const app = server()
     const page = await firstVisit(app)
-    const { signOutConsoleAccount } = await import("../src/console/runtime/client/account.ts")
-    // The server ends the session, so the account read of the page, which starts over, answers 401.
+    // The server ends the session at once, so a read that started over would answer 401 fast.
     signOut.mockImplementationOnce(async () => {
       app.answers.account = undefined
       return { error: null }
     })
-    await signOutConsoleAccount()
+    await page.session.signOutConsole()
     expect(signOut).toHaveBeenCalled()
+    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
     expect(browser.disk.keys).toEqual([])
     expect(browser.disk.meta?.account).toBeNull()
-    // The menu loads the Console again after the sign-out.
-    page.session.reloadConsoleAccount()
-    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+    // The menu loads the Console once.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(page.navigate).toHaveBeenCalledTimes(1)
   })
 
   it("deletes the stored answers before a team switch or a new app loads the page again", async () => {
@@ -339,6 +339,49 @@ describe("account Console with stored reads", () => {
     app.release()
     await vi.waitFor(async () => expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["logs"]))
     expect(app.sent).toContain("sections.list /p/p-1/_vitehub/rpc")
+  })
+
+  it("applies a later project.get answer, such as a 403 after another tab cleared the device", async () => {
+    const app = server()
+    const page = await firstVisit(app)
+    const projects = page.session.useConsoleProjects()
+    app.answers.projectStatus = 403
+    const { createDevice } = await import("../../device/src/device.ts")
+    const other = createDevice({ openStorage: () => browser.disk.open(), channel: browser.tabs.channel() })
+    await other.open({ version: "console-1" })
+    await other.clear()
+    await vi.waitFor(() => expect(projects.gate.value.kind).toBe("problem"))
+  })
+
+  it("asks project.get again when the person retries an app that refused", async () => {
+    const app = server()
+    app.answers.projectStatus = 403
+    const page = await openPage(app)
+    await page.start()
+    await page.session.openConsoleProject()
+    const projects = page.session.useConsoleProjects()
+    expect(projects.gate.value.kind).toBe("problem")
+    const asked = app.sent.filter(call => call.startsWith("project.get")).length
+    app.answers.projectStatus = 200
+    await page.session.openConsoleProject()
+    expect(app.sent.filter(call => call.startsWith("project.get")).length).toBe(asked + 1)
+    expect(projects.gate.value).toEqual({ kind: "ready" })
+  })
+
+  it("loads a signed-out page again when another tab signs in", async () => {
+    const app = server()
+    app.answers.account = undefined
+    const page = await openPage(app)
+    await page.session.startConsoleAccount({ boot: "sign-in", home: "/", navigate: page.navigate, pageOrigin: "https://console.example.com", pathname: "/", search: "", showPath: () => {} })
+    expect(page.session.useConsoleProjects().gate.value.kind).toBe("account")
+    // Another tab of this browser signs in as Ada.
+    app.answers.account = ada
+    const { createDevice } = await import("../../device/src/device.ts")
+    const other = createDevice({ openStorage: () => browser.disk.open(), channel: browser.tabs.channel() })
+    await other.open({ version: "console-1" })
+    await other.setAccount("u-ada")
+    await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+    expect(page.navigate).toHaveBeenCalledTimes(1)
   })
 
   it("waits for the account on a page without a session cookie, and for a link to an app that the stored account lacks", async () => {

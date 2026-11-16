@@ -89,7 +89,9 @@ let probeVersion = 0
 /** The `project.get` of the app of a `?app=<id>` link, sent while the account loads. */
 let earlyProbe: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
 /** The `project.get` read of the open app. It lives until another app opens, so it can start over on the naming. */
-let projectRead: ConsoleStoredRead<ConsoleProjectProbe> | undefined
+let projectRead: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
+/** The page loads again: the first reload wins, so a sign-out and a read that starts over do not navigate twice. */
+let reloading = false
 /** The account read of an `account` Console. It lives as long as the page, and each answer names the device account. */
 let accountRead: ConsoleStoredRead<ConsoleAccount | undefined> | undefined
 /**
@@ -244,17 +246,49 @@ export async function openConsoleProject(): Promise<void> {
     const answer = probeConsoleProject({ ...consoleProjectTarget(current), origin: "" })
     read = { stored: undefined, answer: () => answer }
   }
+  else if (projectRead?.id === current.id) {
+    // A retry of the open app asks again.
+    read = projectRead.read
+    void projectRead.read.read.refresh()
+  }
   else {
+    projectRead?.read.stop()
     const next = early?.id === current.id ? early.read : readProject(current.id)
-    if (projectRead !== next) projectRead?.stop()
-    projectRead = next
+    projectRead = { id: current.id, read: next }
     read = next
+    followProject(next, current)
   }
   // Only an answer that opened the project counts. A stored refusal waits for the project.
   if (openedFromDevice && read.stored?.kind === "ready") open(read.stored.info)
   const probe = await read.answer()
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
+  applyProbe(probe, current)
+}
+
+/**
+ * Apply each later answer of the `project.get` read of the open app: the read starts over when the page names its
+ * account, or when another tab clears the device or signs in as another person.
+ */
+function followProject(read: ConsoleStoredRead<ConsoleProjectProbe>, current: ConsoleLinkedProject): void {
+  const projects = useState()
+  // An early read can have answered already.
+  let first = read.read.status.value !== "success"
+  watch(read.read.status, (status) => {
+    if (status !== "success") return
+    // `openConsoleProject()` applies the first answer.
+    if (first) {
+      first = false
+      return
+    }
+    if (projects !== state || projectRead?.read !== read || projects.current.value !== current || !read.read.data.value) return
+    applyProbe(read.read.data.value, current)
+  })
+}
+
+/** Open the project with its `project.get` answer, or set the gate that says what it needs. */
+function applyProbe(probe: ConsoleProjectProbe, current: ConsoleLinkedProject): void {
+  const projects = useState()
   const gate = gateOf(probe, consoleProjectTarget(current))
   if (gate) {
     projects.gate.value = gate
@@ -531,7 +565,11 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
 async function refreshConsoleAccount(fresh: ConsoleAccount | undefined, options: ConsoleAccountBoot): Promise<void> {
   const projects = useState()
   const shown = projects.account.value
-  if (!shown) return
+  // A page that shows the sign-in loads again when another tab signed in.
+  if (!shown) {
+    if (fresh) reloadConsolePage(`${options.pathname}${options.search ?? ""}`)
+    return
+  }
   const current = projects.current.value
   const store = fresh && createConsoleProjectStore(accountProjectStorage(fresh, current?.id))
   // The open app must still be an app of the team, at the same URL. A team that had no app opens one now.
@@ -539,9 +577,7 @@ async function refreshConsoleAccount(fresh: ConsoleAccount | undefined, options:
   if (!fresh || !store || fresh.user.id !== shown.user.id || fresh.teamId !== shown.teamId || !sameApp) {
     // A newer attempt must not open the stale app while the page loads again.
     ++probeVersion
-    stopConsoleReads()
-    await clearDevice()
-    options.navigate(`${options.pathname}${options.search ?? ""}`)
+    reloadConsolePage(`${options.pathname}${options.search ?? ""}`)
     return
   }
   projects.account.value = fresh
@@ -615,16 +651,35 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
  * changed, so the next page must not open from the stored one: the stored answers go first.
  */
 export function reloadConsoleAccount(): void {
+  reloadConsolePage(useState().home)
+}
+
+/** Sign out of the Console, delete the stored answers in every tab, and load the Console again. */
+export async function signOutConsole(): Promise<void> {
+  // The reads of the page must not start over and load the page on their own when the device forgets the account.
+  stopConsoleReads()
+  const { signOutConsoleAccount } = await import("./account")
+  await signOutConsoleAccount()
+  reloadConsoleAccount()
+}
+
+/**
+ * Load the page at `url` without the stored answers. The reads of the boot stop first, and only the first reload of the
+ * page navigates.
+ */
+function reloadConsolePage(url: string): void {
+  if (reloading) return
+  reloading = true
   const projects = useState()
   stopConsoleReads()
-  void clearDevice().then(() => projects.navigate(projects.home))
+  void clearDevice().then(() => projects.navigate(url))
 }
 
 /** Stop the reads of the boot before the page loads again, so a read that starts over does not load it a second time. */
 function stopConsoleReads(): void {
   accountRead?.stop()
   accountRead = undefined
-  projectRead?.stop()
+  projectRead?.read.stop()
   projectRead = undefined
 }
 
