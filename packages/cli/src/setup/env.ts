@@ -253,17 +253,29 @@ interface LocalValue {
 export async function readLocalEnvValues(root: string, stage: string, env: NodeJS.ProcessEnv): Promise<Map<string, LocalValue>> {
   const files = [".env", ".env.local", `.env.${stage}`, `.env.${stage}.local`] as const
   const sources = new Map<string, EnvValueSource>()
+  const rawValues = new Map<string, string>()
   for (const file of files) {
     const path = join(root, file)
     if (!existsSync(path)) continue
-    for (const name of Object.keys(parseEnv(await readFile(path, "utf8")))) sources.set(name, file)
+    for (const [name, value] of Object.entries(parseEnv(await readFile(path, "utf8")))) {
+      sources.set(name, file)
+      rawValues.set(name, value)
+    }
+  }
+  // Expansion copies ciphertext verbatim, including through chains of references. Keep the
+  // originating file of effective ciphertext so an alias uses that file's key, even with --only.
+  const ciphertextSources = new Map<string, EnvValueSource>()
+  for (const [name, value] of rawValues) {
+    if (isEncryptedEnvValue(value)) ciphertextSources.set(value, sources.get(name)!)
   }
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
   const loaded = await withViteStageEnvironment(env, async () => vite.loadEnv(stage, root, ""))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
-    const source = env[name] !== undefined ? "process" : sources.get(name)
+    const declaredSource = sources.get(name)
+    const source = env[name] !== undefined ? "process"
+      : rawValues.get(name) === value ? declaredSource : ciphertextSources.get(value) ?? declaredSource
     if (source && value !== "") values.set(name, { encrypted: source !== "process" && isEncryptedEnvValue(value), source, value })
   }
   return values

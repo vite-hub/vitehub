@@ -4,7 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { envPrivateKeyName } from "../src/setup/env-encrypted.ts"
+import { decryptEnvValues, envPrivateKeyName } from "../src/setup/env-encrypted.ts"
+import { readLocalEnvValues } from "../src/setup/env.ts"
 import { expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
@@ -391,6 +392,30 @@ SENTRY_DSN=encrypted:BDVAnrfFrkI2lE2NgsxhgRJjKYVTuZ2NR70tJSQ2H95SbqxVLUXNFD3oFwh
       expect(calls.filter(call => call.stdin).map(call => call.stdin)).toEqual(plaintext)
       expect((await hosts.state()).secrets).toEqual({ GITHUB_TOKEN: "gh-enc-4d2e", SENTRY_DSN: "https://sentry.example/enc", VITEHUB_SECRET: canary })
       expectNoLeak(calls, result.stdout + result.stderr, [...plaintext, privateKey, ...tokens])
+    })
+
+    it("keeps the ciphertext origin through cross-file references when only the alias is pushed", async () => {
+      const { encrypt, keypair } = await import("@dotenvx/primitives")
+      const production = keypair()
+      const local = keypair()
+      const value = "cross-file-secret-7d32"
+      const root = await createProject({
+        ".env.production": `SHARED_TOKEN=${encrypt(production.publicKey, value)}\n`,
+        ".env.production.local": "GITHUB_TOKEN=$SHARED_TOKEN\nBRACED_TOKEN=${SHARED_TOKEN}\n",
+      })
+      const env = {
+        DOTENV_PRIVATE_KEY_PRODUCTION: production.privateKey,
+        DOTENV_PRIVATE_KEY_PRODUCTION_LOCAL: local.privateKey,
+      }
+      const values = await readLocalEnvValues(root, "production", env)
+      for (const name of ["GITHUB_TOKEN", "BRACED_TOKEN"]) {
+        const alias = values.get(name)!
+        expect({ name, ...alias }).toEqual({ name, encrypted: true, source: ".env.production", value: values.get("SHARED_TOKEN")!.value })
+        expect(alias.encrypted).toBe(true)
+        // Decrypt only the alias, just as --only does: SHARED_TOKEN is not selected.
+        const decrypted = await decryptEnvValues(root, [{ file: alias.source, name, value: alias.value }], env)
+        expect(decrypted.values.get(name)).toBe(value)
+      }
     })
 
     it("reads the key from an untracked .env.keys and says so in the text output", async () => {
