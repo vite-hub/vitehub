@@ -35,6 +35,23 @@ export function trustForwardedProto(event: RequestEventLike): void {
   if (protocol === "https") event.url.protocol = "https:"
 }
 
+/**
+ * Behind a proxy, the server sees the proxy as the peer. A proxy adds the address of its own peer, the client, at the end
+ * of `X-Forwarded-For`, so this makes the last value the request's `ip`. Standard Context `runtime.clientAddress`, H3's
+ * `getRequestIP()`, and Auth's rate limiter and `session.ipAddress` read it. Earlier values come from the client, so
+ * they are never read.
+ */
+export function trustForwardedFor(event: RequestEventLike): void {
+  const address = event.req.headers.get("x-forwarded-for")?.split(",").map(value => value.trim()).findLast(Boolean)
+  if (address) Object.defineProperty(event.req, "ip", { configurable: true, enumerable: true, value: address })
+}
+
+/** The `request` hook of `trustProxy`: the protocol and the client address that the proxy sends. */
+export function trustProxyHeaders(event: RequestEventLike): void {
+  trustForwardedProto(event)
+  trustForwardedFor(event)
+}
+
 function excluded(pathname: string, exclude: readonly string[]): boolean {
   return exclude.some((prefix) => {
     const path = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix
@@ -74,8 +91,8 @@ function crossOriginWriteResponse(): Response {
 export function installRequestPolicy(nitroApp: NitroAppLike, options: RequestPolicyOptions): void {
   if (options.trustProxy && nitroApp.hooks) {
     const requestHooks = nitroApp.hooks._hooks?.request
-    if (Array.isArray(requestHooks)) requestHooks.unshift(trustForwardedProto)
-    else nitroApp.hooks.hook("request", trustForwardedProto)
+    if (Array.isArray(requestHooks)) requestHooks.unshift(trustProxyHeaders)
+    else nitroApp.hooks.hook("request", trustProxyHeaders)
   }
   const sameOriginWrites = options.sameOriginWrites
   const fetch = nitroApp.fetch

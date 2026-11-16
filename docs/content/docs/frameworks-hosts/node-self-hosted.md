@@ -106,7 +106,9 @@ links that your code builds from the request start with `http://`.
 
 Set `trustProxy: true` to read the first `X-Forwarded-Proto` value. When it is
 `https`, the request URL becomes `https://` before any middleware or route
-runs. Set `sameOriginWrites: true` to refuse browser writes with cookies that
+runs. The client address also becomes the last `X-Forwarded-For` value, which
+the proxy adds. Auth's rate limiter, `session.ipAddress`, and Rate Limit read
+it. Set `sameOriginWrites: true` to refuse browser writes with cookies that
 come from another origin.
 
 ::tabs{sync="framework"}

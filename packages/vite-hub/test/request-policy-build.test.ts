@@ -5,7 +5,7 @@ import { vitehub } from "../src/index.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject } from "./support/content-cms.ts"
 
-const echo = "import { defineHandler } from 'h3'\nexport default defineHandler(event => ({ url: event.url.href, req: event.req.url }))\n"
+const echo = "import { defineHandler, getRequestIP } from 'h3'\nexport default defineHandler(event => ({ url: event.url.href, req: event.req.url, ip: getRequestIP(event) }))\n"
 
 describe("trustProxy and sameOriginWrites in a built Node server", () => {
   it("serves https URLs behind a proxy and refuses cross-origin writes with cookies", async () => {
@@ -29,8 +29,10 @@ describe("trustProxy and sameOriginWrites in a built Node server", () => {
     try {
       const proxied = await (await server.fetch("/api/url", { headers: { "x-forwarded-proto": "https" } })).json()
       // The route and code that reads the Web request, such as Better Auth, both see https.
-      expect(proxied).toEqual({ url: `https://${base}/api/url`, req: `https://${base}/api/url` })
+      expect(proxied).toMatchObject({ url: `https://${base}/api/url`, req: `https://${base}/api/url` })
       expect(await (await server.fetch("/api/url")).json()).toMatchObject({ url: `http://${base}/api/url` })
+      // The proxy adds the client address at the end of X-Forwarded-For. A value that the client sends comes first.
+      expect(await (await server.fetch("/api/url", { headers: { "x-forwarded-for": "203.0.113.9, 198.51.100.7" } })).json()).toMatchObject({ ip: "198.51.100.7" })
 
       const write = (path: string, headers: Record<string, string>) => server.fetch(path, { method: "POST", headers: { "x-reached": "fail", ...headers } })
       const foreign = await write("/api/notes", { cookie: "session=1", origin: "https://evil.test", "sec-fetch-site": "cross-site" })
