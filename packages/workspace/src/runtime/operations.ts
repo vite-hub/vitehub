@@ -1,6 +1,6 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
-import { workspaceConflict } from "../core/errors.ts"
+import { workspaceConflict, type WorkspaceErrorCode } from "../core/errors.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import { normalizeHistoryPath } from "../core/history.ts"
@@ -10,6 +10,7 @@ import { readDerivedFrom, staleDerivedFiles } from "../lineage.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
+import type { InferDiagnosticCodes } from "nostics"
 import type { WorkspaceEntry, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceRevision, WorkspaceRevisionView } from "../core/types.ts"
 import type {
   WorkspaceChangedFile,
@@ -24,8 +25,11 @@ import type {
   WorkspaceStaleList,
 } from "../results.ts"
 
+/** A code of the Workspace catalog or of a Workspace `ViteHubError`. The operations read both. */
+type WorkspaceCode = InferDiagnosticCodes<typeof workspaceErrorDiagnostics> | WorkspaceErrorCode
+
 // Invalid paths, refs, cursors, and limits.
-const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
+const invalidRequestCodes: ReadonlySet<string> = new Set<WorkspaceCode>(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
 
 /** Gives an operation error the HTTP status and the redacted message that the CLI and the Console report. */
 function withStatus<TError extends Error>(error: TError, status: number, message = error.message): TError {
@@ -41,7 +45,7 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKSPACE_FORBIDDEN: 403,
   WORKSPACE_HISTORY_INVALID: 400,
   WORKSPACE_NOT_FOUND: 404,
-}
+} satisfies Partial<Record<WorkspaceCode, number>>
 
 /** Reads the code of a ViteHub error or a Workspace diagnostic. */
 function errorCode(error: unknown): string | undefined {
