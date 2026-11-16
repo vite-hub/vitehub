@@ -31,6 +31,7 @@ export type {
   QueueOptions,
   RateLimitOptions,
   RealtimeOptions,
+  RedirectsOptions,
   SameOriginWritesOptions,
   SandboxTaskOptions,
   ScheduleOptions,
