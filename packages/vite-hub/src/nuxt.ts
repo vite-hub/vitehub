@@ -1106,6 +1106,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+    seo: Boolean(options.seo?.sitemap),
     // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
     workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
   })
@@ -1244,6 +1245,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     })
   }
+  // `seo: { sitemap }` lists the Nuxt pages without a dynamic part. Nuxt resolves pages after Nitro's config, and again
+  // in development when a page is added or removed.
+  // SAFETY: The plugin name identifies the ViteHub SEO plugin and its public page API.
+  const seoPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/seo") as (Plugin & { api: { setPages(paths: readonly string[]): Promise<void> } }) | undefined
+  if (seoPlugin) nuxt.hook?.("app:templatesGenerated", app => seoPlugin.api.setPages(nuxtPageRoutes(app.pages ?? []).filter(route => !route.unavailable).map(route => route.path)))
   // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
   // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
   const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined

@@ -53,6 +53,7 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Realtime | `realtime` | `server/realtime/` | `defineRealtime`, `isRealtimeAvailable`, `refreshRealtimeDocument` |
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
 | Schedule | `schedule` | `server/schedules/` | `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
+| SEO | `seo: { sitemap }` | `server/sitemap.ts` | `defineSitemap` |
 | Workflow | `workflow`, or enabled through `agent` | `server/workflows/` | `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
 | Workspace | `workspace` | `server/workspaces/` | `useWorkspace` |
 
