@@ -1,3 +1,4 @@
+import { agentStateAuthTokenEnvNames } from "./config.ts"
 import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./invocations/default-location.ts"
 
 import type { DeploymentEnvContext, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
@@ -11,20 +12,21 @@ function entry(names: readonly string[], required: boolean, secret: boolean, has
 
 /** Agent state in a Durable Object reads no variable: an explicit Cloudflare driver, or `auto` on Cloudflare without a URL. */
 function usesCloudflareState(options: ResolvedAgentModuleOptions, host: DeploymentEnvContext["host"]): boolean {
-  const { driver, url } = options.providers.state
-  if (driver === "cloudflare" || driver === "cloudflare-agents") return true
-  if (driver !== "auto" || url) return false
+  const state = options.providers.state
+  if (state.driver === "cloudflare") return true
+  if (state.driver !== "auto" || state.url) return false
   return options.runtime === "cloudflare-agents" || (host === "cloudflare" && options.runtime !== "vercel" && options.runtime !== "deno")
 }
 
 /** The libSQL Agent state: `VITEHUB_AGENT_STATE_URL` wins over `providers.state.url`, and is required without it. */
-function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvContext["host"], authTokenEnvName: string | undefined): DeploymentEnvEntry[] {
-  const { driver, url } = options.providers.state
-  if (driver !== "auto" && driver !== "sqlite" && driver !== "libsql") return []
+function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvContext["host"]): DeploymentEnvEntry[] {
+  const state = options.providers.state
+  if (state.driver !== "auto" && state.driver !== "sqlite" && state.driver !== "libsql") return []
+  const { url, authToken } = state
   if (usesCloudflareState(options, host)) return []
   return [
     entry(["VITEHUB_AGENT_STATE_URL"], !url, true, Boolean(url)),
-    ...authTokenEnvName ? [entry([authTokenEnvName], false, true)] : [],
+    ...authToken ? [entry(agentStateAuthTokenEnvNames(authToken), false, true)] : [],
     entry(["VITEHUB_AGENT_STATE_AUTH_TOKEN"], false, true),
   ]
 }
@@ -38,12 +40,12 @@ function stateEntries(options: ResolvedAgentModuleOptions, host: DeploymentEnvCo
 export function agentDeploymentEnv(
   options: false | ResolvedAgentModuleOptions,
   context: DeploymentEnvContext,
-  input: { authTokenEnvName?: string, processDiscordGateway?: boolean } = {},
+  input: { processDiscordGateway?: boolean } = {},
 ): DeploymentEnvEntry[] {
   if (!options) return []
   const discordGateway = options.routes.discordGateway
   return [
-    ...stateEntries(options, context.host, input.authTokenEnvName),
+    ...stateEntries(options, context.host),
     entry([defaultAgentInvocationsUrlEnv], false, true, true),
     entry([defaultAgentInvocationsAuthTokenEnv], false, true),
     entry(["AI_GATEWAY_API_KEY"], false, true),

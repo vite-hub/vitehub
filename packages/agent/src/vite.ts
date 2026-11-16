@@ -2919,7 +2919,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (!resolved || !hasHostedAgentDefinitions(resolved.root, serverDirs ?? [join(resolved.root, "server")])) return []
         const normalized = normalizeAgentOptions(agent)
         return agentDeploymentEnv(normalized, context, {
-          authTokenEnvName: normalized ? resolveEnvNameForValue(normalized.providers.state.authToken) : undefined,
           processDiscordGateway: Boolean(frameworkOptions?.processDiscordGateway),
         })
       },

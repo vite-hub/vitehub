@@ -65,7 +65,7 @@ export function agentJournalStateUrl(options: ViteHubOptions): string | undefine
   const agent = options.agent
   if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
   const state = agent.providers?.state
-  if (!state || (state.driver && !["auto", "sqlite", "libsql"].includes(state.driver)) || typeof state.url !== "string") return
+  if (!state || (state.driver === "memory" || state.driver === "cloudflare") || typeof state.url !== "string") return
   const url = state.url.trim()
   return /^file:/i.test(url) ? url : undefined
 }
