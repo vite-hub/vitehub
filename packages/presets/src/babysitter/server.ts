@@ -2073,7 +2073,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const webhookSnapshot = inboxClaim.snapshot;
           // A conflict merge and install run before the model takes worker capacity, so they pass the same
           // memory and pressure sampling first. A refused PR waits like a model pass that finds no capacity.
-          if (options.hostCapacity && (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty")) {
+          // A conflict that needs the model goes through placement, which admits it by this host's memory or
+          // sends it to another host before any install, so only a host-resolved merge samples here.
+          const placedConflict = !hostConflictPush && Boolean(presetOptions.placement);
+          if (options.hostCapacity && !placedConflict && (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty")) {
             const running = executingModelPasses + activeHostPreparations;
             const sample = await options.hostCapacity({ active: running, signal: passSignal })
               .catch((error: unknown) => ({ concurrency: 0, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` }));
