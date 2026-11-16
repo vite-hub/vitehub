@@ -104,6 +104,7 @@ A list of events with Refresh and Load older         → ConsoleActivityFeed
 Confirm a change, or a destructive action            → ConsoleConfirm
 A loading, error, or empty section                   → ConsoleState
 Inline code, a name, or a path                       → ConsoleCodeText
+An icon, such as i-lucide-x or i-vitehub-kv          → Icon from console-icon.vue, not UIcon
 A time, a duration, a number, a size, or initials    → client/format.ts
 ```
 
