@@ -12,10 +12,60 @@ Choose the provider in app or host config, not in the task.
 
 | Provider | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | `hubSandboxTask({ provider: 'vercel' })` or the `vercel` host | Vercel. Other hosts, such as Netlify, with Vercel credentials set. |
-| Cloudflare Sandbox | `hubSandboxTask({ provider: 'cloudflare' })` or the `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
+| Vercel Sandbox | The `vercel` host, or `sandboxTask: { provider: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
+| Cloudflare Sandbox | The `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `vitehub({ host, sandboxTask: true })` fails at config time. Without a `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote machines that may bill you. There is no local provider.
+`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { provider: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `provider: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
+
+To set provider options, give `sandboxTask` an object with the `provider` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'cloudflare',
+    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    host: 'cloudflare',
+    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+  })],
+})
+```
+:::
+::
+
+Apps that do not use `vite-hub` pass the same object to `hubSandboxTask()` from `@vite-hub/sandbox/task/vite`. Do not add `hubSandboxTask()` next to `vitehub()`: the `vite-hub` app then has no Sandbox Tasks.
 
 The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials are set. The Cloudflare provider does not, because the dev server cannot host a Container. The `cloudflare` host writes the Durable Object and Container only to `.output/server/wrangler.json`. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker.
 
@@ -62,7 +112,7 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | --- | --- | --- |
 | `binding` | `'SANDBOX'` | Durable Object binding name. |
 | `className` | `'Sandbox'` | Exported Durable Object class name. |
-| `migrationTag` | `'v1'` | Unique Wrangler migration tag for the class. |
+| `migrationTag` | `'v1'` | Wrangler migration tag that creates the Durable Object class. Set it when you deploy onto an existing Worker whose last migration tag is not `v1`, else the deploy fails with Cloudflare error 10074. |
 | `name` | - | Container name. The `cloudflare` host builds it from the app name. |
 | `maxInstances` | `12` | Maximum number of Containers that run at the same time. Your own `containers` entry can set `max_instances` instead. If both are set and differ, the build fails with `SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT`. |
 | `sandboxId` | - | One Sandbox ID for every run. |
