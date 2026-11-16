@@ -182,7 +182,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
 To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`. Inspection queries the binding because existing instance ids can follow different rules.
 
@@ -202,6 +202,24 @@ The `result` of a completed run is the value that the handler returned, stored a
 Inline runs buffer a returned `Response` body before completion. Each inspection and duplicate start returns a fresh `Response`, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 
 Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
+
+## Start a run later
+
+Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+
+```ts fragment
+await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+```
+
+| Provider | How the delay works | Status during the delay |
+| --- | --- | --- |
+| OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
+| Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
+| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
+
+For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
 
 ## Make a Vercel workflow durable
 
@@ -276,18 +294,23 @@ throw new NonRetryableError("The card was declined.", { cause });
 
 Cloudflare gets its own `NonRetryableError` from ViteHub. Workflow DevKit reads `fatal: true`, as for its `FatalError`. OpenWorkflow has no such error, so ViteHub ends the step with the error as its result and fails the run outside the step. A replay reads that result and throws the same error. ViteHub finds the error by `isRetryable === false` or by its name, so an error from another bundle also works.
 
-Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps. The run sleeps on Cloudflare and OpenWorkflow. A `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`. After a sleep, the provider runs `index.ts` again, and completed step files return their stored results.
+Only a folder Workflow can sleep. Its `index.ts` calls `context.sleep()` between steps, with a duration or a `Date`. A duration is a number of milliseconds or a string such as `"30 seconds"` or `"1 day"`: a number, one space, and a unit (second, minute, hour, day, week, month, or year, with or without a final `s`). A month is 30 days and a year is 365.25 days.
 
 ```ts fragment
 // server/workflows/remind-user/index.ts, next to 01.send-welcome.ts and 02.send-reminder.ts
-export default defineWorkflow("remind-user", async (payload: { email: string }, { step, steps }) => {
+export default defineWorkflow("remind-user", async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
   await steps.sendWelcome(payload);
-  await step?.sleep?.("wait-a-day", "1 day");
+  await sleep("1 day");
+  await sleep(new Date(payload.remindAt));
   await steps.sendReminder(payload);
 });
 ```
 
-A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.step.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry.
+The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 365 days) and OpenWorkflow. Inline runs, in `vite dev` and in normal Vercel handlers, wait with a timer. That wait is not durable: a restart loses the run. A Vercel `native` entry uses Workflow DevKit's `sleep()`.
+
+After a sleep, the provider runs `index.ts` again from the start, and completed step files return their stored results. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put each side effect and each value that changes, such as `Date.now()`, in a step file. `getWorkflowRun()` lists a sleep as a step with the name `sleep-1` and the wake time in `sleepUntil` on OpenWorkflow. A sleeping Cloudflare run reports `running` with `metadata.status: "waiting"`.
+
+A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. A duration that is not in the form above throws `WORKFLOW_SLEEP_DURATION_INVALID`.
 
 ## Production checklist
 

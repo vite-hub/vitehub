@@ -113,7 +113,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 .vitehub-sidebar__surface {
   background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -134,7 +134,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__scrim {
-  background: color-mix(in oklab, var(--ui-bg-inverted) 20%, transparent);
+  background: color-mix(in oklab, var(--foreground) 20%, transparent);
   inset: 0;
   position: fixed;
 }
@@ -153,7 +153,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 /* The brand row is as tall as the page header, so its bottom line continues the header line. */
 .vitehub-sidebar__top {
   align-items: center;
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   display: flex;
   flex: none;
   height: var(--ui-header-height);
@@ -166,7 +166,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   background: none;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   flex: none;
   font-size: 0.8125rem;
@@ -181,13 +181,13 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__item:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
   color: var(--ui-text);
 }
 
 .vitehub-sidebar__item[aria-current="page"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-sidebar__icon {
@@ -223,7 +223,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__brand {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-sidebar__brand:hover {
@@ -247,7 +247,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__brand-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -262,8 +262,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 /* Open, Search looks like a field. Collapsed, it is one more icon. */
 .vitehub-sidebar[data-open] .vitehub-sidebar__search {
-  background: var(--ui-bg);
-  box-shadow: inset 0 0 0 1px var(--ui-border);
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--ui-text-dimmed);
 }
 
@@ -280,7 +280,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 }
 
 .vitehub-sidebar__rule {
-  background: var(--ui-border);
+  background: var(--border);
   flex: none;
   height: 1px;
   margin: 0.375rem 0.25rem;

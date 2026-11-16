@@ -26,6 +26,7 @@ import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 import ConsoleConfirm from "./console-confirm.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Browses one folder of the media library: breadcrumbs, folders, and files in a grid or a list, search by file name
@@ -537,7 +538,7 @@ defineExpose({
       <!-- On the Media page the header shows the folder trail; the picker shows it here. -->
       <nav v-if="mode === 'picker'" class="flex min-w-0 basis-full items-center gap-0.5 text-[13px] sm:basis-auto sm:flex-1" aria-label="Folders">
         <template v-for="(path, index) in trail" :key="path || '/'">
-          <UIcon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
+          <Icon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
           <UButton
             variant="ghost"
             size="xs"
@@ -638,7 +639,7 @@ defineExpose({
               <span class="vitehub-media-tile__thumb" :style="{ background: file.color }">
                 <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded" @error="thumbnailFailed(file)">
                 <span v-else class="flex size-full flex-col items-center justify-center gap-1 text-dimmed">
-                  <UIcon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
+                  <Icon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
                   <span class="text-xs font-medium">{{ consoleMediaFormat(file) }}</span>
                 </span>
               </span>
@@ -684,7 +685,7 @@ defineExpose({
                 <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
                     <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @error="thumbnailFailed(file)">
-                    <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
+                    <Icon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
                   </span>
                   <span class="grid min-w-0">
                     <span class="truncate text-highlighted">{{ file.name }}</span>
@@ -708,7 +709,7 @@ defineExpose({
 
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
-      <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
+      <span class="h-4 w-px bg-(--border)" aria-hidden="true" />
       <UButton v-if="selectionManageable && client.capabilities?.move !== false" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
       <UButton v-if="selectionManageable" variant="ghost" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
@@ -718,7 +719,7 @@ defineExpose({
 
     <div v-if="dragDepth > 0" class="vitehub-media-drop" aria-hidden="true">
       <div class="flex flex-col items-center gap-2 text-center">
-        <UIcon name="i-lucide-upload" class="size-6 text-highlighted" />
+        <Icon name="i-lucide-upload" class="size-6 text-highlighted" />
         <p class="text-sm font-medium text-highlighted">Drop to upload to {{ folderLabel(folder) }}</p>
       </div>
     </div>
@@ -748,7 +749,7 @@ defineExpose({
         <p>The {{ removeState?.files?.length === 1 ? "file" : "files" }}, {{ removeState?.files?.length === 1 ? "its" : "their" }} crops, and {{ removeState?.files?.length === 1 ? "its" : "their" }} variants are deleted. This cannot be undone.</p>
         <USkeleton v-if="removeState?.checking" class="h-9 w-full" />
         <p v-else-if="removeState?.warning" class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2 text-xs">
-          <UIcon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <Icon name="i-lucide-triangle-alert" class="mt-px size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span>{{ removeState.warning }}</span>
         </p>
       </template>
@@ -759,14 +760,14 @@ defineExpose({
 <style>
 /* The detail panel of a file sits next to the browser on wide screens and covers it on narrow ones. */
 .vitehub-media-library__detail {
-  border-left: 1px solid var(--ui-border);
+  border-left: 1px solid var(--border);
   flex-shrink: 0;
   width: 22.5rem;
 }
 
 @media (max-width: 1023px) {
   .vitehub-media-library__detail {
-    background: var(--ui-bg);
+    background: var(--background);
     border-left: 0;
     inset: 0;
     position: absolute;
@@ -801,8 +802,8 @@ defineExpose({
 /* A folder tile frames its open button and its menu. In the list view the frame goes, so folders read as rows. */
 .vitehub-media-folder {
   align-items: center;
-  border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) * 2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
   gap: 0.25rem;
   padding: 0.25rem;
@@ -820,7 +821,7 @@ defineExpose({
 
 /* The theme rings the whole tile, thumbnail and name, when the button has focus. */
 .vitehub-media-tile__button {
-  border-radius: calc(var(--ui-radius) * 2);
+  border-radius: calc(var(--radius) * 2);
   display: grid;
   min-width: 0;
   text-align: start;
@@ -830,8 +831,8 @@ defineExpose({
 /* An inset hairline keeps light images apart from the page, and dark images apart from the dark page. */
 .vitehub-media-tile__thumb {
   aspect-ratio: 1;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: block;
   overflow: hidden;
   position: relative;
@@ -839,7 +840,7 @@ defineExpose({
 
 .vitehub-media-tile__thumb::after {
   border-radius: inherit;
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ui-text-highlighted) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 8%, transparent);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -860,7 +861,7 @@ defineExpose({
 
 .vitehub-media-tile.is-selected .vitehub-media-tile__thumb,
 .vitehub-media-tile.is-active .vitehub-media-tile__thumb {
-  outline: 2px solid var(--ui-border-inverted);
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }
 
@@ -883,7 +884,7 @@ defineExpose({
 }
 
 .vitehub-media-table th {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   font-size: 0.75rem;
   font-weight: 500;
@@ -892,13 +893,13 @@ defineExpose({
 }
 
 .vitehub-media-table td {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   height: 2.75rem;
   padding-inline: 0.5rem;
 }
 
 .vitehub-media-table tbody tr:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-media-table tbody tr.is-selected,
@@ -912,8 +913,8 @@ defineExpose({
 
 .vitehub-media-row-thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: inline-flex;
   flex-shrink: 0;
   height: 1.75rem;
@@ -927,7 +928,7 @@ defineExpose({
   align-items: center;
   backdrop-filter: blur(12px);
   background: var(--vh-floating);
-  border-radius: calc(var(--ui-radius) * 3);
+  border-radius: calc(var(--radius) * 3);
   bottom: 1rem;
   box-shadow: var(--vh-shadow-floating);
   display: flex;
@@ -942,9 +943,9 @@ defineExpose({
 /* The drop target covers the whole browser, so a file can land anywhere on it. */
 .vitehub-media-drop {
   align-items: center;
-  background: color-mix(in oklab, var(--ui-bg) 85%, transparent);
-  border: 1px dashed var(--ui-border-inverted);
-  border-radius: calc(var(--ui-radius) * 2);
+  background: color-mix(in oklab, var(--background) 85%, transparent);
+  border: 1px dashed var(--foreground);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
   inset: 0.5rem;
   justify-content: center;
