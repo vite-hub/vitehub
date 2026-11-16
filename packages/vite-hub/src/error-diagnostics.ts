@@ -41,6 +41,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
       fix: "Set `auth` in `vitehub()` and add `mcpOAuth()` from `vite-hub/auth/mcp` to server/auth.ts, or set `mcp: { auth: false }` to let anyone call every tool.",
     },
+    VITE_HUB_PACKAGE_VERSION_UNSUPPORTED: {
+      why: ({ installed }: { installed: string }) => `${installed} ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.`,
+      fix: ({ install }: { install: string }) => `Install the ViteHub packages of the same release as vite-hub: \`pnpm add ${install}\`. When pnpm \`overrides\`, \`resolutions\`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.`,
+    },
     VITE_HUB_PUBLIC_URL_INVALID: {
       why: ({ value }: { value: string }) => `\`publicUrl\` must be an http or https origin without a path, but it is ${value}.`,
       fix: "Set `vitehub({ publicUrl })` to an origin such as `https://shop.example.com`, with no path, query, or user name.",
