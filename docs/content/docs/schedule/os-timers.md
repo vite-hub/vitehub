@@ -59,7 +59,7 @@ The function returns `[error, unit]`. It does not throw when the OS cannot run t
 
 | OS | User scope (default) | System scope |
 | --- | --- | --- |
-| Linux | systemd user timer and service in `~/.config/systemd/user/` | systemd timer and service in `/etc/systemd/system/` |
+| Linux | systemd user timer and service in the folder that your systemd user manager reads, `~/.config/systemd/user/` by default | systemd timer and service in `/etc/systemd/system/` |
 | macOS | LaunchAgent in `~/Library/LaunchAgents/<name>.plist` | LaunchDaemon in `/Library/LaunchDaemons/<name>.plist` |
 | Windows | Task Scheduler task `\<name>` that runs as you while you are signed in | Task Scheduler task `\<name>` that runs as SYSTEM |
 
@@ -110,7 +110,16 @@ Call `unit.uninstall()`, or `uninstallOsSchedule('photo-sync')` from another pro
 
 ## Time zones
 
-The cron of a Schedule uses UTC unless it sets `timeZone`.
+The cron of a Schedule uses UTC unless it sets `timeZone`. An OS timer also accepts `timeZone: 'local'`, the time zone of the computer. Use it for a tool that runs at 09:00 wherever its user is:
+
+```ts [src/install.ts]
+import { installOsSchedule } from '@vite-hub/schedule/os'
+
+const [error] = await installOsSchedule('daily-backup', { cron: '0 9 * * *', timeZone: 'local' }, {
+  command: [process.execPath, process.argv[1], 'backup'],
+})
+if (error) throw error
+```
 
 - systemd accepts any time zone, so Linux runs every cron in its zone.
 - launchd and Task Scheduler use the time zone of the computer. `installOsSchedule()` accepts the Schedule only when the computer runs it at the same times:
@@ -118,7 +127,7 @@ The cron of a Schedule uses UTC unless it sets `timeZone`.
   - or the two zones always differ by the same amount, and the install moves the times,
   - or the cron gives the same runs in both zones. The hourly cron in the example works on a computer in any zone with a whole-hour offset.
 
-Other cases return `SCHEDULE_OS_TIME_ZONE_UNSUPPORTED`, with the computer's zone in `error.data.machineTimeZone`. Set `timeZone` to that zone, or pick a cron that gives the same runs in both zones.
+Other cases return `SCHEDULE_OS_TIME_ZONE_UNSUPPORTED`, with the computer's zone in `error.data.machineTimeZone`. Pass `timeZone: 'local'`, set `timeZone` to the zone that the cron is for, or pick a cron that gives the same runs in both zones.
 
 On the nights the clocks change, the OS decides, not ViteHub:
 

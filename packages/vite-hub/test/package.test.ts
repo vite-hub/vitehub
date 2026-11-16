@@ -306,6 +306,7 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
+      "./seo",
       "./skills",
       "./test",
     ]);
