@@ -18,18 +18,19 @@ const exists = async (path: string) => await access(path).then(() => true, () =>
 const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-/** The install step that failed. The Babysitter waits for `capacity` and reports the other kinds. */
-export type GitHubWorkspaceInstallKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
-/** A `PRESETS_WORKSPACE_INSTALL_FAILED` error, with whether the Babysitter may retry it and the step that failed. */
-export type GitHubWorkspaceInstallError = Error & { readonly code: string; retryable: boolean; kind: GitHubWorkspaceInstallKind };
+/** What kind of failure a frozen install had. */
+export type GitHubWorkspaceInstallFailureKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
 
-export function gitHubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallKind = "command"): GitHubWorkspaceInstallError {
-  const error = presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED({ message: cause instanceof Error ? cause.message : String(cause), cause });
-  return Object.assign(error, { retryable, kind });
+/** `PRESETS_GITHUB_INSTALL_FAILED`: a frozen install failed. `retryable` says whether a later attempt can pass. */
+export type GitHubWorkspaceInstallError = Error & { readonly kind: GitHubWorkspaceInstallFailureKind; readonly retryable: boolean };
+
+export function githubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallFailureKind = "command"): GitHubWorkspaceInstallError {
+  return Object.assign(presetsErrorDiagnostics.PRESETS_GITHUB_INSTALL_FAILED({ cause, detail: cause instanceof Error ? cause.message : String(cause) }), { kind, retryable });
 }
 
+/** Whether `error` is a failed frozen install. */
 export function isGitHubWorkspaceInstallError(error: unknown): error is GitHubWorkspaceInstallError {
-  return error instanceof Error && isRecord(error) && error.code === "PRESETS_WORKSPACE_INSTALL_FAILED";
+  return error instanceof Error && Reflect.get(error, "code") === "PRESETS_GITHUB_INSTALL_FAILED";
 }
 
 /** Trusted host hook for dependency caching; commands and inputs have already been validated. */
@@ -106,7 +107,7 @@ export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 *
           reject(error);
         };
         const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        const timeout = setTimeout(() => fail(gitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
+        const timeout = setTimeout(() => fail(githubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
         const cleanup = () => {
           clearTimeout(timeout);
           signal?.removeEventListener("abort", abort);
@@ -197,14 +198,14 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let yarnConfig: string | undefined;
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
-  let kind: GitHubWorkspaceInstallKind = "input";
+  let kind: GitHubWorkspaceInstallFailureKind = "input";
   const cleanup = async () => {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
       finally { await snapshot?.close(); }
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw gitHubWorkspaceInstallError(error);
+      throw githubWorkspaceInstallError(error);
     }
   };
   try {
@@ -289,7 +290,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
     const lockfileDefect = isGitHubLockfileDefect(error);
-    throw gitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
+    throw githubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
   } finally {
     await cleanup();
   }

@@ -323,7 +323,10 @@ function rewriteStrings(context: FileContext) {
   })
 }
 
-/** Lists env and Wrangler files that set `NUXT_APP_SECRET`, which ViteHub no longer reads. It never prints values. */
+/**
+ * Lists env and Wrangler files that set `NUXT_APP_SECRET` without `VITEHUB_SECRET`. ViteHub read it implicitly, so app code
+ * cannot show whether ViteHub used it, and other modules such as nuxt-og-image read it too. It never prints values.
+ */
 async function appSecretFollowUps(cwd: string): Promise<FollowUp[]> {
   const files = (await glob(envPatterns, { cwd, ignore: ignoredPatterns, dot: true })).sort()
   const followUps: FollowUp[] = []
@@ -335,7 +338,7 @@ async function appSecretFollowUps(cwd: string): Promise<FollowUp[]> {
     followUps.push({
       file,
       line: text.slice(0, index).split("\n").length,
-      message: "ViteHub no longer reads `NUXT_APP_SECRET`. Set `VITEHUB_SECRET` to the same value, here and in each deployment.",
+      message: "ViteHub reads its secret from `VITEHUB_SECRET` now, not from `NUXT_APP_SECRET`. If ViteHub used this value, for example for Auth sessions, signed Blob URLs, or `deriveSecret()`, also set `VITEHUB_SECRET` to it, here and in each deployment. Keep `NUXT_APP_SECRET` when another module, such as nuxt-og-image, reads it.",
     })
   }
   return followUps

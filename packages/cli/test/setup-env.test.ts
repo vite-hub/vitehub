@@ -38,8 +38,17 @@ const links = {
   vercel: { account: { id: "team_1" }, project: { id: "prj_1", name: "my-app" }, verified: true, linkedAt: "2026-11-15T00:00:00.000Z" },
 }
 
+/** The build output that the env commands read. A Cloudflare build also writes the Wrangler config with its plain vars. */
 function manifest(host: Host, env: readonly object[] = envEntries): Record<string, string> {
-  return { [`${outputDirs[host]}/deployment.json`]: JSON.stringify({ env, host, identity: { name: "my-app", source: "package" } }) }
+  return {
+    [`${outputDirs[host]}/deployment.json`]: JSON.stringify({ env, host, identity: { name: "my-app", source: "package" } }),
+    ...(host === "cloudflare"
+      ? {
+          ".output/nitro.json": JSON.stringify({ commands: { deploy: "npx wrangler deploy --config ./server/wrangler.json" }, preset: "cloudflare-module" }),
+          ".output/server/wrangler.json": JSON.stringify({ main: "index.mjs", name: "my-app" }),
+        }
+      : {}),
+  }
 }
 
 /** A built, linked project. `hosts` are the link targets, the first is the default. */
@@ -297,21 +306,58 @@ describe("vitehub env push", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
   })
 
-  it("lists only Netlify Functions variables and refuses a Builds-only update before writing", async () => {
+  it("lists only Netlify Functions variables", async () => {
     const root = await linkedProject(["netlify"], local)
     const hosts = await fakeHosts(hostEnv.netlify)
     await seed(hosts, { netlify: { production: { VITEHUB_SECRET: "build-only" } }, netlifyScopes: { VITEHUB_SECRET: ["builds"] } })
     const diff = await envCommand<DiffJson>(["diff"], root, hosts.env)
     expect(diff.exitCode).toBe(1)
     expect((await hosts.calls()).find(call => call.argv[0] === "env:list")?.argv).toContain("functions")
+    expect(diff.json.missing.required.map(entry => entry.names)).toContainEqual(["VITEHUB_SECRET"])
+  })
+
+  it("adds Functions scope and secret storage to an existing Netlify variable, and keeps its other context values", async () => {
+    const root = await linkedProject(["netlify"], local)
+    const hosts = await fakeHosts(hostEnv.netlify)
+    const requests: { method: string, body?: unknown }[] = []
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      requests.push({ method: init?.method ?? "GET", ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}) })
+      return Response.json(init?.method !== "GET" ? {} : { key: "VITEHUB_SECRET", scopes: ["builds"], is_secret: false, values: [{ context: "all", value: "shared" }, { context: "branch", context_parameter: "staging", value: "staging" }] })
+    }
+    const push = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env, { fetch })
+
+    expect(push.exitCode, push.stdout + push.stderr).toBe(0)
+    expect(requests).toEqual([{ method: "GET" }, {
+      body: {
+        is_secret: true,
+        key: "VITEHUB_SECRET",
+        scopes: ["builds", "functions"],
+        values: [
+          { context: "deploy-preview", value: "shared" },
+          { context: "branch-deploy", value: "shared" },
+          { context: "dev", value: "shared" },
+          { context: "dev-server", value: "shared" },
+          { context: "branch", context_parameter: "staging", value: "staging" },
+          { context: "production", value: canary },
+        ],
+      },
+      method: "PUT",
+    }])
+    expectNoLeak(await hosts.calls(), push.stdout + push.stderr, [canary])
+  })
+
+  it("refuses to rewrite a Netlify secret without Functions scope whose other context values it cannot read", async () => {
+    const root = await linkedProject(["netlify"], local)
+    const hosts = await fakeHosts(hostEnv.netlify)
     const requests: string[] = []
     const fetch: typeof globalThis.fetch = async (_input, init) => {
       requests.push(init?.method ?? "GET")
-      return Response.json({ key: "VITEHUB_SECRET", scopes: ["builds"], is_secret: true })
+      return Response.json({ key: "VITEHUB_SECRET", scopes: ["builds"], is_secret: true, values: [{ context: "deploy-preview", value: "********" }] })
     }
     const push = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env, { fetch })
     expect(push.exitCode).not.toBe(0)
     expect(push.json.error?.code).toBe("SETUP_ENV_VALUE_UNSUPPORTED")
+    expect(push.json.error?.why).toContain("Functions scope")
     expect(requests).toEqual(["GET"])
     expectNoLeak(await hosts.calls(), push.stdout + push.stderr, [canary])
   })

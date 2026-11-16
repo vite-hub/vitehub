@@ -64,6 +64,23 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
   return { args, config, migrations }
 }
 
+/**
+ * The plain vars of the Wrangler config that the build writes (`vars` in the `--config` file of `commands.deploy`). The
+ * deploy sets them with the version, so the Worker has them at runtime even though `wrangler secret list` omits them.
+ */
+export async function wranglerVarNames(outputDir: string): Promise<string[]> {
+  const { config } = await readWranglerCommand(outputDir)
+  const file = join(outputDir, config)
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(file, "utf8"))
+  }
+  catch {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
+  }
+  return isRecord(value) && isRecord(value.vars) ? Object.keys(value.vars) : []
+}
+
 interface WranglerOutputEntry {
   type?: unknown
   version_id?: unknown
@@ -131,7 +148,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           const args = context.preview
             ? ["versions", "upload", ...command.args.filter(arg => !plainFlags.has(arg))]
             : ["deploy", ...command.args]
-          args.push(...target)
+          args.push(...target, "--keep-vars")
           if (context.temporary) args.push("--temporary")
           if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
           if (context.upload && Object.keys(context.upload).length) {

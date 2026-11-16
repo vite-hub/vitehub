@@ -1,4 +1,4 @@
-import { Diagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
 
 import { abortable } from "./abort.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
@@ -124,11 +124,9 @@ function normalizeForeignBlob(value: Blob): Blob | undefined {
 
 const httpInterruptedMessage = "[vitehub] HTTP request was interrupted."
 
-class HttpStatusError extends Diagnostic {
-  constructor(readonly status: number) {
-    super({ code: "INTERNAL_R0012", docs: "https://vitehub.dev/docs/development/diagnostics/internal_r0012", why: `[vitehub] HTTP request failed with status ${status}.` }, HttpStatusError)
-    this.name = "HttpStatusError"
-  }
+/** `INTERNAL_R0012` with the HTTP status of the failed response. */
+function httpStatusError(status: number): Diagnostic & { status: number } {
+  return Object.assign(internalErrorDiagnostics.INTERNAL_R0012({ message: `[vitehub] HTTP request failed with status ${status}.` }), { status })
 }
 
 type HttpAttempt =
@@ -223,7 +221,7 @@ async function fetchOnce(
         return { failure: { cause, retryable: retryFetchError(cause) } }
       }
       if (!response.ok) {
-        const cause = new HttpStatusError(response.status)
+        const cause = httpStatusError(response.status)
         cancelResponseBody(response)
         return { failure: { cause, retryable: cause.status === 408 || cause.status === 429 || cause.status >= 500 } }
       }

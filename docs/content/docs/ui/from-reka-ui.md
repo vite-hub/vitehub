@@ -60,7 +60,7 @@ For enter and exit motion, use `data-starting-style` and `data-ending-style`. A 
 Neither part has behavior, so they become CSS:
 
 - **AspectRatio:** set `aspect-ratio: 16 / 9` on the element.
-- **VisuallyHidden:** use `<span data-slot="visually-hidden">`. `@vite-hub/kit/styles/default.css` and `@vite-hub/ui/styles.css` hide it and keep it for screen readers. Without them, add the usual clip rule to your CSS.
+- **VisuallyHidden:** use `<span data-slot="visually-hidden">`. `@vite-hub/kit/styles/default.css` and `vite-hub/ui/styles.css` hide it and keep it for screen readers. Without them, add the usual clip rule to your CSS.
 
 ## Every Reka UI part
 
