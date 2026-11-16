@@ -14930,12 +14930,12 @@ describe("agent message protocol", () => {
             },
           },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, runInline)
 
         expect(runInline).not.toHaveBeenCalled()
         expect(sleep).toHaveBeenCalledTimes(61)
-        expect(sleep).toHaveBeenLastCalledWith("agent-invocation-recovery-61", "1 minute")
+        expect(sleep).toHaveBeenLastCalledWith("1 minute")
         await expect(invocations.getByRunId("source-run", "broken-agent")).resolves.toMatchObject({
           error: { message: "worker startup failed" },
           status: "failed",
@@ -15066,7 +15066,7 @@ describe("agent message protocol", () => {
             workflowName: "recovering-agent",
           } },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, vi.fn())
 
         await vi.waitFor(async () => {

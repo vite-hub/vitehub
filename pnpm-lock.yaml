@@ -1692,6 +1692,9 @@ importers:
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
       scule:
         specifier: ^1.3.0
         version: 1.3.0
