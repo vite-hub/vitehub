@@ -153,7 +153,7 @@ catalogs:
     "@valibot/to-json-schema": ^1.8.0
     birpc: ^4.2.0
     diff: ^9.0.0
-    nostics: 1.3.0
+    nostics: 1.4.0
     ocache: ^0.3.1
     standard-context: 0.0.4
     valibot: ^1.5.0
@@ -274,7 +274,7 @@ patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
   # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
-  # Also 12 core bug fixes and 3 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571).
+  # Also 21 core bug fixes and 5 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571 and #4598).
   "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
   "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
@@ -282,6 +282,8 @@ patchedDependencies:
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
 # @vite-hub/kit pins ui-sdk 0.1.0-beta.5, published on 2026-11-15. Remove these after 2026-11-16T09:58Z, when the release age passes.
+# nostics 1.4.0 was published on 2026-11-16. Remove its line after 2026-11-17T08:31Z.
 minimumReleaseAgeExclude:
+  - nostics@1.4.0
   - "@ui-sdk/core@0.1.0-beta.5"
   - "@ui-sdk/vue@0.1.0-beta.5"

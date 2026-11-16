@@ -3454,17 +3454,42 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0870: dynamicError,
     AGENT_R0871: dynamicError,
-    AGENT_B0002: dynamicError,
+    AGENT_B0002: {
+      ...dynamicError,
+      fix: "Rename one of the two Agent files that the message names. ViteHub takes the Agent name from the file path under server/agents/ or from the name of a `*.agent.ts` file.",
+    },
     // AGENT_B0003 and AGENT_B0004 are retired with Runtime Schedule targets. Do not reuse them.
-    AGENT_B0005: dynamicError,
-    AGENT_B0006: dynamicError,
+    AGENT_B0005: {
+      ...dynamicError,
+      fix: "Set `vitehub({ agent: { providers: { state: { url } } } })` to a remote libSQL URL, such as a `libsql://` URL, with `authToken` when the database needs one.",
+    },
+    AGENT_B0006: {
+      ...dynamicError,
+      fix: "Give each of the two routes that the message names its own path. Change `inspection` or the alias path in `vitehub({ agent: { routes } })`, or move the app route to another path.",
+    },
     // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
-    AGENT_B0016: dynamicError,
+    AGENT_B0016: {
+      ...dynamicError,
+      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/api/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
+    },
     AGENT_B0017: dynamicError,
     // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
-    AGENT_B0022: dynamicError,
-    AGENT_B0023: dynamicError,
-    AGENT_B0024: dynamicError,
+    AGENT_B0022: {
+      ...dynamicError,
+      fix: "Build the app for the Node host with `vitehub({ host: \"node\" })`, or remove the process host preset from the Agents that the message names.",
+    },
+    AGENT_B0023: {
+      ...dynamicError,
+      fix: "Set `driver` in `vitehub({ agent: { providers: { state } } })` to `\"auto\"`, `\"sqlite\"`, or `\"libsql\"`, or remove `driver` to use `\"auto\"`.",
+    },
+    AGENT_B0024: {
+      ...dynamicError,
+      fix: "Write `channels` in `defineAgent()`, and `path` and `aliases` in the Channel adapter, as string literals or same-module `const` values, and correct any syntax error in the file that the message names. ViteHub reads these files without running them.",
+    },
+    AGENT_INVOCATION_DRIVER_INTERRUPTED: {
+      why: ({ id }: { id: string }) => `[vitehub] Agent Invocation ${JSON.stringify(id)} was interrupted while its Driver ran, and ViteHub did not run the Driver again. A second run could repeat model calls and tool side effects.`,
+      fix: "Start a new turn. Before you do, check the work that the interrupted Driver did, such as tool calls with side effects. The journal record and its observations show how far it got.",
+    },
     AGENT_R0872: dynamicError,
     AGENT_R0873: dynamicError,
     AGENT_R0874: dynamicError,
@@ -3891,9 +3916,25 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ channelId }: { channelId: string }) => `Agent channel ${channelId} does not support activity.`,
       fix: "Pass the id of a Channel that has an `activity` adapter to `publishAgentActivity({ channelId })`.",
     },
+    AGENT_CHANNEL_DEFINITION_NOT_FOUND: {
+      why: ({ agent, channel, channels }: { agent: string, channel: string, channels: string[] }) => `[vitehub] Agent ${agent} lists the Channel "${channel}", but server/channels has no Channel with that name. Channels: ${channels.join(", ") || "none"}.`,
+      fix: "Correct the name in `defineAgent({ channels })` to one of the Channels that the message lists, or add the Channel as server/channels/<name>/index.ts.",
+    },
+    AGENT_CHANNEL_HOST_NAME_TAKEN: {
+      why: ({ agent, channel }: { agent: string, channel: string }) => `[vitehub] Channel ${channel} serves its webhooks as "${agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.`,
+      fix: "Rename the Agent that has the name `channel-<name>`, or rename the Channel folder under server/channels/.",
+    },
+    AGENT_CHANNEL_IMPORT_CYCLE: {
+      why: ({ agent, channel }: { agent: string, channel: string }) => `[vitehub] Agent ${agent} lists the Channel "${channel}", whose static imports lead back to that Agent. Use a lazy task target, agent: () => import('...'), or leave the Channel unlisted. Named Channels cannot statically import their owning Agent.`,
+      fix: "In the Channel file, load the Agent with a lazy task target, such as `tasks: { triage: { agent: () => import('../../agents/triage') } }`, or remove the Channel from `defineAgent({ channels })`.",
+    },
     AGENT_CHANNEL_TASK_HANDLED: {
       why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
       fix: "Make the queued Channel task that the message names start an Agent or a `run` function, and not answer with a `Response`.",
+    },
+    AGENT_CHANNEL_WEBHOOK_PATH_TAKEN: {
+      why: ({ channel, path, target }: { channel: string, path: string, target: string }) => `[vitehub] Channel ${channel}: the webhook path ${JSON.stringify(path)} is already routed to ${JSON.stringify(target)}.`,
+      fix: "Give each Channel its own webhook paths: change `path` or `aliases` in one of the two Channel adapters, or route the path explicitly in `vitehub({ agent: { routes: { aliases } } })`.",
     },
     AGENT_CHAT_RECOVERY_INDEX_CONFLICT: {
       why: ({ step }: { step: "acquire" | "commit" | "owner" }) => step === "acquire"
@@ -4198,6 +4239,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
     },
+    AGENT_ROUTE_NOT_STATIC: {
+      why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
+      fix: "Use a fixed path without `:name`, `[name]`, `*`, `?`, or `#`, such as `/hooks/github`, as each key of `vitehub({ agent: { routes: { aliases } } })`.",
+    },
     AGENT_SKILL_NAME_INVALID: {
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,
       fix: "Name each Skill in `agentWithSkills(agent, skills)` with letters, digits, `.`, `_`, or `-`.",
@@ -4268,6 +4313,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] The Agent did not return a UI message stream.",
       fix: "Return a `ReadableStream`, an async iterable, or a `Response` from the Driver `run()` when you request the `ui-message-stream` output.",
     },
+    AGENT_WEBHOOK_ALIAS_TARGET_INVALID: {
+      why: "[vitehub] Webhook aliases require an Agent name and webhook name.",
+      fix: "Give each entry of `vitehub({ agent: { routes: { aliases } } })` a non-empty `agent` and `webhook`, such as `{ \"/hooks/github\": { agent: \"triage\", webhook: \"github\" } }`.",
+    },
     AGENT_WEBHOOK_FENCE_UNAVAILABLE: {
       why: ({ deliveryId }: { deliveryId: string }) => `[vitehub] Webhook delivery "${deliveryId}" could not acquire its concurrency fence.`,
       fix: "The webhook queue retries the delivery by itself. If it repeats, check that the Agent State can take locks.",
@@ -4279,6 +4328,12 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_WEBHOOK_REHYDRATION_CHANGED: {
       why: ({ kind, resolved, expected }: { kind: "Agent" | "task", resolved: string, expected: string }) => `[vitehub] Persisted webhook delivery resolved ${kind} "${resolved}" instead of "${expected}".`,
       fix: "Keep the task and Agent that a trigger selects for a delivery the same while queued deliveries wait, or let them finish before you deploy the change.",
+    },
+    AGENT_WEBHOOK_ROUTE_HOST_UNSUPPORTED: {
+      why: ({ channel }: { channel?: string }) => channel === undefined
+        ? "[vitehub] Webhook aliases currently require a Nitro host."
+        : `[vitehub] Channel ${channel} declares its own webhook route. Inbound Channels that no Agent lists currently require a Nitro host.`,
+      fix: "Build for a Nitro host, such as `vitehub({ host: \"node\" })`. On Deno or Netlify, remove `routes.aliases` from `vitehub({ agent })` and list each inbound Channel in `defineAgent({ channels })`.",
     },
     AGENT_WEBHOOK_STATE_SCOPE_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Webhook registration "${id}" stateScope must be a non-empty string.`,
@@ -4520,7 +4575,17 @@ const agentDiagnosticHandles = defineDiagnostics({
   },
 })
 
-export const agentDiagnostics = { ...agentDiagnosticHandles, ...messageDiagnostics }
+type Guarded<TGuard> = TGuard extends (error: unknown) => error is infer TError ? TError : never
+
+/**
+ * Every Agent diagnostic handle. A spread does not copy the non-enumerable `is` of each registry,
+ * so `is` is defined again here and checks both registries.
+ */
+export const agentDiagnostics: Omit<typeof agentDiagnosticHandles & typeof messageDiagnostics, "is"> & {
+  is: (error: unknown) => error is Guarded<typeof agentDiagnosticHandles.is> | Guarded<typeof messageDiagnostics.is>
+} = /*#__PURE__*/ Object.defineProperty({ ...agentDiagnosticHandles, ...messageDiagnostics }, "is", {
+  value: (error: unknown) => agentDiagnosticHandles.is(error) || messageDiagnostics.is(error),
+})
 
 /** Preserves input-error HTTP status for application TypeErrors and Agent diagnostics. */
 export function isAgentTypeDiagnostic(error: unknown): boolean {

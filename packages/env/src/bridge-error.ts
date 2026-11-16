@@ -1,4 +1,4 @@
-import { defineDiagnostics } from "nostics";
+import { defineDiagnostics, type InferDiagnosticCodes } from "nostics";
 import { ViteHubError, isViteHubError } from "@vite-hub/runtime";
 const messages = {
   denied: "Env access denied.",
@@ -38,8 +38,9 @@ export function envBridgeErrorBody(error: ViteHubError): { code: string; docs?: 
   return { code, docs: diagnostic.docs, fix: diagnostic.fix, message: error.message };
 }
 
-function isEnvBridgeDiagnosticCode(code: string): code is keyof typeof envBridgeDiagnostics {
-  return Object.hasOwn(envBridgeDiagnostics, code);
+// `Object.keys` skips the registry's non-enumerable `is`, so only codes match.
+function isEnvBridgeDiagnosticCode(code: string): code is InferDiagnosticCodes<typeof envBridgeDiagnostics> {
+  return Object.keys(envBridgeDiagnostics).includes(code);
 }
 
 export function sanitizeEnvBridgeError(error: unknown): ViteHubError {
