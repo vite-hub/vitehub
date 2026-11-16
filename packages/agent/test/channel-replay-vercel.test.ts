@@ -39,7 +39,7 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   const driver = vi.fn(() => "done")
   const identities: unknown[] = []
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const agent = defineAgent({ hooks: { "agent:finish"({ runtime }) { identities.push(runtime.agentIdentity) } }, channels: { mailbox: channel }, driver: { run: driver }, invocations, name, ...(options.inline ? { runtime: false as const } : options.discoveryDefault ? {} : { runtime: agentWorkflow(name) }) })

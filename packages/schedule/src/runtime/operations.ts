@@ -1,5 +1,6 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { runScheduleFrom } from "./execute.ts"
 import { getScheduleRunStore } from "./state.ts"
 import { cancelSchedule, listSchedules, startSchedule } from "../started.ts"
@@ -135,19 +136,13 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
 }
 
 
-/** Raised for the failures of a Schedule operation. `status` and `code` reach every surface. */
-// Internal invariant: this class already carries a code, a fix, and a status for every surface.
-class ScheduleOperationError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
-
-  constructor(status: number, code: string, message: string, fix?: string) {
-    super(message)
-    this.code = code
-    this.status = status
-    if (fix) this.fix = fix
-  }
+/** Gives an operation error its HTTP status and the redacted message that the CLI and the Console report. */
+function withStatus<TError extends Error>(error: TError, status: number, fix?: string): TError {
+  return Object.defineProperties(error, {
+    ...(fix && !Reflect.get(error, "fix") ? { fix: { configurable: true, enumerable: false, value: fix, writable: true } } : {}),
+    status: { configurable: true, enumerable: false, value: status, writable: true },
+    statusMessage: { configurable: true, enumerable: false, value: redactInspectionText(error.message), writable: true },
+  })
 }
 
 const errorFix: Readonly<Record<string, string>> = {
@@ -159,6 +154,7 @@ const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_HISTORY_INCOMPLETE: 503,
   SCHEDULE_INVALID_SCHEDULED_AT: 400,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
+  SCHEDULE_OPERATION_FAILED: 500,
   SCHEDULE_RUN_NOT_FOUND: 404,
 }
 
@@ -168,11 +164,10 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
     return await work()
   }
   catch (error) {
-    if (error instanceof ScheduleOperationError) throw error
     const code: unknown = Reflect.get(Object(error), "code")
     const status = String(code) === code ? errorStatus[code] : undefined
-    if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message), errorFix[String(code)])
-    throw new ScheduleOperationError(500, "OPERATION_FAILED", "Schedule operation failed.")
+    if (status && error instanceof Error) throw withStatus(error, status, errorFix[String(code)])
+    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_OPERATION_FAILED({ cause: error }), 500)
   }
 }
 
@@ -199,7 +194,7 @@ export async function runScheduleRuns(input: { id: string, limit?: number }): Pr
 export async function runScheduleAttempts(input: { id: string }): Promise<ScheduleAttemptsResult> {
   return await attempt(async () => {
     const run = await getScheduleRunStore().getRun(input.id)
-    if (!run) throw new ScheduleOperationError(404, "SCHEDULE_RUN_NOT_FOUND", "Schedule Run was not found.", "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.")
+    if (!run) throw scheduleErrorDiagnostics.SCHEDULE_RUN_NOT_FOUND()
     return { attempts: await listScheduleRunAttempts(input.id), run: summarizeScheduleRun(run) }
   })
 }
@@ -213,7 +208,7 @@ const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
  */
 export async function runScheduleNow(input: { at?: string, name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
   if (!Object.hasOwn(registry, input.name)) {
-    throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
+    throw withStatus(scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(), 404)
   }
   return await attempt(async () => ({ run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }))
 }
@@ -249,8 +244,8 @@ const startedErrorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_STORE_MISSING: 503,
 }
 
-function operationError(error: ResultError): ScheduleOperationError {
-  return new ScheduleOperationError(startedErrorStatus[error.code] ?? 500, error.code, redactInspectionText(error.why), error.fix)
+function operationError(error: ResultError): ResultError {
+  return withStatus(error, startedErrorStatus[error.code] ?? 500)
 }
 
 /** Result of `schedule.list`. */
