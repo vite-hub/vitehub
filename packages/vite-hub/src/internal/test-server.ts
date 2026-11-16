@@ -25,12 +25,13 @@ async function startVite(): Promise<ViteDevServer> {
   process.env.VITEST ??= "true"
   const [{ createServer }, { loadViteHubCliConfig }] = await Promise.all([import("vite"), import("./cli-config.ts")])
   let created: ViteDevServer | undefined
-  // The `vite.config.ts` of the app, or the Vite options of its `nuxt.config.ts`.
-  await loadViteHubCliConfig(root, "serve", undefined, {
-    async resolveViteConfig(inlineConfig) {
+  // The `vite.config.ts` of the app, or the Vite options of its `nuxt.config.ts`, in the `test` mode of Vitest.
+  await loadViteHubCliConfig(root, "serve", "test", {
+    async resolveViteConfig(inlineConfig, _command, mode) {
       created = await createServer({
         ...inlineConfig,
         appType: "custom",
+        mode,
         logLevel: inlineConfig.logLevel ?? "warn",
         server: { ...inlineConfig.server, hmr: false, middlewareMode: true, watch: null, ws: false },
       })

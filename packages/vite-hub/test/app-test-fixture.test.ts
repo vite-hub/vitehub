@@ -23,11 +23,12 @@ it("runs an app's route test against the vite-hub/test backends", async () => {
 
 // The same app test under Node's own runner: `vite-hub/test/register` gives Node the modules that `vitehub()` generates.
 it("runs an app's route test with node --test", async () => {
-  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "vite-hub/test/register", "--test", "test/node/signup.test.ts"], {
+  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "vite-hub/test/register", "--test", "test/node/signup.test.ts", "test/node/mode.test.ts"], {
     cwd: fixture,
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST") && name !== "NODE_ENV")), NO_COLOR: "1" },
   })
   expect(stdout).toContain("a signed-in user passes requireAuth()")
-  expect(stdout).toContain("ℹ pass 3")
+  expect(stdout).toContain("resolves the app config in test mode, as Vitest does")
+  expect(stdout).toContain("ℹ pass 4")
   expect(stdout).toContain("ℹ fail 0")
 }, 120_000)
