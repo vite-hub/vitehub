@@ -9,6 +9,7 @@ function collectionWith(
   transform: (item: Item) => Item | Promise<Item> = item => item,
 ) {
   return defineCollection(async () => ({ items: [] as Item[], nextCursor: null }), {
+    route: false,
     pagination: "provider",
     get,
     transform,

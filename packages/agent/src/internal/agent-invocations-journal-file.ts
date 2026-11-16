@@ -32,20 +32,20 @@ function parseJson(value: unknown): unknown {
  */
 export async function openAgentInvocationJournalFile(path: string, tablePrefix = "vitehub_agent_"): Promise<AgentInvocationJournalFile> {
   const table = `${tablePrefix}invocations`
-  if (!/^[A-Za-z_]\w*$/.test(table)) throw agentDiagnostics.AGENT_R0931({ message: "--table-prefix must be alphanumeric." })
+  if (!/^[A-Za-z_]\w*$/.test(table)) throw agentDiagnostics.AGENT_INVOCATIONS_TABLE_PREFIX_INVALID()
   let sqlite: typeof import("node:sqlite")
   try {
     sqlite = await import("node:sqlite")
   }
   catch {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_NODE_SQLITE_MISSING()
   }
   const db: DatabaseSync = new sqlite.DatabaseSync(path, { readOnly: true })
   try {
     // The app keeps writing while the CLI reads. Wait for its write lock instead of failing at once.
     db.exec("PRAGMA busy_timeout = 5000")
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name))
-    if (!tables.has(table)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${path}.` })
+    if (!tables.has(table)) throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: path })
     const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name))
     const fromRecord = "CASE WHEN json_valid(record) THEN json_remove(record, '$.observations') END"
     const summary = columns.has("summary") ? `COALESCE(summary, ${fromRecord})` : fromRecord

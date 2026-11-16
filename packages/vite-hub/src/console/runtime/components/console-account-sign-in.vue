@@ -139,7 +139,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
 <style>
 .vitehub-account-sign-in__create {
   border-radius: 0.125rem;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-weight: 500;
   text-decoration: underline;
   text-decoration-color: var(--ui-border-accented);

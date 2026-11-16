@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { MarkdownDocument } from "@comark/vue"
-import comarkUi from "comark-ui/vue"
+import { MarkdownDocument } from "@comark/vue/components/MarkdownDocument"
 import { camelize, capitalize, defineAsyncComponent } from "vue"
+import blocks from "#docs/blocks"
 import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
 
@@ -10,16 +10,14 @@ import type { ElementNode, Node as ComarkNode } from "comark"
 import type { DocsDocument } from "@vite-hub/docs"
 
 // The server parsed the page, so the client only renders nodes. Explicit maps and app content components override
-// comark-ui's blocks. Content components still load on first use.
+// comark-ui's blocks. Blocks and content components load on first use, so a page downloads only the blocks it renders.
+// The map has every comark-ui block, not only those of the plugins this package parses with: a site that adds chips or
+// another comark-ui plugin to its parser gets its nodes drawn.
 const props = defineProps<{
   document: DocsDocument
   /** Components by tag, such as `{ pre: DocsCodePre }`. */
   components?: Record<string, Component>
 }>()
-
-// Every block's component, not only those of the plugins this package parses with: a site that adds chips or another
-// comark-ui plugin to its parser gets its nodes drawn, and a component no node names costs nothing.
-const { components: blocks } = comarkUi()
 
 // `::note`, `::tip`, and the other callout components draw comark-ui's GitHub callout, the same as a `> [!NOTE]` quote.
 const callout = (type: string, title?: string): Component => defineComponent({

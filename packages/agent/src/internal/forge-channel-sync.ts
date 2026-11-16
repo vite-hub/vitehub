@@ -2,7 +2,7 @@ import type { ForgeProvider, RepoRef, Webhook, WebhookInput } from "forges"
 import type { PullRequestOptions } from "../channels.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeProvider, forgeResponseError } from "@vite-hub/forge"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ForgeChannelSyncOptions {
@@ -139,7 +139,7 @@ function gitlabHookFetch(fetchImpl: typeof fetch, enabled: readonly string[]): t
     const request = new Request(input, init)
     if (request.method !== "POST" && request.method !== "PUT") return await fetchImpl(input, init)
     const body: unknown = await request.json()
-    if (!isRuntimeRecord(body)) throw new ForgeResponseError("Invalid Forge webhook request body.")
+    if (!isRuntimeRecord(body)) throw forgeResponseError("Invalid Forge webhook request body.")
     const flags = Object.fromEntries(["push_events", ...enabled].map(event => [event, false]))
     return await fetchImpl(new Request(request, { method: request.method, body: JSON.stringify({ ...flags, ...body }) }))
   }
@@ -199,7 +199,7 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
         for (const repository of repositories) {
           const hook = await matchingHook(client, repository, desiredUrl)
           if (hook && !hook.active && options.forge === "gitlab") {
-            throw new ForgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
+            throw forgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
           }
           const reasons = !hook ? ["create webhook"] : [
             ...(!same(hook.nativeEvents, expectedSubscriptions) ? ["update events"] : []),
@@ -247,7 +247,7 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
         for (const change of operation.changes) {
           const hook = await matchingHook(client, change.repository, operation.url)
           if (!hook || !hook.active || (options.forge === "forgejo" && hook.contentType !== "json") || !same(hook.nativeEvents, expectedSubscriptions)) {
-            throw new ForgeResponseError("Forge did not return the desired webhook events, content type, and active state.")
+            throw forgeResponseError("Forge did not return the desired webhook events, content type, and active state.")
           }
           results.push({ repository: redact(change.repository, options), hook: state(hook, options) })
         }

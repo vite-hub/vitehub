@@ -5,18 +5,24 @@ import type { DropdownMenuItem } from "@nuxt/ui";
 import { useCopy } from "@vite-hub/ui";
 
 import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
+import type { ConsoleProjectBuild } from "../client/project-link";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 
 /**
  * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
  * linked here without a dialog. After that, it lists the apps.
  */
-const props = defineProps<{ status: Record<string, ConsoleAccountAppStatus> }>();
+const props = defineProps<{
+  status: Record<string, ConsoleAccountAppStatus>;
+  /** The build that each connected app reported, by app id. */
+  builds?: Record<string, ConsoleProjectBuild>;
+}>();
 
 const projects = useConsoleProjects();
 const account = computed(() => projects.account.value);
@@ -24,6 +30,12 @@ const team = computed(() => account.value?.teams.find(item => item.id === accoun
 const teamName = computed(() => team.value?.name ?? "This team");
 const apps = computed(() => account.value?.projects ?? []);
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
+// Each app row with its Last deploy cell, from the build that the app reported in its check.
+const rows = computed(() => apps.value.map((app) => {
+  const build = props.builds?.[app.id];
+  const deploy = build && { author: build.commit?.author, message: build.commit?.message ?? "Deployed", sha: build.commit?.sha.slice(0, 7), time: build.time };
+  return { app, deploy };
+}));
 const firstName = computed(() => account.value?.user.name.split(/\s+/)[0] ?? "");
 const shared = ref(false);
 
@@ -154,12 +166,21 @@ async function link(): Promise<void> {
         <UButton v-if="manage" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Link an app" @click="projects.linkOpen.value = true" />
       </div>
       <ul class="vitehub-account-list">
-        <li v-for="app in apps" :key="app.id" class="vitehub-account-list__item">
+        <li v-for="{ app, deploy } in rows" :key="app.id" class="vitehub-account-list__item">
           <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" data-focus-inset @click="openApp($event, app.id)">
             <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
             <span class="grid min-w-0 flex-1 text-start">
               <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
               <span v-if="name(app) !== consoleProjectHost(app)" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
+            </span>
+            <!-- The last deploy: when, which commit, and its message. A phone keeps the name and the status. -->
+            <span v-if="deploy" class="hidden min-w-0 flex-1 text-start sm:grid">
+              <span class="truncate text-xs text-toned">{{ deploy.message }}</span>
+              <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+                <span v-if="deploy.sha" class="shrink-0 font-mono">{{ deploy.sha }}</span>
+                <span class="shrink-0"><ConsoleRelativeTime :value="deploy.time" /></span>
+                <span v-if="deploy.author" class="truncate">by {{ deploy.author }}</span>
+              </span>
             </span>
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
             <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
@@ -255,7 +276,7 @@ async function link(): Promise<void> {
 }
 
 .vitehub-account-step__line {
-  background: var(--ui-border);
+  background: var(--border);
   flex: 1;
   margin-block: 0.375rem;
   min-height: 1rem;
@@ -270,7 +291,7 @@ async function link(): Promise<void> {
   align-items: center;
   border: 1px solid var(--ui-border-accented);
   border-radius: 999px;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex-shrink: 0;
   font-size: 0.75rem;
@@ -282,15 +303,15 @@ async function link(): Promise<void> {
 }
 
 .vitehub-account-step[data-active] .vitehub-account-step__mark {
-  background: var(--ui-bg-inverted);
-  border-color: var(--ui-bg-inverted);
-  color: var(--ui-bg);
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
 }
 
 .vitehub-account-step[data-done] .vitehub-account-step__mark {
   background: var(--ui-bg-accented);
   border-color: transparent;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-account-step__body {
@@ -307,7 +328,7 @@ async function link(): Promise<void> {
 
 .vitehub-account-invite {
   align-items: center;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -331,7 +352,7 @@ async function link(): Promise<void> {
 }
 
 .vitehub-account-step__title {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.5rem;
@@ -342,26 +363,26 @@ async function link(): Promise<void> {
 }
 
 .vitehub-account-step__text {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   line-height: 1.25rem;
   text-wrap: pretty;
 }
 
 .vitehub-account-step[data-done] .vitehub-account-step__title {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-weight: 500;
 }
 
 /* Rows, not a table: one bordered list, a hairline between rows. */
 .vitehub-account-list {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   border-radius: 0.625rem;
   overflow: hidden;
 }
 
 .vitehub-account-list > li + li {
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
 }
 
 .vitehub-account-list__row {
@@ -374,7 +395,7 @@ async function link(): Promise<void> {
 }
 
 a.vitehub-account-list__row:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 /* An app row: the link fills the row, and the menu of its actions sits at the end. The whole row takes the hover. */
@@ -384,6 +405,6 @@ a.vitehub-account-list__row:hover {
 }
 
 .vitehub-account-list__item:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 </style>

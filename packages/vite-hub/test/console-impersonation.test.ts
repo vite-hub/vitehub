@@ -77,7 +77,7 @@ describe("console.impersonation configuration", () => {
   it("accepts only a boolean, needs app Auth, and reaches the generated access policy", async () => {
     expect(resolveConsoleOptions({ impersonation: true })).toMatchObject({ impersonation: true })
     expect(() => resolveConsoleOptions({ impersonation: "yes" })).toThrow("console.impersonation must be true or false")
-    expect(() => installConsoleAccess({ mode: "open", impersonation: "yes" as unknown as boolean })).toThrow("console.impersonation must be true or false")
+    expect(() => installConsoleAccess({ mode: "open", impersonation: "yes" as unknown as boolean })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
     expect(() => assertConsoleAccess({ auth: false, impersonation: true }, {})).toThrow("console.impersonation needs app Auth")
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-impersonation-"))

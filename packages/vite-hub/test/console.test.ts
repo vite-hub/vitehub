@@ -228,6 +228,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro.plugins).toContain(resolve(root, ".vitehub/nitro/console/plugin.mjs"))
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
+      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,
       )
@@ -417,12 +418,14 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
 
-      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin.mjs"))
+      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin-dev.mjs"))
       expect(file).toBeDefined()
       const generated = await readFile(file!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
       expect(generated).toContain(`true, "/__vitehub/setup")`)
       expect(generated).not.toContain("installConsoleClient(")
+      // A development server has no build for `project.get` to name.
+      expect(generated).not.toContain("installConsoleBuild")
       expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringContaining("server/page.get.js") }))
     }
     finally {
@@ -1106,7 +1109,7 @@ describe("Agent invocation console", () => {
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
       expect(generated.includes("invoke: true")).toBe(enabled)
     }
     finally {
@@ -1899,7 +1902,7 @@ describe("Agent invocation console", () => {
 
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       await listeners.get("add")?.()
-      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8"))
+      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8"))
         .resolves.toContain(`fallbackName: "support"`)
     }
     finally {

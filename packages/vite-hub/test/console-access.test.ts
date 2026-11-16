@@ -235,8 +235,44 @@ describe("Console access policies", () => {
     }
   })
 
+  it("answers this machine without a signature on a development server with console: true and no key", async () => {
+    installConsoleDevelopment("/test/app", true)
+    const rpc = (init: RequestInit = {}, remoteAddress = "127.0.0.1") => requestEvent(new Request("http://localhost:3000/_vitehub/rpc", { body: "{}", method: "POST", ...init }), { remoteAddress })
+    // The `vitehub` CLI on this machine, as with console: { auth: false }.
+    const local = await run({ mode: "token" }, rpc())
+    expect(local.result).toEqual({ mode: "open", sections: "all" })
+    // Another machine, or a tunnel that forwards, still gets the loopback refusal.
+    const remote = await run({ mode: "token" }, rpc({}, "192.168.0.38"))
+    await expect(rejection(remote.result)).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", status: 403 })
+    const tunnel = await run({ mode: "token" }, rpc({ headers: { "x-forwarded-for": "203.0.113.9" } }))
+    await expect(rejection(tunnel.result)).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", status: 403 })
+    // A signed request still needs a key.
+    const signed = await run({ mode: "token" }, rpc({ headers: { "x-vitehub-signature": "key=CI, t=1, origin=http://localhost:3000, body=x, v1=y" } }))
+    await expect(rejection(signed.result)).resolves.toMatchObject({ code: "CONSOLE_KEY_NOT_CONFIGURED", status: 500 })
+    // console.authorize runs, as with console: { auth: false }.
+    const authorize = vi.fn(() => ({ sections: ["kv"], grants: ["comments-read"] }))
+    const limited = await run({ mode: "token", authorize }, rpc())
+    expect(limited.result).toEqual({ mode: "open", sections: ["kv"], grants: ["comments-read"] })
+    expect(authorize).toHaveBeenLastCalledWith({ request: expect.any(Request) })
+  })
+
+  it("takes only signed calls on a development server once a key is set, and in production", async () => {
+    installConsoleDevelopment("/test/app", true)
+    const signer = await signedConsoleAccess()
+    try {
+      const unsigned = await run({ mode: "token" }, requestEvent(new Request("http://localhost:3000/_vitehub/rpc", { body: "{}", method: "POST" }), { remoteAddress: "127.0.0.1" }))
+      await expect(rejection(unsigned.result)).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_MISSING", status: 401 })
+    }
+    finally {
+      signer.restore()
+    }
+    installConsoleDevelopment("/test/app", false)
+    const production = await run({ mode: "token" }, requestEvent(new Request("http://localhost:3000/_vitehub/rpc", { body: "{}", method: "POST" }), { remoteAddress: "127.0.0.1" }))
+    await expect(rejection(production.result)).resolves.toMatchObject({ code: "CONSOLE_KEY_NOT_CONFIGURED", status: 500 })
+  })
+
   it("rejects invalid policies", () => {
-    expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow("known access mode")
+    expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
     expect(() => installConsoleAccess({ mode: "open", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
     expect(() => defineConsoleAuthorize(JSON.parse("true"))).toThrow("requires a function")
   })
@@ -340,7 +376,7 @@ describe("generated Console access", () => {
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [Object.assign(config, { root }), { command, mode: command === "build" ? "production" : "development" }])
-      return await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      return await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
     }
     finally {
       await rm(root, { force: true, recursive: true })
