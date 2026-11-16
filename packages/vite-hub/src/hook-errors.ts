@@ -1,4 +1,4 @@
-import { formatDiagnostic } from "nostics"
+import { createConsoleReporter } from "nostics"
 
 import type { Diagnostic } from "nostics"
 
@@ -7,6 +7,8 @@ import type { Plugin, PluginOption } from "vite"
 /** Vite prints a `config` or `configResolved` error with all its fields, so it shows the fix already. */
 const printedByVite = new Set(["config", "configResolved"])
 const printed = new WeakSet<object>()
+/** Prints to stderr, with the original error of a diagnostic after it when the diagnostic has a `cause`. */
+const printDiagnostic = createConsoleReporter({ method: "error" })
 
 /** A nostics diagnostic from any bundled copy of nostics: an error with a code and a fix or docs link. */
 function isDiagnostic(error: unknown): error is Diagnostic {
@@ -16,13 +18,14 @@ function isDiagnostic(error: unknown): error is Diagnostic {
 }
 
 /**
- * Prints a diagnostic once, with its fix and docs link. Rolldown wraps a hook error in "Build failed with 1 error"
- * and keeps only its message and stack, so the fix of a ViteHub code would not reach the terminal.
+ * Prints a diagnostic once, with its fix, docs link and cause. Rolldown wraps a hook error in "Build failed with 1 error"
+ * and keeps only its message and stack, so the fix and cause of a ViteHub code would not reach the terminal.
  */
 function report(error: unknown): never {
   if (isDiagnostic(error) && !printed.has(error)) {
     printed.add(error)
-    process.stderr.write(`${formatDiagnostic(error)}\n`)
+    // nostics 1.4.0 types the options argument as required, but the reporter defaults it.
+    printDiagnostic(error, {})
   }
   throw error
 }

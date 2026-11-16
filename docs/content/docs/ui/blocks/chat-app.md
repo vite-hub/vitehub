@@ -20,7 +20,7 @@ Move the chat pane into a child component keyed by the session ID, so each sessi
 ```vue [SessionPane.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import type { PromptInputSubmit, ViteHubUISession } from "@vite-hub/ui";
+import type { PromptInputSubmit, ViteHubUISession } from "vite-hub/ui";
 import type { FileUIPart } from "ai";
 
 const props = defineProps<{ session: ViteHubUISession }>();

@@ -13,16 +13,16 @@ icon: i-lucide-send
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`. The `PromptInputSubmit` type comes from `vite-hub/ui`:
 
 ```ts
-import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { PromptInput } from "@vite-hub/ui";
+import { PromptInput } from "vite-hub/ui";
 ```
 
 ```vue
