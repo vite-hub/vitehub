@@ -73,6 +73,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_TAG_INVALID: {
+      ...dynamicError,
+      fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
+    },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
       fix: "Set `auth` in `vitehub()` and add `mcpOAuth()` from `vite-hub/auth/mcp` to server/auth.ts, or set `mcp: { auth: false }` to let anyone call every tool.",
@@ -538,6 +542,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
+    },
+    VITE_HUB_REDIRECTS_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,
+      fix: "Set `redirects.host` to the host name only, without `https://`, a port, or a path, for example `redirects: { host: \"example.com\", https: true }`.",
+    },
+    VITE_HUB_REDIRECTS_PREVIEW_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `Each \`redirects.previewHosts\` entry must be a host name such as \`staging.example.com\` or \`*.example.com\`, but one is ${value}.`,
+      fix: "Write each preview host as a host name without `https://`, a port, or a path. Start it with `*.` to match every subdomain.",
+    },
+    VITE_HUB_REDIRECTS_TRAILING_SLASH_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
+      fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
     },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",
