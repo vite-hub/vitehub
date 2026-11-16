@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 
+import { systemdAssignment, systemdExecArgument, systemdValue } from "@vite-hub/internal/systemd"
+
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** `systemd` options of `vitehub()`. */
@@ -43,20 +45,16 @@ function invalid(message: string): never {
   throw viteHubErrorDiagnostics.VITE_HUB_R0142({ message: "[vitehub] " + message })
 }
 
-/** systemd expands `%` specifiers in every value, and a line break ends the setting. */
 function escapeValue(field: string, value: string): string {
-  if (/[\n\r]/.test(value)) invalid(`systemd.${field} must be one line.`)
-  return value.replaceAll("%", "%%")
+  return systemdValue(value, () => invalid(`systemd.${field} must be one line.`))
 }
 
-/** Quotes an `ExecStart=` argument, where systemd also expands `$` variables. */
 function execArgument(field: string, value: string): string {
-  const escaped = escapeValue(field, value).replaceAll("$", "$$$$")
-  return /^[\w./@+:,=-]+$/.test(escaped) ? escaped : `"${escaped.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`
+  return systemdExecArgument(value, () => invalid(`systemd.${field} must be one line.`))
 }
 
 function quoteAssignment(name: string, value: string): string {
-  return `"${escapeValue(`environment.${name}`, `${name}=${value}`).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`
+  return systemdAssignment(name, value, () => invalid(`systemd.environment.${name} must be one line.`))
 }
 
 /** The stop timeout that covers the drain budget, the 15 s settle time, and the 10 s close hooks. */
