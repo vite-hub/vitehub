@@ -67,7 +67,8 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
       "console.log(JSON.stringify(globalThis.gmailPollCalls))",
     ].join("\n"), pathToFileURL(output).href])
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual([
-      { path: "profile" }, { path: "history", cursor: "300" }, { path: "history", cursor: "305" },
+      // A custom client can change mailboxes, so each poll reads the mailbox address. The first read also starts the cursor.
+      { path: "profile" }, { path: "profile" }, { path: "history", cursor: "300" }, { path: "profile" }, { path: "history", cursor: "305" },
     ])
   }
   finally {

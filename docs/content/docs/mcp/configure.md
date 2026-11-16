@@ -75,7 +75,7 @@ An icon `src` or a `websiteUrl` that starts with `/` is a path on the origin of 
 
 ## Sign in with MCP OAuth
 
-The MCP server needs an access token, so set `auth` in `vitehub()`. Without `auth`, the build fails with `VITE_HUB_R0141`. Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`. Then add `mcpOAuth()` to the Auth, with the URL of the server as its resource:
+The MCP server needs an access token, so set `auth` in `vitehub()`. Without `auth`, the build fails with `VITE_HUB_MCP_AUTH_MISSING`. Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`. Then add `mcpOAuth()` to the Auth, with the URL of the server as its resource:
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'

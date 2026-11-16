@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { Redis } from "ioredis"
 import { normalizeKey } from "unstorage"
 
@@ -39,8 +40,7 @@ const mgetBatchSize = 1000
  */
 export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
-  // Internal invariant: resolveRedisStore() always supplies a non-empty prefix to keep clear() inside this store.
-  if (!base) throw new TypeError("A Redis KV store needs a non-empty `base`.")
+  invariant(base, "resolveRedisStore() gives a Redis KV store a non-empty `base`, which keeps clear() inside the store")
   // `maxRetriesPerRequest` fails a command after a few reconnect attempts, so a lost server returns an error.
   // `lazyConnect` opens the connection on the first command.
   const client = new Redis(resolveRedisUrl(options.url), { lazyConnect: true, maxRetriesPerRequest: 3 })
