@@ -1,0 +1,9 @@
+/* The Console's stylesheet (packages/vite-hub/src/console/runtime/client/styles.css): Tailwind, Nuxt UI, the kit
+   Tailwind bridge, and the ViteHub theme. */
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../../kit/src/styles/tailwind.css";
+@import "../../../theme.css";
+@import "./page.css";
+/* The classes of `vitehubTheme`, which theme.css reads from its built copy. */
+@source "../../../src/theme.ts";

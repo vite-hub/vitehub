@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
+import { isGitHubDependencyConflictError } from "../github/index.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { invariant } from "@vite-hub/internal/invariant";
 import * as v from "valibot";
@@ -12,7 +13,7 @@ import { join, resolve } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, gitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubWorkspaceInstallError, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, githubWorkspaceInstallError, isGitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -1289,7 +1290,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await writeFile(join(gitDirectory, "vitehub-install.json"), JSON.stringify(record));
       const { output, ...timing } = record;
       schedulerEvent("babysitter.install.finished", { ...owner, ...timing });
-      if (!record.ok) throw gitHubWorkspaceInstallError(new Error(output));
+      if (!record.ok) throw githubWorkspaceInstallError(new Error(output));
       return;
     }
     await installGitHubPullRequestWorkspace(cwd, signal, async prepared => {
@@ -2334,7 +2335,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     catch (error) {
                       if (abortSignal.aborted || !isGitHubWorkspaceInstallError(error)) throw error;
                       // Dependency conflicts must be resolved before the explicit refresh tool can install.
-                      const conflict = isRuntimeRecord(error.cause) && error.cause.code === "PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED";
+                      const conflict = isGitHubDependencyConflictError(error.cause);
                       if (conflict && !preparedMergeBase) throw error;
                       // Busy installer slots are a host wait, not a failed install. The PR waits
                       // for capacity instead of spending a pass without dependencies.

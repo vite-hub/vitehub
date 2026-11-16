@@ -2,7 +2,6 @@
   "rawErrors": {
     "packages/internal/src/console-signature.ts": 1,
     "packages/internal/src/operation-rpc.ts": 1,
-    "packages/internal/src/runtime/mcp-server.ts": 1,
     "packages/internal/src/runtime/sqlite-wasm.ts": 1
   },
   "codesWithoutFix": [],

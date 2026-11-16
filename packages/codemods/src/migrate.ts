@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
-import { basename, join, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { intersects, validRange } from "semver"
 
@@ -48,13 +48,51 @@ const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", 
 /** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
 
+/**
+ * Reads the version of a package in a pnpm catalog, such as `catalog:` or `catalog:frameworks`, from the nearest
+ * pnpm-workspace.yaml. Reads the block form that pnpm writes, as `catalog:` and `catalogs:` keys at the root.
+ */
+async function readPnpmCatalogVersion(cwd: string, name: string, catalog: string): Promise<string | undefined> {
+  let directory = cwd
+  while (!existsSync(join(directory, "pnpm-workspace.yaml"))) {
+    if (dirname(directory) === directory) return
+    directory = dirname(directory)
+  }
+  const code = await readFile(join(directory, "pnpm-workspace.yaml"), "utf8")
+  let section: string | undefined
+  let current: string | undefined
+  let catalogIndent: number | undefined
+  for (const line of code.split(/\r?\n/)) {
+    const entry = /^( *)(["']?)([^"'#:]+?)\2[ \t]*:(?:[ \t]+(.*))?$/.exec(line)
+    if (!entry) continue
+    const [, indent = "", , key = ""] = entry
+    const value = entry[4]?.replace(/(?:^|[ \t]+)#.*$/, "").trim().replace(/^(["'])(.*)\1$/, "$2")
+    if (!indent) {
+      section = key
+      current = section === "catalog" ? "default" : undefined
+      catalogIndent = undefined
+      continue
+    }
+    if (section === "catalogs" && (catalogIndent === undefined || indent.length <= catalogIndent)) {
+      catalogIndent = indent.length
+      current = key
+      continue
+    }
+    if (current === catalog && key === name && value) return value
+  }
+}
+
 async function projectWarnings(cwd: string): Promise<string[]> {
   const nuxt = (await readDependencies(cwd)).get("nuxt")
   if (!nuxt) return []
+  const catalog = /^catalog:(.*)$/.exec(nuxt)?.[1]
+  const version = catalog === undefined ? nuxt : await readPnpmCatalogVersion(cwd, "nuxt", catalog.trim() || "default")
+  if (!version) return []
   const options = { includePrerelease: true }
-  const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/, ""), options)
+  const range = validRange(version.replace(/^npm:nuxt(?:-nightly)?@/, ""), options)
   if (range && !intersects(range, ">=5.0.0-0", options)) {
-    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 also stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`]
+    const source = version === nuxt ? "" : `, which pnpm-workspace.yaml sets to "${version}"`
+    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}"${source}. The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 also stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`]
   }
   return []
 }

@@ -36,7 +36,7 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, openConsoleProject, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
+import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
 import { consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
@@ -77,7 +77,7 @@ if (account) {
       ? [view("signIn", () => import("../components/console-account-sign-in.vue")), import("./account").then(module => module.loadConsoleSignInMethods(), () => undefined)]
       : [];
   const [address] = await Promise.all([
-    startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, showPath: (path) => {
+    startConsoleAccount({ boot, home: consoleBase, navigate: (url) => window.location.assign(url), pageOrigin: window.location.origin, pathname: window.location.pathname, search: window.location.search, hash: window.location.hash, showPath: (path) => {
       if (window.location.pathname !== path) window.history.pushState(null, "", path);
     } }),
     ...views,
@@ -85,7 +85,9 @@ if (account) {
   const projects = useConsoleProjects();
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
   // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
-  if (projects.gate.value.kind === "opening") {
+  // A `/_vitehub` link returns to the app as soon as it answers.
+  if (projects.gate.value.kind === "site") void openConsoleSite();
+  else if (projects.gate.value.kind === "opening") {
     const opening = openConsoleProject().catch(() => undefined);
     // While the app answers, the code of its first frame loads: the team menu and the app switcher of the rail, and the
     // Overview on the home path. The timer lets the request to the app go out first.
