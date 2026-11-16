@@ -21,8 +21,13 @@ export interface RateLimitPolicy {
   window: RateLimitWindow
 }
 
-export interface RequireRateLimitOptions extends RateLimitPolicy {
+export interface CheckRateLimitOptions extends RateLimitPolicy {
   key?: string
+}
+
+export interface RequireRateLimitOptions extends CheckRateLimitOptions {
+  /** The message of the `429` error when the limit is reached. Default: `Rate limit exceeded.` */
+  message?: string
 }
 
 /** A Web `Request`. The guard reads only its headers. */

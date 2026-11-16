@@ -13,10 +13,13 @@ import { getRuntimeRateLimiter, resolveRateLimitProvider } from "./runtime/state
 import type { Result, ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { Diagnostic } from "nostics"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
-import type { CheckRateLimitErrorCode, RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequest, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
+import type { CheckRateLimitErrorCode, CheckRateLimitOptions, RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequest, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
-const guardOptionKeys = new Set([...rateLimitPolicyKeys, "key"])
+const guardOptionKeys = {
+  checkRateLimit: new Set([...rateLimitPolicyKeys, "key"]),
+  requireRateLimit: new Set([...rateLimitPolicyKeys, "key", "message"]),
+}
 
 function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBinding {
   return Boolean(value) && typeof value === "object" && typeof (value as CloudflareRateLimitBinding).limit === "function"
@@ -99,15 +102,15 @@ function getCloudflareRateLimiter(scope: RateLimitRequestScope, name: string, po
 async function consumeRateLimit(
   event: RateLimitRequestEvent,
   name: string,
-  options: RequireRateLimitOptions,
-  guard: "checkRateLimit" | "requireRateLimit",
+  options: CheckRateLimitOptions,
+  guard: keyof typeof guardOptionKeys,
 ): Promise<Result<RateLimitDecision, CheckRateLimitErrorCode>> {
   const id = typeof name === "string" ? name.trim() : ""
   if (!id) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0010({ message: `\`${guard}()\` requires a non-empty stable ID.` })
   }
   const unknownKey = options && typeof options === "object" && !Array.isArray(options)
-    ? Object.keys(options).find(key => !guardOptionKeys.has(key))
+    ? Object.keys(options).find(key => !guardOptionKeys[guard].has(key))
     : undefined
   if (unknownKey) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0011({ message: `\`${guard}()\` does not support the "${unknownKey}" option.` })
@@ -138,13 +141,14 @@ async function consumeRateLimit(
  * missing Cloudflare binding. Shares counters, discovery, and Provider Output with `requireRateLimit()`. Invalid
  * options throw.
  */
-export async function checkRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<Result<RateLimitDecision, CheckRateLimitErrorCode>> {
+export async function checkRateLimit(event: RateLimitRequestEvent, name: string, options: CheckRateLimitOptions): Promise<Result<RateLimitDecision, CheckRateLimitErrorCode>> {
   return await consumeRateLimit(event, name, options, "checkRateLimit")
 }
 
 /**
  * Consumes one request from a managed Rate Limit inside a handler. Returns when the request is allowed. Otherwise
- * it throws an HTTP error: `429` with `Retry-After` when the limit is reached, `503` when the limiter is unavailable.
+ * it throws an HTTP error: `429` with `Retry-After` when the limit is reached, with `options.message` when set, and
+ * `503` when the limiter is unavailable.
  * It also throws the errors that `checkRateLimit()` returns.
  */
 export async function requireRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<void> {
@@ -165,7 +169,7 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
     headers: decision.retryAfter === undefined
       ? undefined
       : { "Retry-After": String(decision.retryAfter) },
-    message: "Rate limit exceeded.",
+    message: options.message ?? "Rate limit exceeded.",
     status: 429,
     statusText: "Too Many Requests",
   })
