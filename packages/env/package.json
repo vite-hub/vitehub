@@ -104,6 +104,7 @@
   "dependencies": {
     "@env-spec/parser": "0.6.2",
     "@vite-hub/runtime": "workspace:*",
+    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
