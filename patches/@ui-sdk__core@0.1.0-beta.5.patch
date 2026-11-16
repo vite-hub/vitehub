@@ -1,5 +1,5 @@
 diff --git a/dist/components/calendar/calendar-api.js b/dist/components/calendar/calendar-api.js
-index 074dfeaa7fb6f10fbdd49da8ef9016b20f9256f6..3701b2b474fcf28f1971765f1b18bc6891c362d3 100644
+index 8273f5b7e26e1b74d4006a18d41664fd82cc38ab..00e9fbb0523878e6368b8a456edee65aebc121cb 100644
 --- a/dist/components/calendar/calendar-api.js
 +++ b/dist/components/calendar/calendar-api.js
 @@ -169,7 +169,7 @@ function buildSelectState(state, kind, locale) {
@@ -88,7 +88,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0e
            }
          }
 diff --git a/dist/foundation/focus/tabbable.js b/dist/foundation/focus/tabbable.js
-index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..79846d5c872cb76b64ac4d69aabe213e4bd14793 100644
+index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..7a4b45a68d42e7d930fd108f02fa15179d94ef39 100644
 --- a/dist/foundation/focus/tabbable.js
 +++ b/dist/foundation/focus/tabbable.js
 @@ -46,6 +46,33 @@ function radioGroup(el) {
@@ -125,7 +125,7 @@ index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..79846d5c872cb76b64ac4d69aabe213e
  function positiveTabStops(stops, root) {
    const slotted = (el) => {
      for (let node = el; node && node !== root; node = node.parentElement) {
-@@ -139,6 +159,7 @@ function bindTabStop(el, wanted, {
+@@ -139,6 +166,7 @@ function bindTabStop(el, wanted, {
  }
  export {
    bindTabStop,
@@ -169,7 +169,7 @@ index 04989ee69eb32ff5a52ca4ec4bc5c2e86ef1f136..b47a9de1f3039053139a3ff166179c0f
          value: state.multiple ? keys.join(",") : keys[0] ?? "",
          form: state.form,
 diff --git a/dist/foundation/lists/listbox-value.js b/dist/foundation/lists/listbox-value.js
-index 20f450d4d216b744ccc4fb15fd4f661e91593292..95a6190a21eb64c187da7b71a45ebda0acafdbfb 100644
+index a77a2130326a1cbb673396b349184a0db52f17e2..88a2a290454a6b7602a4faf0c047b388b812f1d2 100644
 --- a/dist/foundation/lists/listbox-value.js
 +++ b/dist/foundation/lists/listbox-value.js
 @@ -6,16 +6,18 @@ import { sameValue } from "../kernel/store.js";
@@ -262,10 +262,10 @@ index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..11a1cfaf387ef71a20aa99c2df5a5e8c
      const atStart = !first || active === first || active === popup;
      const atEnd = !last || active === last;
 diff --git a/dist/page/agent/agent.js b/dist/page/agent/agent.js
-index 1ecff8c76929cef63cb8ddc214734c8ece3a06db..7c501889a6b585c89282b07cc3e0f2888aa7d788 100644
+index 15cd1ecd8f74866006ce6e54999ddd1f00b6bd25..9f9d7109a47fa0887d0660f11e5d7fdeaaf54655 100644
 --- a/dist/page/agent/agent.js
 +++ b/dist/page/agent/agent.js
-@@ -747,7 +747,7 @@ function createAgent(options = {}) {
+@@ -776,7 +776,7 @@ function createAgent(options = {}) {
        clearTimeout(timer);
      }
    }
@@ -274,7 +274,7 @@ index 1ecff8c76929cef63cb8ddc214734c8ece3a06db..7c501889a6b585c89282b07cc3e0f288
      if (typeof ref !== "string" || !ref.trim()) {
        throw new Error(
          "A step needs a ref: a component's ref from snapshot, or its label."
-@@ -757,6 +757,11 @@ function createAgent(options = {}) {
+@@ -786,6 +786,11 @@ function createAgent(options = {}) {
        throw new Error(`A step on "${ref}" needs an action, like "press".`);
      }
      const { entry, instance, parts } = await reveal(ref, action);
@@ -286,7 +286,7 @@ index 1ecff8c76929cef63cb8ddc214734c8ece3a06db..7c501889a6b585c89282b07cc3e0f288
      const { actions, disabled } = describe(entry, instance, parts);
      const asked = /* @__PURE__ */ new Set();
      const ask = async (stepArgs, targets2, what) => {
-@@ -1071,6 +1076,7 @@ function createAgent(options = {}) {
+@@ -1106,6 +1111,7 @@ function createAgent(options = {}) {
            step.ref,
            step.action,
            step.args ?? [],
