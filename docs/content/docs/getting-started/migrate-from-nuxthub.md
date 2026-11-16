@@ -49,10 +49,11 @@ pnpm add vite-hub
 
 Add the package of each feature that you use. For Database, also keep or add
 `drizzle-orm` as a direct dependency because your schema imports it.
-`@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or newer, and
-`drizzle-kit` 1.0.0-rc.5 or newer for the migration commands. With an older
-version, the package manager installs a second copy, and the query types stop
-matching.
+`@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, and `drizzle-kit`
+1.0.0-rc.5 or 1.x for the migration commands. With an older version, the
+package manager installs a second copy, and the query types stop matching. Do
+not use `^1.0.0-rc.5`: it also allows Drizzle snapshot builds such as
+`1.0.0-rc.5-ab785fc`, which sort above the release.
 
 ```bash [Terminal]
 pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
@@ -762,7 +763,7 @@ export default defineNuxtConfig({
 
 | Host | What changes |
 | --- | --- |
-| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
+| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --host cloudflare` to resolve the D1 database ID. |
 | Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
 | Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
 

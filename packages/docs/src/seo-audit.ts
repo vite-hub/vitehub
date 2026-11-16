@@ -1,15 +1,23 @@
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml"
 
 /**
- * The search checks that every prerendered page must pass. The limits are those of common site audits, such as OpenSEO:
- * a title of 10 to 60 characters, a description of 70 to 160, one `h1`, headings that go down one level at a time, and
- * at least 150 words of text.
+ * The search checks that every prerendered page must pass. The limits are those of common site audits, such as OpenSEO
+ * and Ahrefs: a title of 10 to 60 characters, a description of 70 to 160, one `h1`, headings that go down one level at
+ * a time, at least 150 words of text, and at most 2 MB (2,000,000 bytes) of HTML, because Googlebot reads only the first
+ * 2 MB of a page.
  */
 export const docsSeoLimits = {
   title: { min: 10, max: 60 },
   description: { min: 70, max: 160 },
   words: 150,
+  bytes: 2_000_000,
 }
+
+/**
+ * The Open Graph tags that a share preview needs. Without one, site audits call the tags incomplete. A page without a
+ * share image says so with `twitter:card` set to `summary`, and a site without `site.url` has no URL to give.
+ */
+export const docsOpenGraphTags = ["og:title", "og:type", "og:image", "og:url"] as const
 
 /** What the check reads from the HTML of one prerendered page. */
 export interface DocsSeoPage {
@@ -22,6 +30,12 @@ export interface DocsSeoPage {
   noindex: boolean
   /** A `<meta http-equiv="refresh">` page, which Nitro writes for a redirect. */
   redirect: boolean
+  /** The size of the HTML in bytes. */
+  bytes: number
+  /** The tags of {@link docsOpenGraphTags} that the head does not set. */
+  openGraphMissing: string[]
+  /** The `twitter:card` value, such as `summary` for a page without a share image. */
+  twitterCard: string | null
   h1: number
   /** The first heading that skips a level, such as `h1 → h3`. */
   headingSkip: string | null
@@ -43,6 +57,12 @@ export function readDocsSeoPage(path: string, html: string, origin: string): Doc
   const body = (html.match(/<body\b[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html).replace(hiddenElements, " ")
   const meta = (name: string) => attribute(head.match(new RegExp(`<meta\\b[^>]*\\b(?:name|http-equiv)=["']${name}["'][^>]*>`, "i"))?.[0], "content")
   const canonical = attribute(head.match(/<link\b[^>]*\brel=["']canonical["'][^>]*>/i)?.[0], "href")
+  // Open Graph tags with a value, in any attribute order.
+  const openGraph = new Set<string>()
+  for (const [tag] of head.matchAll(/<meta\b[^>]*>/gi)) {
+    const property = attribute(tag, "property")
+    if (property && attribute(tag, "content")?.trim()) openGraph.add(property.toLowerCase())
+  }
   const levels: number[] = []
   walkSync(parse(body), (node, parent) => {
     if (node.type !== ELEMENT_NODE || !/^h[1-6]$/i.test(node.name)) return
@@ -66,6 +86,9 @@ export function readDocsSeoPage(path: string, html: string, origin: string): Doc
     canonical: canonical === undefined ? null : appPath(canonical, path, origin) ?? canonical,
     noindex: /\bnoindex\b/i.test(meta("robots") ?? ""),
     redirect: meta("refresh") !== undefined,
+    bytes: new TextEncoder().encode(html).byteLength,
+    openGraphMissing: docsOpenGraphTags.filter(tag => !openGraph.has(tag)),
+    twitterCard: meta("twitter:card")?.trim() || null,
     h1: levels.filter(level => level === 1).length,
     headingSkip: skip > 0 ? `h${levels[skip - 1]} → h${levels[skip]}` : null,
     words: text.split(/\s+/).filter(Boolean).length,
@@ -78,15 +101,47 @@ export function docsSitemapPaths(xml: string, origin: string): string[] {
   return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map(match => appPath(decode(match[1]!), "/", origin) ?? match[1]!)
 }
 
+/** What else {@link docsSeoProblems} must know about the site. */
+export interface DocsSeoOptions {
+  /**
+   * App paths that are server endpoints, not pages, such as `/mcp`. A browser or a crawler that follows a link to one
+   * gets an error status, so pages must show these URLs as code instead of linking to them.
+   */
+  endpoints?: readonly string[]
+  /** Whether the site has `site.url`. Without it, pages have no canonical URL and no `og:url` to check. */
+  siteUrl?: boolean
+}
+
 /**
  * The problems of a site: each page in the sitemap must be a prerendered page and not a redirect, and each page that
  * search engines index needs its own title and description within the limits, one `h1`, headings in order, enough
- * text, and a link from another page. A page that is a copy, through `noindex` or a canonical link to another page,
- * is left out. Each problem is one sentence that names the fix.
+ * text, complete Open Graph tags, and a link from another page. A page that is a copy, through `noindex` or a canonical
+ * link to another page, is left out of those checks. Every page must stay below the size limit and must not link to a
+ * redirect or to an endpoint. Each problem is one sentence that names the fix.
  */
-export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly string[]): string[] {
+export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly string[], options: DocsSeoOptions = {}): string[] {
   const problems: string[] = []
   const byPath = new Map(pages.map(page => [page.path, page]))
+  const megabytes = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`
+  for (const page of pages) {
+    if (page.bytes > docsSeoLimits.bytes) problems.push(`${page.path} has ${megabytes(page.bytes)} of HTML, and Googlebot reads only the first ${megabytes(docsSeoLimits.bytes)}. Split the page, or show long lists with a component that renders less markup than a Markdown table.`)
+  }
+  // One problem for each target, so a link in a footer is one line and not one per page.
+  const redirects = new Set(pages.filter(page => page.redirect).map(page => page.path))
+  const endpoints = new Set(options.endpoints)
+  const linkedFrom = new Map<string, string[]>()
+  for (const page of pages) {
+    if (page.redirect) continue
+    for (const link of page.links) {
+      if (redirects.has(link) || endpoints.has(link)) linkedFrom.set(link, [...linkedFrom.get(link) ?? [], page.path])
+    }
+  }
+  for (const [link, from] of linkedFrom) {
+    const where = from.length > 3 ? `${from.slice(0, 3).join(", ")} and ${from.length - 3} more pages` : from.join(", ")
+    problems.push(redirects.has(link)
+      ? `${where} link to ${link}, which redirects. Link to the page that it redirects to.`
+      : `${where} link to ${link}, an endpoint that answers a browser with an error. Write the URL as code, or link to the page that explains it.`)
+  }
   for (const path of sitemap) {
     const page = byPath.get(path)
     if (!page) problems.push(`${path} is in the sitemap, but the build did not prerender it as a page. Remove it from the sitemap, or make it a page.`)
@@ -104,6 +159,8 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
     if (page.h1 !== 1) problems.push(`${at} has ${page.h1} h1 headings. Give it one.`)
     if (page.headingSkip) problems.push(`${at} skips a heading level, ${page.headingSkip}. Go down one level at a time.`)
     if (page.words < words) problems.push(`${at} has ${page.words} words. Write at least ${words}, or merge it into another page.`)
+    const missing = page.openGraphMissing.filter(tag => !(tag === "og:image" && page.twitterCard === "summary") && !(tag === "og:url" && options.siteUrl === false))
+    if (missing.length) problems.push(`${at} has no ${missing.join(", ")} tag, so share previews and site audits call its Open Graph tags incomplete. Pages from \`useDocsSeo()\` set them; an app page that writes its own head needs them too.`)
   }
   for (const [field, label] of [["title", "title"], ["description", "description"]] as const) {
     const groups = new Map<string, string[]>()

@@ -3,7 +3,7 @@ import * as fs from "node:fs"
 import * as fsPromises from "node:fs/promises"
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -83,7 +83,9 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "retained", "sources")
     const retainedHandler = join(retainedSourcesDir, "cleanup.schedule.ts")
     await mkdir(retainedSourcesDir, { recursive: true })
-    const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => '${value}' })`
+    // The handler names its published file, so publication copies that file into the Netlify output.
+    const publishedHandler = join(rootDir, ".vitehub", "schedule", "sources", "cleanup.schedule.ts")
+    const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => ['${value}', ${JSON.stringify(publishedHandler)}] })`
     await writeFile(retainedHandler, source("previous"))
     const options = {
       clientOutDir: "dist/client",
@@ -660,11 +662,20 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
     const retainedHandler = join(retainedSourcesDir, "src", "cleanup.schedule.ts")
     await mkdir(dirname(retainedHandler), { recursive: true })
-    await writeFile(retainedHandler, [
-      "import { defineSchedule } from '@vite-hub/schedule'",
-      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'retained' })",
-      "",
-    ].join("\n"), "utf8")
+    const workspaceDir = join(retainedSourcesDir, "src", "workspace")
+    await mkdir(workspaceDir, { recursive: true })
+    await Promise.all([
+      writeFile(retainedHandler, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        `const workspace = ${JSON.stringify(join(rootDir, ".vitehub", "schedule", "sources", "src", "workspace"))}`,
+        "export default defineSchedule({ cron: '0 1 * * *', handler: () => workspace })",
+        "",
+      ].join("\n"), "utf8"),
+      writeFile(join(workspaceDir, "notes.md"), "deployed\n"),
+      writeFile(join(workspaceDir, ".env"), "WORKSPACE_SECRET=fake-test-value\n"),
+      writeFile(join(retainedSourcesDir, ".env.local"), "APP_SECRET=fake-test-value\n"),
+      writeFile(join(retainedSourcesDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n"),
+    ])
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -674,13 +685,19 @@ describe("schedule provider output", () => {
       sourceRootDir: retainedSourcesDir,
     })
 
-    const deployedSource = join(".vitehub", "schedule", "sources", "src", "cleanup.schedule.ts")
     const vercelFunctionDir = join(rootDir, ".vercel/output/functions/api/vitehub/schedules/vercel/cleanup.func")
     const netlifyRoot = createDefaultNetlifyOutputRoot(rootDir)
     const netlifyFunction = join(netlifyRoot, "functions/vitehub-schedule-cleanup.mjs")
-    expect(existsSync(join(createDefaultCloudflareOutputRoot(rootDir), deployedSource))).toBe(true)
-    expect(existsSync(join(vercelFunctionDir, deployedSource))).toBe(true)
-    expect(existsSync(join(netlifyRoot, "schedule/sources/src/cleanup.schedule.ts"))).toBe(true)
+    const deployedSourcesDirs = [
+      join(createDefaultCloudflareOutputRoot(rootDir), ".vitehub", "schedule", "sources"),
+      join(vercelFunctionDir, ".vitehub", "schedule", "sources"),
+      join(netlifyRoot, "schedule", "sources"),
+    ]
+    for (const sourcesDir of deployedSourcesDirs) {
+      const deployed = (await readdir(sourcesDir, { recursive: true })).map(path => path.split(sep).join("/")).sort()
+      expect(deployed, sourcesDir).toContain("src/workspace/notes.md")
+      expect(deployed.filter(path => path.includes(".env") || path.endsWith("pnpm-lock.yaml")), sourcesDir).toEqual([])
+    }
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain('includedFiles: ["../schedule/sources/**"]')
   })
 

@@ -173,6 +173,26 @@ describe("vitehub database up", () => {
     await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ stdout: expect.stringContaining("no pending migrations.") })
   }, 120_000)
 
+  it("records the unique indexes of 0.x .unique() columns as constraints, so generate keeps the tables", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-unique"), migrationsDir, { recursive: true })
+    // Drizzle Kit 0.x made `members_email_unique` for `.unique()`. `members_slug_idx` stays an index in the schema.
+    await writeFile(join(project.rootDir, "schema.ts"), [
+      "import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'",
+      "export const members = sqliteTable('members', { id: integer('id').primaryKey(), email: text('email').notNull().unique(), slug: text('slug').notNull() }, table => [uniqueIndex('members_slug_idx').on(table.slug)])",
+      "",
+    ].join("\n"))
+
+    const converted = await project.run("up")
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(migrationsDir)
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    // Without the conversion, Drizzle Kit writes a migration that rebuilds `members` with `email` UNIQUE.
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": the snapshots record 1 unique index of `.unique()` columns as UNIQUE constraints")
+  }, 120_000)
+
   it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
     const project = await createProject()
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })
@@ -622,7 +642,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
       expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
       await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
-        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"],
+        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"], ["0004_cli_auth.sql"],
       ])
       const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
       expect(columns).toContain("key_sealed")
@@ -632,7 +652,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
       const staged = join(project.rootDir, "staged")
       await copyD1MigrationFiles(migrationsDir, staged)
-      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql"])
+      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql", "0004_cli_auth.sql"])
       await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
     }
     finally {

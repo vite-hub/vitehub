@@ -9,6 +9,8 @@ const props = defineProps<{
   entry: ServerEnvDescriptionEntry;
   /** The result of the last status check, when the page ran one. */
   status?: { label: string; tone: "error" | "neutral" | "success" | "warning" };
+  /** The host variable name that supplied the value, from the last status check. */
+  suppliedBy?: string;
 }>();
 const properties = computed(() => [
   {
@@ -20,6 +22,8 @@ const properties = computed(() => [
           ? "Application config"
           : props.entry.provider || "External provider",
   },
+  ...(props.entry.names?.length ? [{ label: "Names", mono: true, value: props.entry.names.join("\n") }] : []),
+  ...(props.suppliedBy ? [{ label: "Supplied by", mono: true, value: props.suppliedBy }] : []),
   ...(props.entry.type ? [{ label: "Type", mono: true, value: props.entry.type }] : []),
   { label: "Visibility", value: props.entry.secret ? "Secret" : "Server only" },
   { label: "Required", value: props.entry.required ? "Yes" : "No" },

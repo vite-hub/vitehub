@@ -32,7 +32,7 @@ describe("ask.each keys", () => {
 
     // SAFETY: A JavaScript callback can return a value outside the declared string contract.
     expect(() => ask.each([key], { key: item => item as string, question }))
-      .toThrow(new TypeError("ask.each keys must be non-empty strings"))
+      .toThrow(expect.objectContaining({ code: "GATEWAYS_ASK_EACH_KEY_INVALID", message: "ask.each keys must be non-empty strings" }))
     expect(question).not.toHaveBeenCalled()
   })
 
@@ -45,7 +45,7 @@ describe("ask.each keys", () => {
     for (const key of [new Proxy({}, { get }), revoked.proxy]) {
       // SAFETY: These object keys test calls from JavaScript outside the string contract.
       expect(() => ask.each([key], { key: item => item as string, question }))
-        .toThrow(new TypeError("ask.each keys must be non-empty strings"))
+        .toThrow(expect.objectContaining({ code: "GATEWAYS_ASK_EACH_KEY_INVALID", message: "ask.each keys must be non-empty strings" }))
     }
     expect(get).not.toHaveBeenCalled()
     expect(question).not.toHaveBeenCalled()

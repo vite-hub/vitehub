@@ -201,7 +201,7 @@ describe("docs in an existing app", () => {
     writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
     const options = await setupDocs(mapped ? { sources: [app.dir] } : { dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
     const docsCss = templates.get("docs/docs.css")!
-    expect(docsCss()).toContain('@import "tailwindcss";')
+    expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
     options.alias["~"] = app.srcDir
     options.css.push("~/main.css")
     expect(docsCss()).not.toContain("tailwindcss")
@@ -221,8 +221,10 @@ describe("docs in an existing app", () => {
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, docsCss())
 
-    expect(docsCss()).toContain('@import "tailwindcss";')
-    expect(docsCss()).toContain('@import "@nuxt/ui";')
+    // Absolute files, so they resolve from a template outside the app and in an app that lists neither package.
+    expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
+    expect(docsCss()).toMatch(/@import "\/.+\/@nuxt\/ui\/dist\/runtime\/index\.css";/)
+    for (const [, file] of docsCss().matchAll(/@import "([^"]+(?:tailwindcss|@nuxt\/ui)[^"]+)";/g)) expect(existsSync(file!)).toBe(true)
   })
 
   it("lets docs pages link to the app's own pages, which the build does not prerender", async () => {
@@ -743,7 +745,9 @@ describe("docs search checks", () => {
       route: `/${name}`,
       contents: `<html><head><title>Docs ${name} overview</title>
         <meta name="description" content="Read the ${name} overview for practical steps to build, configure, and publish your documentation site.">
-        <link rel="canonical" href="http://docs.invalid${appBase}${name}"></head>
+        <link rel="canonical" href="http://docs.invalid${appBase}${name}">
+        <meta property="og:title" content="Docs ${name} overview"><meta property="og:type" content="article">
+        <meta property="og:image" content="http://docs.invalid/og.png"><meta property="og:url" content="http://docs.invalid${appBase}${name}"></head>
         <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
         <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
     }))
