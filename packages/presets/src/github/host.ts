@@ -10,7 +10,7 @@ import { promisify } from "node:util"
 
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -195,7 +195,7 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
         const { id: appId, login } = await client.app().catch((error: unknown) => {
           const status = forgeErrorStatus(error)
           if (status !== undefined) throw new Error(`GitHub App request /app failed with ${status}.`, { cause: error })
-          if (error instanceof ForgeResponseError) throw new Error(error.message, { cause: error })
+          if (isForgeResponseError(error)) throw new Error(error instanceof Error ? error.message : String(error), { cause: error })
           throw error
         })
         const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
@@ -335,7 +335,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
           const status = forgeErrorStatus(error)
           if (status !== undefined) throw new Error(`GitHub App token request failed with ${status}.`, { cause: error })
-          if (error instanceof ForgeResponseError) throw new Error("GitHub App token response did not include a token.", { cause: error })
+          if (isForgeResponseError(error)) throw new Error("GitHub App token response did not include a token.", { cause: error })
           throw error
         }
       }

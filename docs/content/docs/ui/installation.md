@@ -278,6 +278,8 @@ The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-m
 
 `--radius` is Nuxt UI's smallest step (`rounded-sm`), as in `@vite-hub/kit`. It is not the card radius of shadcn/ui. Nuxt UI multiplies it: buttons get 1.5 times, cards 2 times, and menus 3 times.
 
+Do not load `@vite-hub/kit/styles/default.css` in an app with Nuxt UI. That style family is ui-sdk's `web.css`, which is only for apps without Nuxt UI. It styles plain `a`, `kbd`, and `button`, shares 8 `data-slot` names with Nuxt UI, and sets Nuxt UI's own `--ui-border`, `--ui-primary`, and `--ui-radius`, with `--ui-radius` as the whole radius. Loaded together, the two restyle each other.
+
 The other Nuxt UI steps have no shadcn/ui name, so you set them on the token itself, in both blocks: `--ui-text`, `--ui-text-toned`, `--ui-text-dimmed`, `--ui-bg-muted`, `--ui-bg-accented`, `--ui-border-muted`, and `--ui-border-accented`. The status colors, such as `--ui-error`, come from the `colors` of the Nuxt UI app config. The theme does not set other shadcn/ui names, such as `--card` or `--input`, because no token reads them.
 
 ## Server rendering

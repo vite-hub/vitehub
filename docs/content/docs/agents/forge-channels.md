@@ -113,13 +113,13 @@ To set up a webhook by hand, point it at the generated Agent Channel route. Use 
 | GitLab | Comments, Merge request events |
 | Forgejo or Codeberg | Pull Request, Pull Request Comment, Review |
 
-GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_R0946`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
+GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_FORGE_WEBHOOK_SECRET_MISSING`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
 
 ## Limits
 
 - No `pullRequest.workspace` checkout, artifacts, or `authorAssociation` filters. Add a Workspace through the Agent's other Capabilities if needed.
 - `webhookSecret: false` is not supported.
-- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_R0946`.
+- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_FORGE_REVIEW_UNSUPPORTED`.
 - Forgejo has native reviews, but these Channels cannot reach its CI runs, jobs, or check reruns.
 - Metadata reads are limited. Change the limits with `maxBodyLength`, `maxCommentBodyLength`, `maxComments`, and `maxFiles` on `pullRequest`. The context reports omitted items and missing metadata.
 - After a restart, activity lookup scans the newest 500 comments.
