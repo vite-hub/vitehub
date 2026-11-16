@@ -125,6 +125,7 @@ import {
   bindAgentChannelDeliveryMessage,
   bindAgentChannelDeliveryPayload,
   detachAgentChannelDelivery,
+  isUntrackedChannelWebhook,
   openAgentChannelDelivery,
   readAgentChannelDeliveries,
   resumeAgentChannelDelivery,
@@ -132,6 +133,7 @@ import {
   resumeAgentChannelDeliveryPayload,
   setAgentChannelDeliveryWorkflowOwnershipResolver,
   setAgentChannelDeliveryWorkflowResolver,
+  untrackedAgentChannelDelivery,
   withAgentChannelDelivery,
 } from "../internal/channel-delivery.ts"
 
@@ -9732,13 +9734,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
-          const delivery = await openAgentChannelDelivery(deliveryState.state, {
+          const input = {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: registration.provider,
             scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
-          })
+          }
+          if (isUntrackedChannelWebhook(registration)) return untrackedAgentChannelDelivery(input)
+          const delivery = await openAgentChannelDelivery(deliveryState.state, input)
           if (messageIdentity) {
             await bindAgentChannelDeliveryMessage(
               deliveryState.state,
