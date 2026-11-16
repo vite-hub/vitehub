@@ -142,10 +142,39 @@ describe("ViteHub CLI config loading", () => {
     expect(loadNuxt).toHaveBeenCalledWith({
       cwd: root,
       dev: true,
+      envName: "development",
       overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
       ready: true,
     })
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["serve", "node"],
+    ["build", "cloudflare"],
+  ] as const)("resolves Nuxt's $development overrides like the dev server for %s", async (command, host) => {
+    // `nuxt dev` sets NODE_ENV, and Nuxt reads `$development` from it. A CLI command runs without it. If it loaded the
+    // production host, its plugins would rewrite the files that the running dev server imports.
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), "export default { vitehub: { host: 'cloudflare' }, $development: { vitehub: { host: 'node' } } }\n", "utf8")
+    const previous = process.env.NODE_ENV
+    delete process.env.NODE_ENV
+    try {
+      const { loadNuxtConfig } = await import("nuxt/kit")
+      let vitehub: unknown
+      const loadNuxt = vi.fn(async (options: Parameters<typeof loadNuxtConfig>[0]) => {
+        const config = await loadNuxtConfig(options)
+        vitehub = Reflect.get(config, "vitehub")
+        return { options: { rootDir: root, vite: {} } }
+      })
+      const resolveViteConfig = vi.fn(async () => ({ plugins: [], root }))
+      await loadViteHubCliConfig(root, command, undefined, { loadNuxt, resolveViteConfig })
+      expect(vitehub).toEqual({ host })
+    }
+    finally {
+      if (previous === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = previous
+    }
   })
 
   it.each([

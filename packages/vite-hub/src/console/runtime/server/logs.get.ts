@@ -2,7 +2,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot";
 import { getLogSource } from "../../../logs/host.ts";
 import {
-  LogCursorExpiredError,
+  isLogCursorExpiredError,
   logPageSchema,
   logSourceInfoSchema,
   parseLogQuery,
@@ -52,7 +52,7 @@ export async function consoleLogsHandler(
       throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE({ limit: "bytes" });
     return { source: v.parse(logSourceInfoSchema, source.info), page };
   } catch (error) {
-    if (error instanceof LogCursorExpiredError) throw consoleHttpError(409, error);
+    if (isLogCursorExpiredError(error)) throw consoleHttpError(409, error as Error);
     throw consoleHttpError(502, isLogsDiagnostic(error) ? error : new Error("Could not read the log source."));
   }
 }
