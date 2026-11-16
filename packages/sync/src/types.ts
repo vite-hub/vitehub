@@ -179,7 +179,10 @@ export type SyncSubsetOf<TName extends string> = TName extends keyof ViteHubSync
  * extra properties only on an object literal, so a getter, a ref, or a variable would otherwise pass a column that the
  * server refuses with `SYNC_BAD_REQUEST`.
  */
-export type SyncExactWhere<TWhere, TAllowed> = [Exclude<keyof TWhere, keyof TAllowed>] extends [never] ? unknown : { where: never }
+export type SyncExactWhere<TWhere, TAllowed> = [Exclude<SyncKeysOf<TWhere>, keyof TAllowed>] extends [never] ? unknown : { where: never }
+
+/** The keys of every member of `T`. `keyof` of a union keeps only the keys that all members share. */
+type SyncKeysOf<T> = T extends unknown ? keyof T : never
 
 /** A Sync name of the app, or any string when the map is empty. */
 export type SyncName = keyof ViteHubSyncMap extends never ? string : Extract<keyof ViteHubSyncMap, string>

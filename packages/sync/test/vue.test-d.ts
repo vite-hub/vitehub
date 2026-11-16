@@ -1,5 +1,5 @@
 import { expectTypeOf, test } from "vitest"
-import { ref } from "vue"
+import { computed, ref } from "vue"
 
 import { createSync } from "../src/client.ts"
 import { useSync } from "../src/vue.ts"
@@ -69,6 +69,17 @@ test("a `where` from a getter, a ref, or a variable takes no column outside `sub
   useSync("comments", { where: subset })
   createSync("comments", { where: subset })
   useSync("comments", { where: () => (Math.random() > 0.5 ? { todoId: "t1" } : undefined) })
+  const either = {} as { todoId: string } | { todoId: string, body: string }
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  createSync("comments", { where: either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: () => either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: ref(either) })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: computed(() => either) })
 })
 
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {
