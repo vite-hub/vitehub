@@ -210,13 +210,20 @@ describe("vitehub deploy checks Server Env", () => {
     expect(JSON.stringify(result.json)).not.toContain(value)
     expect((await hosts.state()).secrets.VITEHUB_SECRET).toBe(value)
 
-    // A VITEHUB_SECRET on the host stays as it is.
+    // An existing Cloudflare secret needs a local stage value to avoid unsafe inheritance.
     const kept = await fakeHosts(hostEnv.cloudflare)
     await seed(kept.env, { secrets: { VITEHUB_SECRET: "x" } })
     const second = await deploy([], root, kept.env)
-    expect(second.json.env).toMatchObject({ pushed: [] })
-    expect(second.json.env.generated).toBeUndefined()
-    expect((await kept.calls())[1]!.secretsFile).toBeUndefined()
+    expect(second.exitCode).toBe(2)
+    expect(second.json.error?.code).toBe("SETUP_DEPLOY_ENV_STAGE_UNSAFE")
+    expect((await kept.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+
+    const supplied = await deploy([], root, { ...kept.env, VITEHUB_SECRET: value })
+    expect(supplied.exitCode, supplied.stderr).toBe(0)
+    expect(supplied.json.env).toMatchObject({ pushed: ["VITEHUB_SECRET"] })
+    expect(supplied.json.env.generated).toBeUndefined()
+    expect((await kept.state()).secrets.VITEHUB_SECRET).toBe(value)
+    expectNoLeak(await kept.calls(), supplied.stdout + supplied.stderr, [value])
   })
 
   it("on a first deploy reads no host names: Cloudflare needs every required value locally, other hosts need a link", async () => {
