@@ -38,7 +38,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 ```css [assets/css/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
-@import "@vite-hub/ui/styles.css";
+@import "vite-hub/ui/styles.css";
 ```
 
 `vite-hub/nuxt` imports the components for you. You do not need to register a Vue plugin.

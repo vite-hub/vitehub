@@ -30,6 +30,7 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - ui-sdk
       - service-tests
       - prepublish-contracts
       - consumer-contracts
@@ -313,6 +314,53 @@ jobs:
     permissions: {}
     steps:
       - run: echo 'All package test shards passed'
+
+  # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
+  # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
+  # by step) and the style check (every part under the kit's style family). They run here on every push, and on a pull
+  # request that changes the installed ui-sdk (its version or a patch), the kit's styles, or the checks themselves.
+  ui-sdk:
+    name: ui-sdk parity and styles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the checks
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/parity|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
+            || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -E '^[-+].*@ui-sdk/' > /dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch ui-sdk, the kit styles or the browser checks."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check the ui-sdk versions and patches
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: node .github/scripts/check-ui-sdk.mjs ${BASE_REF:+"$BASE_REF"}
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/ui test:parity
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/kit test:styles
 
   # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
   # need a real Postgres and Redis. test/service-tests.mjs finds these files by

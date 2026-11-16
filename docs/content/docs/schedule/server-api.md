@@ -133,7 +133,7 @@ The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it y
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
-import { createSqlLeaseStore } from '@vite-hub/runtime'
+import { createSqlLeaseStore } from 'vite-hub/runtime'
 import { createKVScheduleRunStore } from 'vite-hub/schedule/runtime'
 import { scheduleKVStorage } from 'vite-hub/schedule/runtime/kv'
 import { installProcessScheduleRuntime } from 'vite-hub/schedule/runtime/process'

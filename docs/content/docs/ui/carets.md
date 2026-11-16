@@ -6,14 +6,14 @@ navigation.group: Collaboration
 icon: i-lucide-text-cursor
 ---
 
-Carets show where other people type in a collaborative editor. TipTap's [CollaborationCaret](https://tiptap.dev/docs/editor/extensions/functionality/collaboration-caret) and Realtime's `RealtimeCaret` render the same markup without styles. `@vite-hub/ui/styles.css` styles it: a thin line in the person's color, with their name above it.
+Carets show where other people type in a collaborative editor. TipTap's [CollaborationCaret](https://tiptap.dev/docs/editor/extensions/functionality/collaboration-caret) and Realtime's `RealtimeCaret` render the same markup without styles. `vite-hub/ui/styles.css` styles it: a thin line in the person's color, with their name above it.
 
 ::example{name="CaretsExample" height=8}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows and load `@vite-hub/ui/styles.css`. There is no component. The styles apply to the editor's caret markup.
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows and load `vite-hub/ui/styles.css`. There is no component. The styles apply to the editor's caret markup.
 
 ## Usage
 
