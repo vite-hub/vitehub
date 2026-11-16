@@ -18,6 +18,7 @@ it.each([
     await writeFile(join(root, ".env.production"), `DOLLAR=$\nAPI_KEY=${reference}\n`)
     const values = await readLocalEnvValues(root, root, "production", { LINK: "${DOLLAR}TOKEN" })
     expect(values.get("API_KEY")).toEqual({
+      encrypted: false,
       value: "canary",
       source: ".env.production",
       files: expect.arrayContaining([join(root, ".env"), join(root, ".env.production")]),
