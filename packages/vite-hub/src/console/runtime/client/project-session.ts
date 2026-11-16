@@ -458,8 +458,11 @@ export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<
   // device keeps their answers for the next visit. It does not wait for IndexedDB to delete the old ones.
   void setDeviceAccount(account?.user.id ?? null)
   // The first answer started before the page named this account, so the device did not keep it. The next visit opens
-  // from the account only when the device has it.
-  if (account && account.user.id !== kept) void readStored(consoleAccountKey, loadConsoleAccount).answer.catch(() => undefined)
+  // from the account only when the device has it. The read waits until the page is idle, so it does not slow this visit.
+  if (account && account.user.id !== kept) {
+    const idle = globalThis.requestIdleCallback ?? ((callback: () => void) => setTimeout(callback, 200))
+    idle(() => void readStored(consoleAccountKey, loadConsoleAccount).answer.catch(() => undefined))
+  }
   return startAccountState(account, options)
 }
 
