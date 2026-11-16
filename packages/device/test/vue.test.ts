@@ -695,6 +695,22 @@ describe("the read that says who is signed in, and the reads it holds", () => {
     expect(refreshed).toBe(true)
   })
 
+  it("does not show a session answer whose call a loader that the naming started replaced", async () => {
+    await visitBoth()
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    const shown = mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    mount(() => page.useStoredData("projects", async () => {
+      void shown.read.refresh()
+      return ["p2"]
+    }))
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    expect(session.calls).toHaveLength(2)
+    expect(shown.read.status.value).toBe("pending")
+  })
+
   it("stops starting held reads when a loader that starts calls the session read again", async () => {
     await visitBoth()
     const page = await openPage()

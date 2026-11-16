@@ -76,7 +76,12 @@ let watching = false
 let claiming: { read: SharedRead, epoch: number } | undefined
 /** The reads with `account` whose loader runs. */
 const identifying = new Set<SharedRead>()
-/** The reads that show a stored copy and wait for the naming before they call their loader. */
+/**
+ * The reads that show a stored copy and wait for the naming before they call their loader. A held read always starts
+ * its loader, at the naming or when the last running read with `account` ends or goes. The hold only saves the call that
+ * the naming would start over: it never decides what is stored. It applies to reads that start after the session read,
+ * and not to reads that wait for the mount during hydration.
+ */
 const held = new Set<SharedRead>()
 
 /**
@@ -183,6 +188,8 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
       if (claimed) break
       if (controller.signal.aborted || device.epoch() !== since || !device.loading()) return
     }
+    // A loader that the naming started can call this read again, and then the newer call shows its answer.
+    if (controller.signal.aborted) return
     publish(read, value)
   }
   catch (error) {
