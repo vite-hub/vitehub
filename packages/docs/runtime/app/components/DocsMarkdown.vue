@@ -35,22 +35,19 @@ const callouts: Record<string, Component> = {
 
 const contentBlocks = Object.fromEntries(Object.entries(contentComponents).flatMap(([tag, load]) => load ? [[tag, defineAsyncComponent(async () => (await load()).default)]] : []))
 const componentKey = (tag: string) => capitalize(camelize(tag))
-const resolved = computed(() => {
-  const components: Record<string, Component> = {}
-  for (const map of [blocks, callouts, contentBlocks, customComponents, props.components ?? {}]) {
-    // Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
-    for (const [tag, component] of Object.entries(map)) components[componentKey(tag)] = component
-  }
-  return components
-})
+// Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
+const byKey = (maps: Record<string, Component>[]) => Object.fromEntries(maps.flatMap(map => Object.entries(map).map(([tag, component]) => [componentKey(tag), component])))
+const overrides = computed(() => byKey([contentBlocks, customComponents, props.components ?? {}]))
+const resolved = computed(() => ({ ...byKey([blocks, callouts]), ...overrides.value }))
 
-// HTML is the fallback. An app component still receives the original tag, props, and source children.
+// HTML is the fallback. An app component still receives the original tag, props, and source children. comark-ui's own
+// component doesn't: the parser drew the block as HTML because that component can't, as with a chart's marks.
 function renderNodes(nodes: ComarkNode[]): ComarkNode[] {
   return nodes.map((node): ComarkNode => {
     if (typeof node === "string" || node[0] === null) return node
     const [tag, attributes, ...children] = node
     const { block, blockProps } = attributes
-    if (tag === "comark-html" && typeof block === "string" && resolved.value[componentKey(block)]) {
+    if (tag === "comark-html" && typeof block === "string" && overrides.value[componentKey(block)]) {
       return [block, (blockProps ?? {}) as ElementNode[1], ...renderNodes(children)]
     }
     return [tag, attributes, ...renderNodes(children)]
