@@ -46,11 +46,33 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or from `
 
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
-| `@vite-hub/ui`            | Styled components, composables, and display and Pierre diff helpers. |
-| `@vite-hub/ui/headless`   | Message scroller and Choices input parts, without styles or Nuxt UI. |
-| `@vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
-| `@vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
-| `@vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
-| `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
-| `@vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |
-| `@vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and Nuxt UI. |
+| `vite-hub/ui`             | Styled components, composables, and display and Pierre diff helpers. |
+| `vite-hub/ui/headless`   | Message scroller and Choices input parts, without styles or Nuxt UI. |
+| `vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
+| `vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
+| `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
+| `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
+| `vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |
+| `vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and Nuxt UI. |
+
+Each `vite-hub/ui/*` path re-exports the same path of `@vite-hub/ui`.
+
+## Use without ViteHub
+
+The components also work in a Vue app without `vite-hub`. Install `@vite-hub/ui` and import every path from it, such as `@vite-hub/ui/vite` and `@vite-hub/ui/styles.css`:
+
+```bash pm [commands/install-alone]
+pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+```
+
+```vue [alone/src/components/Example.vue]
+<script setup lang="ts">
+import { Markdown } from "@vite-hub/ui";
+</script>
+
+<template>
+  <Markdown value="**ViteHub UI is ready.**" />
+</template>
+```
+
+In Nuxt, the components get their runtime from `vite-hub/nuxt`, so a Nuxt app installs `vite-hub`.

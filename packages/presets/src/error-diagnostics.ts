@@ -420,10 +420,6 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.",
       fix: "Call refreshDependencies, read .git/vitehub-install.json for the install result, and run validation again before you commit.",
     },
-    PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED: {
-      why: ({ path }: { path: string }) => `Resolve dependency conflicts in ${path} and call refreshDependencies before validation.`,
-      fix: "Remove the merge conflict markers from the dependency file that the message names, then call refreshDependencies again.",
-    },
     PRESETS_DEPENDENCY_GIT_HOST_LOCAL: {
       why: "Host-local Git dependencies are not allowed.",
       fix: "Replace the git: or git+file: dependency in the pull request with a registry version or an https:// tarball URL.",
@@ -504,9 +500,17 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub authentication is not configured. Set VITEHUB_GITHUB_TOKEN or GitHub App credentials.",
       fix: "Set VITEHUB_GITHUB_TOKEN, or return a token or GitHub App credentials from the credentials() option of createGitHubHost(). A repository outside the App owner needs the token.",
     },
+    PRESETS_GITHUB_DEPENDENCY_CONFLICT: {
+      why: ({ file }: { file: string }) => `Resolve dependency conflicts in ${file} and call refreshDependencies before validation.`,
+      fix: "Remove the merge conflict markers from the dependency file that the message names, then call `refreshDependencies` again.",
+    },
     PRESETS_GITHUB_HOST_APP_OWNER_MISSING: {
       why: "GitHub App owner must be configured with App credentials.",
       fix: "Return owner, the repository owner of the installation, with appId, installationId, and privateKey from the credentials() option of createGitHubHost().",
+    },
+    PRESETS_GITHUB_INSTALL_FAILED: {
+      why: ({ detail }: { detail: string }) => `Frozen dependency installation failed: ${detail}`,
+      fix: "Read error.cause for the package manager output. Fix the lockfile or package.json of the pull request when `kind` is `input`. A retry helps when `retryable` is true, such as for installer capacity or the network.",
     },
     PRESETS_GITHUB_REPOSITORY_INVALID: {
       why: "Expected a GitHub repository in owner/name form.",
@@ -591,10 +595,6 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_PUSH_TARGET_INVALID: {
       why: "Push target must be the root of its prepared Git checkout.",
       fix: "Pass the root directory of the prepared checkout or workspace to push(), not a subdirectory.",
-    },
-    PRESETS_WORKSPACE_INSTALL_FAILED: {
-      why: ({ message }: { message: string }) => `Frozen dependency installation failed: ${message}`,
-      fix: "Read error.cause for the install step that failed and fix the dependency files that it names. The Babysitter retries a retryable failure on a later pass.",
     },
     PRESETS_YARN_LOCKFILE_INVALID: {
       why: "Invalid Yarn lockfile stanza; dependency fields must be structured.",
