@@ -2890,6 +2890,12 @@ importers:
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
+      postcss:
+        specifier: ^8.5.29
+        version: 8.5.32
+      postcss-selector-parser:
+        specifier: ^7.1.6
+        version: 7.1.6
       publint:
         specifier: catalog:tooling
         version: 0.3.25
