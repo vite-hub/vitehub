@@ -185,6 +185,7 @@ const permissions: Record<Exclude<AuthConsoleAction, "revokeConsent">, Record<st
   impersonate: { user: ["impersonate"] },
 };
 
+// Internal invariant: caught in this module and returned as an Auth Console result with its status.
 class AuthConsoleError extends Error {
   constructor(
     public readonly status: number,

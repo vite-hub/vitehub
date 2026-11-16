@@ -1,5 +1,5 @@
 // `createError()` returns an H3 `HTTPError`, the one error that H3 answers with its own status.
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import type { HTTPError } from "h3"
 
