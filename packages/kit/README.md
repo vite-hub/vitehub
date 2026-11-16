@@ -178,7 +178,7 @@ The parts have no styles until you load a style family. A family is CSS that sty
 - The `:where()` prefix adds no specificity, so the rules win over each other as they do in `default.css`. `@keyframes`, `@property`, and `@font-face` stay global.
 - **The scope root takes the rules of `:root` and `html`**: the `--ui-*` variables and the page base (background, text color, and font). The page base is outside a layer, so a utility class such as `bg-muted` on the root itself loses to it. Put that class on a child or a wrapper.
 - **Dark mode** applies under `.dark` or `[data-theme="dark"]` on `<html>`, on the scope root, or on an element inside it. The scope root takes the page's `color-scheme`.
-- **Tokens** stay global: `tokens.css` sets its shadcn/ui names on `:root`. `@vite-hub/ui/theme.css` sets the same names with the same values (see [One token set](#styles)), so an app that loads theme.css for Nuxt UI does not need `tokens.css` too.
+- **Tokens** stay global: `tokens.css` sets its shadcn/ui names on `:root`. `@vite-hub/ui/theme.css` supplies the tokens read by the scoped family with the same values (see [One token set](#styles)), so an app that loads theme.css for Nuxt UI does not need `tokens.css` too.
 - **Popups** render in place, in the top layer, so a dialog, menu, or tooltip stays inside its root. A popup's `container` must be inside a scope root. Mount `OverlayHost` and a `ToastRegion` in a scope root of their own, such as `<div class="ui-sdk"><OverlayHost /></div>` near the app root. `NumberInputScrubAreaCursor` always renders in `<body>`, outside every root, so give its icon its own size.
 
 ## CSS-only parts
