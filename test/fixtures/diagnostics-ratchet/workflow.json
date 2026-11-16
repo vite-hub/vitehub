@@ -1,10 +1,10 @@
 {
   "rawErrors": {
-    "packages/workflow/src/errors.ts": 1,
-    "packages/workflow/src/runtime/openworkflow.ts": 1,
-    "packages/workflow/src/runtime/operations.ts": 1,
-    "packages/workflow/src/vite.ts": 1
+    "packages/workflow/src/errors.ts": 1
   },
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/workflow/src/runtime/openworkflow.ts": 1,
+    "packages/workflow/src/vite.ts": 1
+  }
 }
