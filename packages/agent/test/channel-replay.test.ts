@@ -469,7 +469,7 @@ describe("replayChannel()", () => {
 
     await expect(replayChannel(agent, "mailbox", { query: { folder: "spam" } })).rejects.toMatchObject({ code: "AGENT_R0935" })
     await expect(replayChannel(agent, "mailbox", { cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "AGENT_R0936" })
-    await expect(replayChannel(agent, "unknown")).rejects.toMatchObject({ code: "AGENT_R0931" })
+    await expect(replayChannel(agent, "unknown")).rejects.toMatchObject({ code: "AGENT_CHANNEL_NOT_FOUND" })
     await expect(replayChannel(agent, "mailbox", { limit: 0 })).rejects.toMatchObject({ code: "AGENT_R0934" })
     expect(run).not.toHaveBeenCalled()
   })
@@ -577,7 +577,7 @@ describe("channelAdapter({ history })", () => {
     })
 
     await expect(replayChannel(agent, "raw", { dryRun: true })).rejects.toMatchObject({
-      code: "AGENT_R0930",
+      code: "AGENT_CHANNEL_HISTORY_TRIGGER_UNKNOWN",
       message: expect.stringContaining('Channel "raw" history trigger must name one of the Channel triggers: first.'),
     })
   })

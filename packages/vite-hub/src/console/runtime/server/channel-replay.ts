@@ -62,6 +62,6 @@ export async function replayConsoleChannel(
   const message = Reflect.get(Object(body), "message")
   const code = Reflect.get(Object(body), "code")
   const error = consoleRequestError(response.status, typeof message === "string" ? message : "Channel replay failed.")
-  // Agent failures keep their code, such as AGENT_R0931 for a Channel without history.
+  // Agent failures keep their code, such as AGENT_CHANNEL_HISTORY_MISSING for a Channel without history.
   throw typeof code === "string" ? Object.assign(error, { consoleCode: code }) : error
 }

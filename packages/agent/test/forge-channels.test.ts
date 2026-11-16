@@ -166,7 +166,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     vi.stubEnv(`${kind.toUpperCase()}_WEBHOOK_SECRET`, "")
     vi.stubEnv(`VITEHUB_${kind.toUpperCase()}_WEBHOOK_SECRET`, "")
     const { send } = await harness(kind, { webhookSecret: undefined })
-    await expect(send(await request(kind, payload(kind)))).rejects.toMatchObject({ code: "AGENT_R0946", message: expect.stringContaining(`${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET`) })
+    await expect(send(await request(kind, payload(kind)))).rejects.toMatchObject({ code: "AGENT_FORGE_WEBHOOK_SECRET_MISSING", message: expect.stringContaining(`${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET`) })
   })
 
   it.each(kinds)("does not run %s issue comments or unmatched mentions", async kind => {
@@ -466,7 +466,7 @@ describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => 
     fixture.calls.splice(0)
     await effects.review(context({ body: "Please look", event: "COMMENT" }))
     expect(fixture.calls.filter(call => call.method === "POST").map(call => call.url)).toEqual([`${api.gitlab}${notes("gitlab")}`])
-    await expect(effects.review(context({ body: "Fix it", event: "REQUEST_CHANGES" }))).rejects.toMatchObject({ code: "AGENT_R0946" })
+    await expect(effects.review(context({ body: "Fix it", event: "REQUEST_CHANGES" }))).rejects.toMatchObject({ code: "AGENT_FORGE_REVIEW_UNSUPPORTED" })
   })
 
   it("keeps the GitHub default when reading existing pull request context", () => {

@@ -68,6 +68,8 @@ interface SharedRead {
   answered: boolean
   users: number
   controller: AbortController | undefined
+  /** The loader of each user of the read, by user. A user that goes takes its loader with it. */
+  loaders: Map<object, Loader>
   /** The loader of the last call, which a reset of the device or the naming of the account calls again. */
   loader: Loader
   fallback: () => unknown
@@ -231,10 +233,11 @@ function publish(read: SharedRead, value: unknown): void {
 }
 
 /** Returns the shared read of `key`. A new read calls its loader at once, unless `start` is `false`: then it stays `idle`. */
-function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, start = true): SharedRead {
+function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, owner: object, start = true): SharedRead {
   const existing = reads.get(key)
   if (existing) {
     existing.users++
+    existing.loaders.set(owner, loader)
     return existing
   }
   const read: SharedRead = {
@@ -246,6 +249,7 @@ function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: n
     answered: false,
     users: 1,
     controller: undefined,
+    loaders: new Map([[owner, loader]]),
     loader,
     fallback,
     maxAge,
@@ -259,10 +263,19 @@ function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: n
   return read
 }
 
-/** When the last component of a read goes, its loader call stops, so a late answer cannot replace a newer one. */
-function release(read: SharedRead, device: Device): void {
+/**
+ * When a user of a read goes, such as a component that unmounts or moves to another key, its loader goes too: a reset
+ * calls the loader of a user that still reads this key, not one that now reads another key. When the last user goes,
+ * the loader call stops, so a late answer cannot replace a newer one.
+ */
+function release(read: SharedRead, device: Device, owner: object): void {
   read.users--
-  if (read.users) return
+  const gone = read.loaders.get(owner)
+  read.loaders.delete(owner)
+  if (read.users) {
+    if (read.loader === gone) read.loader = [...read.loaders.values()].at(-1) ?? read.loader
+    return
+  }
   read.controller?.abort()
   held.delete(read)
   read.heldUntil?.resolve()
@@ -377,7 +390,9 @@ function useRead<TData, TDefault>(
   watchDevice(device)
   // Before `openDevice()`, the first render must match a server render: the default, and `idle`.
   const deferred = !device.opened() && getCurrentInstance() !== null
-  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, !deferred))
+  // The user of the reads of this call, so the loader of this call leaves a read when the call leaves it.
+  const owner = {}
+  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, owner, !deferred))
   if (deferred) {
     onMounted(() => {
       if (current.value.status.value === "idle") void load(current.value, loader, device)
@@ -386,11 +401,11 @@ function useRead<TData, TDefault>(
   if (typeof key !== "string") {
     watch(() => toValue(key), (next) => {
       const previous = current.value
-      current.value = acquire(checkKey(next), loader, fallback, maxAge, account, device)
-      release(previous, device)
+      current.value = acquire(checkKey(next), loader, fallback, maxAge, account, device, owner)
+      release(previous, device, owner)
     })
   }
-  if (getCurrentScope()) onScopeDispose(() => release(current.value, device))
+  if (getCurrentScope()) onScopeDispose(() => release(current.value, device, owner))
   return {
     // SAFETY: the shared read of a key holds the default, a stored copy, or an answer of the loader of that key.
     data: computed({ get: () => current.value.data.value as TData | TDefault, set: (value) => { current.value.data.value = value } }),

@@ -392,6 +392,25 @@ describe("useStoredData", () => {
     expect(browser.disk.entry("project:p1")?.json).toBe("\"Docs v2\"")
   })
 
+  it("reloads a shared key with the loader of a component that still reads it, after another one moved to another key", async () => {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const stays = mount(() => page.useStoredData("project:p1", async () => "p1 of the component that stays"))
+    const id = ref("p1")
+    // The loader of this component reads `id`, so after the move it loads p2.
+    const moves = mount(() => page.useStoredData(() => `project:${id.value}`, async () => `${id.value} of the component that moves`))
+    await tick()
+    await moves.read.refresh()
+    id.value = "p2"
+    await tick()
+    await page.clearDevice()
+    await tick()
+    await tick()
+    expect(stays.root.textContent).toBe("\"p1 of the component that stays\" success")
+    expect(browser.disk.entry("project:p1")?.json).toBe("\"p1 of the component that stays\"")
+  })
+
   it("throws for an empty key and a negative maxAge", async () => {
     const page = await openPage()
     expect(() => page.useStoredData("", async () => 1)).toThrow(expect.objectContaining({ code: "DEVICE_INVALID_KEY" }))
