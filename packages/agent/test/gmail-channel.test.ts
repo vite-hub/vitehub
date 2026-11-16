@@ -1344,7 +1344,7 @@ describe("gmail() Channel", () => {
     } finally { release(); await sync.catch(() => undefined); vi.useRealTimers() }
   })
 
-  it.each(["matches", "foreign", "failure"] as const)("acknowledges a cold %s mailbox before its profile lookup finishes", async result => {
+  it.each(["matches", "foreign", "failure"] as const)("checks a cold %s mailbox before it answers", async result => {
     stubGmailEnv()
     const google = await createGoogle()
     let release!: () => void
@@ -1361,36 +1361,133 @@ describe("gmail() Channel", () => {
     })
     const errors = vi.spyOn(console, "error").mockImplementation(() => {})
     const driver = vi.fn(() => "ok")
-    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: driver }, name: `ack-profile-${result}` })
+    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: driver }, name: `cold-profile-${result}` })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const tasks: Promise<unknown>[] = []
-    let response: Response | undefined
-    const request = new Request(audience, {
-      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: result === "foreign" ? "other@example.com" : "max@example.com", historyId: 100 })), messageId: "profile-push" }, subscription }),
+    const push = async (emailAddress: string, historyId: number) => await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress, historyId })), messageId: `profile-${historyId}` }, subscription }),
       headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
-    })
-    const delivery = handler(request, "gmail", { agentName: `ack-profile-${result}`, waitUntil: task => void tasks.push(task) }).then(value => { response = value; return value })
+    }), "gmail", { agentName: `cold-profile-${result}`, waitUntil: vi.fn() })
+    let response: Response | undefined
+    const delivery = push(result === "foreign" ? "other@example.com" : "max@example.com", 100).then(value => { response = value; return value })
     try {
-      await vi.waitFor(() => expect(response?.status).toBe(204))
-      expect(driver).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(vi.mocked(client)).toHaveBeenCalledOnce(), { timeout: 10_000 })
+      expect(response).toBeUndefined()
       release()
-      await delivery
-      await Promise.all(tasks)
+      expect((await delivery).status).toBe({ failure: 503, foreign: 400, matches: 204 }[result])
       expect(vi.mocked(client).mock.calls.map(([request]) => request.path)).toEqual(result === "matches" ? ["profile", "watch"] : ["profile"])
+      if (result === "failure") expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
       if (result !== "matches") {
-        expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
+        // Pub/Sub sends a failed notification again. A rejected or failed one did not initialize a cursor.
         profileFailed = false
-        const retry = await handler(new Request(audience, {
-          body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: 200 })), messageId: "profile-retry" }, subscription }),
-          headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
-        }), "gmail", { agentName: `ack-profile-${result}`, waitUntil: task => void tasks.push(task) })
-        await Promise.all(tasks)
-        expect(retry.status).toBe(204)
-        // A failed/foreign lookup did not initialize a cursor: retry initializes
-        // from its own notification instead of requesting Gmail history.
+        expect((await push("max@example.com", 100)).status).toBe(204)
         expect(vi.mocked(client).mock.calls.map(([request]) => request.path)).toEqual(["profile", "profile", "watch"])
       }
-    } finally { release(); await delivery; await Promise.all(tasks); errors.mockRestore() }
+      expect(driver).not.toHaveBeenCalled()
+    } finally { release(); await delivery; errors.mockRestore() }
+  })
+
+  it("answers a push after its sync: 503 when it fails or another sync runs, 204 when a sync covers it", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    let historyFails = true
+    let holdHistory = false
+    let release!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const running = new Promise<void>(resolve => { entered = resolve })
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/history")) {
+        if (historyFails) return Response.json({ error: { code: 500, message: "Backend Error" } }, { status: 500 })
+        if (holdHistory) {
+          holdHistory = false
+          entered()
+          await gate
+        }
+      }
+      return await google.fetch(input, init)
+    }
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    const driver = vi.fn(() => "ok")
+    const agent = defineAgent({ channels: { gmail: gmail({ fetch }) }, driver: { run: driver }, name: "answer-after-sync" })
+    const handler = await createDurableGmailWebhookHandler(agent)
+    const push = async (historyId: number) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `answer-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+    }), "gmail", { agentName: "answer-after-sync", waitUntil: vi.fn() })).status
+    try {
+      expect(await push(100)).toBe(204)
+      google.history.set("100", { historyId: "105", ids: ["m1"] })
+      expect(await push(105)).toBe(503)
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('"event":"sync.failed"'))
+      expect(driver).not.toHaveBeenCalled()
+      // Pub/Sub sends the failed notification again. A push during that sync marks it pending and gets 503.
+      historyFails = false
+      holdHistory = true
+      const retry = push(105)
+      await running
+      expect(await push(106)).toBe(503)
+      release()
+      expect(await retry).toBe(204)
+      expect(driver).toHaveBeenCalledOnce()
+      expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["100", "105"])
+      // The running sync read once more for it, so its next delivery is covered.
+      expect(await push(106)).toBe(204)
+    } finally { release(); errors.mockRestore() }
+  })
+
+  it("answers a covered push with a custom client without a Gmail or State request", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const broker = gmailClientFromSettings({ clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" }, google.fetch)
+    const gmailRequests: string[] = []
+    const client: GmailClient = async (request) => {
+      gmailRequests.push(request.path)
+      return await broker(request)
+    }
+    const { requests, state } = countingCloudflareState()
+    const agent = defineAgent({ channels: { gmail: gmail({ client, fetch: google.fetch }) }, driver: { run: () => "ok" }, name: "covered-broker" })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const push = async (historyId: number) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "Max@example.com", historyId })), messageId: `covered-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+    }), "gmail", { agentName: "covered-broker", waitUntil: vi.fn(), webhookState: () => state })).status
+    expect(await push(100)).toBe(204)
+    google.history.set("100", { historyId: "105", ids: [] })
+    expect(await push(105)).toBe(204)
+    gmailRequests.length = 0
+    // Pub/Sub sends the notification again: the custom client could change mailboxes, but a covered push does no work.
+    expect(await requests(async () => expect(await push(105)).toBe(204))).toEqual([])
+    expect(gmailRequests).toEqual([])
+    // A newer notification still checks the mailbox before it syncs.
+    expect(await push(106)).toBe(204)
+    expect(gmailRequests).toEqual(["profile", "history"])
+  })
+
+  it("saves a checkpoint after the push time budget and continues on the next delivery", async () => {
+    stubGmailEnv()
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      const google = await createGoogle()
+      // Each Invocation takes 3 seconds of the 5 second push budget.
+      const driver = vi.fn(({ input }: { input: { prompt?: unknown } }) => {
+        vi.setSystemTime(Date.now() + 3_000)
+        return String(input.prompt)
+      })
+      const agent = defineAgent({ channels: { gmail: gmail({ fetch: google.fetch, prompt: message => message.id }) }, driver: { run: driver }, name: "push-budget" })
+      const handler = await createDurableGmailWebhookHandler(agent)
+      const push = async (historyId: number) => (await handler(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `budget-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+      }), "gmail", { agentName: "push-budget", waitUntil: vi.fn() })).status
+      expect(await push(100)).toBe(204)
+      google.history.set("100", { historyId: "105", ids: ["m1", "m2", "m3"] })
+      expect(await push(105)).toBe(503)
+      expect(driver.mock.calls.map(([{ input }]) => input.prompt)).toEqual(["m1", "m2"])
+      // Pub/Sub sends the same notification again, and the push continues from the checkpoint.
+      expect(await push(105)).toBe(204)
+      expect(driver.mock.calls.map(([{ input }]) => input.prompt)).toEqual(["m1", "m2", "m3"])
+    }
+    finally { vi.useRealTimers() }
   })
 
   it.each(["default", "injected"] as const)("refreshes OAuth credentials after client secret rotation with %s fetch", async transport => {
@@ -1472,11 +1569,10 @@ describe("gmail() Channel", () => {
       expect((await push("max@example.com", 100)).status).toBe(204)
       current = gmailClientFromSettings({ ...credentials, refreshToken: "rotated-token" }, second.fetch)
       second.history.set("110", { historyId: "115", ids: ["m1"] })
-      expect((await push(notification === "current" ? "other@example.com" : "max@example.com", 110)).status).toBe(204)
+      expect((await push(notification === "current" ? "other@example.com" : "max@example.com", 110)).status).toBe(notification === "current" ? 204 : 400)
       expect(second.calls.filter(call => call.path === "profile")).toHaveLength(1)
       if (notification === "stale") {
         expect(second.calls.map(call => call.path)).toEqual(["profile"])
-        expect(errors).toHaveBeenCalledWith(expect.stringContaining("Gmail notification belongs to another mailbox."))
         // The stale notification did not start a cursor for the current mailbox.
         expect((await push("other@example.com", 110)).status).toBe(204)
       }
@@ -1518,14 +1614,11 @@ describe("gmail() Channel", () => {
     const google = await createGoogle()
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const prompts: string[] = []
-    let releaseDriver!: () => void
-    const driverGate = new Promise<void>((resolve) => { releaseDriver = resolve })
 
     const agent = defineAgent({
       channels: { gmail: gmail({ fetch: google.fetch }) },
       driver: {
-        run: async ({ input }) => {
-          await driverGate
+        run: ({ input }) => {
           prompts.push(String(input.prompt))
           return "ok"
         },
@@ -1534,7 +1627,7 @@ describe("gmail() Channel", () => {
       name: "labeller",
     })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const push = async (historyId: string, options: { authorization?: string, subscription?: string, emailAddress?: string, onResponse?: () => void } = {}) => {
+    const push = async (historyId: string, options: { authorization?: string, subscription?: string, emailAddress?: string } = {}) => {
       const tasks: Promise<unknown>[] = []
       const response = await handler(new Request(audience, {
         body: JSON.stringify({
@@ -1544,7 +1637,6 @@ describe("gmail() Channel", () => {
         headers: { authorization: options.authorization ?? `Bearer ${await google.token()}`, "content-type": "application/json" },
         method: "POST",
       }), "gmail", { agentName: "labeller", waitUntil: task => void tasks.push(task) })
-      options.onResponse?.()
       await Promise.all(tasks)
       return response
     }
@@ -1553,7 +1645,7 @@ describe("gmail() Channel", () => {
     expect((await push("100", { authorization: "Bearer forged" })).status).toBe(401)
     expect((await push("100", { subscription: "projects/example/subscriptions/other" })).status).toBe(400)
 
-    expect((await push("999", { emailAddress: "other@example.com" })).status).toBe(204)
+    expect((await push("999", { emailAddress: "other@example.com" })).status).toBe(400)
     expect(google.calls.filter(call => call.path === "history")).toHaveLength(0)
 
     // The first notification starts the cursor. Earlier mail belongs to replay.
@@ -1563,7 +1655,7 @@ describe("gmail() Channel", () => {
     expect(google.calls.filter(call => call.path === "profile")).toHaveLength(1)
 
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
-    expect((await push("105", { onResponse: releaseDriver })).status).toBe(204)
+    expect((await push("105")).status).toBe(204)
     expect(prompts).toHaveLength(2)
     expect(prompts[0]).toContain("Subject: Invoice")
     expect(prompts[1]).toContain("Hello Receipt")
@@ -1862,19 +1954,14 @@ describe("gmail() Channel", () => {
       name: agentName,
     })
     const handler = await createDurableGmailWebhookHandler(agent)
-    const push = async (historyId: string) => {
-      const tasks: Promise<unknown>[] = []
-      const response = await handler(new Request(audience, {
-        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `paged-${historyId}` }, subscription }),
-        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
-        method: "POST",
-      }), "gmail", { agentName, waitUntil: task => void tasks.push(task) })
-      expect(response.status).toBe(204)
-      return tasks
-    }
-    await Promise.all(await push("105"))
+    const push = async (historyId: string) => (await handler(new Request(audience, {
+      body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `paged-${historyId}` }, subscription }),
+      headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
+      method: "POST",
+    }), "gmail", { agentName, waitUntil: vi.fn() })).status
+    expect(await push("105")).toBe(204)
     if (mode === "recovery") google.expiredHistory.add("105")
-    const tasks = await push("106")
+    const interruptedPush = push("106")
     try {
       expect(await Promise.race([firstDispatch.then(() => "dispatch"), nextPage.then(() => "pagination")])).toBe("dispatch")
       await nextPage
@@ -1883,14 +1970,15 @@ describe("gmail() Channel", () => {
     }
     finally {
       releaseNextPage()
-      await Promise.all(tasks)
     }
-    await Promise.all(await push("107"))
+    // The interrupted sync answers 503, so Pub/Sub sends the notification again.
+    expect(await interruptedPush).toBe(503)
+    expect(await push("107")).toBe(204)
     expect(prompts).toEqual(["m1", "m2"])
     expect(pages).toEqual([null, "page-2", "page-2"])
     expect(historyCursors).toEqual(mode === "history" ? ["105", "105", "105"] : ["105"])
     expect(google.calls.filter(call => call.path === "messages/m1" && call.query.get("format") === "full")).toHaveLength(1)
-    await Promise.all(await push("301"))
+    expect(await push("301")).toBe(204)
     expect(prompts).toEqual(["m1", "m2"])
     expect(historyCursors.at(-1)).toBe("300")
   })
@@ -1920,15 +2008,13 @@ describe("gmail() Channel", () => {
     const handler = createChannelWebhookRouteHandler(agent)
     const routeOptions = { agentName: "labeller", webhookState: () => state }
     installChannelsConsoleHost({ agents: { labeller: agent }, handlers: { labeller: handler }, options: () => routeOptions })
-    const push = async (historyId: string) => {
-      const tasks: Promise<unknown>[] = []
+    const push = async (historyId: string, status = 204) => {
       const response = await handler(new Request(audience, {
         body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `status-${historyId}` }, subscription }),
         headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
         method: "POST",
-      }), "gmail", { ...routeOptions, waitUntil: task => void tasks.push(task) })
-      expect(response.status).toBe(204)
-      await Promise.all(tasks)
+      }), "gmail", { ...routeOptions, waitUntil: vi.fn() })
+      expect(response.status).toBe(status)
     }
     const status = async () => await agentChannelOperations[4].run({ agent: "labeller", channel: "gmail" }, {
       access: { mode: "open", sections: "all" },
@@ -1940,7 +2026,7 @@ describe("gmail() Channel", () => {
     await push("100")
     google.history.set("100", { historyId: "105", ids: ["m1", "m2"] })
     if (mode === "poll") await expect(pollGmailChannel(inbox)).rejects.toThrow("HTTP 500")
-    else await push("105")
+    else await push("105", 503)
     await expect(status()).resolves.toMatchObject({ agent: "labeller", channel: "gmail", failures: 1, retrying: [{ attempts: 1, id: "m1" }], skipped: [] })
     if (mode === "poll") await pollGmailChannel(inbox)
     else await push("105")

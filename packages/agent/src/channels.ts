@@ -106,6 +106,7 @@ import {
   gmailMailboxHistoryId,
   gmailMailboxProfile,
   gmailSettings,
+  isGmailNotificationCovered,
   modifyGmailMessage,
   readGmailChannelStatus,
   normalizeGmailLabelSettings,
@@ -4418,6 +4419,12 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
   return labels
 }
 
+/**
+ * The time a push spends on its sync before it saves a checkpoint and answers 503, so Pub/Sub sends it again and the next
+ * push continues. It stays well below Pub/Sub's default 10 second ack deadline, after which Pub/Sub disconnects.
+ */
+const gmailPushSyncBudgetMs = 5_000
+
 // Enumerable, so copies of the Channel keep it.
 const gmailClientKey = Symbol("vitehub.gmail.client")
 
@@ -4510,14 +4517,20 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           if (cachedMailbox && notifiedMailbox !== cachedMailbox.trim().toLowerCase()) {
             return Response.json({ accepted: false, reason: "Gmail notification belongs to another mailbox." }, { status: 400 })
           }
-          // Acknowledge Pub/Sub first. The stored history cursor lets a later notification retry failed work.
-          context.waitUntil((async () => {
+          // A notification that a sync of this mailbox already covered needs no work, so it skips the profile read.
+          if (isGmailNotificationCovered(cursors, state, notifiedMailbox, push.historyId)) return new Response(null, { status: 204 })
+          // The sync runs before the answer. Pub/Sub sends a notification again, with backoff, until a sync covers it:
+          // after a failure, after the time budget, and while another sync holds the mailbox (it also reads once more).
+          try {
             const mailbox = (cachedMailbox ?? (await mailboxProfile(settings, client)).address).trim().toLowerCase()
-            if (notifiedMailbox !== mailbox) throw new Error("Gmail notification belongs to another mailbox.")
-            await syncGmailMailbox({
+            if (notifiedMailbox !== mailbox) {
+              return Response.json({ accepted: false, reason: "Gmail notification belongs to another mailbox." }, { status: 400 })
+            }
+            const result = await syncGmailMailbox({
               bodyLimit,
               client,
               cursors,
+              deadlineMs: gmailPushSyncBudgetMs,
               dispatch: dispatchReceived(context),
               mailbox,
               ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
@@ -4525,13 +4538,19 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
               state,
               ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
             })
-          })().catch((error: unknown) => {
+            if (!result.finished) {
+              return Response.json({ accepted: false, reason: "The Gmail sync continues when Pub/Sub sends the notification again." }, { status: 503 })
+            }
+          }
+          catch (error) {
             console.error(JSON.stringify({
               error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
               event: "sync.failed",
               scope: "vitehub.channel.gmail",
             }))
-          }))
+            // `channels status` shows the error. The answer does not, because it can contain mailbox data.
+            return Response.json({ accepted: false, reason: "The Gmail sync failed. Pub/Sub sends the notification again." }, { status: 503 })
+          }
           return new Response(null, { status: 204 })
         },
       }),

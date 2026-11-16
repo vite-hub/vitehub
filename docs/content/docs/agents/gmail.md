@@ -168,8 +168,13 @@ To only poll, stop here. For push, continue:
      --topic=gmail-push \
      --push-endpoint=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
      --push-auth-service-account=gmail-push-invoker@my-project.iam.gserviceaccount.com \
-     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail
+     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --ack-deadline=600 \
+     --min-retry-delay=10s \
+     --max-retry-delay=600s
    ```
+
+   The Channel reads new mail for about 5 seconds before it answers a push. It answers `503` when work remains or the sync failed, and Pub/Sub sends the notification again after the retry delay. This works with Pub/Sub's default 10 second ack deadline. The longer deadline gives one slow Invocation time to finish before Pub/Sub disconnects.
 
    For a project created before April 8, 2021, also give the Pub/Sub service agent the Service Account Token Creator role on the invoker service account.
 
@@ -342,16 +347,15 @@ To start Invocations as soon as mail arrives, do steps 5 and 6 of [Set up Google
 A poll runs steps 3 to 5 from a Schedule, without a notification.
 
 1. Pub/Sub sends a push with a Google-signed OIDC token. The Channel checks the signature with Google's public keys, the issuer, audience, expiry, verified service account email, and subscription name. A failed check returns `401` or `400`.
-2. It acknowledges with `204` and continues in the background. A notification whose history ID is not newer than the stored cursor stops here: the last sync already read that change.
+2. A notification whose history ID is not newer than the stored cursor gets `204` here: the last sync already read that change. Otherwise the Channel runs steps 3 to 5 before it answers. It answers `204` when the sync finished. It answers `503`, so Pub/Sub sends the notification again with backoff, when the sync failed, when work remains after about 5 seconds (the sync saves a checkpoint, and the next delivery continues), or when another sync is running (that sync also reads once more).
 3. It reads `history.list` from the stored cursor, checks each message's current labels with a metadata-only request, and fetches bodies of messages still in the Inbox. Older labels from the history do not exclude a message that went back to the Inbox before this check. If a dispatch failed, the message can still be retried after a hook removes it from the Inbox.
 4. It starts one Invocation per message through the `received` trigger, with run ID `channel:<channel>:<message id>`. It skips a message whose Invocation is terminal (finished) or whose Workflow dispatch is confirmed. An active claim stops two concurrent runs of one message. A claim for an unconfirmed pending Invocation stays retryable and holds the cursor until the message is [skipped](#failed-messages).
 5. When a page has new messages, it saves page tokens and remaining message IDs in the State Adapter, so the next push continues without refetching completed bodies. When every message has an Invocation or was [skipped](#failed-messages), it stores the new cursor, the sync health, and clears the progress in one write.
 
 ### Mailbox identity
 
-- With host `waitUntil`, an authenticated notification is acknowledged before Gmail API calls. Without it, the webhook finishes background work first.
-- The first notification checks the credentials' mailbox in background work, before cursor or message changes. Later ones reuse it while credentials stay the same. A custom `client` can rotate credentials, so with `client`, every notification checks.
-- A notification for another mailbox is discarded before any change, or rejected with HTTP 400 when the configured mailbox is cached.
+- The first notification reads the credentials' mailbox before cursor or message changes. Later ones reuse it while credentials stay the same. A custom `client` can rotate credentials, so with `client`, every notification checks.
+- A notification for another mailbox is rejected with HTTP 400 before any change.
 
 ### State requirements
 
@@ -373,7 +377,7 @@ A sync stops after 4 minutes. It saves its checkpoint and frees the mailbox, and
 
 A push or poll that finds no new mail sends 6 State requests, which are Durable Object requests on Cloudflare. A push that the stored cursor already covers sends none, or one in a new process. A sync with new mail adds one request for each page and one for each message. Repeated pushes skip completed messages, which needs an Invocation journal: configure `invocations` or enable the [Console](/docs/development/console). An inline run stays retryable until its terminal status is stored; if the process is lost, the retry starts when the claim expires.
 
-Background work runs in the host's `waitUntil`, which Cloudflare Workers stop 30 seconds after the response. For large bursts on Workers, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run.
+A push waits for the Invocations that its sync starts, and stops between messages after about 5 seconds. For large bursts, use a [Workflow runtime](/docs/agents/invocations) so each message starts a durable run and the push answers sooner. Keep the [poll](#poll-without-pubsub) as a safety net: it reads mail when Pub/Sub stops sending a notification again.
 
 Only the Inbox of one mailbox is watched. Mail that a Gmail filter moves past the Inbox starts no Invocation.
 
