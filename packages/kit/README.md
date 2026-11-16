@@ -139,7 +139,7 @@ The parts have no styles until you load a style family. A family is CSS that sty
 
 1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.5.patch`, which we send to ui-sdk.
 2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
-3. The rules for the kit's `TagsInput`, the text field focus, and the dialog close button, in web.css's `ui-sdk` cascade layer.
+3. The rules for the kit's `TagsInput`, the text field focus, the dialog close button, and the looks that the ui-sdk set of `@vite-hub/ui` asks for (see below), in web.css's `ui-sdk` cascade layer.
 
 **Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components (see [Installation](https://vitehub.dev/docs/ui/installation)), or the scoped family to move to ui-sdk part by part (see [Next to Nuxt UI](#next-to-nuxt-ui)).
 
@@ -150,6 +150,7 @@ The parts have no styles until you load a style family. A family is CSS that sty
 - **Focus** is a 2px ring in `--ring`, 2px outside the part. A text field turns its own frame blue instead.
 - Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
 - **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (14px here), after the import.
+- **Buttons** also take `data-variant="soft"`, `"ghost"`, and `"link"`, and `data-size="xs"` (24px) and `"sm"` (28px). An icon with `data-slot="spinner"` turns. `data-slot="dialog-footer"` lines up a dialog's actions at the end, and `menu-item-description` and `tabs-tab-badge` are small muted text. `uiSdkComponents` of `@vite-hub/ui` uses them.
 
 ### Next to Nuxt UI
 

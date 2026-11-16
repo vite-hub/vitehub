@@ -94,22 +94,8 @@
     "component": "dialog",
     "engine": "ui-sdk",
     "step": "Space opens",
-    "field": "focus",
-    "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
-  },
-  {
-    "component": "dialog",
-    "engine": "ui-sdk",
-    "step": "Space opens",
     "field": "tree",
-    "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
-  },
-  {
-    "component": "dialog",
-    "engine": "ui-sdk",
-    "step": "Space opens",
-    "field": "relations",
-    "reason": "ui-sdk 0.1.0-beta.2 bug. An outside press on a modal dialog arms a click swallow at pointerdown. The dialog and its backdrop are gone before pointerup, so Chromium sends no click, and the swallow takes the next click: the one Space makes on the trigger. The dialog stays closed. A second Space opens it."
+    "reason": "ui-sdk makes the page behind the dialog inert, and Reka sets aria-hidden on it. Playwright's ARIA snapshot reads only aria-hidden, so it still lists \"Open settings\" and \"After\" for ui-sdk. The Chromium accessibility tree (CDP Accessibility.getFullAXTree) is the same for both engines: only Save and Close are buttons."
   },
   {
     "component": "tabs",
