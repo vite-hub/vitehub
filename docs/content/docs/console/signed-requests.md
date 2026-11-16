@@ -66,7 +66,7 @@ Without `--url`, a command calls its project's dev server unsigned. A dev server
 | Header | Value |
 | --- | --- |
 | `x-vitehub-signature` | `key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>` |
-| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. |
+| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. Its ViteHub MCP adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores unknown fields so newer Consoles can call older apps. |
 
 The signature is Ed25519 over these lines, joined with a line feed:
 

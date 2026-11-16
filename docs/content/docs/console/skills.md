@@ -86,6 +86,8 @@ An unknown path under the two folders gets `404`, and methods other than `GET` a
 curl https://app.example.com/.well-known/agent-skills/index.json
 ```
 
+`serveSkills()` sends exact file bytes as `text/markdown` for `.md` files and `text/plain` for other files, with `Content-Security-Policy: default-src 'none'; sandbox`. HTML and SVG skill files never run as pages on your origin.
+
 ## Change the list at runtime
 
 Pass a function instead of a list, and each request calls it, so it can read a setting, such as the signed-in team's skills. These excerpts replace the list and middleware above, with your app's `teamSkillNames()` helper:
@@ -203,7 +205,7 @@ Each code also has its own page under [diagnostics](/docs/development/diagnostic
 | --- | --- |
 | `SKILL_FILE_MISSING` | `defineSkill()` got no `SKILL.md`. Add one at the skill root, with `name` and `description` in its frontmatter. |
 | `SKILL_INVALID_FRONTMATTER` | `SKILL.md` is not UTF-8, does not start with a `---` YAML block, or has an invalid field, which the error names. `name`: lowercase letters, digits and single hyphens, at most 64 characters, equal to the folder name in `defineSkills()`. `description`: a non-empty string of at most 1024 characters. `compatibility`: a non-empty string of at most 500 characters. `metadata`: strings to strings. `license` and `allowed-tools`: strings. Unknown fields are kept. |
-| `SKILL_INVALID_PATH` | A path is not relative and inside the skill. Use paths such as `references/api.md`, without `..`, `.`, empty segments, a leading `/` or `\`. |
+| `SKILL_INVALID_PATH` | A path is not relative and inside the skill, or does not fit in a skill archive. The part after the last `/` has at most 100 bytes. A longer path needs a `/` with at most 155 bytes before it and 100 bytes after it. Use paths such as `references/api.md`, without `..`, `.`, empty segments, a leading `/` or `\`. |
 | `SKILL_DUPLICATE_NAME` | `defineSkills()` found two skills with one `name`. Give each its own name and folder. A list function that returns two serves the first. |
 | `SKILL_NOT_FOUND` | `skillsMcp().get()` or `read()` got a URI that the list does not have, such as a left-out skill; read `skills/list` or `resources/list` for current URIs. `skillSettings().set()` returns it as `skill://<name>` for an unknown name, and `vitehub served-skills set` answers HTTP 404; run `vitehub served-skills list` for the names. |
 | `SKILL_SETTINGS_UNAVAILABLE` | The `skillSettings()` store failed, and `cause` holds its error. Check the store binding, then try again. |

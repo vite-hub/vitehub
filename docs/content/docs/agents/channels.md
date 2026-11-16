@@ -589,10 +589,11 @@ import { applyLabels, listEmails } from '../lib/mailbox'
 
 const email = v.object({ id: v.string(), subject: v.string() })
 
-// Keep history Collections out of server/collections. That directory is a public read model.
+// `route: false` keeps this history Collection server-only.
 const inbox = defineCollection(async ({ cursor, limit, query }) => {
   return await listEmails({ after: cursor, folder: query.folder, limit })
 }, {
+  route: false,
   cursor: message => message.id,
   cursorSchema: v.string(),
   querySchema: v.object({ folder: v.optional(v.picklist(['archive', 'inbox']), 'inbox') }),
@@ -933,6 +934,58 @@ Persisted inline webhook runs time out after 15 minutes by default. Set `message
 ### Skip and group review bot deliveries
 
 Review bots often post on every push, even with no findings. List those body prefixes in a trigger's `noFindingsReviews`, such as `['> ✅ No new issues found.']`, and matching `commented` reviews do not match the trigger. Set `debounceMs` to delay delivery: a later delivery from the same trigger and PR replaces a queued one, so a burst starts one Invocation. Other triggers' deliveries, such as mention commands, are never replaced, and running deliveries never stop.
+
+### Run code on pull request comments and reviews
+
+A `reconcile.triggers` entry always starts the Agent. To run your own code instead, such as a notification to another service, put a `githubPullRequestTrigger()` in the Channel's `triggers`. Its `invoke` gets the matched delivery and answers like every [Channel trigger](/docs/agents/triggers): `ignored(reason)` finishes without an Invocation, and `{ input }` starts the Agent on the pull request.
+
+```ts [server/agents/reviewer.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { github, githubPullRequestTrigger, ignored } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: true,
+      pullRequest: { reconcile: { events: [], mentions: ['@agent'] }, reply: false },
+      triggers: {
+        reviewFeedback: githubPullRequestTrigger({
+          events: ['pull_request_review', 'issue_comment'],
+          filter: { author: { allow: ['mona'] }, actor: { deny: ['mona', 'dependabot[bot]'] } },
+          reviewStates: ['commented', 'changes_requested', 'approved'],
+          debounceMs: 3 * 60_000,
+          async invoke(context, event) {
+            const response = await fetch('https://hooks.example.com/review-feedback', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'idempotency-key': event.deliveryId ?? '' },
+              body: JSON.stringify({
+                repository: event.pullRequest.repository,
+                number: event.pullRequest.number,
+                head: event.pullRequest.headSha,
+                reviewer: event.actor.login,
+                state: event.reviewState ?? 'commented',
+              }),
+            })
+            if (!response.ok) throw new Error(`Review hook answered ${response.status}`)
+            return ignored('notified')
+          },
+        }),
+      },
+    }),
+  },
+  driver: codexDriver({ permissions: 'allow-all' }),
+  workspace: { mode: 'write' },
+})
+```
+
+- `events`, `filter`, `reviewStates`, `mentions`, `noFindingsReviews`, and `debounceMs` match deliveries the same way as a `reconcile.triggers` entry. `reconcile.triggers` entries are tried first, then the Channel's pull request triggers in order. The first match wins.
+- `event` has the event name, `deliveryId`, `actor`, `body`, `url` of the comment or review, `reviewState`, the `pullRequest` (`repository`, `number`, `url`, `title`, `author`, `headSha`, `headRef`, `baseRef`), and the GitHub `payload`. A comment delivery has no head commit, so ViteHub reads `headSha` from GitHub before `invoke` runs.
+- `invoke` runs in the webhook queue of the pull request, after `debounceMs`. It does not mount the checkout and starts no Invocation unless it returns `{ input }`. Then the Agent runs as a reconcile run, with `input.prompt` as the request and `input.context` next to the pull request context.
+- Deliveries of one pull request share the queue slots of `reconcile.concurrencyLimit`, so `invoke` waits while an Agent run of the same pull request uses the slot.
+
+The trigger needs a webhook queue: a durable State, such as SQLite or libSQL, and the `x-github-delivery` header that GitHub sends. The queue stores the delivery before it answers GitHub, so a restart during `debounceMs` keeps it. A repeated or redelivered `x-github-delivery` does not run `invoke` again. If `invoke` throws or the process stops while it runs, the queue runs it again, up to three attempts. Send `event.deliveryId` as an idempotency key when a repeated call has an effect. Without `x-github-delivery`, such as a call from code, `invoke` runs before the answer.
+
+The Channel delivery record of each delivery shows what the trigger did. `trigger.started` names the `trigger`. `trigger.completed` has `outcome: 'response'` with the `status` and `reason` of the answer, or `outcome: 'input'` when the Agent starts. `trigger.failed` has the `error`. A delivery that no trigger matches ends with a `completed` event whose `reason` says why, such as `not_command` or `filtered`.
 
 ### Pull request Workspace
 

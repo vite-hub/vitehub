@@ -1,4 +1,5 @@
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { invariant } from "@vite-hub/internal/invariant"
 import { workflowDurabilityUrl } from "./durability.ts"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
@@ -21,7 +22,7 @@ import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
@@ -250,8 +251,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    // Internal invariant: the Schedule plugin calls this during the build, after configResolved() sets `resolved`.
-    if (!config) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
+    invariant(config, "the Schedule plugin prepares the Workflow runtime during the build, after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
     if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
@@ -318,6 +318,18 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   let devRootDir: string | undefined
+  // The options of the Nitro instance that builds this app, and whether its Vercel build has a native Workflow entry.
+  let nitroOptions: object | undefined
+  let vercelNativeEntry = false
+
+  /**
+   * Nitro writes the Vercel routes after the native Workflow build, so Nitro must also write the Workflow DevKit
+   * webhook route. Only a native entry can create a webhook. Nitro reads its options when it writes the config, after
+   * this plugin knows whether the app has a native entry.
+   */
+  function addVercelWorkflowWebhookRoute(): void {
+    if (startupBuild && vercelNativeEntry && nitroOptions) addVercelWorkflowNitroRoutes(nitroOptions)
+  }
   let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabaseImport: string | undefined
 
@@ -518,6 +530,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const vercel = startupBuild && devWorkflow && nitroOwnsVercelServer(config, workflow)
           ? await prepareVercelNitroRegistry(config)
           : undefined
+        vercelNativeEntry = vercel?.native === true
+        addVercelWorkflowWebhookRoute()
         await writeDevRegistry(devRootDir, startupBuild
           ? devWorkflow && (buildNeedsStartupRegistry() || vercel) ? devWorkflow : undefined
           : devWorkflow ?? false, vercel)
@@ -602,7 +616,14 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
     },
     buildApp: providerOutputEnvironment.buildApp,
-    nitro: providerOutputEnvironment.nitro,
+    nitro: {
+      name: providerOutputEnvironment.nitro.name,
+      setup(nitro) {
+        providerOutputEnvironment.nitro.setup(nitro)
+        nitroOptions = nitro.options
+        addVercelWorkflowWebhookRoute()
+      },
+    },
     async buildStart() {
       // The Database integration can resolve its Definitions after this plugin wrote the startup plugin. Read them again,
       // and write the startup plugin again when the Default Database moved to or from Postgres.

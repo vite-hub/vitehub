@@ -156,11 +156,12 @@ With the account address, the agent works on the apps of the team that you opene
 | `check_app` | Answers `linked: true` when the app takes its link's signed calls. |
 | `unlink_app` | Unlinks an app. Remove its variable from the app as well. |
 | `list_operations` | Lists the [operations](/docs/console/operations) of an app that you may call, with their input schemas. |
-| `run_operation` | Runs one operation of an app, such as `kv.list`. |
+| `read_operation` | Runs one operation that only reads, such as `kv.list`. The app refuses an operation that changes data. |
+| `run_operation` | Runs one operation that changes data, such as `comments.create`. |
 
 To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`.
 
-The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`) or `format` its output as text. A `destructive` operation, such as `content.publish`, runs only when the agent sends `confirm: true`, so the agent asks you first.
+The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`) or `format` its output as text. `read_operation` is marked read-only, so clients can run it without asking before a change. The app refuses a change through it. A `destructive` operation, such as `content.publish`, runs only when the agent sends `confirm: true`, so the agent asks you first.
 
 ## Use it with the ViteHub skill
 

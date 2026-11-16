@@ -13,7 +13,7 @@ An **operation** is one named action of your app, such as `content.publish` or `
 | Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
-| MCP | `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
+| MCP | `read_operation` or `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
 
 ## Define an operation
 

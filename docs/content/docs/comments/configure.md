@@ -9,8 +9,7 @@ icon: i-lucide-sliders-horizontal
 Comments works without configuration. Add `server/comments.ts` to change who may comment, notify people, or post to pull requests. It exports `comments` from `defineComments()`. All options are optional and listed in the [Server API](/docs/comments/server-api#definecomments-options).
 
 ```ts [server/comments.ts]
-// With the comments() plugin. In a ViteHub app, import from 'vite-hub/comments'.
-import { defineComments } from '@vite-hub/comments'
+import { defineComments } from 'vite-hub/comments'
 
 export const comments = defineComments({
   authorize: ({ user }) => user?.github?.login !== 'a-bot',

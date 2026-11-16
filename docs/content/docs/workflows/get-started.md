@@ -82,6 +82,7 @@ export default defineWorkflow('onboard-user', async (payload: { email: string },
 - The first argument is the Workflow name, the same as the folder name.
 - `payload` is the input that starts the run. Here, it is an email.
 - `steps.createUser` runs the file `01.create-user.ts`, and `steps.sendWelcome` runs `02.send-welcome.ts`. ViteHub makes these names from the file names.
+- To wait between steps, call `await sleep('1 day')` from the same context object. See [Retries and sleeps](/docs/workflows/limits-and-errors#retries-and-sleeps).
 
 ViteHub writes the step types to `.vitehub/workflow.d.ts`. Each step takes the input type of its file and returns its result, so `user` is typed and a misspelled step is a type error. The step runner works with each Workflow provider.
 

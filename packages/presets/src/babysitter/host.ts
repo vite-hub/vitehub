@@ -21,6 +21,7 @@ import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { babysitterRepositories } from "./repositories.ts";
+import { createWebhookRedelivery } from "./webhook-redelivery.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 import { createPullRequestWorkspaces, type BabysitterWarmWorkspaces, type PullRequestWorkspaceStatus } from "./pr-workspaces.ts";
 
@@ -211,8 +212,16 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error: host.error,
     wake: () => host.wake(),
     admission,
-    hostCapacity: async ({ active, signal }) => await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) }),
+    // A sample that times out while the disk is busy keeps the worker queue's fallback slots instead of none.
+    hostCapacity: async ({ active, signal }) => {
+      try {
+        return await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return { concurrency: hostSample.fallbackConcurrency ?? 1, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
   });
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.
@@ -227,6 +236,9 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error => host.error("babysitter.workspaces.prune_failed", error, { reason }),
   );
   let workspaceSweep: ReturnType<typeof setInterval> | undefined;
+  // GitHub does not retry failed webhook deliveries. Lost check results leave green PRs waiting.
+  const redelivery = createWebhookRedelivery({ source: credentials, event: host.event, error: host.error });
+  let redeliverySweep: ReturnType<typeof setInterval> | undefined;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -251,6 +263,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
         .finally(() => {
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
+          redeliverySweep = setInterval(() => void redelivery.sweep().catch(error => host.error("babysitter.webhook.redelivery_failed", error)), 5 * 60_000);
+          redeliverySweep.unref();
           if (workspaces) {
             void sweepWorkspaces("startup");
             if (workspaces.sweepMs > 0) {
@@ -266,6 +280,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
     async close() {
       clearInterval(workspaceSweep);
+      clearInterval(redeliverySweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
       await inbox.close();

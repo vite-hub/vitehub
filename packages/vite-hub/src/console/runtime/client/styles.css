@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tailwind.css";
 @import "@vite-hub/ui/theme.css";
 @source "../components";
 @source "../../app.config.ts";
@@ -58,7 +59,7 @@ body,
 }
 
 body {
-  background: var(--ui-bg);
+  background: var(--background);
   color: var(--ui-text);
   min-height: 100vh;
 }
@@ -111,7 +112,7 @@ body {
 }
 
 .vitehub-console-boot__mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   height: 1.125rem;
   width: 1.125rem;
 }
@@ -124,14 +125,14 @@ body {
 }
 
 .vitehub-console-boot__header {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   flex: none;
   height: 3.25rem;
 }
 
 .vitehub-console-opening {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.875rem;
   gap: 0.5rem;
@@ -165,7 +166,7 @@ body {
 /* A fast load ends before the status shows. A slow one says what the page waits for. */
 .vitehub-account-boot__status {
   animation: vitehub-account-boot-status 150ms ease-out 1.5s both;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.875rem;
   line-height: 1.25rem;
 }
@@ -184,7 +185,7 @@ body {
 }
 
 .vitehub-account-boot__gate-mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   height: 1.5rem;
   width: 1.5rem;
 }
@@ -195,7 +196,7 @@ body {
 }
 
 .vitehub-account-boot__title {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.75rem;

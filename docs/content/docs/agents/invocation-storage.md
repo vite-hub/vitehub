@@ -605,7 +605,7 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 `compact` measures the file, WAL, page count, free pages, and `auto_vacuum` mode, then runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`. It prints the size before and after, reclaimed bytes, and the new mode. `--dry-run` prints the measurements, projected size, and free space check without changes, and exits 1 when compact would refuse. Prune first, so the rebuilt file holds only what you keep.
 
-- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_R0931`.
+- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED`.
 - `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses when a volume lacks 1.1 times the live data per file, plus the current WAL, counting both files on a shared volume. Set `SQLITE_TMPDIR` to put the copy elsewhere.
 - `VACUUM` holds the write lock until done, so server writes wait. Stop the server or run it when quiet. If another process holds the lock over 5 seconds, compact fails without changes.
 
@@ -622,13 +622,13 @@ It opens the file read-only with `node:sqlite` and never migrates or writes it, 
 
 A Workflow is a durable runner that can retry steps after a crash. Journals also keep failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct Invocation IDs. Durable Channel deliveries keep their run ID across preparation attempts.
 
-An Agent turn is one Workflow run without steps. When the process stops while the Driver runs, the provider retries the run, but ViteHub does not start the Driver a second time. The journal claim of the stopped attempt stays, and an expired claim does not prove that the Driver stopped, so a second Driver could repeat its work. The retry fails with `Could not persist the Invocation running state.`, and the Workflow run and the journal record show `failed`. To try again, start a new turn.
-
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 
 Each Agent turn on Cloudflare Workflows or OpenWorkflow starts two Workflow runs: the turn, and a recovery run named `vitehub-agent-invocation-recovery-<workflow>`. The recovery run reads the turn run until it ends, then writes the same final status to the journal record. The turn writes its own outcome when its handler returns or throws. But when the process stops and the provider fails the run after its last retry, or a run is cancelled or terminated from outside, no turn code runs, and only the recovery run can close the record. ViteHub starts the recovery run right after the provider accepts the turn, and creates the journal record only after that, so no record exists without a run that can close it. The recovery run cannot be skipped when a turn ends normally, because it must exist before anyone knows how the turn ends.
 
 The recovery run reads every second for one minute, then every minute for one hour, then every 30 minutes, for up to one day. After a normal turn it ends at its next read, about one second later. Count two runs per turn when you size the OpenWorkflow worker concurrency. In `vitehub workflow` output and `getWorkflowRun()`, the recovery run is a normal run; its result is empty.
+
+An Agent turn on a Workflow runs its Driver at most once. When the process stops during the Driver, the provider retries the run, but the retry finds the record `running` and does not start the Driver again, because a second run could repeat model calls and tool side effects. This is true when the claim of the stopped attempt has expired too. The retry fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the Workflow run and the journal record show `failed`. Further attempts of that run also fail before dispatch, even when error redaction removes the stored diagnostic. A retry of a turn that never reached `running` still starts the Driver. To try again, start a new turn.
 
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 
