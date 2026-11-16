@@ -1,4 +1,4 @@
-import { registerPublicUrlAgentName } from "@vite-hub/runtime"
+import { registerPublicUrlAgentName } from "@vite-hub/runtime/internal/public-url"
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
 
 import type { AgentHostIdentity } from "../types.ts"
@@ -69,4 +69,4 @@ export function readDiscoveredAgentIdentity(agent: unknown): AgentHostIdentity |
   return workspace ? { name, workspace } : { name }
 }
 
-export { resetPublicUrlAgentNames } from "@vite-hub/runtime"
+export { resetPublicUrlAgentNames } from "@vite-hub/runtime/internal/public-url"

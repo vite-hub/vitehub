@@ -18,4 +18,27 @@ describe("Babysitter instructions", () => {
     expect(rendered).not.toContain('include wait: { kind: "checks"')
     expect(rendered).not.toContain("use wake:")
   })
+
+  it("renders the generic repair rules every Babysitter gets", async () => {
+    const rendered = await composeInstructionDocument(babysitterInstructions.replace("{{{ instructions }}}", "Agent instructions."))
+    for (const rule of [
+      "P0 (security hole, data loss or a broken main path)",
+      "deliberately forged or hostile runtime objects",
+      "Do not push for P2 or P3 findings alone",
+      "fix the class once at its root",
+      "do not set reviewedHead while it is unfixed",
+      "Never park a PR to ask a maintainer to choose between requirements",
+      "Failing required checks come before review findings",
+      "Do not push for a check that fails the same way on the base",
+      "`git diff HEAD...origin/<base> -- <file>`",
+      "Make at most one repair commit per pass",
+      "Never search outside the checkout",
+      "Set reviewedHead only for the exact commit you assessed",
+      "Do not create direction-validation markers",
+    ]) expect(rendered).toContain(rule)
+  })
+
+  it("names no review service or repository", () => {
+    expect(babysitterInstructions).not.toMatch(/pullfrog|codex-connector|vite-hub\/vitehub|repair-main/i)
+  })
 })

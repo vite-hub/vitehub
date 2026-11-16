@@ -23,75 +23,35 @@ export interface EmailTag {
   value: string
 }
 
-export interface EmailPersonalization {
-  to: EmailAddressList
-  cc?: EmailAddressList
-  bcc?: EmailAddressList
-  subject?: string
-  variables?: Record<string, unknown>
-  sendAt?: Date | string
-  customArgs?: Record<string, string>
-}
-
-export interface EmailDsnOptions {
-  notify?: readonly ("SUCCESS" | "FAILURE" | "DELAY" | "NEVER")[]
-  ret?: "FULL" | "HDRS"
-  envid?: string
-  orcpt?: string
-}
-
-export interface EmailTemplateOptions {
-  id?: string
-  alias?: string
-  variables?: Record<string, unknown>
-  locale?: string
-}
-
-export interface EmailTrackingOptions {
-  opens?: boolean
-  clicks?: boolean
-  unsubscribes?: boolean
-}
-
 export interface EmailUnsubscribeOptions {
   url?: string
   mailto?: string
   oneClick?: boolean
 }
 
-export interface EmailMessage {
+/** The body of a message. Each message has `text`, `html`, or both. Render templates to these strings before you send. */
+export type EmailBody =
+  | { text: string, html?: string }
+  | { html: string, text?: string }
+
+/**
+ * A message that ViteHub Email sends. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` are sent only by the
+ * Resend driver. The Cloudflare Email driver rejects them.
+ */
+export type EmailMessage = EmailBody & {
   from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
   bcc?: EmailAddressList
   replyTo?: EmailAddressList
   subject: string
-  preheader?: string
-  text?: string
-  html?: string
   headers?: Record<string, string>
   attachments?: readonly EmailAttachment[]
   tags?: readonly EmailTag[]
   idempotencyKey?: string
   scheduledAt?: string | Date
   unsubscribe?: EmailUnsubscribeOptions
-  template?: EmailTemplateOptions
-  tracking?: EmailTrackingOptions
-  sandbox?: boolean
   metadata?: Record<string, string>
-  personalizations?: readonly EmailPersonalization[]
-  amp?: string
-  dsn?: EmailDsnOptions
-  raw?: string | Uint8Array
-  react?: unknown
-  jsx?: unknown
-  mjml?: string
-  handlebars?: string
-  handlebarsVars?: Record<string, unknown>
-  liquid?: string
-  liquidVars?: Record<string, unknown>
-  locale?: string
-  stream?: string
 }
 
 /**
@@ -121,7 +81,6 @@ export interface EmailProviderResult {
   driver: string
   id: string
   provider?: Record<string, unknown>
-  stream?: string
 }
 
 export type EmailDriverResult =
@@ -133,7 +92,6 @@ export interface EmailDriverContext {
   driver: string
   meta: Record<string, unknown>
   signal?: AbortSignal
-  stream?: string
 }
 
 export interface EmailDriver {

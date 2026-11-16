@@ -1,6 +1,12 @@
 import type { ForgeProvider } from "forges"
 import type { GitHubProvider } from "forges/github"
 
+import { conditionalFetch } from "./conditional.ts"
+import { forgeDiagnostics } from "./error-diagnostics.ts"
+
+import type { ForgeConditionalRequests } from "./conditional.ts"
+import type { Diagnostic } from "nostics"
+
 /** The Forges that ViteHub supports. */
 export type ForgeKind = "github" | "gitlab" | "forgejo"
 
@@ -16,6 +22,11 @@ export interface ForgeConnection {
   userAgent?: string
   /** Request timeout in milliseconds. Default 30000. */
   timeout?: number
+  /**
+   * Revalidate repeated authenticated GETs with `If-None-Match`, so an unchanged response comes back as a `304`
+   * that GitHub does not count against the rate limit. Default: on for GitHub. `false` turns it off.
+   */
+  conditionalRequests?: boolean | ForgeConditionalRequests
 }
 
 /**
@@ -29,9 +40,13 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
   const auth = connection.token
     ? { type: "token" as const, token: connection.token }
     : { type: "anonymous" as const }
+  const conditional = connection.conditionalRequests ?? connection.forge === "github"
+  const fetcher = conditional
+    ? conditionalFetch(connection.fetch ?? ((input, init) => globalThis.fetch(input, init)), conditional === true ? {} : conditional)
+    : connection.fetch
   const options = {
     ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
-    ...(connection.fetch ? { fetch: connection.fetch } : {}),
+    ...(fetcher ? { fetch: fetcher } : {}),
     userAgent: connection.userAgent ?? "vitehub",
     ...(connection.timeout === undefined ? {} : { timeout: connection.timeout }),
     ...(connection.readOnly === undefined ? {} : { readOnly: connection.readOnly }),
@@ -51,12 +66,17 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
       return forgejo(options)
     }
   }
-  throw new Error("Unsupported Forge.")
+  throw forgeDiagnostics.FORGE_UNSUPPORTED()
 }
 
-/** A Forge response that succeeded but did not include the expected data. */
-export class ForgeResponseError extends Error {
-  override name = "ForgeResponseError"
+/** A Forge response that succeeded but did not include the expected data: `FORGE_RESPONSE_INVALID`. */
+export function forgeResponseError(problem: string): Diagnostic {
+  return forgeDiagnostics.FORGE_RESPONSE_INVALID({ problem })
+}
+
+/** Whether a Forge response did not include the expected data. */
+export function isForgeResponseError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === "FORGE_RESPONSE_INVALID"
 }
 
 /** The HTTP status of a failed Forge request, or undefined for other errors. */

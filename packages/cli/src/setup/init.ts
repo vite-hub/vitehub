@@ -10,25 +10,25 @@ import { minVersion, Range, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
 import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { JsonValue } from "@vite-hub/internal/config-edit"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.ts"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 
-const usage = "vitehub init <dir> --host <preset> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
+const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
 /** The command that starts a project. It runs from the `vite-hub` package, so it needs no install. */
 const initCommandPrefix = "pnpm dlx vite-hub init"
 
-const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly DeploymentPreset[]
+const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly ViteHubHost[]
 type InitHost = typeof initHosts[number]
 type InitFramework = "vite" | "nuxt"
 const frameworks: readonly InitFramework[] = ["vite", "nuxt"]
@@ -216,7 +216,8 @@ function packageNameOf(root: string): string {
 /** The files of a new Vite app, as `fixtures/docs-hosts/installation` has them. */
 function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    ".gitignore": "node_modules\n.output\n.vitehub\n.env\n",
+    // `.env*` keeps stage files such as `.env.production` out of git. `.env.example` lists the names without values.
+    ".gitignore": "node_modules\n.output\n.vitehub\n.env*\n!.env.example\n",
     "package.json": `${JSON.stringify({
       name,
       private: true,
@@ -238,14 +239,14 @@ function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   "include": ["server/**/*.ts", "vite.config.ts"]
 }
 `,
-    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: "${host}" })],\n})\n`,
+    "vite.config.ts": `import { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ host: "${host}" })],\n})\n`,
   }
 }
 
 /** The config that `nuxi init` and the adoption would give, to plan a new Nuxt app before `nuxi init` runs. */
 function nuxtAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { preset: "${host}" }],\n  ],\n})\n`,
+    "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { host: "${host}" }],\n  ],\n})\n`,
     "package.json": `${JSON.stringify({ name, private: true, type: "module" }, null, 2)}\n`,
   }
 }
@@ -273,7 +274,7 @@ async function readDir(root: string, env: NodeJS.ProcessEnv): Promise<DirState> 
   const entries = (await readdir(root)).filter(entry => entry !== ".git")
   if (!entries.length) return { exists: true, kind: "create" }
   const project = await readSetupProject(root, env).catch(() => undefined)
-  if (!project || project.framework === "none") throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_DIR_NOT_EMPTY({ dir: root }), setupExitCodes.conflict)
+  if (!project || project.framework === "none") throw setupFailure(cliErrorDiagnostics.SETUP_INIT_DIR_NOT_EMPTY({ dir: root }), setupExitCodes.conflict)
   return { kind: "adopt", project }
 }
 
@@ -304,8 +305,8 @@ async function readOptional(file: string): Promise<string | undefined> {
 }
 
 function manualConfig(file: string, reason: string, host: InitHost, framework: InitFramework): SetupFailure {
-  const snippet = framework === "nuxt" ? `[viteHubNuxt, { preset: "${host}" }],` : `vitehub({ preset: "${host}" }),`
-  return new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
+  const snippet = framework === "nuxt" ? `[viteHubNuxt, { host: "${host}" }],` : `vitehub({ host: "${host}" }),`
+  return setupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
 }
 
 /** The config of an existing app with ViteHub registered on `host`. */
@@ -322,13 +323,13 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   if (before === undefined) throw manualConfig(file, "no-vitehub", host, framework)
   if (!config?.ok) {
     if (config?.reason !== "no-vitehub") throw manualConfig(file, config?.reason ?? "no-vitehub", host, framework)
-    const inserted = insertViteHubConfig(file, before, { preset: host })
+    const inserted = insertViteHubConfig(file, before, { host })
     if (!inserted.ok) throw manualConfig(file, inserted.reason, host, framework)
     return { after: inserted.code, before, file }
   }
-  const preset = config.site.keys.preset
-  if (preset?.kind === "literal" && preset.value === host) return { after: before, before, file }
-  const edited = editViteHubConfig(file, before, [{ key: "preset", op: "set", value: host }])
+  const configuredHost = config.site.keys.host
+  if (configuredHost?.kind === "literal" && configuredHost.value === host) return { after: before, before, file }
+  const edited = editViteHubConfig(file, before, [{ key: "host", op: "set", value: host }])
   if (!edited.ok) throw manualConfig(file, edited.reason, host, framework)
   return { after: edited.code, before, file }
 }
@@ -338,7 +339,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const name = packageNameOf(root)
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
-  if (found && found !== framework) throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
+  if (found && found !== framework) throw setupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
   if (state.kind === "adopt" && framework === "nuxt") await validateNuxtVersion(root)
   // A new app can inherit a parent lockfile. With no package-manager evidence, init defaults to pnpm.
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
@@ -356,7 +357,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     const status = setupStatus(state.project, context.env)
     // Init adopts an app; migrating an enabled stack requires reviewing its providers and Definitions.
     if (state.project.config?.ok && status.host.name !== args.host && status.features.some(feature => feature.id !== "env" && feature.enabled !== "off")) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_HOST_MIGRATION({ host: args.host }), setupExitCodes.conflict)
+      throw setupFailure(cliErrorDiagnostics.SETUP_INIT_HOST_MIGRATION({ host: args.host }), setupExitCodes.conflict)
     }
     const config = adoptConfig(state.project, args.host, framework)
     base.set(config.file, config)
@@ -469,7 +470,7 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
       // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
+        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
       }
     }
   }
@@ -484,11 +485,11 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
         await writeFile(file, write.after, { flag: "wx" })
       }
       catch {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: write.path }), setupExitCodes.conflict)
+        throw setupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: write.path }), setupExitCodes.conflict)
       }
       continue
     }
-    if (await readFile(file, "utf8") !== write.before) throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: write.path }), setupExitCodes.stalePlan)
+    if (await readFile(file, "utf8") !== write.before) throw setupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: write.path }), setupExitCodes.stalePlan)
     await writeFile(file, write.after)
   }
   if (plan.mode === "create") await runInstall()
@@ -500,7 +501,7 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   await mkdir(dirname(planned.plan.root), { recursive: true })
   const result = await context.spawn(command, commandArgs, { cwd: dirname(planned.plan.root), env: context.env, stdout: "stderr" })
   if (result.exitCode !== 0) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
   }
   await validateNuxtVersion(planned.plan.root, true)
 }
@@ -526,7 +527,7 @@ async function validateNuxtVersion(root: string, scaffolded = false): Promise<vo
   const devDependencies = isRecord(manifest) && isRecord(manifest.devDependencies) ? manifest.devDependencies : {}
   const nuxt = dependencies.nuxt ?? devDependencies.nuxt
   if (!supportsNuxt5(nuxt)) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
+    throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
 }
 
@@ -558,7 +559,7 @@ async function readInputs(args: SetupInitArgs): Promise<InitInputs> {
   if (args.features === undefined) missing.push({ choices: featureIds, field: "features", sentence: "Pass --features with feature ids separated by commas, such as `--features kv,queue` (run `vitehub catalog` to list them)," })
   if (!missing.length) return { ...args, dir: args.dir!, features: args.features!, host: args.host! }
   const message = missing.map(item => `${item.sentence} when running without an interactive terminal.`).join(" ")
-  throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] ${message}` }), setupExitCodes.inputNeeded, {
+  throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] ${message}` }), setupExitCodes.inputNeeded, {
     missing: missing.map(({ sentence: _sentence, ...item }) => item),
     rerun: rerunInit(args, {
       dir: args.dir ?? "<dir>",
@@ -614,13 +615,13 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
     if (!args.yes) {
       if (!interactive(args)) {
         if (!args.json) writePlan(plan, context)
-        throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub init` writes files and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, {
+        throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub init` writes files and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, {
           data: plan,
           rerun: planned.rerun,
         })
       }
       writePlan(plan, context)
-      if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
+      if (!await confirmSetupChange()) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
     if (planned.scaffold) {
       await scaffoldNuxt(planned, context)

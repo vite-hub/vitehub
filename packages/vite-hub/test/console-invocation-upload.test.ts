@@ -23,7 +23,7 @@ vi.mock("@vite-hub/runtime", async importOriginal => ({
   createRuntimeWaitUntilController: () => ({ waitUntil: () => {} }),
   encodeRouteSegment: (value: string) => value,
 }))
-vi.mock("../src/console/server.ts", () => ({ console: {} }))
+vi.mock("../src/console/server.ts", () => ({ agentConsole: {} }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({
   getConsoleAgentDefinition: () => ({}),
   getConsoleAgentCapabilities: () => ({ blob: { kind: "blob" } }),

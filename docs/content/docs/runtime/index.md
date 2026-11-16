@@ -23,10 +23,8 @@ Runtime does not register Vite, Nuxt, routes, providers, or Agent Definitions. O
 | --- | --- | --- |
 | A ViteHub application | `vite-hub` | `vite-hub/runtime` |
 | A reusable package or a custom host integration | `@vite-hub/runtime` | `@vite-hub/runtime` |
-| Node diagnostics and process lifecycle | The same package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
-| An H3 or Nuxt route | `vite-hub` | `vite-hub/runtime/h3` |
 
-Use `vite-hub/runtime` when `vite-hub` is already a dependency of your app. Install `@vite-hub/runtime` alone when a library must depend only on the portable contracts. It needs Node.js 22.18 or newer.
+Use `vite-hub/runtime` when `vite-hub` is already a dependency of your app. Install `@vite-hub/runtime` alone when a library must depend only on the portable contracts. It needs Node.js 22.22 or newer.
 
 ```bash pm
 pnpm add @vite-hub/runtime

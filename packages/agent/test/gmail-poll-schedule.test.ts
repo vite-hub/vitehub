@@ -67,7 +67,8 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
       "console.log(JSON.stringify(globalThis.gmailPollCalls))",
     ].join("\n"), pathToFileURL(output).href])
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual([
-      { path: "profile" }, { path: "history", cursor: "300" }, { path: "history", cursor: "305" },
+      // A custom client can change mailboxes, so each poll reads the mailbox address. The first read also starts the cursor.
+      { path: "profile" }, { path: "profile" }, { path: "history", cursor: "300" }, { path: "profile" }, { path: "history", cursor: "305" },
     ])
   }
   finally {
@@ -129,7 +130,7 @@ it("installs the Deno polling host before importing cron registrations", async (
 it("registers a named Channel from retained Netlify Agent sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await cp(resolve(import.meta.dirname, "../node_modules"), join(root, "node_modules"), { recursive: true })
     await symlink(resolve(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/agent"), "dir")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "named-channel-output", type: "module" }))
@@ -180,7 +181,7 @@ it("registers a named Channel from retained Netlify Agent sources", async () => 
 it("installs configured workspace dependency loaders in the retained polling host", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-loaders-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")

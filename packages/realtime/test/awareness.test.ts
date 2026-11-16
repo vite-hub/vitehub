@@ -44,6 +44,52 @@ afterEach(() => {
 })
 
 describe("realtime awareness ownership", () => {
+  it("does not let a newer-clock echo rebind a remote user's identity", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const remote = {}
+    const relay = {}
+    const ada = { color: "#2563EB", id: "ada", name: "Ada" }
+    const ben = { color: "#059669", id: "ben", name: "Ben" }
+    owners.apply(room, remote, update([1], { user: ada, cursor: 1 }), undefined, true)
+    expect(owners.apply(room, relay, update([1], { user: ada, cursor: 2 }, 2), ben)).toEqual([])
+    expect(owners.apply(room, remote, update([1], { user: ada, cursor: 3 }, 3), undefined, true)).toEqual([1])
+    expect(room.getStates().get(1)).toEqual({ user: ada, cursor: 3 })
+    expect(owners.release(relay)).toEqual([])
+  })
+
+  it("checks the authenticated identity on an explicit local handoff", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const remote = {}
+    const moved = {}
+    const ada = { color: "#2563EB", id: "ada", name: "Ada" }
+    const ben = { color: "#059669", id: "ben", name: "Ben" }
+    owners.apply(room, remote, update([1], { user: ada, cursor: 1 }), undefined, true)
+    expect(owners.claim(room, {}, 1, ben)).toBe(false)
+    expect(owners.claim(room, moved, 1, ada)).toBe(true)
+    owners.apply(room, moved, update([1], { user: ada, cursor: 1 }), ada)
+    expect(owners.apply(room, remote, update([1], null, 1), undefined, true)).toEqual([])
+    expect(owners.apply(room, {}, update([1], null, 1))).toEqual([])
+    expect(room.getStates().get(1)).toEqual({ user: ada, cursor: 1 })
+    expect(owners.apply(room, moved, update([1], { cursor: 2 }, 2), ada)).toEqual([1])
+    expect(room.getStates().get(1)).toEqual({ user: ada, cursor: 2 })
+    expect(owners.release(moved)).toEqual([1])
+  })
+
+  it("does not claim an unowned client from a redundant null echo", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const remote = {}
+    const relay = {}
+    owners.apply(room, remote, update([1]), undefined, true)
+    owners.apply(room, remote, update([1], null, 2), undefined, true)
+    owners.releaseRemote([1])
+    expect(owners.apply(room, relay, update([1], null, 2))).toEqual([])
+    expect(owners.apply(room, remote, update([1], { cursor: 3 }, 3), undefined, true)).toEqual([1])
+    expect(owners.release(relay)).toEqual([])
+  })
+
   it.each([[1], [2, 1], [1, 2]])("rejects every truncated prefix of clients %j without changing ownership", (...clients) => {
     const frame = update(clients)
     for (let length = 0; length < frame.length; length++) {
@@ -190,7 +236,7 @@ describe("realtime awareness ownership", () => {
     const owners = createRealtimeAwarenessOwners()
     const room = roomAwareness()
     const peer = {}
-    owners.apply(room, peer, update(Array.from({ length: 1024 }, (_, index) => index), null))
+    owners.apply(room, peer, update(Array.from({ length: 1024 }, (_, index) => index)))
 
     expect(() => owners.apply(room, peer, update([1024]))).toThrow(expect.objectContaining({ code: "REALTIME_TOO_MANY_AWARENESS_CLIENTS" }))
     expect(owners.apply(room, {}, update([1024]))).toEqual([1024])

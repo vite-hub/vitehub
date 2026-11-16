@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -13,9 +14,9 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
-import { hubDb } from "../src/nuxt.ts"
-import { migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
-import { hubDb as hubDbVite } from "../src/vite.ts"
+import { hubDatabase } from "../src/nuxt.ts"
+import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
+import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
 import type { PostgresMigrationSql } from "../src/runtime/migrate-on-start.ts"
 import type { DatabaseNuxtIntegrationOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
@@ -55,10 +56,16 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
   return dir
 }
 
-/** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first. */
-async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false) {
+const selectUsers = [
+  'import { useDatabase } from "@vite-hub/database"',
+  'const { db, schema } = useDatabase("default")',
+  "console.log(JSON.stringify(await db.select().from(schema.users)))",
+]
+
+/** Runs the Nuxt module and bundles a production or prerender entry that imports Nitro's plugins first, then runs `body`. */
+async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = [], prerender = false, body = selectUsers) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-  await hubDb(options)(undefined, {
+  await hubDatabase(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
       if (event === "nitro:config") hooks.push(callback)
     },
@@ -70,11 +77,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
-    ...prerender ? ['console.log("prerendered")'] : [
-      'import { useDatabase } from "@vite-hub/database/drizzle"',
-      'const { db, schema } = useDatabase("default")',
-      "console.log(JSON.stringify(await db.select().from(schema.users)))",
-    ],
+    ...prerender ? ['console.log("prerendered")'] : body,
   ].join("\n"))
   const output = join(root, "server.output.mjs")
   await build({
@@ -436,7 +439,7 @@ describe("database.migrateOnStart", () => {
     const root = await createProject()
     await writeMigrations(root, [init])
     const setup = async (options: { dev?: boolean, preset?: string }) => {
-      const plugin = hubDbVite({ migrateOnStart: true })
+      const plugin = hubDatabaseVite({ migrateOnStart: true })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
       plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })
@@ -457,7 +460,7 @@ describe("database.migrateOnStart", () => {
     await writeMigrations(root, [init])
     for (const source of ["nuxt", "nitro"]) {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-      await hubDb({ migrateOnStart: true })(undefined, {
+      await hubDatabase({ migrateOnStart: true })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -485,6 +488,284 @@ describe("database.migrateOnStart", () => {
     await expect(migrateOnStart([{ db: { $client: client }, dialect: "sqlite" as const, migrations: [], name: "remote" }])).rejects.toMatchObject({
       code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
       why: expect.stringContaining("libSQL over https"),
+    })
+  })
+})
+
+describe("migrateOnStart backup", () => {
+  const grace = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (8, 'Grace');", tag: "20231114221323_grace", when: 1_700_000_003_000 }
+  const linus = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (9, 'Linus');", tag: "20231114221324_linus", when: 1_700_000_004_000 }
+  const startMigration = (entry: { sql: string, tag: string, when: number }) => ({ dataLoss: [], hash: entry.tag, name: entry.tag, statements: entry.sql.split("--> statement-breakpoint"), when: entry.when })
+  const copyName = /^app-(?:[a-f0-9]{64}-)?\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-before-(.+)\.sqlite$/
+
+  /** Runs `migrateOnStart()` on a SQLite file with the migrations `entries`, and returns the log lines. */
+  async function start(file: string, entries: Array<{ sql: string, tag: string, when: number }>, backup: { dir?: string, keep: number }) {
+    const client = createClient({ url: `file:${file}` })
+    const logs: string[] = []
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations: entries.map(startMigration), name: "default" }], { backup, log: message => logs.push(message) })
+      return logs
+    }
+    finally {
+      client.close()
+    }
+  }
+
+  async function sqliteFile() {
+    const root = await mkdtemp(join(packageRoot, ".vitest-migrate-backup-"))
+    roots.push(root)
+    return { backups: join(root, "backups"), file: join(root, "app.sqlite"), root }
+  }
+
+  it("copies a SQLite file before its pending migrations, and only when one is pending", async () => {
+    const { backups, file } = await sqliteFile()
+    // A new database has nothing to keep.
+    await start(file, [init], { keep: 3 })
+    expect(existsSync(backups)).toBe(false)
+
+    const logs = await start(file, [init, seed], { keep: 3 })
+    const copies = await readdir(backups)
+    expect(copies).toHaveLength(1)
+    expect(copies[0]).toMatch(copyName)
+    expect(copies[0]!.match(copyName)![1]).toBe(seed.tag)
+    expect(logs[0]).toBe(`[vitehub] Database "default": copied ${file} to ${join(backups, copies[0]!)} before 1 migration(s).`)
+    // The copy is the database before the start: the table without the seed row, and the ledger with `init` only.
+    expect(await readLedger(`file:${join(backups, copies[0]!)}`)).toEqual([init.when])
+    expect(await readLedger(`file:${file}`)).toEqual([init.when, seed.when])
+
+    // Nothing is pending, so the next start makes no copy.
+    expect(await start(file, [init, seed], { keep: 3 })).toEqual([])
+    expect(await readdir(backups)).toEqual(copies)
+  })
+
+  it("keeps the newest copies of each file, and leaves other files in the folder", async () => {
+    const { file, root } = await sqliteFile()
+    const dir = join(root, "copies")
+    await mkdir(dir)
+    await writeFile(join(dir, "notes.txt"), "kept")
+    await writeFile(join(dir, "app-old-2023-11-14T22-13-20-000Z-before-x.sqlite"), "kept")
+    await start(file, [init], { dir, keep: 2 })
+    // Three starts, each with one new migration, make three copies.
+    for (const count of [2, 3, 4]) await start(file, [init, seed, grace, linus].slice(0, count), { dir, keep: 2 })
+    const names = (await readdir(dir)).sort()
+    expect(names.filter(name => copyName.test(name)).map(name => name.match(copyName)![1])).toEqual([grace.tag, linus.tag])
+    expect(names).toEqual(expect.arrayContaining(["notes.txt", "app-old-2023-11-14T22-13-20-000Z-before-x.sqlite"]))
+  })
+
+  it("retains independent readable copies of same-named files in a shared directory", async () => {
+    const { file: first, root } = await sqliteFile()
+    const second = join(root, "second", "app.sqlite")
+    const dir = join(root, "copies")
+    await mkdir(join(root, "second"))
+    for (const file of [first, second]) {
+      await start(file, [init], { dir, keep: 1 })
+      await start(file, [init, seed], { dir, keep: 1 })
+    }
+    expect(await readdir(dir)).toHaveLength(2)
+    // Prune one file's older copy without removing the other file's restore point.
+    await start(first, [init, seed, grace], { dir, keep: 1 })
+    const copies = await readdir(dir)
+    expect(copies).toHaveLength(2)
+    const ledgers = await Promise.all(copies.map(name => readLedger(`file:${join(dir, name)}`)))
+    expect(ledgers).toEqual(expect.arrayContaining([[init.when], [init.when, seed.when]]))
+  })
+
+  it("stops the start before any migration when the copy fails", async () => {
+    const { file, root } = await sqliteFile()
+    await start(file, [init], { keep: 3 })
+    // A file where the folder should be makes the copy fail.
+    const dir = join(root, "not-a-folder")
+    await writeFile(dir, "")
+    await expect(start(file, [init, seed], { dir, keep: 3 })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_BACKUP_FAILED",
+      why: expect.stringContaining("The server applied no migration."),
+    })
+    expect(await readLedger(`file:${file}`)).toEqual([init.when])
+  })
+
+  it("rejects databases that it cannot copy, and an invalid keep", async () => {
+    const backup = resolveMigrateOnStart({ migrateOnStart: { backup: true } })!
+    expect(backup).toEqual({ allowDataLoss: false, backup: { keep: 3 }, explicit: true })
+    expect(resolveMigrateOnStart({ migrateOnStart: { backup: { dir: "data/backups", keep: 5 } } })).toEqual({ allowDataLoss: false, backup: { dir: "data/backups", keep: 5 }, explicit: true })
+    for (const keep of [0, 1.5]) {
+      expect(() => resolveMigrateOnStart({ migrateOnStart: { backup: { keep } } })).toThrow(expect.objectContaining({ code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED" }))
+    }
+
+    const config = (database: Record<string, unknown>) => ({ databaseNames: ["default"], databases: { default: database } }) as unknown as ResolvedDBViteConfig
+    expect(selectMigrateOnStartDatabases(config({ connection: { url: "file:data/app.sqlite" }, dialect: "sqlite" }), backup, "node")).toEqual(["default"])
+    for (const [database, problem] of [
+      [{ dialect: "postgresql" }, "It is a Postgres database."],
+      [{ connection: { url: "libsql://app.turso.io" }, dialect: "sqlite" }, "It uses remote libSQL."],
+      [{ connection: { url: ":memory:" }, dialect: "sqlite" }, "It is in memory."],
+    ] as const) {
+      expect(() => selectMigrateOnStartDatabases(config(database), backup, "node")).toThrow(expect.objectContaining({
+        code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+        why: expect.stringContaining(problem),
+      }))
+    }
+
+    // A URL from the environment is checked when the server starts.
+    const memory = createClient({ url: ":memory:" })
+    try {
+      await expect(migrateOnStart([{ db: drizzle({ client: memory }), dialect: "sqlite" as const, migrations: [startMigration(init)], name: "default" }], { backup: { keep: 3 } })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+        why: expect.stringContaining("It is in memory."),
+      })
+    }
+    finally {
+      memory.close()
+    }
+    await expect(migrateOnStart([{ db: {}, dialect: "postgresql" as const, migrations: [], name: "analytics" }], { backup: { keep: 3 } })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_BACKUP_UNSUPPORTED",
+      why: expect.stringContaining("It is a Postgres database."),
+    })
+  })
+
+  it("backs up a Nuxt Node server's SQLite file in a backups folder beside it", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const file = join(root, "data/app.sqlite")
+    const options = { connection: { url: `file:${file}` }, migrateOnStart: { backup: true } }
+    await writeMigrations(root, [init])
+    await (await buildNodeServer(root, options)).start()
+    expect(existsSync(join(root, "data/backups"))).toBe(false)
+
+    await writeMigrations(root, [init, seed])
+    const started = await (await buildNodeServer(root, options)).start()
+    const copies = await readdir(join(root, "data/backups"))
+    expect(copies).toHaveLength(1)
+    expect(started.stdout.trim().split("\n")).toEqual([
+      `[vitehub] Database "default": copied ${file} to ${join(root, "data/backups", copies[0]!)} before 1 migration(s).`,
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+  })
+})
+
+describe("ensureMigrations", () => {
+  // Parallel calls and a later call, then the rows of `users`.
+  const ensureThenSelect = [
+    'import { ensureMigrations } from "@vite-hub/database"',
+    'await Promise.all([ensureMigrations(), ensureMigrations("default")])',
+    "await ensureMigrations()",
+    ...selectUsers,
+  ]
+
+  it("applies the migrations once from a server without the start plugin", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    // SQLite does not migrate on start unless the app sets `migrateOnStart: true`.
+    const server = await buildNodeServer(root, { connection: { url } }, [], false, ensureThenSelect)
+    expect(server.config.plugins).toBeUndefined()
+
+    expect((await server.start()).stdout.trim().split("\n")).toEqual([
+      '[vitehub] Database "default": applied 20231114221320_init.',
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+    // A new process reads the ledger and finds nothing pending.
+    expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+  })
+
+  it("shares the run of the start plugin", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init, seed])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    // Without the ledger, a run of its own would apply `init` again and fail on the existing table.
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true }, [], false, [
+      'import { useDatabase as useStartDatabase } from "@vite-hub/database"',
+      'await useStartDatabase("default").db.$client.execute("DROP TABLE __drizzle_migrations")',
+      ...ensureThenSelect,
+    ])
+    expect(server.config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect((await server.start()).stdout.trim().split("\n")).toEqual([
+      '[vitehub] Database "default": applied 20231114221320_init.',
+      '[vitehub] Database "default": applied 20231114221321_seed.',
+      JSON.stringify([{ id: 7, name: "Ada" }]),
+    ])
+  })
+
+  it("forgets a failed run, so the next call applies the migrations", async () => {
+    const root = await createProject()
+    const client = createClient({ url: `file:${join(root, "retry.sqlite")}` })
+    try {
+      const gated = { dataLoss: [], hash: "gated", name: "20231114221320_gated", statements: ["INSERT INTO `gate` (`id`) VALUES (1)"], when: init.when }
+      let loads = 0
+      const context = {
+        databases: { sqliteRetry: { db: drizzle({ client }) } },
+        load: async () => {
+          loads++
+          return { allowDataLoss: false, databases: { sqliteRetry: { dialect: "sqlite" as const, migrations: [gated] } } }
+        },
+      }
+      await expect(ensureDatabaseMigrations(context)).rejects.toThrow("no such table: gate")
+      expect((await client.execute("SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).rows).toEqual([])
+
+      await client.execute("CREATE TABLE `gate` (`id` integer)")
+      await ensureDatabaseMigrations(context, ["sqliteRetry"])
+      await ensureDatabaseMigrations(context, ["sqliteRetry"])
+      // The failed run and one new run: the third call shares the second.
+      expect(loads).toBe(2)
+      expect((await client.execute("SELECT count(*) FROM gate")).rows[0]?.[0]).toBe(1)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("applies a migration once when calls for Definitions on one SQLite file overlap", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const clients = Array.from({ length: 4 }, () => createClient({ url }))
+    try {
+      await clients[0]!.execute("CREATE TABLE `events` (`message` text)")
+      const once = { dataLoss: [], hash: "once", name: "20231114221320_once", statements: ["INSERT INTO `events` (`message`) VALUES ('once')"], when: init.when }
+      const later = { dataLoss: [], hash: "later", name: "20231114221321_later", statements: ["INSERT INTO `events` (`message`) VALUES ('later')"], when: seed.when }
+      const names = ["sharedFirst", "sharedSecond", "sharedThird", "sharedFourth"] as const
+      const context = {
+        databases: Object.fromEntries(names.map((name, index) => [name, { db: drizzle({ client: clients[index]! }) }])),
+        load: async () => ({
+          allowDataLoss: false,
+          databases: Object.fromEntries(names.map(name => [name, { dialect: "sqlite" as const, migrations: name === "sharedFourth" ? [once, later] : [once] }])),
+        }),
+      }
+      // Two named calls, then a named call that overlaps the call for every Database.
+      await Promise.all([ensureDatabaseMigrations(context, ["sharedFirst"]), ensureDatabaseMigrations(context, ["sharedSecond"])])
+      await Promise.all([ensureDatabaseMigrations(context, ["sharedThird"]), ensureDatabaseMigrations(context)])
+
+      // The migration of the fourth Definition that the others do not have still applies.
+      expect((await clients[0]!.execute("SELECT message FROM events ORDER BY rowid")).rows.map(row => row[0])).toEqual(["once", "later"])
+      expect((await clients[0]!.execute("SELECT name FROM __drizzle_migrations ORDER BY id")).rows.map(row => row[0])).toEqual([once.name, later.name])
+    }
+    finally {
+      for (const client of clients) client.close()
+    }
+  })
+
+  it("ships the migrations to `ensureMigrations()` in a Vite build, and none to Cloudflare", async () => {
+    const root = await createProject()
+    await writeMigrations(root, [init])
+    const load = async (config: Record<string, unknown>) => {
+      const plugin = hubDatabaseVite({ migrateOnStart: { allowDataLoss: true } })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root, ...config })
+      // SAFETY: These are Vite hook handlers returned by hubDatabase.
+      const id = (plugin.resolveId as { handler: (id: string) => string | undefined }).handler("#vitehub/database/migrations")
+      // SAFETY: These are Vite hook handlers returned by hubDatabase.
+      const code = await (plugin.load as { handler: (id: string) => Promise<string> | undefined }).handler(id!)
+      return JSON.parse(code!.replace(/^export default /, ""))
+    }
+    const node = await load({ command: "build", nitro: { preset: "node-server" } })
+    expect(node).toMatchObject({ allowDataLoss: true, databases: { default: { dialect: "sqlite", migrations: [{ name: init.tag, when: init.when }] } } })
+    expect(await load({ command: "build", nitro: { preset: "cloudflare-module" } })).toEqual({ allowDataLoss: false, databases: {}, unsupported: "The build targets cloudflare." })
+  })
+
+  it("rejects a Database that is not configured, and a build that cannot migrate", async () => {
+    const load = async () => ({ allowDataLoss: false, databases: {}, unsupported: "The build targets cloudflare." })
+    await expect(ensureDatabaseMigrations({ databases: {}, load }, ["missing"])).rejects.toMatchObject({ code: "DATABASE_NOT_FOUND" })
+    await expect(ensureDatabaseMigrations({ databases: { sqliteUnsupported: { db: {} } }, load })).rejects.toMatchObject({
+      code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
+      why: expect.stringContaining("The build targets cloudflare."),
     })
   })
 })
@@ -538,7 +819,7 @@ describe("migrate on start defaults", () => {
     await writeMigrations(root, [init])
     const configFor = async (preset: string) => {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-      await hubDb({})(undefined, {
+      await hubDatabase({})(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
           if (event === "nitro:config") hooks.push(callback)
         },
@@ -562,7 +843,7 @@ describe("migrate on start defaults", () => {
     ].join("\n"))
     await writeMigrations(root, [init])
     const setup = async (options: { preset?: string }) => {
-      const plugin = hubDbVite({})
+      const plugin = hubDatabaseVite({})
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
       plugin.nitro.setup({ hooks: { hook: () => {} }, options: nitroOptions })

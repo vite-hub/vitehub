@@ -9,6 +9,13 @@ export {
 export {
   browser,
 } from "./browser.ts"
+export {
+  page,
+} from "./page.ts"
+export type {
+  PageCallFailure,
+  PageCapabilityOptions,
+} from "./page.ts"
 export type {
   BrowserCapabilityOptions,
 } from "./browser.ts"
@@ -91,6 +98,9 @@ export {
   posthogPapercuts,
 } from "./papercuts.ts"
 export {
+  createPapercutIndex,
+} from "./papercut-index.ts"
+export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
@@ -117,6 +127,9 @@ export {
 export {
   diagnostics,
 } from "./diagnostics.ts"
+/** The Node inspector for `diagnostics({ resources })`. It reads the process, the host, and Linux cgroup v2. */
+export { nodeRuntimeResources } from "@vite-hub/runtime/internal/node"
+export type { NodeRuntimeResourceInspectorOptions } from "@vite-hub/runtime/internal/node"
 export type {
   DiagnosticsCapabilityOptions,
 } from "./diagnostics.ts"
@@ -301,6 +314,12 @@ export type {
   PapercutSeverity,
   PosthogPapercutsOptions,
 } from "./papercuts.ts"
+export type {
+  MemoryPapercutIndex,
+  PapercutIndex,
+  PapercutIndexOptions,
+  PapercutOccurrence,
+} from "./papercut-index.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,

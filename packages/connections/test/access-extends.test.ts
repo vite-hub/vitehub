@@ -66,7 +66,7 @@ describe("Connection access through Agent extends", () => {
     expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(approval).toMatchObject({ actor: "agent:bot-dev", input: { inherited: ["agent:bot"] } })
-    await expect(test.runtime.approve({ id: approval!.id })).resolves.toMatchObject({ approval: { status: "executed" } })
+    await expect(test.runtime.approve({ actor: "user:owner", id: approval!.id })).resolves.toMatchObject({ approval: { status: "executed" } })
   })
 
   it("rejects a stored approval whose inherited set is not a list of Agent actors", async () => {
@@ -79,7 +79,7 @@ describe("Connection access through Agent extends", () => {
     const tampered = { ...approval!, id: "approval_tampered", input: { ...(approval!.input as object), inherited: ["server"] } }
     await test.store.approvals.create(tampered)
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id: tampered.id })).rejects.toBeDefined()
+    await expect(test.runtime.approve({ actor: "user:owner", id: tampered.id })).rejects.toBeDefined()
     expect(test.provider.calls).toHaveLength(before)
   })
 })

@@ -29,13 +29,13 @@ async function developmentHandler(options: Parameters<typeof vitehub>[0]): Promi
 
 describe("the Connections management API", () => {
   it.each([{ auth: false } as const, false as const])("is the app's own API and never uses Console access (console: %s)", async (console) => {
-    const handler = await developmentHandler({ connections: true, console, database: true, preset: "node" })
+    const handler = await developmentHandler({ connections: true, console, database: true, host: "node" })
     expect(handler).toContain('actor: "development"')
     expect(handler).not.toContain("console")
   })
 
   it("uses the actor module that the app sets", async () => {
-    const handler = await developmentHandler({ connections: { management: { actor: "./server/connections-actor.ts" } }, console: true, database: true, preset: "node" })
+    const handler = await developmentHandler({ connections: { management: { actor: "./server/connections-actor.ts" } }, console: true, database: true, host: "node" })
     expect(handler).toContain("connections-actor.ts")
     expect(handler).not.toContain("#vitehub/console")
   })

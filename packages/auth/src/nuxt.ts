@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -43,6 +44,7 @@ type NuxtLike = {
     }
     rootDir?: string
     serverDir?: string
+    srcDir?: string
     vite?: {
       define?: Record<string, unknown>
       plugins?: unknown[]
@@ -72,6 +74,17 @@ const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
 const componentsRegistered = new WeakSet<object>()
 const abilitiesWatchRegistered = new WeakSet<object>()
+const manifestRegistered = new WeakSet<object>()
+
+/** Better Auth's Vue client file, which `createAuthClient()` imports on first use. */
+function resolveBetterAuthVueClient(): string | undefined {
+  try {
+    return realpathSync(fileURLToPath(import.meta.resolve("better-auth/vue")))
+  }
+  catch {
+    return undefined
+  }
+}
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
@@ -160,7 +173,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (!pageMetaRegistered.has(nuxt) && nuxt.hook) {
     pageMetaRegistered.add(nuxt)
     ;(nuxt.hook as unknown as (name: "prepare:types", handler: (options: { declarations: string[] }) => void) => void)("prepare:types", ({ declarations }) => {
-      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/hosts. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
+      declarations.push(`declare module "#app" {\n  interface PageMeta {\n    /** Who may open the page. See https://vitehub.dev/docs/auth/protect-pages. */\n    auth?: import("@vite-hub/auth/nuxt").AuthPageMeta\n  }\n}`)
     })
   }
 
@@ -169,21 +182,38 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
     // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
-      if (components.some(component => component.pascalName === "Can")) return
-      components.push({
-        chunkName: "components/can",
-        export: "Can",
-        filePath,
-        global: false,
-        kebabName: "can",
-        meta: {},
-        mode: "all",
-        pascalName: "Can",
-        prefetch: false,
-        preload: false,
-        priority: 0,
-        shortPath: filePath,
-      })
+      for (const name of ["Can", "Cannot"]) {
+        // An app component with the same name wins.
+        if (components.some(component => component.pascalName === name)) continue
+        components.push({
+          chunkName: `components/${name.toLowerCase()}`,
+          export: name,
+          filePath,
+          global: false,
+          kebabName: name.toLowerCase(),
+          meta: {},
+          mode: "all",
+          pascalName: name,
+          prefetch: false,
+          preload: false,
+          priority: 0,
+          shortPath: filePath,
+        })
+      }
+    })
+  }
+
+  if (!manifestRegistered.has(nuxt) && nuxt.hook) {
+    manifestRegistered.add(nuxt)
+    // Nuxt prefetches the dynamic imports of the app entry on every page. The Auth plugin's client imports Better Auth
+    // on first use, so remove that import from the hints: a page that does not use Auth does not download Better Auth.
+    ;(nuxt.hook as unknown as (name: "build:manifest", handler: (manifest: Record<string, { dynamicImports?: string[] }>) => void) => void)("build:manifest", (manifest) => {
+      const client = resolveBetterAuthVueClient()
+      // Vite writes manifest keys relative to its root. Nuxt resolves `vite.root` to `srcDir` unless the app sets it.
+      const root = nuxt.options.vite?.root || nuxt.options.srcDir || nuxt.options.rootDir || process.cwd()
+      const key = client && Object.keys(manifest).find(id => resolve(root, id) === client)
+      if (!key) return
+      for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => id !== key)
     })
   }
 

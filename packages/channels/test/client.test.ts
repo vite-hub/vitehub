@@ -248,6 +248,27 @@ describe("createChannel", () => {
     expect(receipt).toBeUndefined()
   })
 
+  it("passes an object message to the adapter as is", async () => {
+    const send = vi.fn(async (_message: { card: { type: "card" }, fallbackText: string }) => ({ id: "card-1" }))
+    const channel = createChannel("alerts", { adapter: { kind: "teams", send } })
+    const message = { card: { type: "card" as const }, fallbackText: "Build finished" }
+
+    const [error, receipt] = await channel.send(message)
+
+    expect(error).toBeUndefined()
+    expect(receipt).toMatchObject({ channel: "alerts", id: "card-1" })
+    expect(send.mock.calls[0]?.[0]).toBe(message)
+  })
+
+  it.each([" ", null, ["Build finished."], 42].map(message => ({ message })))("returns an error for a message that is not text or an object: $message", async ({ message }) => {
+    const send = vi.fn(async () => ({ id: "delivery-1" }))
+    const channel = createChannel("alerts", { adapter: { kind: "telegram", send } })
+    const [error, receipt] = await channel.send(message as never)
+    expect(error).toMatchObject({ code: "CHANNEL_INVALID_SEND" })
+    expect(receipt).toBeUndefined()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("records failed deliveries without logging message content or send options", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const channel = createChannel("alerts", defineChannel({

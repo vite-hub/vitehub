@@ -29,7 +29,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -53,7 +53,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -76,7 +76,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     connections: true,
     env: {
       server: {
@@ -95,7 +95,7 @@ export default defineConfig({
 Define a Connection with the `google()` preset. `gmail.readonly` covers search and read; `gmail.compose` covers drafts.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 

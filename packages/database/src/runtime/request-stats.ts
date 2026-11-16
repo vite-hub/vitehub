@@ -168,3 +168,51 @@ export function trackPostgresClient<TClient extends object>(client: TClient): TC
     },
   })
 }
+
+const PGLITE_CALLS = new Set(["exec", "query", "sql"])
+
+/**
+ * A PGlite client, or one of its transactions, that counts every query for the active request. PGlite has private
+ * fields, so each method runs on the client itself.
+ */
+export function trackPgliteClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (typeof property === "string" && PGLITE_CALLS.has(property))
+        return (...args: unknown[]) => trackDatabaseCall(() => Reflect.apply(value, target, args))
+      // A transaction hands its callback a client of its own.
+      if (property === "transaction") {
+        return (...args: unknown[]) => Reflect.apply(value, target, args.map(arg => typeof arg === "function"
+          ? (transaction: object, ...rest: unknown[]) => Reflect.apply(arg, undefined, [trackPgliteClient(transaction), ...rest])
+          : arg))
+      }
+      return value.bind(target)
+    },
+  })
+}
+
+/** A node-postgres pool, or a client of it, that counts each promise query for the active request. */
+export function trackNodePostgresClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (property === "query") {
+        // A query with a callback returns no promise. Run it as it is.
+        return (...args: unknown[]) => typeof args.at(-1) === "function"
+          ? Reflect.apply(value, target, args)
+          : trackDatabaseCall(() => Reflect.apply(value, target, args) as PromiseLike<unknown>)
+      }
+      // Drizzle runs a transaction on a client that it takes from the pool.
+      if (property === "connect") {
+        return (...args: unknown[]) => {
+          const connected: unknown = Reflect.apply(value, target, args)
+          return connected instanceof Promise ? connected.then(poolClient => trackNodePostgresClient(Object(poolClient))) : connected
+        }
+      }
+      return value.bind(target)
+    },
+  })
+}

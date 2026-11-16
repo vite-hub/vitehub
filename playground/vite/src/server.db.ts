@@ -2,7 +2,7 @@ import { H3, readValidatedBody } from "h3"
 import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 
 const app = new H3()
 const analytics = useDatabase("analytics")

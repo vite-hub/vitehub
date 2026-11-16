@@ -3,6 +3,8 @@ import { resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
 import type { WorkspaceEntry, WorkspaceSourceMaterializationStatus } from "./core/types.ts"
 import type { WorkspaceSourceMetadata } from "./sources/config.ts"
 
+export { assertWorkspaceRules } from "./core/rule-keys.ts"
+
 export async function listMaterializedWorkspaceEntries(workspace: unknown): Promise<WorkspaceEntry[] | undefined> {
   const metadata = await resolveWorkspaceMetadataTarget(workspace)
   return await metadata?.list?.("", { recursive: true })

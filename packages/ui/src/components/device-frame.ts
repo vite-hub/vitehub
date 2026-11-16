@@ -117,6 +117,8 @@ export const DeviceFrame = defineComponent({
     breakpoints: { default: undefined, type: Array as PropType<readonly DeviceFrameBreakpoint[]> },
     /** Shows the content full size without the bar, and keeps the size for later. */
     disabled: { default: false, type: Boolean },
+    /** Shows the bar above the page while device mode is on. Pass `false` when the page around the frame has its own device controls. */
+    toolbar: { default: true, type: Boolean },
     /** Space in pixels under the page, for a toolbar that floats over the bottom of the frame. */
     insetBottom: { default: 16, type: Number },
   },
@@ -127,13 +129,13 @@ export const DeviceFrame = defineComponent({
     const presets = computed(() => props.presets ?? DEVICE_FRAME_PRESETS);
     const breakpoints = computed(() => props.breakpoints ?? DEVICE_FRAME_BREAKPOINTS);
     const first = presets.value[0] ?? DEVICE_FRAME_PRESETS[0]!;
-    const initial = (): DeviceFrameSize => ({
+    const initial = (stored?: DeviceFrameSize): DeviceFrameSize => ({
       on: false,
       id: first.id,
       width: first.width,
       height: first.height,
       zoom: null,
-      ...(readStored(props.storageKey) ?? props.defaultValue),
+      ...(stored ?? props.defaultValue),
     });
     const local = ref<DeviceFrameSize>(initial());
     const size = computed(() => props.modelValue ?? local.value);
@@ -176,6 +178,8 @@ export const DeviceFrame = defineComponent({
     const room = ref({ width: 0, height: 0 });
     let observer: ResizeObserver | undefined;
     onMounted(() => {
+      // Read after mount, so the first client render matches the server, which cannot read storage.
+      local.value = initial(readStored(props.storageKey));
       if (!stage.value || typeof ResizeObserver === "undefined") return;
       observer = new ResizeObserver(([entry]) => {
         if (entry) room.value = { width: entry.contentRect.width, height: entry.contentRect.height };
@@ -323,7 +327,7 @@ export const DeviceFrame = defineComponent({
     ] as const;
 
     watch(() => props.storageKey, () => {
-      if (props.modelValue === undefined) local.value = initial();
+      if (props.modelValue === undefined) local.value = initial(readStored(props.storageKey));
     });
 
     return () => {
@@ -331,7 +335,7 @@ export const DeviceFrame = defineComponent({
       const current = size.value;
       const s = scale.value;
       return h("div", { class: "vh-device-frame", "data-slot": "device-frame", "data-on": on ? "" : undefined, "data-dragging": held.value === null ? undefined : "" }, [
-        on ? toolbar() : null,
+        on && props.toolbar ? toolbar() : null,
         h("div", {
           key: "stage",
           ref: stage,

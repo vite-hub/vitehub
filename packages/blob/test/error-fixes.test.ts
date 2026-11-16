@@ -14,8 +14,9 @@ afterAll(() => {
 })
 
 it("gives each Blob code a fix and its own docs page", () => {
-  for (const [code, create] of Object.entries(blobErrorDiagnostics)) {
-    const error = create({ message: "message" })
+  // The named codes take typed params. error-fixes-classes.test.ts checks them.
+  for (const [code, create] of Object.entries(blobErrorDiagnostics).filter(([code]) => /_[BCR]\d{4}$/.test(code))) {
+    const error: { docs?: string, fix?: string } = Reflect.apply(create, undefined, [{ message: "message" }])
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/blob/diagnostics/${code.toLowerCase()}`)
   }
@@ -33,6 +34,17 @@ it("gives an unknown store name the fix of BLOB_R0027", async () => {
   await expect(blob.store("missing").get("note.txt")).rejects.toMatchObject({
     code: "BLOB_R0027",
     fix: blobErrorDiagnostics.BLOB_R0027({ message: "" }).fix,
-    message: "Unknown Blob store \"missing\".",
+    message: "Unknown Blob store \"missing\". Configured stores: \"default\".",
+  })
+})
+
+it("lists the configured store names for an unknown store name", async () => {
+  const store = { base: ".vitehub/data/blob", driver: "fs" } as const
+  setBlobRuntimeConfig({ store, stores: { default: store, media: store } })
+
+  await expect(blob.store("medai").get("note.txt")).rejects.toMatchObject({
+    code: "BLOB_R0027",
+    fix: expect.stringContaining("one of the store names that the message lists"),
+    why: "Unknown Blob store \"medai\". Configured stores: \"default\", \"media\".",
   })
 })

@@ -11,7 +11,7 @@ import { ConfigEditor, removeModuleEntry } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, loadNuxtConfig, readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
@@ -111,7 +111,7 @@ async function layerExtends(config: NuxtConfigFile): Promise<string[]> {
   const evaluated = (await loadNuxtConfig(config.path)).extends
   const layers = (Array.isArray(evaluated) ? evaluated : [evaluated]).map(entry => Array.isArray(entry) ? entry[0] : entry)
   if (layers.every((value): value is string => typeof value === "string")) return layers
-  throw new CodemodError(`Cannot determine the layers extended by ${config.path}. Use static layer paths before migrating.`)
+  throw codemodError(`Cannot determine the layers extended by ${config.path}. Use static layer paths before migrating.`)
 }
 
 async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
@@ -158,11 +158,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const moduleEntry = findModuleEntry(config, moduleName)
   const safeProperty = findProperty(config.root, "safeRuntimeConfig")
   if (!moduleEntry && !safeProperty) {
-    throw new CodemodError(`${config.fileName} does not use ${moduleName}: it has no "${moduleName}" module and no safeRuntimeConfig key.`)
+    throw codemodError(`${config.fileName} does not use ${moduleName}: it has no "${moduleName}" module and no safeRuntimeConfig key.`)
   }
   const options = await resolveOptions(config, mergeStatic(readStaticOptions(safeProperty?.value), readStaticOptions(moduleEntry?.inlineOptions)))
   const hasSchema = options.schemaPath !== undefined || options.schema !== undefined
-  if (options.envSchema && hasSchema) throw new CodemodError("safeRuntimeConfig sets both envSchema and $schema. The module accepts only one. Remove one, then run the codemod again.")
+  if (options.envSchema && hasSchema) throw codemodError("safeRuntimeConfig sets both envSchema and $schema. The module accepts only one. Remove one, then run the codemod again.")
   if (!options.envSchema && !hasSchema) return removeUnusedModule(cwd, config, safeProperty)
 
   const planned: PlannedFollowUp[] = []
@@ -177,7 +177,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (options.envSchema) {
     const file = options.envSchema.file
     const path = join(cwd, file)
-    if (!existsSync(path)) throw new CodemodError(`Cannot find the envSchema file ${file}.`)
+    if (!existsSync(path)) throw codemodError(`Cannot find the envSchema file ${file}.`)
     const plan = planFromEnvFile(readEnvFileKeys(await readFile(path, "utf8")), options.envSchema.paths, file)
     fields = plan.fields
     planned.push(...plan.followUps)
@@ -231,7 +231,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (schemaFile && label !== undefined) return { file: schemaFile, line: lines.get(label), message }
     return { file: config.fileName, line: edited.lineOf(["vitehub", "env"]), message }
   })
-  if (edited.presetNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "preset"]), message: edited.presetNote })
+  if (edited.hostNote) configFollowUps.push({ file: config.fileName, line: edited.lineOf(["vitehub", "host"]), message: edited.hostNote })
 
   const secretFollowUps: FollowUp[] = []
   for (const field of fields.filter(entry => entry.secret)) {
@@ -282,14 +282,14 @@ async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safePrope
     || (keyName(property.key, property.computed) === "extends"
       && !(property.type === "ObjectProperty" && property.value.type === "ArrayExpression" && property.value.elements.length === 0)))
   if (inheritsConfig || layers.length) {
-    throw new CodemodError(`${config.fileName} uses layers or a root spread. Schema-free removal cannot verify inherited schemas or useSafeRuntimeConfig() calls. Review the layer options and calls, then remove ${moduleName} by hand or declare the schema in the app config and run the codemod again.`)
+    throw codemodError(`${config.fileName} uses layers or a root spread. Schema-free removal cannot verify inherited schemas or useSafeRuntimeConfig() calls. Review the layer options and calls, then remove ${moduleName} by hand or declare the schema in the app config and run the codemod again.`)
   }
   const sources = await glob(["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
   for (const file of sources.sort()) {
     const lines = (await readFile(join(cwd, file), "utf8")).split("\n")
     const index = lines.findIndex(text => text.includes("useSafeRuntimeConfig"))
     if (index >= 0) {
-      throw new CodemodError(`safeRuntimeConfig has no envSchema and no $schema, but ${file}:${index + 1} calls useSafeRuntimeConfig(). Add the schema, then run the codemod again, or replace the call with useRuntimeConfig() and remove the module by hand.`)
+      throw codemodError(`safeRuntimeConfig has no envSchema and no $schema, but ${file}:${index + 1} calls useSafeRuntimeConfig(). Add the schema, then run the codemod again, or replace the call with useRuntimeConfig() and remove the module by hand.`)
     }
   }
   if (safeProperty) editor.removeItem(safeProperty)

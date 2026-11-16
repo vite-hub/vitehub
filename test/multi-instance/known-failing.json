@@ -1,0 +1,16 @@
+{
+  "flaky": {
+    "schedule-once": "Schedule checks and writes its KV run record in separate steps, with a lock local to each process. Shared Redis and Postgres stores can run one occurrence more than once. Remove when Schedule claims each occurrence atomically across processes.",
+    "workflow-shared": "OpenWorkflow workers race on their schema setup at cold start, so one, two or all three start. #3839 fixes the race. Move it back to the mode lists, or remove it, when #3839 lands."
+  },
+  "with-redis": {
+    "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
+    "rate-limit-shared": "Rate Limit on Node is forced to the memory driver. Each instance allows 10 per minute.",
+    "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances."
+  },
+  "without-redis": {
+    "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
+    "rate-limit-shared": "Rate Limit on Node is forced to the memory driver. Each instance allows 10 per minute.",
+    "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances."
+  }
+}

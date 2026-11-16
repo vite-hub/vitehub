@@ -13,7 +13,7 @@ export default defineConfig({
     hubBlob({
       access: "private",
       driver: "vercel-blob",
-      token: "vercel_blob_rw_test",
+      token: process.env.BLOB_READ_WRITE_TOKEN,
     }),
   ],
   ssr: { noExternal: true },

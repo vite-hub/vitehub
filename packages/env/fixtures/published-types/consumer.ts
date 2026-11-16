@@ -2,6 +2,15 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { type EnvErrorCode, type EnvErrorDetails, type EnvSourceIdentifier } from "@vite-hub/env"
+import "@vite-hub/env/virtual"
+import { deriveSecret } from "#vitehub/env/server"
+
+declare const event: import("@vite-hub/env/internal/server").ViteHubContext
+
+deriveSecret("app:session") satisfies Promise<string>
+deriveSecret("app:session", { event, root: "another-root-secret" }) satisfies Promise<string>
+// @ts-expect-error Root secrets belong in the public options argument.
+deriveSecret("app:session", undefined, "another-root-secret")
 
 const code = "ENV_SOURCE_FAILED" satisfies EnvErrorCode
 const source = "git:branch" satisfies EnvSourceIdentifier

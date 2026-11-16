@@ -26,15 +26,16 @@ The package installs the binary `vitehub-codemods`. It requires Node.js 22.18 or
 
 | Code | When |
 | --- | --- |
-| `0` | Every codemod completed, also when it reported follow-ups. |
-| `1` | A codemod could not migrate, no codemod applies and the app has no `nuxt.config`, the directory does not exist, or an argument is unknown. |
+| `0` | Every codemod completed, also when it reported follow-ups, or no codemod applies. |
+| `1` | A codemod could not migrate, the directory has neither `package.json` nor `nuxt.config`, `nuxt.config` does not parse, the directory does not exist, or an argument is unknown. |
 
 ### How a migration runs
+
+If a codemod would edit a symbolic link or a file inside a linked directory, it stops without its edits. This applies with or without a codemod name, and also with `--dry-run`. Replace the link with a local file or directory before you retry.
 
 Without a codemod name, the command copies the app into a scratch directory named `.vitehub-migrate-<random>` inside the app, so packages and the lockfile resolve as they do from the app. It does not copy `.git`, `.nuxt`, `.output`, `.data`, `.vercel`, `.netlify`, `.wrangler`, or `node_modules`. The codemods run one after another on the copy. Then the command writes the combined edits to the app, unless `--dry-run` is set.
 
 - A codemod that cannot migrate changes nothing, and the report says why. The others still run.
-- If a codemod would edit a symbolic link or a file inside a linked directory, it stops without its edits. Replace the link with a local file or directory before you retry.
 - Existing `.vitehub-migrate` directories stay.
 
 ## Node API
@@ -51,14 +52,14 @@ console.log(formatMigrationReport(migration))
 
 | Export | Description |
 | --- | --- |
-| `runMigration({ cwd?, dryRun? })` | Detects and runs every codemod that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
-| `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CodemodError` when it cannot migrate. |
-| `detectCodemods(cwd)` | The codemods that apply to the app, each with the reason. |
-| `formatReport(run)`, `formatMigrationReport(migration)` | The text report that the CLI prints. |
+| `runMigration({ cwd?, dryRun?, codemods? })` | Detects and runs every codemod of `codemods` (default: all) that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings, supported }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
+| `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CODEMODS_BLOCKED`, or `CODEMODS_UNKNOWN` for an unknown name, when it cannot migrate. |
+| `detectCodemods(cwd, candidates?)` | The codemods that apply to the app, each with the reason. |
+| `formatReport(run)`, `formatMigrationReport(migration, nextSteps?)` | The text report that the CLI prints. `nextSteps` adds steps after those of the codemods. |
 | `formatDiff({ edits })` | The edits as unified diffs. |
-| `codemods`, `findCodemod(name)` | Every codemod, and one by name. |
+| `codemods`, `upgradeCodemods`, `findCodemod(name)` | Every codemod, the ones that `vitehub migrate` runs, and one by name. |
 | `runCli(argv)` | Runs the CLI with the arguments after the binary name, and resolves with the exit code. |
-| `CodemodError` | The error of a codemod that cannot migrate the app. |
+| `isCodemodError(error)` | Whether the error is a codemod that cannot migrate the app. |
 
 A `result` has a one-line `summary`, the planned `edits` (`path`, `before`, `after`), the `followUps` (`message`, and `file` and `line` where they apply), `notes`, and `nextSteps`.
 

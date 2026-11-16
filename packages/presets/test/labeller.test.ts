@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "@vite-hub/agent"
+import { gmail } from "@vite-hub/agent/channels"
+import { ask } from "@vite-hub/gateways"
 import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { cleanupLabeller, labeller } from "../src/labeller.ts"
+
+vi.mock("@vite-hub/agent/channels", async (original) => {
+  const channels = await original<typeof import("@vite-hub/agent/channels")>()
+  return { ...channels, gmail: vi.fn(channels.gmail) }
+})
 
 const message = {
   attachments: [],
@@ -87,7 +94,7 @@ describe("labeller preset", () => {
     }
   })
 
-  it.each(["dryRun", "hideUnmanagedLabels", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
+  it.each(["dryRun", "hideUnmanagedLabels", "relabel", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
     for (const value of ["false", "true", 0, 1, null, {}, []]) {
       expect(() => configured({ [policy]: value })).toThrow(/must be a boolean/)
     }
@@ -195,7 +202,47 @@ describe("labeller preset", () => {
     expect(calls).toEqual(["label:Receipts", "archive", "star"])
   })
 
-  it("keeps cleanup off until rules, apply, and live mode are all set", async () => {
+  it("offers Jev only the labels with a description", () => {
+    const choice = vi.spyOn(ask, "choice")
+    configured({
+      labels: { GitHub: {}, Receipts: { description: "Purchases" } },
+      rules: { github: { from: "notifications@github.com", label: "GitHub" } },
+    })
+    expect(choice.mock.lastCall?.[1]).toEqual({ Receipts: "Purchases", none: "No declared label clearly fits this email." })
+    choice.mockRestore()
+  })
+
+  it("passes maxAttempts to the Gmail Channel", () => {
+    configured({ maxAttempts: 3 })
+    expect(vi.mocked(gmail).mock.lastCall?.[0]).toMatchObject({ maxAttempts: 3 })
+    configured()
+    expect(vi.mocked(gmail).mock.lastCall?.[0]).not.toHaveProperty("maxAttempts")
+    expect(() => configured({ maxAttempts: 0 })).toThrow(/maxAttempts must be a positive integer/)
+  })
+
+  it("removes the other declared labels with relabel, and all of them when no label fits", async () => {
+    const calls: unknown[] = []
+    const message = {
+      channel: "gmail",
+      label: async (name: string) => { calls.push(["label", name]) },
+      modify: async (input: unknown) => { calls.push(["modify", input]) },
+      archive: async () => { calls.push(["archive"]) },
+    }
+    const relabel = configured({ relabel: true, actions: { Work: { archive: true } } })
+    const finish = relabel.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.9 } } })
+    await finish({ message, result: { label: { choice: "Work", confidence: 0.2 } } })
+    await finish({ message, result: { label: "none" } })
+    expect(calls).toEqual([
+      ["modify", { addLabels: ["Work"], removeLabels: ["Receipts"] }], ["archive"],
+      ["modify", { addLabels: [], removeLabels: ["Receipts", "Work"] }],
+      ["modify", { addLabels: [], removeLabels: ["Receipts", "Work"] }],
+    ])
+    expect(configured().options.relabel).toBe(false)
+    expect(() => configured({ relabel: "yes" })).toThrow(/relabel must be a boolean/)
+  })
+
+  it("keeps cleanup off until rules, apply, live mode, and trashEnabled are all set", async () => {
     const requests: string[] = []
     const client = async (request: { method: string, path: string }) => {
       requests.push(`${request.method} ${request.path}`)
@@ -211,9 +258,13 @@ describe("labeller preset", () => {
     await cleanupLabeller(configured({ cleanup, client, dryRun: false }))
     expect(requests).toEqual(["GET messages", "GET messages"])
 
-    const live = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false } })
+    const trashOff = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false } })
+    await expect(cleanupLabeller(trashOff, { apply: true })).resolves.toMatchObject({ applied: false })
+    expect(requests.slice(2)).toEqual(["GET messages"])
+
+    const live = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false, trashEnabled: true } })
     await expect(cleanupLabeller(live, { apply: true })).resolves.toMatchObject({ applied: true })
-    expect(requests.slice(2)).toEqual(["GET messages", "POST messages/m1/trash"])
+    expect(requests.slice(3)).toEqual(["GET messages", "POST messages/m1/trash"])
   })
 
   it("searches Spam too and skips messages that are gone before trash", async () => {
@@ -229,7 +280,7 @@ describe("labeller preset", () => {
       return {}
     }
     const query = 'label:"Shop/Deals" older_than:14d -is:starred -in:trash'
-    const agent = configured({ labels: { "Shop/Deals": {} }, cleanup: { promotions: { label: "Shop/Deals", olderThan: 14 } }, client, dryRun: false })
+    const agent = configured({ labels: { "Shop/Deals": {} }, cleanup: { promotions: { label: "Shop/Deals", olderThan: 14 } }, client, dryRun: false, trashEnabled: true })
     await expect(cleanupLabeller(agent, { apply: true })).resolves.toEqual({
       applied: true,
       rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],

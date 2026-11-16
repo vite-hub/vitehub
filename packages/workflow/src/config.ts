@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { normalizeHosting } from "@vite-hub/internal/hosting"
+import { getHostingProvider, normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
@@ -8,6 +8,7 @@ import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkflowResolutionInput {
   hosting?: string
+  inline?: boolean
 }
 
 const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
@@ -109,12 +110,12 @@ function normalizeOpenWorkflowSqliteOptions(value: unknown): OpenWorkflowSqliteO
   }
 }
 
-function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerOptions | undefined {
-  if (typeof value === "undefined") {
-    return undefined
+function normalizeOpenWorkflowWorkerOptions(value: unknown): false | OpenWorkflowWorkerOptions | undefined {
+  if (typeof value === "undefined" || value === false) {
+    return value
   }
   if (!isPlainObject(value)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be a plain object." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be `false` or a plain object." })
   }
 
   const concurrency = readPositiveInteger(value.concurrency, "workflow.worker.concurrency")
@@ -130,27 +131,27 @@ function isDefinedRuntimeConfigValue(value: unknown): boolean {
   return typeof value === "string" && !!value.trim() || isRuntimeEnvDeclaration(value)
 }
 
-function inferProvider(provider: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
+function inferProvider(options: Record<string, unknown>, hosting: string, inline: boolean): "cloudflare" | "openworkflow" | "vercel" {
+  const provider = options.provider
   if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
     return provider
   }
-  if (hosting.includes("netlify")) {
+  const host = getHostingProvider(hosting)
+  if (host === "netlify") {
     throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`." })
   }
-  if (hosting.includes("cloudflare")) {
-    return "cloudflare"
-  }
-  return "vercel"
+  if (host === "cloudflare") return "cloudflare"
+  if (host === "vercel") return "vercel"
+  if (hosting.includes("node") || hosting.includes("docker")) return "openworkflow"
+  if (hasOpenWorkflowStorageConfig(options)) return "openworkflow"
+  // Without a host target, or when inline runs are allowed, the Vercel adapter runs each Workflow inline.
+  if (!hosting || inline) return "vercel"
+  throw workflowErrorDiagnostics.WORKFLOW_C0020({
+    message: `\`workflow.provider\` cannot be inferred for ${JSON.stringify(hosting)} hosting. ViteHub infers Vercel Workflow only on Vercel. For durable runs, set \`workflow: { provider: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } }\`, or \`postgres: { url }\` instead of \`sqlite\`, and call \`startOpenWorkflowWorker()\` from \`@vite-hub/workflow/openworkflow\` in a long-lived process.`,
+  })
 }
 
-function inferProviderFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (typeof options.provider === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowStorageConfig(options)) {
-    return "openworkflow"
-  }
-  return inferProvider(options.provider, hosting)
-}
-
-function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
+function resolveProvider(options: Record<string, unknown>, hosting: string, inline: boolean): ResolvedWorkflowOptions {
   const shared: WorkflowSharedOptions = {
     ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
     ...(typeof options.name === "string" ? { name: options.name } : {}),
@@ -161,7 +162,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
-  const resolved = inferProviderFromOptions(options, hosting)
+  const resolved = inferProvider(options, hosting, inline)
 
   if (resolved === "cloudflare") {
     return defu(shared, { provider: "cloudflare" as const })
@@ -171,6 +172,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     const postgres = normalizeOpenWorkflowPostgresOptions(options.postgres)
     const sqlite = normalizeOpenWorkflowSqliteOptions(options.sqlite)
     const worker = normalizeOpenWorkflowWorkerOptions(options.worker)
+    const remote = readBoolean(options.remote, "workflow.remote")
 
     if (postgres?.url && sqlite?.path) {
       throw workflowErrorDiagnostics.WORKFLOW_C0012({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
@@ -180,7 +182,8 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
       {
         ...(postgres ? { postgres } : {}),
         ...(sqlite ? { sqlite } : {}),
-        ...(worker ? { worker } : {}),
+        ...(worker !== undefined ? { worker } : {}),
+        ...(remote === true ? { remote } : {}),
       },
       shared,
       { provider: "openworkflow" as const },
@@ -198,5 +201,5 @@ export function normalizeWorkflowOptions(options: WorkflowOptions | undefined, i
   if (options && Object.hasOwn(options, "database") && options.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_C0017({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
   }
-  return resolveProvider(options || {}, normalizeHosting(input.hosting))
+  return resolveProvider(options || {}, normalizeHosting(input.hosting), input.inline === true)
 }

@@ -13,7 +13,12 @@ describe("built Comments overlay", () => {
       fileURLToPath(new URL("./fixtures/overlay-built.mjs", import.meta.url)),
       base,
     ])
-    expect(JSON.parse(stdout)).toEqual([
+    const sockets: string[] = JSON.parse(stdout)
+    expect(sockets).toHaveLength(1)
+    const socket = new URL(sockets[0]!)
+    expect(socket.searchParams.get("clientId")).toMatch(/^\d+$/)
+    socket.searchParams.delete("clientId")
+    expect([socket.href]).toEqual([
       `wss://site.test${base}/api/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
     ])
   })

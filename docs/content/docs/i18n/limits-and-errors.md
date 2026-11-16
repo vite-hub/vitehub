@@ -34,6 +34,10 @@ A config error throws when the build starts. A runtime error comes back as `[err
 
 The app builds the server with an unsupported host. i18n needs Nitro 3, which runs each request in an async context. Use Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.
 
+### I18N_UNKNOWN_WORKSPACE
+
+The build stops because `i18n.workspace` names a Workspace that the app does not define, or because Workspace is not enabled. Set `i18n.workspace` to the name of a Workspace, or define it, such as `server/workspaces/translations/config.ts` for `"translations"`. The error lists the Workspaces that the app defines.
+
 ### I18N_MACRO_NOT_COMPILED
 
 `t`, `plural`, `select`, `selectOrdinal`, or `msg` from `vite-hub/i18n` ran without the ViteHub build, so it has no message ID. This happens when `i18n` is not enabled, or when a file that Vite does not build, such as a script that Node.js runs directly, imports the function. Enable `i18n` in `vitehub()` or `vite-hub/nuxt`, and import the function in a file that Vite builds.

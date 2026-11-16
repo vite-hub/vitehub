@@ -126,18 +126,19 @@ describe("fs blob driver", () => {
   it.each([
     ["empty cursor", ""],
     ["invalid alphabet", "!!!"],
-    ["non-numeric payload", Buffer.from("foo").toString("base64url")],
-    ["padded numeric payload", `${Buffer.from("0").toString("base64url")}=`],
+    ["unknown payload", Buffer.from("foo").toString("base64url")],
+    ["old index payload", Buffer.from("0").toString("base64url")],
+    ["padded payload", `${Buffer.from("after:a").toString("base64url")}=`],
     ["noncanonical pad bits", "MB"],
-    ["leading-zero numeric payload", Buffer.from("01").toString("base64url")],
+    ["invalid UTF-8 key", Buffer.concat([Buffer.from("after:"), Buffer.from([0xFF])]).toString("base64url")],
   ])("rejects malformed list cursors (%s)", async (_, cursor) => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     tempDirs.push(base)
     const driver = createDriver({ base, driver: "fs" })
     await driver.put("notes/one.txt", "one")
 
-    await expect(driver.list({ cursor })).rejects.toThrow("Invalid Blob cursor.")
-    await expect(driver.list({ cursor, folded: true })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
+    await expect(driver.list({ cursor, folded: true })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
   })
 
   it.each([false, true])("rejects malformed cursors before traversing a missing base (folded: %s)", async (folded) => {
@@ -145,8 +146,8 @@ describe("fs blob driver", () => {
     tempDirs.push(base)
     const driver = createDriver({ base: join(base, "missing"), driver: "fs" })
 
-    await expect(driver.list({ cursor: "MB", folded })).rejects.toThrow("Invalid Blob cursor.")
-    await expect(driver.list({ cursor: "", folded })).rejects.toThrow("Invalid Blob cursor.")
+    await expect(driver.list({ cursor: "MB", folded })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
+    await expect(driver.list({ cursor: "", folded })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
     await expect(driver.list({ folded })).resolves.toEqual({ blobs: [], hasMore: false })
   })
 

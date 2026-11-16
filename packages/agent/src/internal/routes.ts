@@ -25,13 +25,13 @@ export function agentRouteUsesParam(route: false | string | undefined, param: st
 /**
  * Generated static endpoints must not shadow application handlers.
  * With `namespace`, the route lives in a path that ViteHub reserves, such as `/_vitehub/agent`.
- * A terminal catch-all above that path, such as the Console page at `/_vitehub/**` or an application fallback at `/**`,
- * is a fallback: the router matches the static route first, and the catch-all never owns the reserved path.
+ * A terminal catch-all above that path, such as the Console page at `/_vitehub/**` or an application fallback at `/**`
+ * or `/[...path]`, is a fallback: the router matches the static route first, and the catch-all never owns the reserved path.
  */
 export function validateAgentStaticRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[], label = "readiness", namespace?: string): string {
   const normalized = normalizeAgentRoute(route).replace(/\/$/, "") || "/"
   if (!route.trim() || /[:*?#\x5B\x5D]/.test(normalized)) {
-    throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} requires a static route path.` })
+    throw agentDiagnostics.AGENT_ROUTE_NOT_STATIC({ label })
   }
   const target = normalized.split("/")
   const namespaceDepth = namespace && normalized.startsWith(`${normalizeAgentRoute(namespace).replace(/\/$/, "")}/`) ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0
@@ -48,7 +48,13 @@ export function validateAgentStaticRoute(route: string, handlers: readonly { rou
           && index === parts.length - 1
           && index < namespaceDepth
           && !parts.slice(0, index).some(prefix => prefix.startsWith(":") || prefix.includes("*"))
-        return !literalFallback
+        // The application's own fallback at the root may name its parameter, as `server/routes/[...path].get.ts`
+        // (`/:path(.*)`) does. Inside the reserved namespace, only the literal `**` of the Console page is a fallback.
+        const applicationFallback = index === 1
+          && index === parts.length - 1
+          && index < namespaceDepth
+          && (part.startsWith("**") || part.startsWith(":...") || /^:\w+\(\.\*\)$/.test(part))
+        return !literalFallback && !applicationFallback
       }
       if (target[index] === undefined) return false
       if (part !== target[index] && !part.startsWith(":") && part !== "*") return false

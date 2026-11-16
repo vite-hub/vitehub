@@ -49,8 +49,8 @@ describe("Console section preferences", () => {
       "schedules",
     ])
     expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, host: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
@@ -122,14 +122,15 @@ describe("Console section routes", () => {
 })
 
 describe("Console section groups", () => {
-  it("groups the rail by purpose, keeps the navigation order, and puts unknown sections last", () => {
-    const ids = ["env", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
+  it("groups the sidebar by purpose, keeps the navigation order, and puts unknown sections last", () => {
+    const ids = ["env", "agents", "usage", "comments", "blob", "databases", "auth", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
     const groups = groupConsoleSections(ids.map(id => ({ id }))).map(group => group.map(section => section.id))
     expect(groups).toEqual([
-      ["agents", "usage"],
+      ["comments"],
       ["blob", "databases", "kv", "workspaces"],
-      ["sandbox-tasks", "workflows", "queues", "schedules"],
-      ["env", "email", "rate-limits"],
+      ["auth", "email"],
+      ["agents", "usage"],
+      ["env", "rate-limits", "sandbox-tasks", "workflows", "queues", "schedules"],
       ["custom-tool"],
     ])
   })
@@ -143,9 +144,10 @@ describe("Console section groups", () => {
   })
 
   it("labels every group and resolves the group of one section", () => {
-    expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Agents", "Data", "Runtime", "Platform", "More"])
-    expect(resolveConsoleSectionGroup("usage")).toBe("agents")
+    expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Site", "Data", "Users", "AI", "Runtime", "More"])
+    expect(resolveConsoleSectionGroup("usage")).toBe("ai")
     expect(resolveConsoleSectionGroup("schedules")).toBe("runtime")
+    expect(resolveConsoleSectionGroup("connections")).toBe("runtime")
     expect(resolveConsoleSectionGroup("custom-tool")).toBe("more")
     expect(resolveConsoleSectionGroup("constructor")).toBe("more")
   })
@@ -178,6 +180,7 @@ describe("Console Go to shortcuts", () => {
       "mcp-client": "g p",
       databases: "g d",
       kv: "g k",
+      cache: "g j",
       logs: "g l",
       blob: "g b",
       workspaces: "g w",
@@ -188,6 +191,7 @@ describe("Console Go to shortcuts", () => {
       env: "g e",
       email: "g m",
       "rate-limits": "g r",
+      site: "g c",
       setup: "g y",
     })
   })

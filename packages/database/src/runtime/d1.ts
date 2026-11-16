@@ -23,3 +23,5 @@ export function createDefinitionRuntime<TSchema extends Record<string, unknown>,
 ) {
   return createDrizzleSqliteAdapter<TSchema, TRelations>(runtimeConfig(definition), definition.relations, options)
 }
+
+export const createConfiguredDatabase: typeof createHostedDrizzleDb = createHostedDrizzleDb

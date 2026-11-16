@@ -13,13 +13,13 @@ import type { FollowUp } from "../types.ts"
 const removedViteKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "vitehub", "workflow", "workspace"]
 
 /** The standalone plugin that takes the options of each key as its argument. */
-const ownerPlugins: Record<string, { name: string, package: string }> = {
+const ownerPlugins: Record<string, { name: string, previousName?: string, package: string }> = {
   agent: { name: "hubAgent", package: "agent" },
   auth: { name: "hubAuth", package: "auth" },
   blob: { name: "hubBlob", package: "blob" },
   browser: { name: "hubBrowser", package: "browser" },
-  database: { name: "hubDb", package: "database" },
-  kv: { name: "hubKv", package: "kv" },
+  database: { name: "hubDatabase", previousName: "hubDb", package: "database" },
+  kv: { name: "hubKV", previousName: "hubKv", package: "kv" },
   queue: { name: "hubQueue", package: "queue" },
   rateLimit: { name: "hubRateLimit", package: "rate-limit" },
   sandboxTask: { name: "hubSandboxTask", package: "sandbox/task" },
@@ -88,12 +88,13 @@ function objectValue(node: Node | undefined): ObjectExpression | undefined {
 }
 
 /** Value imports of the expected API, checked against each call's lexical binding. */
-function importedNames(program: File, sources: readonly string[], imported: string): Map<string, Identifier> {
+function importedNames(program: File, sources: readonly string[], imported: string | readonly string[]): Map<string, Identifier> {
   const names = new Map<string, Identifier>()
+  const imports = typeof imported === "string" ? [imported] : imported
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !sources.includes(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === imported) names.set(specifier.local.name, specifier.local)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && imports.some(name => name === keyName(specifier.imported))) names.set(specifier.local.name, specifier.local)
     }
   }
   return names
@@ -125,7 +126,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
-  if (!code.includes("vite-hub") && !code.includes("hubEnv")) return unchanged
+  if (!/vite-hub|vitehub|hubEnv/.test(code)) return unchanged
   let program: File
   try {
     program = parseProgram(code)
@@ -152,6 +153,19 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     removed.add(node)
     changed = true
   }
+  /** Renames the `from` key of a vite-hub options object to `to`, and keeps its value. */
+  const renameKey = (options: ObjectExpression, from: string, to: string, conflict: string) => {
+    const item = property(options, from)
+    if (!item) return
+    if (property(options, to)) {
+      follow(item, conflict)
+      return
+    }
+    // A shorthand `{ preset }` and a computed `{ ["preset"]: ... }` key both need the whole property rewritten.
+    if (item.shorthand || item.computed) editor.output.overwrite(start(item), end(item), `${to}: ${text(item.value)}`)
+    else editor.output.overwrite(start(item.key), end(item.key), to)
+    changed = true
+  }
 
   for (const root of roots) {
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
@@ -176,6 +190,21 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   }
 
   for (const options of optionObjects) {
+    renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
+    const sandbox = property(options, "sandbox")
+    const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
+    if (sandbox && sandboxValue?.type === "BooleanLiteral") {
+      if (!sandboxValue.value) remove(sandbox)
+      else renameKey(options, "sandbox", "sandboxTask", "Both sandbox and sandboxTask are set. Remove sandbox.")
+    }
+    else if (sandbox) follow(sandbox, "sandbox is now sandboxTask. Move these options into sandboxTask by hand.")
+    const devtools = property(options, "devtools")
+    if (devtools) {
+      remove(devtools)
+      notes.push(`${file}: removed devtools. Use the ViteHub Console with console: true.`)
+    }
+    const cloudflare = property(options, "cloudflare")
+    if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)
@@ -309,10 +338,9 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       const value = unwrapExpression(item.value)
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
-      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.name), resolveBinding) : []
-      const frameworkOption = key !== "sandboxTask" || value.type === "BooleanLiteral"
+      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
       // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
-      if (key !== "vitehub" && frameworkOption && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
+      if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
         insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)
       }
@@ -321,9 +349,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
         remove(item)
       }
       else {
-        follow(item, !frameworkOption
-          ? "Sandbox Task accepts only a boolean in vitehub() and vite-hub/nuxt. Move these options into hubSandboxTask() by hand, and set sandboxTask: false in the framework options if it is enabled."
-          : nuxt
+        follow(item, nuxt
           ? `vite.${key} is no longer read. Set ${key} in the vite-hub/nuxt options.`
           : `The top-level Vite ${key} key is no longer read. Move it into vitehub({ ${key} }), or pass it to the feature's plugin.`)
       }

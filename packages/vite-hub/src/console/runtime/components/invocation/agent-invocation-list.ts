@@ -82,7 +82,7 @@ function renderItem(
   const time = consoleRelativeTime(timestamp, now);
   const state = h("span", { class: "vh-invocation-list__state", title: item.description }, [
     item.status === "completed"
-      ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
+      ? h("span", { "data-slot": "visually-hidden" }, invocationStatusLabel(item.status))
       : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
     item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
     time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,

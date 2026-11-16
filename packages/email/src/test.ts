@@ -23,14 +23,13 @@ export function createMemoryEmailDriver(): MemoryEmailDriver {
       messages.splice(0)
       nextId = 1
     },
-    async send(message, context) {
+    async send(message) {
       messages.push(structuredClone(message))
       return {
         data: {
           at: new Date(),
           driver: "memory",
           id: `memory-${nextId++}`,
-          stream: context.stream,
         },
         error: null,
       }

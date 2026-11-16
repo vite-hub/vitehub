@@ -9,49 +9,51 @@ icon: i-ph-translate-light
 ---
 
 ::product-hero{tagline="Write the app in your language. No keys. Translators edit one file per locale, and each request gets its own locale."}
-  :::product-files
-  ```vue [src/App.vue]
-  <script setup lang="ts">
-  import { useLocale } from 'vite-hub/i18n/vue'
+  :hero-figure{name="i18n"}
+::
 
-  const { locale, setLocale } = useLocale()
-  </script>
+::product-files
+```vue [src/App.vue]
+<script setup lang="ts">
+import { useLocale } from 'vite-hub/i18n/vue'
 
-  <template>
-    <!-- No import and no key: write the English text -->
-    <h1>{{ t`Deploy your agent` }}</h1>
-    <p><Trans>Read the <a href="/docs">docs</a> first.</Trans></p>
-    <button @click="setLocale(locale === 'en' ? 'es' : 'en')">{{ locale }}</button>
-  </template>
-  ```
+const { locale, setLocale } = useLocale()
+</script>
 
-  ```ts [server/api/greeting.ts]
-  import { defineEventHandler, getQuery } from 'h3'
-  import { getLocale, plural, t } from 'vite-hub/i18n'
+<template>
+  <!-- No import and no key: write the English text -->
+  <h1>{{ t`Deploy your agent` }}</h1>
+  <p><Trans>Read the <a href="/docs">docs</a> first.</Trans></p>
+  <button @click="setLocale(locale === 'en' ? 'es' : 'en')">{{ locale }}</button>
+</template>
+```
 
-  // No event to pass: `t` reads the locale of this request.
-  export default defineEventHandler((event) => {
-    const count = Number(getQuery(event).count ?? 1)
-    return {
-      locale: getLocale(),
-      message: t`Payment received`,
-      items: plural(count, { one: '# item', other: '# items' }),
-    }
-  })
-  ```
+```ts [server/api/greeting.ts]
+import { defineEventHandler, getQuery } from 'h3'
+import { getLocale, plural, t } from 'vite-hub/i18n'
 
-  ```json [locales/es/segments/52/5220fa743183ff60.json]
-  {
-    "hash": "5220fa743183ff60",
-    "source": "Deploy your agent",
-    "text": "Despliega tu agente",
-    "origin": "human",
-    "review": "edited",
-    "derived": "fresh",
-    "updatedAt": "2026-11-07T12:00:00.000Z"
+// No event to pass: `t` reads the locale of this request.
+export default defineEventHandler((event) => {
+  const count = Number(getQuery(event).count ?? 1)
+  return {
+    locale: getLocale(),
+    message: t`Payment received`,
+    items: plural(count, { one: '# item', other: '# items' }),
   }
-  ```
-  :::
+})
+```
+
+```json [locales/es/segments/52/5220fa743183ff60.json]
+{
+  "hash": "5220fa743183ff60",
+  "source": "Deploy your agent",
+  "text": "Despliega tu agente",
+  "origin": "human",
+  "review": "edited",
+  "derived": "fresh",
+  "updatedAt": "2026-11-07T12:00:00.000Z"
+}
+```
 ::
 
 ::product-features

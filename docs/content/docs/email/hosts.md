@@ -17,12 +17,12 @@ In `vite dev`, `hubEmail()` wraps the provider driver with a development outbox.
 The outbox records:
 
 - the sender, recipients, `cc`, `bcc`, and `replyTo`
-- the subject, preheader, text body, and HTML body
+- the subject, text body, and HTML body
 - the headers after ViteHub adds unsubscribe headers
 - attachment names, content types, and sizes, but not attachment content
 - tags, metadata, the provider driver name, and the delivery result
 
-For a single personalization, the outbox stores its recipients and subject. Messages show as Sending while the provider is pending, in the order they were sent.
+Messages show as Sending while the provider is pending, in the order they were sent.
 
 By default, a dev send stays in the outbox. The provider gets no request, `email.send()` returns an `outbox-<n>` id with `driver: 'outbox'`, and ViteHub does not read the provider options. So a signup flow you test in `vite dev` sends no real email.
 

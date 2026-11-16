@@ -24,7 +24,6 @@
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "chat": "catalog:chat",
-    "chat-state-cloudflare-do": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "valibot": "catalog:runtime",

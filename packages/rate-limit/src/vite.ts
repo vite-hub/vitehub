@@ -1,4 +1,5 @@
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
+import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { resolve } from "node:path"
 
@@ -8,7 +9,7 @@ import {
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentPreset, getResolvedFeatureOptions, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
@@ -17,14 +18,17 @@ import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
+import { resolveKVRateLimitProvider } from "./internal/kv-provider.ts"
 import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
 
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { RateLimitDeclaration, RateLimitOptions, RateLimitRuntimeConfig } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
+import { normalizeRateLimitPolicy } from "./policy.ts"
 
 // Generated code imports these modules by path, so they need no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
@@ -38,16 +42,38 @@ const pluginName = "@vite-hub/rate-limit/vite"
 const generatedNitroPlugin = ".vitehub/nitro/rate-limit/plugin.ts"
 const mergeNoExternal = createNoExternalAddition(packageName)
 
+interface InternalRateLimitOptions extends RateLimitOptions {
+  /** The module that exports `kv` and `getKVStoreDriver` for the `kv` provider. */
+  kvImport?: string
+  /** ViteHub selected `kv` itself, so a store that cannot share counts falls back to memory with a warning. */
+  memoryFallback?: boolean
+}
+
+type ResolvedRateLimitProvider = RateLimitRuntimeConfig["provider"]
+
 export type RateLimitVitePluginOptions = RateLimitOptions
-export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] } }
+export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] } }
 type RateLimitConfig = UserConfig | ResolvedConfig
+
+/** The part of the KV integration that describes its build-selected default store. */
+interface KVVitePlugin {
+  api?: { getConfig?: () => { kv: false | { store: { driver: string } } } }
+}
+
+function effectiveProvider(provider: ResolvedRateLimitProvider, config: ResolvedConfig): ResolvedRateLimitProvider {
+  if (provider !== "kv") return provider
+  // SAFETY: The plugin name identifies KV, which owns driver selection and this configuration API.
+  const kvPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
+  const kv = kvPlugin?.api?.getConfig?.().kv
+  return resolveKVRateLimitProvider(kv ? kv.store.driver : undefined)
+}
 
 function mergeNitroConfig(
   config: RateLimitConfig,
   value: unknown,
   declarations: RateLimitDeclaration[],
   namespace: string | undefined,
-  provider: "cloudflare" | "memory" | undefined,
+  provider: ResolvedRateLimitProvider | undefined,
   nitroCloudflare: boolean,
   projectRoot: string,
 ): Record<string, unknown> {
@@ -70,24 +96,42 @@ function mergeNitroConfig(
   return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
-function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig): string {
+function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig, kvImport: string): string {
+  if (runtimeConfig.provider !== "kv") {
+    return [
+      "import { definePlugin } from 'nitro'",
+      `import { setRateLimitRuntimeConfig } from ${JSON.stringify(runtimeModule)}`,
+      "",
+      `const config = ${JSON.stringify(runtimeConfig)}`,
+      "export default definePlugin(() => {",
+      "  setRateLimitRuntimeConfig(config)",
+      "})",
+      "",
+    ].join("\n")
+  }
+  // The plugin asks KV for its configured driver at boot and prints the Rate Limit provider.
   return [
     "import { definePlugin } from 'nitro'",
-    `import { setRateLimitRuntimeConfig } from ${JSON.stringify(runtimeModule)}`,
+    `import { resolveRateLimitProvider, setRateLimitRuntimeConfig } from ${JSON.stringify(runtimeModule)}`,
+    `import { getKVStoreDriver, kv } from ${JSON.stringify(kvImport)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
     "export default definePlugin(() => {",
-    "  setRateLimitRuntimeConfig(config)",
+    "  setRateLimitRuntimeConfig(config, { driver: () => getKVStoreDriver(), storage: kv, store: 'default' })",
+    "  void resolveRateLimitProvider().catch(error => console.error('[vitehub] Rate Limit could not read the KV store. Each request tries again.', error))",
     "})",
     "",
   ].join("\n")
 }
 
+/** A build that counts in memory gets one warning, so a multi-instance deploy does not hide it. */
+const memoryBuildWarning = "[vitehub] Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit. To share the counts, enable KV on Node (ViteHub then selects the kv provider), or set rateLimit.provider to \"kv\", and configure a Redis KV store or use a Postgres Database."
+
 function resolveRateLimitNamespace(configured?: string): string | undefined {
   return configured?.trim() || undefined
 }
 
-function resolveProvider(options: RateLimitOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
+function resolveProvider(options: RateLimitOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): ResolvedRateLimitProvider | undefined {
   if (options.provider && options.provider !== "auto") return options.provider
   if (command === "serve") return "memory"
   const hosting = getHostingProvider(resolveHost({ nitro }))
@@ -100,21 +144,23 @@ function resolveProvider(options: RateLimitOptions, command: "build" | "serve", 
 }
 
 function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitOptions, nitro: unknown): boolean {
-  // ViteHub records the deployment preset separately from its memory runtime provider in dev.
-  if (getDeploymentPreset(config) === "cloudflare") return true
+  // ViteHub records the host separately from its memory runtime provider in dev.
+  if (getDeploymentHost(config) === "cloudflare") return true
   if (configured.provider === "cloudflare") return true
   return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
+  const kvImport = (options as InternalRateLimitOptions).kvImport ?? "@vite-hub/kv"
   let rateLimit: RateLimitOptions = options
   let declarations: RateLimitDeclaration[] = []
   let cloudflareBindings = false
   // The dev server runs the memory driver, so it checks the policies that the Cloudflare build rejects.
   let checkCloudflarePolicies = false
-  let provider: "cloudflare" | "memory" = "memory"
+  let provider: ResolvedRateLimitProvider = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
+  let warnedAboutMemory = false
 
   const discoverRateLimitCatalog = createRateLimitCatalogDiscovery()
 
@@ -131,17 +177,53 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     if (!projectRoot || !resolved) return
     collectDeclarations()
     if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
-    await writeRateLimitManifest(projectRoot, declarations, provider)
+    await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, resolved))
+  }
+
+  // A production build fails when it cannot give what the config asks for, instead of counting in each process.
+  const assertBuildProvider = (): void => {
+    if (!resolved || resolved.command !== "build") return
+    const effective = effectiveProvider(provider, resolved)
+    if (effective !== "memory") return
+    if (provider === "kv" && !(rateLimit as InternalRateLimitOptions).memoryFallback) {
+      const kvPlugin = resolved.plugins.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
+      const kv = kvPlugin?.api?.getConfig?.().kv
+      const store = kv ? `the default KV store uses ${kv.store.driver}, which has no shared atomic increment` : "the app has no KV store"
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_STORE_UNSUPPORTED({ message: `[vitehub] rateLimit.provider is "kv", but ${store}. Each server process would count in its own memory.` })
+    }
+    const strict = declarations.find(declaration => normalizeRateLimitPolicy(declaration.policy).enforcement === "strict")
+    if (strict) {
+      throw rateLimitErrorDiagnostics.RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED({ message: `[vitehub] Rate Limit "${strict.name}" requires strict enforcement, but this build counts in the memory of each server process, so several instances each allow the full limit.` })
+    }
+  }
+
+  const warnAboutMemory = (): void => {
+    if (!resolved || warnedAboutMemory || resolved.command !== "build" || declarations.length === 0 || effectiveProvider(provider, resolved) !== "memory") return
+    resolved.logger.warn(memoryBuildWarning)
+    warnedAboutMemory = true
   }
 
   const inspectionRoot = (): string => projectRoot ?? resolveViteHubProjectRoot(process.cwd(), { projectRoot: rateLimit.projectRoot })
 
   return {
+    api: {
+      // Nitro can rebuild server policies while Nuxt reuses the cached Vite bundle.
+      // The replay boundary calls this only after Database and KV have resolved.
+      validateNitroBuild(config: ResolvedConfig) {
+        resolved = config
+        rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
+        projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
+        provider = resolveProvider(rateLimit, config.command, (config as { nitro?: unknown }).nitro)!
+        collectDeclarations()
+        assertBuildProvider()
+      },
+    },
     name: pluginName,
     // Apply before Nitro's config hook so Nitro captures the composed output
     // regardless of plugin registration order.
     enforce: "pre",
     vitehub: {
+      durability: () => [{ export: "rateLimitDurability", input: { provider }, module: durabilityModuleFile(import.meta.url), primitive: "rate-limit" }],
       // The Console, `vitehub rate-limit`, and agents run these.
       operations: [{ export: "rateLimitOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).rateLimitOperations, module: operationsModule }],
       cli: async () => {
@@ -185,6 +267,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
     async configResolved(config) {
       resolved = config
+      warnedAboutMemory = false
       rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
@@ -203,10 +286,23 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         nitroCloudflare,
         projectRoot,
       )
-      await writeRateLimitManifest(projectRoot, declarations, provider)
+      await writeRateLimitManifest(projectRoot, declarations, effectiveProvider(provider, config))
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
-      const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
-      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig))
+      // `vite dev` runs one process, so memory counts are exact there.
+      const memoryFallback = provider === "kv" && ((rateLimit as InternalRateLimitOptions).memoryFallback === true || config.command === "serve")
+      const runtimeConfig: RateLimitRuntimeConfig = memoryFallback ? { memoryFallback, provider } : { provider }
+      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport))
+      // KV rereads Database's resolved definitions at buildStart; avoid warning before that choice is final.
+      if (provider !== "kv") {
+        assertBuildProvider()
+        warnAboutMemory()
+      }
+    },
+    async buildStart() {
+      if (provider !== "kv") return
+      await refreshDeclarations()
+      assertBuildProvider()
+      warnAboutMemory()
     },
     configureServer(server) {
       publishStandaloneOperationServer(server)
@@ -236,4 +332,3 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     },
   }
 }
-

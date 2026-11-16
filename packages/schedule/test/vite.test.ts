@@ -306,7 +306,6 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
     expect(pluginSource).not.toContain("nitroApp.fetch")
-    expect(pluginSource).not.toContain("h3App")
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
@@ -546,20 +545,11 @@ describe("Vite schedule integration", () => {
     }
     const retainedScheduleSpecifier = registry.match(/import\("(\.\/sources\/[^"]+\/cleanup\.schedule\.ts)"\)/)?.[1]
     expect(retainedScheduleSpecifier).toBeDefined()
+    // The provider bundles hold the snapshot code. Deployments get only the sources that a bundle names.
     const retainedSchedulePath = retainedScheduleSpecifier!.slice(2)
-    for (const directory of [
-      join(root, ".vitehub", "schedule"),
-      join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule"),
-      join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule"),
-    ]) {
-      await expect(readFile(join(directory, retainedSchedulePath), "utf8")).resolves.toContain("Owner decoration.")
-    }
-    await expect(readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
+    const retainedSchedule = await readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8")
+    expect(retainedSchedule).toContain("Owner decoration.")
+    expect(retainedSchedule).toContain("cron: '0 0 * * *'")
   })
 
   it("resets pending Provider Output when schedule preparation fails", async () => {

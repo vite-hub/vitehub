@@ -12,7 +12,7 @@ const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", () => {
+  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const docsPackage = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
@@ -21,14 +21,15 @@ describe("agent-ready HTTP contracts", () => {
     const diagnostics = modules.indexOf("./modules/diagnostics");
     expect(diagnostics).toBeGreaterThanOrEqual(0);
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
-    // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
-    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
+    // The docs module installs nuxt-agent-discovery, so the site does not list it. Content serves llms.txt.
+    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
+    expect(Object.keys(docsPackage.dependencies)).not.toContain("nuxt-llms");
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     expect(workspace).not.toContain("docus");
     // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
     expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
@@ -61,9 +62,9 @@ describe("agent-ready HTTP contracts", () => {
     expect(references["gmail.draft"]?.tools.map(tool => tool.name)).toEqual(["gmail_draft", "gmail_read", "gmail_search"]);
   });
 
-  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", () => {
+  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", async () => {
     const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     const links = [...source.matchAll(/href: "https:\/\/vitehub\.dev(\/[^"]*)"/g)].map(match => match[1]!);
     const machineResources = ["/openapi.json", "/.well-known/skills/vitehub/SKILL.md", "/mcp"];
 

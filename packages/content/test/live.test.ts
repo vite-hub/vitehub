@@ -58,7 +58,7 @@ async function setup(options: { live?: "auto" | false, table?: boolean } = {}) {
       about: singleton({ path: "about.md", fields: { title: z.string() } }),
       authors: documents({ path: "authors/*.json", fields: { name: z.string() } }),
     },
-    authorize: ({ user, action }) => user?.id === "ana" || (user?.id === "ben" && action !== "publish") || (user?.id === "viewer" && action === "read"),
+    authorize: ({ user, action }) => user?.id === "ana" || (user?.id === "ben" && action !== "publish") || (user?.id === "viewer" && action === "read-draft"),
     live: options.live,
     logger: false,
   })

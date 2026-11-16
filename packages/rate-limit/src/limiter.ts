@@ -173,7 +173,7 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
   const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
   const consume = Reflect.get(driver, "consume") as CreateRateLimiterOptions["driver"]["consume"]
   if (typeof consume !== "function") {
-    throw new TypeError("Rate Limit driver consume() must be callable")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver with a consume() function." })
   }
   const peek = Reflect.get(driver, "peek") as CreateRateLimiterOptions["driver"]["peek"]
   const reset = Reflect.get(driver, "reset") as CreateRateLimiterOptions["driver"]["reset"]
@@ -224,7 +224,7 @@ function isRateLimitDiagnostic(value: unknown): boolean {
 }
 
 const rateLimitDiagnosticCodes = new Set([
-  ...Array.from({ length: 45 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
+  ...Array.from({ length: 47 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
   "RATE_LIMIT_B0001",
   "RATE_LIMIT_B0002",
   "RATE_LIMIT_B0003",

@@ -31,7 +31,7 @@ Add `console: { auth: false }` to the ViteHub options in `nuxt.config.ts` or `vi
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', console: { auth: false } },
+  vitehub: { host: 'node', console: { auth: false } },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } })],
+  plugins: [vitehub({ host: 'node', console: { auth: false } })],
 })
 ```
 ::::
@@ -87,7 +87,7 @@ export default defineContent({
 
 - `extends: cms` makes this content a CMS. `vitehub()` then turns on `workspace`, `database`, and `blob` for you. Do not set `workspace` yourself.
 - `posts` keeps each post as a Markdown file under `posts/`. Each post has a `title` and a `date`.
-- `authorize` decides who may read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
+- `authorize` decides who may read `/api/content/**`, read drafts, write, and publish. Without it, nobody can. Here it lets everyone in, because the dev server has no signed-in user with `auth: false`. For production, see [Access](/docs/cms/configure#access).
 
 ::
 

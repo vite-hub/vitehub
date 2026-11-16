@@ -1,7 +1,6 @@
 import { emailProviderError, isEmailProviderError } from "../provider.ts";
 import {
   addresses,
-  applyPersonalization,
   applyUnsubscribe,
   bytesToBase64,
   formatAddress,
@@ -244,15 +243,10 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
   const request = configuredFetch ?? globalThis.fetch;
   if (typeof request !== "function")
     throw emailProviderError("resend", "NOT_CONFIGURED", "fetch is unavailable.");
-  let endpoint: string;
+  let url: URL;
   try {
     const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
-    const url = new URL(configuredEndpoint ?? "https://api.resend.com");
-    if (url.protocol !== "http:" && url.protocol !== "https:")
-      throw new TypeError("Unsupported protocol");
-    if (url.username || url.password || url.search || url.hash)
-      throw new TypeError("Unsupported URL components");
-    endpoint = url.href.replace(/\/+$/, "");
+    url = new URL(configuredEndpoint ?? "https://api.resend.com");
   } catch (cause) {
     throw emailProviderError(
       "resend",
@@ -261,85 +255,22 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
       { cause },
     );
   }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw emailProviderError("resend", "NOT_CONFIGURED", "endpoint must be a valid HTTP or HTTPS URL.");
+  const endpoint = url.href.replace(/\/+$/, "");
   return {
     name: "resend",
     async send(message, context) {
       let body: string;
       let idempotencyKey: string | undefined;
       try {
-        if (message.stream !== undefined || context.stream !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support stream selection.",
-            ),
-          };
-        }
-        const unsupportedOption = (["tracking", "amp", "dsn", "preheader", "locale"] as const).find(
-          (option) => message[option] !== undefined,
-        );
-        if (unsupportedOption) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              `Resend does not support the ${unsupportedOption} option.`,
-            ),
-          };
-        }
-        if (message.sandbox === true) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support sandbox delivery.",
-            ),
-          };
-        }
-        if (message.raw !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support raw message payloads.",
-            ),
-          };
-        }
-        if (message.template !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support template payloads.",
-            ),
-          };
-        }
-        if (
-          message.react !== undefined ||
-          message.jsx !== undefined ||
-          message.mjml !== undefined ||
-          message.handlebars !== undefined ||
-          message.handlebarsVars !== undefined ||
-          message.liquid !== undefined ||
-          message.liquidVars !== undefined
-        ) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "resend",
-              "UNSUPPORTED",
-              "Resend does not support renderer payloads.",
-            ),
-          };
-        }
         message = applyUnsubscribe(message, "resend");
-        message = applyPersonalization("resend", message);
         validateAttachments("resend", message);
         idempotencyKey = validateIdempotencyKey(message.idempotencyKey);
         if (

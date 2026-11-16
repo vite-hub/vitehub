@@ -3,6 +3,7 @@ import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsT
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
+import { useRelativeTime } from "../internal/relative-time.ts";
 import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
@@ -100,6 +101,7 @@ export const CommentPanel = defineComponent({
   slots: Object as SlotsType<CommentPanelSlots>,
   setup(props, { emit, slots }) {
     const UButton = useUIComponent("UButton");
+    const time = useRelativeTime();
     const inherited = props.comments ?? injectComments();
     if (!inherited && (!props.client || !props.subject)) {
       throw uiErrorDiagnostics.UI_R0002({
@@ -124,6 +126,10 @@ export const CommentPanel = defineComponent({
       scoped.value.filter((thread) => thread.status === status.value || (status.value === "open" && repliedSinceResolved(thread))),
     );
     const opened = computed(() => (threadId.value ? state.threads.value.find((thread) => thread.id === threadId.value) : undefined));
+
+    watch(opened, (thread, _previous, onCleanup) => {
+      if (thread) onCleanup(state.retainMark(thread.id));
+    }, { immediate: true, flush: "sync" });
 
     const body = ref("");
     const mentions = ref<string[]>([]);
@@ -217,7 +223,7 @@ export const CommentPanel = defineComponent({
             onClick: () => select(thread),
             type: "button",
           },
-          slots.row?.(rowSlotScope(thread)) ?? threadRow(thread, {
+          slots.row?.(rowSlotScope(thread)) ?? threadRow(thread, time, {
             detached: state.positions.value.get(thread.id)?.detached === true,
             preview: slots.preview?.(rowSlotScope(thread)),
             site: state.scope.value === "site",
@@ -292,6 +298,7 @@ export const CommentPanel = defineComponent({
               }, {
                 ...(slots.extra ? { extra: slots.extra } : {}),
                 ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+                ...(slots["mention-empty"] ? { "mention-empty": slots["mention-empty"] } : {}),
               }),
             ]),
       ];

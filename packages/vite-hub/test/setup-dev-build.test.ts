@@ -37,7 +37,7 @@ describe("dev Setup in a production build", () => {
     const builder = await createBuilder({
       cacheDir: `${root}.vite-cache`,
       logLevel: "silent",
-      plugins: [vitehub({ ...options, kv: true, preset: "node" }), nitro() as never],
+      plugins: [vitehub({ ...options, kv: true, host: "node" }), nitro() as never],
       root,
     } as never)
     await builder.buildApp()

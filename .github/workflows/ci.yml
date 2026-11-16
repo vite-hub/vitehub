@@ -30,6 +30,7 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - service-tests
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
@@ -37,7 +38,10 @@ jobs:
       - docs
       - docs-snippets
       - docs-deploy
+      - docs-demo
+      - docs-demo-deploy
       - console
+      - console-pixels
       - console-deploy
       - verify-providers
     if: ${{ always() }}
@@ -69,7 +73,7 @@ jobs:
             "verify-providers",
           ])
           // Deploys run only on a push to main.
-          const deployJobs = new Set(["docs-deploy", "console-deploy"])
+          const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
@@ -118,7 +122,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           version: 1.31.1
           advanced-security: false
@@ -303,6 +307,52 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
+  # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
+  # need a real Postgres and Redis. test/service-tests.mjs finds these files by
+  # the variable they read, so a new test file needs no change here.
+  service-tests:
+    name: postgres and redis tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: vitehub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find service tests
+        id: find
+        run: |
+          files="$(node test/service-tests.mjs --list)"
+          echo "${files:-No package test reads the service variables.}"
+          echo "found=${files:+true}" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.find.outputs.found == 'true' }}
+        uses: ./.github/actions/setup
+      - if: ${{ steps.find.outputs.found == 'true' }}
+        run: vp run test:services
+        env:
+          VITEHUB_TEST_POSTGRES_URL: postgres://postgres:vitehub@127.0.0.1:5432/postgres
+          VITEHUB_TEST_REDIS_URL: redis://127.0.0.1:6379
+
   # Consumer contracts stay on push. Shard 1/3 took a median of 11.7 minutes
   # in successful runs, and pull requests already wait for package tests.
   consumer-contracts:
@@ -454,6 +504,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - service-tests
       - consumer-contracts-success
       - node-22
       - docs
@@ -506,14 +557,123 @@ jobs:
           echo "vitehub.dev did not answer after the deploy." >&2
           exit 1
 
-  # console.vitehub.dev runs the Console app, packages/console, on Cloudflare with D1. Pull requests check that it builds
-  # and that Wrangler accepts its configuration. Pushes to main keep the build for console-deploy.
-  console:
-    name: hosted console
+  # The Lumen docs demo in packages/docs/playground: the same build and Worker check as vitehub.dev, on the workspace packages.
+  docs-demo:
+    name: docs demo
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # Cache the package builds, but generate the deployable app in this job, as the docs job does.
+      - run: vp run --cache -t vite-hub#build
+      - run: vp run --cache -t @vite-hub/docs#build
+      - run: vp run --no-cache --filter playground-docs-demo build
+      - name: Verify Worker bundle
+        run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/docs/playground/.output/server/wrangler.json
+      - name: Upload Worker bundle
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-demo-output
+          path: packages/docs/playground/.output
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  # docs-demo.vitehub.dev deploys from the verified bundle on every push to main, after its D1 migrations.
+  docs-demo-deploy:
+    name: docs demo deploy
+    needs:
+      - checks
+      - workflow-lint
+      - contracts-examples
+      - contract-tests
+      - package-tests-success
+      - consumer-contracts-success
+      - node-22
+      - docs-snippets
+      - docs-demo
+      - verify-providers
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Production
+      url: https://docs-demo.vitehub.dev
+    concurrency:
+      group: docs-demo-deploy
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Download Worker bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-demo-output
+          path: packages/docs/playground/.output
+
+      - name: Deploy docs-demo.vitehub.dev
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOCS_DEMO_GITHUB_CLIENT_ID: ${{ vars.DOCS_DEMO_GITHUB_CLIENT_ID }}
+          DOCS_DEMO_GITHUB_CLIENT_SECRET: ${{ secrets.DOCS_DEMO_GITHUB_CLIENT_SECRET }}
+          DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
+          DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
+          DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
+        run: |
+          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DOCS_DEMO_VITEHUB_SECRET DOCS_DEMO_VITEHUB_CONTENT_KEY DOCS_DEMO_VITEHUB_CONNECTIONS_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "The docs demo deploy needs $required in the Production environment." >&2
+              exit 1
+            fi
+          done
+          wrangler=./node_modules/.bin/wrangler
+          config=packages/docs/playground/.output/server/wrangler.json
+          # The Worker secrets live in the Production environment as DOCS_DEMO_<name>. Wrangler adds them to the deployed
+          # version and keeps secrets that the file leaves out.
+          secrets="$RUNNER_TEMP/docs-demo-secrets.json"
+          (umask 077; jq -n 'env | with_entries(select((.key | startswith("DOCS_DEMO_")) and .value != "") | .key |= ltrimstr("DOCS_DEMO_"))' > "$secrets")
+          "$wrangler" d1 migrations apply vitehub-docs-demo-users --remote --config "$config"
+          "$wrangler" d1 migrations apply vitehub-docs-demo-content --remote --config "$config"
+          "$wrangler" deploy --config "$config" --secrets-file "$secrets"
+          rm -f "$secrets"
+
+      - name: Check the live site
+        run: |
+          for _ in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error --max-time 30 -o /dev/null "https://docs-demo.vitehub.dev/raw/docs/getting-started.md?deploy=${GITHUB_SHA}"; then
+              echo "docs-demo.vitehub.dev serves ${GITHUB_SHA}."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "docs-demo.vitehub.dev did not answer after the deploy." >&2
+          exit 1
+
+  # Every Console runs packages/console: console.vitehub.dev on Cloudflare with D1, and self-hosted ones on Node with
+  # SQLite (the Dockerfile) or on Vercel with libSQL. Each host builds from this commit and runs the same smoke checks
+  # against its running build (packages/console/scripts/host-smoke.mjs), with env values off, as console.vitehub.dev
+  # runs, and then on, on the database of that host (scripts/env-smoke.mjs). The Cloudflare build also passes Wrangler's
+  # deploy check, and on pushes to main it is the build that console-deploy deploys.
+  console:
+    name: hosted console (${{ matrix.host }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [cloudflare, node, vercel]
     env:
-      VITEHUB_HOSTING: cloudflare
+      VITEHUB_HOST: ${{ matrix.host }}
       VITEHUB_CONSOLE_D1_ID: 8d505e03-74c1-4565-9e0d-984292802d42
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -529,15 +689,20 @@ jobs:
       - run: vp run --filter vite-hub build:console-account
       # The app bundles the page, so the marker goes in before the app build.
       - name: Identify Console build
+        if: ${{ matrix.host == 'cloudflare' }}
         run: |
           marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
           sed -i "s|</head>|${marker}</head>|" packages/vite-hub/.vitehub/console-account/index.html
       - run: vp run --filter @vite-hub/console build
       - name: Verify Worker configuration
+        if: ${{ matrix.host == 'cloudflare' }}
         run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/console/.output/server/wrangler.json --name vitehub-console
+      - name: Smoke-test the running Console and its env values
+        working-directory: packages/console
+        run: node scripts/host-smoke.mjs "$VITEHUB_HOST"
       # The page goes along, so console-deploy reads the marker from it.
       - name: Upload Console
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ matrix.host == 'cloudflare' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vitehub-console
@@ -547,6 +712,97 @@ jobs:
           include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
+
+  # The Console pixel oracle on a pull request that can move Console pixels: the Console source and playground, the kit
+  # styles, or @vite-hub/ui/theme.css. It captures the base branch and the pull request in the same job, so both sides
+  # have the same Chromium and fonts, and it fails when a shot changes. A pull request that changes pixels on purpose
+  # gets the console-pixels:expected label: the job then passes and still uploads the shots and the diff images.
+  console-pixels:
+    name: console pixels
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Only a pull request has a base to compare with."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(packages/vite-hub/src/console/|packages/kit/src/styles/|packages/ui/theme\.css$|packages/vite-hub/test/console-pixels\.browser\.mjs$|playground/console/)' <<<"$files"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch the Console, its styles, or the oracle."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/vite-hub/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      # The playground loads the Console from source, and the packages it imports, such as Auth, the kit styles, and
+      # theme.css, from dist. One `vp run` takes one task.
+      - name: Capture the pull request
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node packages/vite-hub/test/console-pixels.browser.mjs capture "$RUNNER_TEMP/console-pixels/head"
+      # The base runs the oracle of the pull request, so a change to the oracle applies to both sides.
+      - name: Capture the base
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          oracle=packages/vite-hub/test/console-pixels.browser.mjs
+          cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
+          install=false
+          git diff --quiet HEAD "$BASE_REF" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
+          git checkout --quiet --detach "$BASE_REF"
+          cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
+          if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
+          for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
+          node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
+      - name: Compare
+        id: compare
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if node packages/vite-hub/test/console-pixels.browser.mjs compare "$RUNNER_TEMP/console-pixels/base" "$RUNNER_TEMP/console-pixels/head"; then
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Reruns retain the original event payload, so read the current labels.
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'any(.labels[]; .name == "console-pixels:expected")')"
+          if [ "$expected" = "true" ]; then
+            echo "::warning::Console pixels changed, and the console-pixels:expected label accepts it. Explain each changed shot in the pull request."
+            exit 0
+          fi
+          echo "::error::Console pixels changed. Download the console-pixels artifact. If the change is on purpose, add the console-pixels:expected label and run the job again."
+          exit 1
+      - name: Upload the shots
+        if: ${{ always() && (steps.compare.outputs.changed == 'true' || (steps.changed.outputs.run == 'true' && failure())) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: console-pixels
+          path: ${{ runner.temp }}/console-pixels
+          retention-days: 7
+          if-no-files-found: ignore
 
   # console.vitehub.dev deploys from the verified build on every push to main, like the docs site. The Production
   # environment holds the Cloudflare token, which must allow Workers, D1, and custom domains on the vitehub.dev zone.
@@ -559,6 +815,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - service-tests
       - consumer-contracts-success
       - node-22
       - docs-snippets

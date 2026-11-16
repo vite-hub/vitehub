@@ -26,7 +26,7 @@ function request(evidence: string | undefined, init: { method?: string, url?: st
 const localHost = { host: "localhost:3000" }
 
 function nodeEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc") {
-  return { node: { req: { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path } } }
+  return { runtime: { node: { req: { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path } } } }
 }
 
 function webEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc") {
@@ -43,7 +43,7 @@ async function signs(headers: Record<string, string>): Promise<boolean> {
   await peer.viteHubDevPeerDevHandler(v2.event)
   const upgrade = { headers: { ...headers }, method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "/api/_vitehub/realtime/content/doc" }
   peer.viteHubDevPeerUpgradeListener(upgrade)
-  const results = [peer.viteHubDevPeerHeader in v1.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
+  const results = [peer.viteHubDevPeerHeader in v1.runtime.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
   expect(new Set(results).size, JSON.stringify(headers)).toBe(1)
   return results[0]!
 }
@@ -172,10 +172,10 @@ describe("dev peer key", () => {
 })
 
 describe("dev peer dev handler", () => {
-  it("signs a loopback request of H3 1 and replaces a client copy", async () => {
+  it("signs a loopback Node request without a Web request and replaces a client copy", async () => {
     const event = nodeEvent("127.0.0.1", { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" })
     await expect(peer.viteHubDevPeerDevHandler(event)).resolves.toBeUndefined()
-    const evidence = event.node.req.headers[peer.viteHubDevPeerHeader]
+    const evidence = event.runtime.node.req.headers[peer.viteHubDevPeerHeader]
     expect(evidence).not.toBe("v1.forged")
     await expect(peer.verifyViteHubDevPeer(request(evidence), peer.useViteHubDevPeerKey())).resolves.toBe(true)
   })
@@ -196,7 +196,7 @@ describe("dev peer dev handler", () => {
       const headers = { host: "localhost", [peer.viteHubDevPeerHeader]: forged, "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" }
       const v1 = nodeEvent(address, headers)
       await peer.viteHubDevPeerDevHandler(v1)
-      expect(v1.node.req.headers, String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
+      expect(v1.runtime.node.req.headers, String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
       const v2 = webEvent(address, headers)
       await peer.viteHubDevPeerDevHandler(v2.event)
       expect(v2.event.req.headers.has(peer.viteHubDevPeerHeader), String(address)).toBe(false)
@@ -207,7 +207,7 @@ describe("dev peer dev handler", () => {
   it("signs no request target that is not a path", async () => {
     const event = nodeEvent("127.0.0.1", localHost, "http://attacker.example/_vitehub/rpc")
     await peer.viteHubDevPeerDevHandler(event)
-    expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(event.runtime.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("signs no request that a tunnel or a proxy on this machine forwards", async () => {
@@ -283,7 +283,7 @@ describe("dev peer dev handler", () => {
     peer.useViteHubDevPeerKey()
     const http2 = nodeEvent("127.0.0.1", { ":authority": "localhost:3000" })
     await peer.viteHubDevPeerDevHandler(http2)
-    expect(http2.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(http2.runtime.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("refuses conflicting HTTP/2 Host and authority headers", async () => {
@@ -295,11 +295,11 @@ describe("dev peer dev handler", () => {
     ]) {
       const event = nodeEvent("127.0.0.1", headers)
       await peer.viteHubDevPeerDevHandler(event)
-      expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+      expect(event.runtime.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
     }
     const matching = nodeEvent("127.0.0.1", { ...localHost, ":authority": localHost.host })
     await peer.viteHubDevPeerDevHandler(matching)
-    expect(matching.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(matching.runtime.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("goes first in Nitro dev handlers once, and creates the key", () => {

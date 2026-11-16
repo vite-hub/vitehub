@@ -20,7 +20,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 const workflowRunStatuses = new Set(["completed", "failed", "queued", "running", "unknown"])
 
-export function isWorkflowRun(value: unknown): value is { id: string, metadata?: unknown, provider: string, result?: unknown, status: string } {
+export function isWorkflowRun(value: unknown): value is { error?: { message?: unknown }, id: string, metadata?: unknown, provider: string, result?: unknown, status: string } {
   if (typeof value !== "object" || value === null) return false
   const run = value as { id?: unknown, provider?: unknown, status?: unknown }
   const provider = run.provider

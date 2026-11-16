@@ -1,5 +1,5 @@
 import { Resend } from 'resend'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 

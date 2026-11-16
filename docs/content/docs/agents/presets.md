@@ -19,7 +19,7 @@ Import ready presets from `vite-hub/presets/<name>` (package `@vite-hub/presets`
 | [Babysitter](/docs/agents/babysitter) | Fix pull requests, answer reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
 | [Workspace](/docs/agents/workspace-preset) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
 
-The deployment `preset` in `vitehub({ preset: 'node' })` is different. It picks the server host, not an Agent workflow.
+The deployment `host` in `vitehub({ host: 'node' })` is different. It picks the server host, not an Agent workflow.
 
 ## Select and configure
 

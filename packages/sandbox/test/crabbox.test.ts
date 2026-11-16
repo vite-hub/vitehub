@@ -175,6 +175,27 @@ describe("createCrabboxRuntime", () => {
     })
   }, 30_000)
 
+  it("rejects kill signals that Crabbox cannot forward", async () => {
+    const root = await temporaryRoot()
+    const workspace = join(root, "workspace")
+    const bin = join(root, "bin")
+    await Promise.all([mkdir(workspace), mkdir(bin)])
+    await fakeCrabbox(bin)
+
+    await withEnvironment({ PATH: `${bin}:${process.env.PATH || ""}` }, async () => {
+      const sandbox = await resolveSandbox({ runtime: createCrabboxRuntime({ profile: "babysitter" }), cwd: workspace }, {})
+      const session = await sandbox.open()
+      try {
+        const child = await session.spawn!("true")
+        await expect(child.kill("SIGINT")).rejects.toMatchObject({ code: "SANDBOX_R0165" })
+        await expect(child.wait()).resolves.toEqual({ code: 0 })
+      }
+      finally {
+        await session.close()
+      }
+    })
+  }, 30_000)
+
   it.skipIf(process.platform !== "linux")("reclaims session-marked processes across supervisors and preserves unrelated root observers", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")

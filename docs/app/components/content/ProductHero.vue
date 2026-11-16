@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
 // section manifest. The default slot renders in the right column: a `::code-tree` file tree, a
-// `::product-screenshot` of the Console, or an animated component such as `::cms-console-demo`.
+// `::product-screenshot` of the Console, or the animated `:hero-figure` of the primitive.
 // The only action is Get started. The sidebar lists the other product pages.
 
 const props = defineProps<{
@@ -259,11 +259,6 @@ const channelPath = computed(() =>
 
 .vh-hero-panel :deep(> *) {
   margin: 0;
-}
-
-.vh-agent-demo :deep(.playground-stage) {
-  border-radius: calc(var(--ui-radius) * 2);
-  box-shadow: none;
 }
 
 </style>

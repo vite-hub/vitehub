@@ -1,6 +1,7 @@
 import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
+import { matchesAny } from "../core/path.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
@@ -86,6 +87,21 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     async getMeta(key, ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getMeta?.(key, ctx)
+    },
+    subset(include) {
+      const { cache, ignore, include: sourceInclude, ref, repo, root } = options
+      const subset = github({ auth: options.auth, cache, ignore, include: [...include], ref, repo, root })
+      if (!sourceInclude) return subset
+      // Keep the subset inside the items this Source holds.
+      const holds = (key: string) => matchesAny(key, typeof sourceInclude === "string" ? sourceInclude : [...sourceInclude])
+      const getKeys = async (ctx: Parameters<WorkspaceSource["getKeys"]>[0]) => (await subset.getKeys(ctx)).filter(holds)
+      return {
+        ...subset,
+        getKeys,
+        async getItems(ctx) {
+          return await Promise.all((await getKeys(ctx)).map(key => subset.getItem(key, ctx)))
+        },
+      }
     },
   }, resolvedOptions)
 }

@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -22,7 +23,7 @@ type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, 
  * public, and match the installed `vite-hub` version. Nitro adds the application base to the path.
  */
 export function addConsoleAppRoutes(
-  nitro: { publicAssets?: NitroPublicAsset[] },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
 ): void {
@@ -31,6 +32,36 @@ export function addConsoleAppRoutes(
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== skills),
   ]
+  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
+}
+
+/**
+ * Serves the script of the **Console** page tool at `<mount>/_vitehub/console/assets`, and the page tools session
+ * `GET <mount>/_vitehub/page/session` with the loader at `<mount>/_vitehub/page/assets`, so the Console link works in
+ * an app without Comments. When Comments added the session and the loader first, they stay as they are. `mount` is the
+ * route prefix from `viteHubPageToolsBase()`, or empty when Nitro adds the app base, as with Nuxt.
+ */
+export function addConsolePageToolRoutes(
+  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
+  consoleRuntimeRoot: string,
+  mount = "",
+): void {
+  const script = join(consoleRuntimeRoot, "page-tool")
+  const loader = join(consoleRuntimeRoot, "page")
+  const handler = join(consoleRuntimeRoot, "server/page-session.js")
+  // A second registration, such as after Vite resolved another base, replaces the entries of the first one.
+  nitro.handlers = (nitro.handlers ?? []).filter(candidate => candidate.handler !== handler)
+  nitro.publicAssets = [
+    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== script && asset.dir !== loader),
+    // The script URL has a version query, so a short cache is enough.
+    { baseURL: `${mount}/_vitehub/console/assets`, dir: script, maxAge: 300 },
+  ]
+  const kit = createNitroServerKit(nitro)
+  addViteHubPageToolRoutes(kit, { handler, loader, mount })
+  // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
+  nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
+  // SAFETY: As above.
+  nitro.publicAssets = kit.config.publicAssets as NitroPublicAsset[]
 }
 
 const consoleRouteGuardName = "vite-hub/console-route-guard"
@@ -64,8 +95,9 @@ function isConsoleRouteGuard(value: unknown): boolean {
 }
 
 /**
- * Add the one Console route of the app, `/_vitehub/rpc`. The ViteHub Console and the CLI `POST` signed calls to it, and
- * a browser `GET`s it with a one-time ticket that an operation made, such as for impersonation or Content preview.
+ * Add the Console routes of the app. The ViteHub Console and the CLI `POST` signed calls to `/_vitehub/rpc`, and a
+ * browser `GET`s it with a one-time ticket that an operation made, such as for impersonation or Content preview. A
+ * browser that opens `/_vitehub` goes to the Console, which sends it back signed in. See `server/site-entry.ts`.
  */
 export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[] },
@@ -79,6 +111,8 @@ export function addConsoleRpcHandler(
     // One birpc call per POST, or one ticket per GET. The route answers other requests with 405 and leaves the paths
     // below it to the app.
     { suffix: "/_vitehub/rpc", handler: join(consoleRuntimeRoot, "server/rpc.js") },
+    // `GET /_vitehub` sends the browser to the Console, which signs it in to the app with Site access.
+    { suffix: "/_vitehub", handler: join(consoleRuntimeRoot, "server/site-entry.js") },
   ]
   const ownedHandlers = new Set(registrations.map(registration => registration.handler))
   const ownedSuffixes = registrations.map(registration => registration.suffix)

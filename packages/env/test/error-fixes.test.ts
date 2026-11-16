@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { expect, it } from "vitest"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { envErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { parseEnvSchema } from "../src/env-schema/profile.ts"
@@ -12,9 +13,10 @@ import { envSchema } from "../src/env-schema/index.ts"
 const unused = new Set(["ENV_R0007", "ENV_R0024"])
 
 it("gives each raised Env code a fix and its own docs page", () => {
-  for (const [code, create] of Object.entries(envErrorDiagnostics)) {
+  for (const code of Object.keys(envErrorDiagnostics) as InferDiagnosticCodes<typeof envErrorDiagnostics>[]) {
+    const create = envErrorDiagnostics[code]
     if (unused.has(code)) continue
-    const error = create({ message: "message" })
+    const error = create({ accessor: "useServerEnv", message: "message" })
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/env/diagnostics/${code.toLowerCase()}`)
   }

@@ -21,6 +21,21 @@ describe("colocated Agent Skills", () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })
 
+  it("bounds repeated discovery and replaces or clears local Skills", () => {
+    const parent = defineAgent({ runtime: false, driver: { run: () => "ok" } })
+    const inherited = { base: { content: "Base", workspacePath: ".agents/skills/base/SKILL.md" } }
+    withColocatedAgentSkills(parent, inherited)
+    const child = defineAgent({ extends: parent })
+    const first = { first: { content: "First", workspacePath: ".agents/skills/first/SKILL.md" } }
+    for (let i = 0; i < 10_000; i++) withColocatedAgentSkills(child, first)
+    expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual({ ...inherited, ...first })
+    const second = { second: { content: "Second", workspacePath: ".agents/skills/second/SKILL.md" } }
+    withColocatedAgentSkills(child, second)
+    expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual({ ...inherited, ...second })
+    withColocatedAgentSkills(child, undefined)
+    expect(Reflect.get(child, colocatedAgentSkillsSymbol)).toEqual(inherited)
+  })
+
   it("recursively embeds files as binary-safe build sources", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
     roots.push(root)

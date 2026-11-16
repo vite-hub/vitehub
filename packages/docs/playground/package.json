@@ -1,0 +1,41 @@
+{
+  "name": "playground-docs-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "NODE_OPTIONS=--max-old-space-size=6144 nuxt build"
+  },
+  "dependencies": {
+    "@nuxt/ui": "catalog:nuxt",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/cms": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
+    "@vite-hub/content": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/docs": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "agents": "catalog:ai",
+    "ai": "catalog:ai",
+    "better-auth": "catalog:auth",
+    "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
+    "nuxt": "catalog:nuxt",
+    "tailwindcss": "^4.3.3",
+    "vite-hub": "workspace:*",
+    "zod": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "catalog:ui",
+    "@iconify-json/simple-icons": "catalog:ui",
+    "@iconify-json/vscode-icons": "catalog:ui",
+    "drizzle-kit": "catalog:database",
+    "wrangler": "4.147.0"
+  }
+}

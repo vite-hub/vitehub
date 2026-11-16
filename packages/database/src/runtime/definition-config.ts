@@ -11,7 +11,8 @@ interface DatabaseDefinitionDefaults {
   dev?: true
 }
 
-function defaultUrl(name: string) {
+/** The local SQLite file of a Definition without `connection.url`. */
+export function defaultUrl(name: string) {
   if (name === "default") return "file:.vitehub/data/database/sqlite.db"
   return `file:.vitehub/data/database/${name}.sqlite.db`
 }

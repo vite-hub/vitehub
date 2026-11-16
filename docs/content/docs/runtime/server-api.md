@@ -153,7 +153,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vitehub_leases TO lease_app
 
 ## Node process lifecycle
 
-`vite-hub/runtime/node` has Node-only helpers. When you inspect it, it reads Node process data and, on Linux, `/proc` and cgroup v2 files.
+ViteHub packages use the private `@vite-hub/runtime/internal/node` entry for Node-only helpers. Apps do not import this entry. When you inspect it, it reads Node process data and, on Linux, `/proc` and cgroup v2 files.
 
 `createProcessReconciler()` runs event-driven work for a long-lived Node service. It merges repeated triggers, runs periodic repair, stops new work, and waits for tracked work during a drain.
 
@@ -189,7 +189,5 @@ The [package README](https://github.com/vite-hub/vitehub/tree/main/packages/runt
 | Import | Provides |
 | --- | --- |
 | `vite-hub/runtime` | Context, Capability, policy, approval, trace, lease, diagnostic, error, execution authority, public URL, and host binding APIs. |
-| `vite-hub/runtime/h3` | `getRuntimeContext()`, `getStandardContext()`, and `installStandardContext()` for H3 events. |
-| `vite-hub/runtime/node` | Node process data, reconciliation, and graceful drain. |
 
 Do not import from `src`, `dist`, or `_internal` paths.

@@ -12,11 +12,10 @@ Files to change (9):
   server/utils/screenshot.ts
   test/screenshot.ts
 
-Manual follow-ups (4):
+Manual follow-ups (3):
   1. server/tasks/types.ts:1 Re-export `defineTask` and `runTask` from `nitro/task`, and the task types from `nitro/types`.
-  2. server/utils/env.ts:3 `runWithCloudflareEnv` is not public. Generated Server Env code wraps each request for you.
-  3. test/screenshot.ts:5 This string names `vite-hub/source/glob`. Its exports moved to `vite-hub/source`, so update it by hand.
-  4. package.json `nitro/task` comes from the `nitro` package. Add `nitro` to `dependencies`.
+  2. test/screenshot.ts:5 This string names `vite-hub/source/glob`. Its exports moved to `vite-hub/source`, so update it by hand.
+  3. package.json `nitro/task` comes from the `nitro` package. Add `nitro` to `dependencies`.
 
 Next steps:
   - Run your typecheck.

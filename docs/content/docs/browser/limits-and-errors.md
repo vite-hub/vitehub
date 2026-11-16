@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Limits
 
-- Browser Definitions and actions require the Cloudflare preset.
+- Browser Definitions and actions require the Cloudflare host.
 - A Browser action waits 30 seconds by default. Timeout fields in the action input raise this to at most 6 minutes plus 30 seconds of grace.
 - The Kitesurf engine has no idle timeout and no live handoff.
 - Handoff refs expire after 60 seconds by default. Change it with `policy.handoffTtl` on `createBrowser()` or `ttl` on `session.handoff()`.
@@ -17,7 +17,7 @@ icon: i-lucide-circle-alert
 
 ### BROWSER_UNAVAILABLE
 
-The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response. `runBrowser()` and Definitions throw it. `error.details` has the `preset`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other presets have no Browser provider, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
+The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response. `runBrowser()` and Definitions throw it. `error.details` has the `host`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other hosts have no Browser provider, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
 
 ## Production checks
 

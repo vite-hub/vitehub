@@ -6,8 +6,10 @@ import * as v from "valibot"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { checkLogExcerpt, compactCiLog, parseCheckLogSelection, type CheckLogExcerpt, type CheckLogSelection } from "./ci-logs.ts"
 import type { GitHubHost } from "./host.ts"
 import type { GitHubRepairCommit } from "./repair.ts"
+import type { GitHubDependencyStatus } from "./install.ts"
 
 interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void
@@ -28,7 +30,7 @@ const pageSchema = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.
 const threadOutcomeCommentsSchema = v.object({
   viewer: v.object({ login: v.string() }),
   node: v.object({ comments: v.object({
-    nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string() })) })),
+    nodes: v.array(v.object({ body: v.string(), author: v.nullable(v.object({ login: v.string(), __typename: v.optional(v.string()) })) })),
     pageInfo: pageSchema,
   }) }),
 })
@@ -101,6 +103,8 @@ export interface GitHubPullRequestOperationsOptions {
   commentPrefix?: string
   /** Host-owned checkout push, already bound to its source branch and expected-head lease. */
   push?: () => Promise<string>
+  /** Host-owned report of dependency inputs that changed since the last install. */
+  checkDependencies?: () => Promise<GitHubDependencyStatus>
   /** Host-owned frozen installation after resolving dependency conflicts. */
   refreshDependencies?: () => Promise<void>
   /** Host-owned staging and commit in the assigned repair checkout. */
@@ -141,17 +145,41 @@ export interface ReviewThreadAnswer {
   reason?: string
 }
 
+/**
+ * Whether a reviewer labeled a finding P0 or P1 at the start of its body, as Codex's `![P1 Badge]`
+ * image and Pullfrog's bold `**P1 · ...**` prefix do.
+ */
+export function reviewerLabeledSevere(body: unknown): boolean {
+  return typeof body === "string" && /^[\s*_]*(?:<sub>\s*)*(?:!\[)?P[01]\b/i.test(body)
+}
+
+/** A declined reason that names its finding P0 or P1, as the outcome instructions ask ("P1: ..."). */
+const severeDeclineReason = /^[\s*_]*P[01]\b/i
+
+/**
+ * `held` is true when the outcome was posted but the thread stays open for a person: the worker
+ * declined a finding its reviewer labeled P0 or P1, and no person replied in the thread yet.
+ */
+export interface ReviewThreadResolution {
+  held: boolean
+}
+
 export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
   mention(login: string, body: string): Promise<void>
-  readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
+  readCheckLogs(runId: number, selection?: CheckLogSelection): Promise<CheckLogExcerpt>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
-  readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
-  /** Posts the outcome and its reason as a thread reply, then resolves the thread. */
-  resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
+  readBaseCheckLogs(runId: number): Promise<CheckLogExcerpt & { repository: string, headSha: string }>
+  /**
+   * Posts the outcome and its reason as a thread reply, then resolves the thread. A declined P0 or P1 is
+   * refused. Declining a finding its reviewer labeled P0 or P1 posts the reply and leaves the thread
+   * open for a person, until a person replies in it.
+   */
+  resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<ReviewThreadResolution>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
+  checkDependencies(): Promise<GitHubDependencyStatus>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -170,7 +198,7 @@ const snapshotQuery = `query PullRequestOperationSnapshot($owner:String!,$name:S
 }`
 
 function nonempty(value: string, name: string): string {
-  if (!value.trim()) throw new Error(`${name} must not be empty.`)
+  if (!value.trim()) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_INPUT_EMPTY({ name })
   return value
 }
 
@@ -264,9 +292,13 @@ export function createGitHubPullRequestOperations(
   options: GitHubPullRequestOperationsOptions,
 ): GitHubPullRequestOperations {
   const [owner, name, extra] = options.repository.split("/")
+  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
   if (!owner || !name || extra !== undefined || !/^[\w.-]+\/[\w.-]+$/.test(options.repository)) throw new Error("Expected a GitHub owner/repository.")
+  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
   if (!Number.isSafeInteger(options.number) || options.number <= 0) throw new Error("Expected a positive pull request number.")
+  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
   if (!/^[a-f\d]{40}$/i.test(options.expectedHeadOid)) throw new Error("Expected a full GitHub head commit SHA.")
+  // Internal invariant: only the Babysitter calls this, with the repository, number, and SHAs of a pull request snapshot that it read from GitHub.
   if (options.expectedBaseOid !== undefined && !/^[a-f\d]{40}$/i.test(options.expectedBaseOid)) throw new Error("Expected a full GitHub base commit SHA.")
   const repository = options.repository
   const mentionAllowlist = new Set(normalizeGitHubMentionAllowlist(options.mentionAllowlist))
@@ -289,38 +321,40 @@ export function createGitHubPullRequestOperations(
     const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data
     if (isRecord(response) && Array.isArray(response.errors) && response.errors.length) {
       const messages = response.errors.map(error => isRecord(error) && typeof error.message === "string" ? error.message : String(error)).join("; ")
-      throw new Error(messages || "GitHub could not complete the pull request operation.")
+      throw presetsErrorDiagnostics.PRESETS_GITHUB_GRAPHQL_FAILED({ errors: messages })
     }
     return isRecord(response) && "data" in response ? response.data : response
   }
 
-  async function hasThreadAnswer(id: string, body: string): Promise<boolean> {
-    // forges only reads the first 100 comments in a thread. Read every page so
-    // a retry after either remote write can find an answer from this credential.
+  /** Every comment of a review thread and the credential's login. forges only reads the first 100 comments in a thread. */
+  async function threadComments(id: string) {
+    const comments: v.InferOutput<typeof threadOutcomeCommentsSchema>["node"]["comments"]["nodes"] = []
+    let viewer = ""
     let after: string | null = null
     const cursors = new Set<string>()
     do {
-      const data: v.InferOutput<typeof threadOutcomeCommentsSchema> = v.parse(threadOutcomeCommentsSchema, await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
-      if (data.node.comments.nodes.some(comment => comment.author?.login === data.viewer.login && comment.body === body)) return true
-      if (!data.node.comments.pageInfo.hasNextPage) return false
+      const data: v.InferOutput<typeof threadOutcomeCommentsSchema> = v.parse(threadOutcomeCommentsSchema, await graphQL(`query ReviewThreadOutcomeComments($id:ID!,$after:String){viewer{login} node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{body author{login __typename}} pageInfo{hasNextPage endCursor}}}}}`, { id, after }))
+      viewer = data.viewer.login
+      comments.push(...data.node.comments.nodes)
+      if (!data.node.comments.pageInfo.hasNextPage) break
       after = data.node.comments.pageInfo.endCursor
       if (!after || cursors.has(after)) throw presetsErrorDiagnostics.PRESETS_REVIEW_CURSOR_INVALID()
       cursors.add(after)
     } while (after)
-    return false
+    return { viewer, comments }
   }
 
   async function snapshot() {
     const data = v.parse(v.object({ repository: repositorySchema }), await graphQL(snapshotQuery, { owner: owner!, name: name!, number: options.number }))
     const pullRequest = data.repository.pullRequest
-    if (pullRequest.headRefOid !== expectedHeadOid) throw new Error("Pull request head changed; discard this worker's operations.")
-    if (pullRequest.state !== "OPEN") throw new Error("Pull request is no longer open and ready for repair.")
+    if (pullRequest.headRefOid !== expectedHeadOid) throw presetsErrorDiagnostics.PRESETS_OPERATION_HEAD_CHANGED()
+    if (pullRequest.state !== "OPEN") throw presetsErrorDiagnostics.PRESETS_OPERATION_PULL_REQUEST_CLOSED()
     const labels = pullRequest.labels.nodes.map(label => label.name)
     let page = pullRequest.labels.pageInfo
     const cursors = new Set<string>()
     while (page.hasNextPage) {
       const cursor = page.endCursor
-      if (!cursor || cursors.has(cursor)) throw new Error("GitHub returned an invalid label cursor.")
+      if (!cursor || cursors.has(cursor)) throw presetsErrorDiagnostics.PRESETS_GITHUB_PAGINATION_INVALID({ detail: "returned an invalid label cursor" })
       cursors.add(cursor)
       const result = v.parse(v.object({ node: v.object({ labels: v.object({ nodes: v.array(v.object({ name: v.string() })), pageInfo: pageSchema }) }) }), await graphQL(`query PullRequestOperationLabels($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{labels(first:100,after:$cursor){nodes{name} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
       labels.push(...result.node.labels.nodes.map(label => label.name))
@@ -331,14 +365,14 @@ export function createGitHubPullRequestOperations(
     const reviewCursors = new Set<string>()
     while (page.hasNextPage) {
       const cursor = page.endCursor
-      if (!cursor || reviewCursors.has(cursor)) throw new Error("GitHub returned an invalid review cursor.")
+      if (!cursor || reviewCursors.has(cursor)) throw presetsErrorDiagnostics.PRESETS_GITHUB_PAGINATION_INVALID({ detail: "returned an invalid review cursor" })
       reviewCursors.add(cursor)
       const result = v.parse(v.object({ node: v.object({ latestOpinionatedReviews: v.object({ nodes: v.array(reviewSchema), pageInfo: pageSchema }) }) }), await graphQL(`query PullRequestOperationReviews($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{latestOpinionatedReviews(first:100,after:$cursor){nodes{author{login __typename} state} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
       reviews.push(...result.node.latestOpinionatedReviews.nodes)
       page = result.node.latestOpinionatedReviews.pageInfo
     }
     const { latestOpinionatedReviews: _reviews, labels: _labels, ...fields } = pullRequest
-    if (options.eligible && !await options.eligible({ ...fields, repository, labels })) throw new Error("Pull request no longer matches the configured filter.")
+    if (options.eligible && !await options.eligible({ ...fields, repository, labels })) throw presetsErrorDiagnostics.PRESETS_OPERATION_FILTER_MISMATCH()
     return { ...data.repository, pullRequest: { ...fields, latestOpinionatedReviews: { nodes: reviews, pageInfo: { hasNextPage: false, endCursor: null } }, labels: pullRequest.labels } }
   }
 
@@ -374,7 +408,7 @@ export function createGitHubPullRequestOperations(
     const finalState = await snapshot()
     if (finalState.pullRequest.headRefOid !== pullRequest.headRefOid
       || finalState.pullRequest.baseRefName !== pullRequest.baseRefName) {
-      throw new Error("Pull request ref changed during auto-merge admission.")
+      throw presetsErrorDiagnostics.PRESETS_AUTO_MERGE_REF_CHANGED()
     }
     if (finalState.pullRequest.isDraft) return { status: "blocked", reason: "draft" }
     if (finalState.pullRequest.reviewDecision === "CHANGES_REQUESTED"
@@ -383,38 +417,44 @@ export function createGitHubPullRequestOperations(
     // forges `threads.merge()` cannot enable native auto-merge: GitHub offers it only through GraphQL.
     const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation EnablePullRequestAutoMerge($id:ID!,$method:PullRequestMergeMethod!,$head:GitObjectID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method,expectedHeadOid:$head}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, method, head: pullRequest.headRefOid }))
     const confirmed = result.enablePullRequestAutoMerge.pullRequest
-    if (confirmed.id !== pullRequest.id || confirmed.headRefOid !== pullRequest.headRefOid) throw new Error("GitHub did not confirm the expected pull request head.")
+    if (confirmed.id !== pullRequest.id || confirmed.headRefOid !== pullRequest.headRefOid) throw presetsErrorDiagnostics.PRESETS_AUTO_MERGE_HEAD_UNCONFIRMED()
     if (confirmed.state === "MERGED") return { status: "merged" }
-    if (confirmed.state !== "OPEN" || !confirmed.autoMergeRequest) throw new Error("GitHub did not confirm native auto-merge was enabled.")
+    if (confirmed.state !== "OPEN" || !confirmed.autoMergeRequest) throw presetsErrorDiagnostics.PRESETS_AUTO_MERGE_UNCONFIRMED()
     return { status: "enabled" }
   }
 
   async function exactBaseSnapshot(): Promise<string> {
-    if (!options.expectedBaseOid) throw new Error("This worker has no assigned base commit for CI comparison.")
-    const current = await snapshot()
-    if (current.pullRequest.baseRefOid !== options.expectedBaseOid) throw new Error("Pull request base changed; discard this base CI comparison.")
-    return options.expectedBaseOid
+    if (!options.expectedBaseOid) throw presetsErrorDiagnostics.PRESETS_OPERATION_BASE_MISSING()
+    const { pullRequest } = await snapshot()
+    if (pullRequest.baseRefOid === options.expectedBaseOid) return options.expectedBaseOid
+    // A busy default branch moves every few minutes. CI evidence for the assigned commit stays valid while the
+    // base branch still contains it. Compare with the branch, not the PR's `baseRefOid`: GitHub stops moving that
+    // on a conflicted PR, while a conflict repair is assigned the live branch tip. On 2026-11-14, 17 conflicted
+    // vite-hub/vitehub PRs had a recorded base up to 45 commits behind it, and every repair pass was refused.
+    const { provider } = await forge()
+    const comparison = (await provider.request<unknown>("GET", `/repos/${repository}/compare/${options.expectedBaseOid}...${pullRequest.baseRefName}`, { query: { per_page: 1 }, signal })).data
+    if (isRecord(comparison) && (comparison.status === "ahead" || comparison.status === "identical") && comparison.behind_by === 0) return options.expectedBaseOid
+    throw presetsErrorDiagnostics.PRESETS_OPERATION_BASE_CHANGED()
   }
 
   /** The workflow run, read as GitHub reports it, for its head and pull requests. */
   async function readRun(runId: number) {
-    if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+    if (!Number.isSafeInteger(runId) || runId <= 0) throw presetsErrorDiagnostics.PRESETS_WORKFLOW_RUN_ID_INVALID()
     const { provider, repo } = await forge()
     const ref: CiRunRef = { forge: provider.forge, instance: provider.instance, repo, id: String(runId) }
     const run = await provider.ci.getRun(ref, { signal })
     return { provider, run: { ref, raw: run.raw } }
   }
 
-  /** The logs of the failed jobs of one run, bounded to `logLimit` characters. */
-  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<{ text: string, truncated: boolean }> {
-    let text = ""
+  /** The compacted logs of the failed jobs of one run, each under a `## <job>` heading. */
+  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<string> {
+    const logs: string[] = []
     for await (const job of provider.ci.jobs(run.ref, { signal })) {
       if (job.state !== "failure") continue
       const log = await new Response(await provider.ci.log(job.ref, { signal })).text()
-      text += `${text ? "\n" : ""}## ${job.name}\n${log}`
-      if (text.length > logLimit) break
+      logs.push(`## ${job.name}\n${compactCiLog(log)}`)
     }
-    return { text: text.slice(0, logLimit), truncated: text.length > logLimit }
+    return logs.join("\n")
   }
 
   return {
@@ -427,7 +467,7 @@ export function createGitHubPullRequestOperations(
         // forges `ci.runs()` cannot filter by commit.
         provider.request<unknown>("GET", `/repos/${repository}/actions/runs`, { query: { head_sha: base, per_page: 100 }, signal }),
       ])
-      if (checks.warnings?.length) throw new Error(`GitHub could not read every check: ${checks.warnings.map(warning => warning.message).join("; ")}`)
+      if (checks.warnings?.length) throw presetsErrorDiagnostics.PRESETS_CHECKS_READ_INCOMPLETE({ warnings: checks.warnings.map(warning => warning.message).join("; ") })
       const checkRuns = checks.items.filter(check => check.ref.type === "check_run").map(check => v.parse(v.object({ id: v.number(), head_sha: v.string(), name: v.string(), status: v.string(), conclusion: v.nullish(v.string()), details_url: v.nullish(v.string()), html_url: v.optional(v.string()) }), check.raw))
       const statuses = checks.items.filter(check => check.ref.type === "status").map(check => v.parse(v.object({ id: v.number(), sha: v.optional(v.string()), context: v.string(), state: v.string(), description: v.nullish(v.string()), target_url: v.nullish(v.string()) }), check.raw))
       const runs = v.parse(v.object({ total_count: v.number(), workflow_runs: v.array(v.object({ id: v.number(), head_sha: v.string(), repository: v.object({ full_name: v.string() }), status: v.string(), conclusion: v.nullish(v.string()), name: v.optional(v.string()), html_url: v.optional(v.string()) })) }), runsResponse.data)
@@ -440,19 +480,20 @@ export function createGitHubPullRequestOperations(
         truncated: { checkRuns: currentRuns.length > 100, statuses: statuses.length > 100, workflowRuns: runs.total_count > 100 } }
     },
     async readBaseCheckLogs(runId) {
-      if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+      if (!Number.isSafeInteger(runId) || runId <= 0) throw presetsErrorDiagnostics.PRESETS_WORKFLOW_RUN_ID_INVALID()
       const base = await exactBaseSnapshot()
       const { provider, run } = await readRun(runId)
       const raw = v.parse(v.object({ head_sha: v.string(), repository: v.object({ full_name: v.string() }) }), run.raw)
       if (raw.head_sha !== base || raw.repository.full_name.toLowerCase() !== repository.toLowerCase()) {
-        throw new Error("Workflow run does not belong to this pull request's exact base commit.")
+        throw presetsErrorDiagnostics.PRESETS_WORKFLOW_RUN_BASE_MISMATCH()
       }
       const logs = await failedJobLogs(provider, run)
       await exactBaseSnapshot()
-      return { repository, headSha: base, ...logs }
+      return { repository, headSha: base, ...checkLogExcerpt(logs, logLimit) }
     },
-    async readCheckLogs(runId) {
-      if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+    async readCheckLogs(runId, selection = {}) {
+      if (!Number.isSafeInteger(runId) || runId <= 0) throw presetsErrorDiagnostics.PRESETS_WORKFLOW_RUN_ID_INVALID()
+      const lines = parseCheckLogSelection(selection)
       await snapshot()
       const { provider, run } = await readRun(runId)
       const raw = v.parse(v.object({
@@ -462,13 +503,13 @@ export function createGitHubPullRequestOperations(
       }), run.raw)
       if (raw.repository.full_name.toLowerCase() !== repository.toLowerCase()
         || !(raw.head_sha === expectedHeadOid || raw.pull_requests.some(pr => pr.number === options.number && pr.head.sha === expectedHeadOid))) {
-        throw new Error("Workflow run does not belong to this pull request head.")
+        throw presetsErrorDiagnostics.PRESETS_WORKFLOW_RUN_HEAD_MISMATCH()
       }
-      return await failedJobLogs(provider, run)
+      return checkLogExcerpt(await failedJobLogs(provider, run), logLimit, lines)
     },
     async comment(body) {
       nonempty(body, "Comment")
-      if (options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
+      if (options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_COMMENT_MENTION_FORBIDDEN()
       await snapshot()
       const { provider, pullRequest } = await forge()
       await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}${body}`, { signal })
@@ -476,10 +517,10 @@ export function createGitHubPullRequestOperations(
     async mention(login, body) {
       const targetLogin = nonempty(login, "GitHub login")
       if (!githubLoginPattern.test(targetLogin) || !mentionAllowlist.has(targetLogin.toLowerCase())) {
-        throw new Error("GitHub login is not in the configured mention allowlist.")
+        throw presetsErrorDiagnostics.PRESETS_MENTION_LOGIN_NOT_ALLOWED()
       }
       const message = nonempty(body, "Mention body")
-      if (await hasGitHubMention(message)) throw new Error("Mention body must not contain another mention.")
+      if (await hasGitHubMention(message)) throw presetsErrorDiagnostics.PRESETS_MENTION_BODY_MENTION()
       await snapshot()
       const { provider, pullRequest } = await forge()
       // Keep block Markdown at the start of the validated body on its own line.
@@ -493,6 +534,9 @@ export function createGitHubPullRequestOperations(
       // A finding closed without a code change needs its reason on the thread: it is the record the
       // author and the reviewer read, and the outcome marker is what review metrics count.
       if (outcome !== undefined && outcome !== "fixed" && !reason) throw presetsErrorDiagnostics.PRESETS_REVIEW_REASON_REQUIRED({ outcome })
+      // From 2026-11-07 to 11-13 workers declined 40 findings they classed P0 or P1, mostly because the
+      // review push budget was spent, and those PRs merged with the bugs.
+      if (outcome === "declined" && severeDeclineReason.test(reason ?? "")) throw presetsErrorDiagnostics.PRESETS_REVIEW_SEVERE_DECLINED()
       const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
       if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_REVIEW_MENTION_FORBIDDEN()
       await snapshot()
@@ -502,12 +546,18 @@ export function createGitHubPullRequestOperations(
           if (thread.id === id) return thread
         }
       })()
-      if (!found) throw new Error("Review thread does not belong to this pull request.")
-      if (found.resolved && body === undefined) return
-      const answered = body === undefined || await hasThreadAnswer(id, body)
+      if (!found) throw presetsErrorDiagnostics.PRESETS_REVIEW_THREAD_NOT_FOUND()
+      if (found.resolved && body === undefined) return { held: false }
+      const thread = body === undefined ? undefined : await threadComments(id)
+      const answered = body === undefined || thread!.comments.some(comment => comment.author?.login === thread!.viewer && comment.body === body)
+      // A worker may class a reviewer's P0 or P1 lower, but that call needs a person: on 2026-11-03
+      // vite-hub/vitehub#3278 merged an admin takeover a worker had relabeled P2. A person's reply releases it.
+      const [opening, ...replies] = thread?.comments ?? []
+      const held = outcome === "declined" && reviewerLabeledSevere(opening?.body)
+        && !replies.some(comment => comment.author && comment.author.login !== thread!.viewer && comment.author.__typename !== "Bot")
       const first = found.comments[0]
       if (!answered && !first) throw presetsErrorDiagnostics.PRESETS_REVIEW_COMMENT_MISSING()
-      if (found.resolved && answered) return
+      if (found.resolved && answered) return { held: false }
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
@@ -515,10 +565,12 @@ export function createGitHubPullRequestOperations(
       if (!answered && first && body !== undefined) {
         await writer.threads.replyToReviewComment(pullRequest, first, body, { signal })
       }
+      if (held) return { held: true }
       if (!found.resolved) await writer.threads.resolveReviewThread(pullRequest, id, { signal })
+      return { held: false }
     },
     async updateMetadata(input) {
-      if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")
+      if (input.title === undefined && input.body === undefined) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_UPDATE_EMPTY()
       const update: { title?: string, body?: string } = {}
       if (input.title !== undefined) update.title = nonempty(input.title, "Title")
       const current = await snapshot()
@@ -526,31 +578,35 @@ export function createGitHubPullRequestOperations(
         if (options.restrictCommentMentions) {
           const existing = new Set(await githubMentionTokens(current.pullRequest.body))
           const added = (await githubMentionTokens(input.body)).find((mention) => !existing.has(mention))
-          if (added) throw new Error("Pull request bodies cannot add GitHub mentions; use the guarded mention capability.")
+          if (added) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_BODY_MENTION()
         }
         update.body = input.body
         const rechecked = await snapshot()
-        if (rechecked.pullRequest.body !== current.pullRequest.body) throw new Error("Pull request body changed while validating the update; retry.")
+        if (rechecked.pullRequest.body !== current.pullRequest.body) throw presetsErrorDiagnostics.PRESETS_PULL_REQUEST_BODY_CHANGED()
       }
       const { provider, pullRequest } = await forge()
       await provider.threads.update(pullRequest, update, { signal })
     },
+    async checkDependencies() {
+      return await options.checkDependencies?.() ?? { current: true, changedInputs: [], reason: "This worker has no host dependency install." }
+    },
     async refreshDependencies() {
-      if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")
+      if (!options.refreshDependencies) throw presetsErrorDiagnostics.PRESETS_OPERATION_UNAVAILABLE({ operation: "dependency refresh" })
       await snapshot()
       await options.refreshDependencies()
     },
     async commitRepair(input) {
-      if (!options.commitRepair) throw new Error("This worker has no host-owned commit operation.")
+      if (!options.commitRepair) throw presetsErrorDiagnostics.PRESETS_OPERATION_UNAVAILABLE({ operation: "host-owned commit" })
       await snapshot()
       signal?.throwIfAborted()
       return await options.commitRepair(input)
     },
     async push() {
-      if (!options.push) throw new Error("This worker has no host-owned push operation.")
+      if (!options.push) throw presetsErrorDiagnostics.PRESETS_OPERATION_UNAVAILABLE({ operation: "host-owned push" })
       await snapshot()
       signal?.throwIfAborted()
       const pushedHead = await options.push()
+      // Internal invariant: the Babysitter's push is the GitHub host push, which returns a checked full commit SHA.
       if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw new Error("The host push did not return a verified commit SHA.")
       expectedHeadOid = pushedHead
       return pushedHead

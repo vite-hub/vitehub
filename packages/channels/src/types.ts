@@ -25,11 +25,14 @@ export type ChannelErrorCode = "CHANNEL_DEFINITION_FAILED" | "CHANNEL_INVALID_SE
  * The connection of a Channel to one platform, such as Slack, Teams, Stripe, or your own API.
  * `send` sends one outbound message. Adapters that receive messages carry more data that the Agent package reads.
  */
-export interface ChannelAdapter<TSendOptions = never> {
+export interface ChannelAdapter<TSendOptions = never, TMessage = string> {
   /** The platform, such as `"slack"` or `"stripe"`. Logs and the Console show it. */
   readonly kind: string
-  /** Sends one message. Without it, `useChannel(name).send()` returns `CHANNEL_INVALID_SEND`. */
-  send?: (text: string, options: TSendOptions) => MaybePromise<ChannelSendReceipt>
+  /**
+   * Sends one message: text, or any object that the adapter accepts, such as a card. Without it,
+   * `useChannel(name).send()` returns `CHANNEL_INVALID_SEND`.
+   */
+  send?: (message: TMessage, options: TSendOptions) => MaybePromise<ChannelSendReceipt>
 }
 
 /** The request of an inbound webhook, as the adapter's `event` and `id` functions receive it. */
@@ -40,17 +43,21 @@ export interface ChannelWebhookRequest {
   url: string
 }
 
-/** A secret that verifies inbound webhooks. A function runs for each request. `false` turns verification off. */
+/**
+ * A secret that verifies inbound webhooks. A function runs for each request. When it returns `false`, that request
+ * is not verified. When it returns no secret, the webhook answers with an error and does not run the target.
+ */
 export type ChannelWebhookSecret =
   | string
   | { unseal: () => string }
-  | false
   | (() => MaybePromise<string | { unseal: () => string } | false | undefined>)
 
 /** How an inbound webhook proves that the provider sent it. */
 export type ChannelWebhookSignature =
   /** `Authorization: Bearer <secret>`, compared in constant time. */
   | "bearer"
+  /** `header` carries the secret itself, compared in constant time. Set `header`. */
+  | "token"
   /** `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the body>`. */
   | "github-sha256"
   /** `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`, at most 300 seconds old. */
@@ -74,8 +81,8 @@ export type ChannelWebhookSignature =
     verify: (input: { header: string, rawBody: Uint8Array, request: Request, secret: string }) => MaybePromise<boolean>
   }
 
-/** Options of `webhook()`. */
-export interface WebhookAdapterOptions<TData = unknown> {
+/** The options of `webhook()` that are not about verification. */
+export interface WebhookAdapterBaseOptions<TData = unknown> {
   /**
    * The provider name that logs and the Console show. Defaults to `"webhook"`.
    */
@@ -87,10 +94,6 @@ export interface WebhookAdapterOptions<TData = unknown> {
   path?: string
   /** More routes, such as an old URL that the provider still calls. String literals. */
   aliases?: string[]
-  signature?: ChannelWebhookSignature
-  secret?: ChannelWebhookSecret
-  /** The header that carries the signature. Each `signature` has a default. */
-  header?: string
   /** The name of the event in a request, which selects the `on` target. Defaults to `"webhook"`. */
   event?: (payload: TData, request: ChannelWebhookRequest) => string | undefined
   /** The provider's delivery ID, which deduplicates retries. Defaults to the SHA-256 of the body. */
@@ -106,11 +109,38 @@ export interface WebhookAdapterOptions<TData = unknown> {
   ackTimeoutMs?: number | false
 }
 
+/**
+ * How `webhook()` checks that the provider sent a request. Set `signature` and `secret` together. To accept
+ * requests that anyone can send, set `secret: false` and no `signature`.
+ */
+export type WebhookAdapterVerification =
+  | {
+    signature: Exclude<ChannelWebhookSignature, "token">
+    secret: ChannelWebhookSecret
+    /** The header that carries the signature. Each `signature` has a default. */
+    header?: string
+  }
+  | {
+    signature: "token"
+    secret: ChannelWebhookSecret
+    /** The header that carries the secret. */
+    header: string
+  }
+  | {
+    signature?: undefined
+    /** Accepts requests without verification. Anyone who knows the URL can send events. */
+    secret: false
+    header?: undefined
+  }
+
+/** Options of `webhook()`. */
+export type WebhookAdapterOptions<TData = unknown> = WebhookAdapterBaseOptions<TData> & WebhookAdapterVerification
+
 declare const channelEventData: unique symbol
 
 /** An adapter that receives webhooks from an HTTP sender, from `webhook()` or `stripe()`. */
 export interface WebhookChannelAdapter<TData = unknown> extends ChannelAdapter {
-  readonly webhook: Readonly<Omit<WebhookAdapterOptions<TData>, "kind">>
+  readonly webhook: Readonly<Omit<WebhookAdapterBaseOptions<TData>, "kind"> & WebhookAdapterVerification>
   /** Carries the payload type to `on` handlers. Never set at runtime. */
   readonly [channelEventData]?: TData
 }
@@ -156,7 +186,7 @@ type AdapterEventData<TAdapter> = TAdapter extends WebhookChannelAdapter<infer T
  */
 export interface ChannelExtensionOptions {}
 
-export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never> = ChannelAdapter<never>> extends ChannelExtensionOptions {
+export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> extends ChannelExtensionOptions {
   /** The connection, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`. */
   adapter: TAdapter
   /** Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. */
@@ -164,7 +194,7 @@ export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never>
 }
 
 /** A Channel from `defineChannel()`. */
-export type ChannelDefinition<TAdapter extends ChannelAdapter<never> = ChannelAdapter<never>> = ChannelDefinitionOptions<TAdapter> & {
+export type ChannelDefinition<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> = ChannelDefinitionOptions<TAdapter> & {
   readonly [channelDefinitionBrand]: true
 }
 
@@ -179,13 +209,18 @@ export interface DiscoveredChannelDefinition {
 }
 
 /** The options of the adapter's `send()`. */
-export type ChannelSendOptions<TAdapter> = TAdapter extends { send?: (text: string, options: infer TOptions) => unknown } ? TOptions : never
+export type ChannelSendOptions<TAdapter> = TAdapter extends { send?: (message: never, options: infer TOptions) => unknown } ? TOptions : never
+
+/** The message of the adapter's `send()`: text, or what else the adapter accepts, such as a Chat SDK card. */
+export type ChannelMessage<TAdapter> = TAdapter extends { send?: infer TSend }
+  ? NonNullable<TSend> extends (message: infer TMessage, options: never) => unknown ? TMessage : string
+  : string
 
 type SendArguments<TOptions> = [TOptions] extends [never]
   ? [options?: Record<string, unknown>]
   : undefined extends TOptions ? [options?: TOptions] : [options: TOptions]
 
-export interface ChannelClient<TSendOptions = never> {
+export interface ChannelClient<TSendOptions = never, TMessage = string> {
   readonly name: string
-  send: (text: string, ...options: SendArguments<TSendOptions>) => Promise<Result<ChannelSendResult, ChannelErrorCode>>
+  send: (message: TMessage, ...options: SendArguments<TSendOptions>) => Promise<Result<ChannelSendResult, ChannelErrorCode>>
 }
