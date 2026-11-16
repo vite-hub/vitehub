@@ -496,6 +496,40 @@ describe("tabs", () => {
     expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace-fresh"]))
   })
 
+  it("drops a naming of the page when a clear of another tab shows another account on the disk, after it missed the naming", async () => {
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    const old = openPage(disk, browser)
+    await old.open({ version: "1" })
+    await old.setAccount("ada")
+    answer(old, "projects", ["ada"])
+    await old.settled()
+    old.close()
+    const page = openPage(disk, browser, { openTimeout: 5000 })
+    void page.setAccount("ada")
+    const release = disk.holdNextRead()
+    const opened = page.open({ version: "2" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The page misses the naming of Grace, and then hears her clear, whose meta has the account of Grace.
+    browser.drop = message => message.type === "account"
+    const grace = openPage(disk, browser)
+    await grace.open({ version: "2" })
+    await grace.setAccount("grace")
+    browser.drop = undefined
+    await grace.clear()
+    answer(grace, "projects", ["grace"])
+    await grace.settled()
+    release()
+    await opened
+    await page.settled()
+    expect(disk.meta).toMatchObject({ account: "grace", version: "2" })
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+    expect(page.inspect()).toMatchObject({ account: "grace", persisted: false })
+    answer(page, "projects", ["grace-fresh"])
+    await page.settled()
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+  })
+
   it("brings the disk to the version of the page when another tab cleared the same account while it opened", async () => {
     const disk = createFakeDisk()
     const old = openPage(disk, createFakeBrowser())

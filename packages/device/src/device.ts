@@ -240,7 +240,9 @@ export function createDevice(options: DeviceOptions): Device {
     // Another tab cleared the device, started it over, or named another account. Everything of this tab is old: its
     // copies, its answers, and the loader calls that run. After another account, it stores again only after it names one.
     if (message.meta) meta = message.meta
-    if (message.type === "account" && message.account !== named) named = undefined
+    // Another account, by a naming or on the disk of a clear, is newer than the naming of this page: the session can have
+    // changed since.
+    if ((message.type === "account" && message.account !== named) || (message.meta && message.meta.account !== named)) named = undefined
     invalidate()
   }
 
@@ -334,6 +336,8 @@ export function createDevice(options: DeviceOptions): Device {
    * newer than what this tab knows, so the tab takes the disk as it is.
    */
   async function ensure(account: string | null, announce: boolean, fromPage: boolean): Promise<StorageResult> {
+    // A later naming replaced this one, or the tab found another account and dropped it. The disk stays as it is.
+    if (fromPage && named !== account) return ok
     const target = storage
     if (!target) {
       if (announce) options.channel.post({ type: "account", account, meta: undefined })
@@ -352,19 +356,11 @@ export function createDevice(options: DeviceOptions): Device {
         return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
       }
       if (found?.generation !== expected?.generation) {
-        // Another tab changed the disk. When its message came in the meantime, `meta` has it already.
-        if (meta === expected) {
-          // Another account on the disk is newer than what this tab knows, also than an account that the page named: the
-          // session can have changed meanwhile. The tab stores again only after the page names an account.
-          if (!fromPage || (found !== undefined && found.account !== account)) {
-            adopt(found)
-            return ok
-          }
-          meta = found
-          invalidate()
-        }
-        // The disk still holds `account`, after a clear or in another version, and the page still names it. The tab tries
-        // again on the disk as it is now.
+        // Another tab changed the disk. When its message came in the meantime, `meta` has it already, and `named` follows it.
+        if (meta === expected) adopt(found)
+        // Another account on the disk is newer than the naming of this page: the session can have changed since. The tab
+        // stores again only after the page names an account. When the disk still holds the account that the page names,
+        // after a clear or in another version, a naming of the page tries again on the disk as it is now.
         return fromPage && named === account ? ensure(account, announce, fromPage) : ok
       }
       meta = next
