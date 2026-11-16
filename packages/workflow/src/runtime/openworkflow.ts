@@ -1,5 +1,5 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
-import { runSerializedWorkflowHandler } from "./execute.ts"
+import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
@@ -375,11 +375,25 @@ function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryP
 
 function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
   return {
+    // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
-      return await step.run({
+      const output = await step.run({
         name,
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
-      }, run)
+      }, async () => {
+        try {
+          return await run()
+        }
+        catch (error) {
+          const result = toNonRetryableStepResult(error)
+          if (result) return result
+          throw error
+        }
+      })
+      const error = readNonRetryableStepResult(output)
+      if (error) throw error
+      // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
+      return output as Awaited<ReturnType<typeof run>>
     },
     // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
     sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
@@ -471,14 +485,15 @@ function toWorkflowRunStepError(error: unknown): WorkflowRunStep["error"] {
 function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunStep[] {
   const steps = new Map<string, WorkflowRunStep>()
   for (const attempt of attempts) {
+    const nonRetryable = readNonRetryableStepResult(attempt.output)
     steps.set(attempt.stepName, {
       attempt: (steps.get(attempt.stepName)?.attempt ?? 0) + 1,
       ...(attempt.finishedAt ? { completedAt: attempt.finishedAt } : {}),
-      ...(attempt.status === "failed" ? { error: toWorkflowRunStepError(attempt.error) } : {}),
+      ...(attempt.status === "failed" || nonRetryable ? { error: toWorkflowRunStepError(nonRetryable ?? attempt.error) } : {}),
       id: attempt.id,
       name: attempt.stepName,
       ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
-      status: normalizeOpenWorkflowStatus(attempt.status),
+      status: nonRetryable ? "failed" : normalizeOpenWorkflowStatus(attempt.status),
     })
   }
   return [...steps.values()]
@@ -502,6 +517,7 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   definition: WorkflowDefinition<TPayload, TResult>,
   options: WorkflowStartOptions,
   onDispatch?: () => void,
+  startAt?: number,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   // SAFETY: Registration preserves this Workflow Definition's payload and result contract in the provider runnable.
@@ -513,7 +529,11 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     const existingId = options.id ? await runtime.findRunId(name, options.id) ?? options.id : undefined
     const existing = existingId ? await runtime.backend.getWorkflowRun({ workflowRunId: existingId }) : null
     if (existing?.workflowName === name) return { workflowRun: existing }
-    const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
+    // OpenWorkflow keeps the run pending until `availableAt`, so it reports `queued` during the delay.
+    const runOptions = options.id || startAt !== undefined
+      ? { ...(options.id ? { idempotencyKey: options.id } : {}), ...(startAt === undefined ? {} : { availableAt: new Date(startAt) }) }
+      : undefined
+    const start = () => workflow.run(payload, runOptions)
     return await start().catch((error) => {
       if (!options.id) throw error
       firstAcknowledgementUnknown = getWorkflowProviderStatus(error) === undefined
