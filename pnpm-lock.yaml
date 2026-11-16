@@ -2300,6 +2300,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      linkedom:
+        specifier: ^0.18.13
+        version: 0.18.13
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
@@ -2477,7 +2480,7 @@ importers:
         specifier: 0.6.2
         version: 0.6.2
       '@vite-hub/agent':
-        specifier: ^0.1.0
+        specifier: '*'
         version: link:../agent
       '@vite-hub/runtime':
         specifier: workspace:*

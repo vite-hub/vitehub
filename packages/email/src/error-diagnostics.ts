@@ -41,6 +41,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ driver }: { driver: string }) => `The ${driver} Email provider rate limited the request.`,
       fix: "Retry later with backoff, for example from a Queue.",
     },
+    EMAIL_TEMPLATE_RENDER_FAILED: {
+      why: ({ template }: { template: string }) => `Email template "${template}" could not render with the \`data\` of this message.`,
+      fix: "Read `error.cause` for the binding that failed. Pass a string, number, or boolean for each `{{ data.* }}` binding, and a string for each `:insert` binding.",
+    },
     EMAIL_TIMEOUT: {
       why: ({ driver }: { driver: string }) => `Email delivery through ${driver} timed out.`,
       fix: "The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.",

@@ -2,7 +2,7 @@ import type { Comment, ForgeEvent, ForgeProvider, Thread, WebhookDelivery } from
 import type { GitHubIssueCommentPayload } from "../channels.ts"
 import type { ForgeTarget } from "./forge-channel.ts"
 import { forgePullRequest, forgePullRequestMetadata } from "./forge-channel.ts"
-import { AgentHttpError } from "../http-error.ts"
+import { agentHttpError } from "../http-error.ts"
 import { isRuntimeRecord as isRecord } from "./runtime-type.ts"
 
 function record(value: unknown): Record<string, unknown> { return isRecord(value) ? value : {} }
@@ -59,8 +59,8 @@ export function forgeActivityComment(comment: Comment): unknown {
 export async function forgeIngest(provider: ForgeProvider, delivery: WebhookDelivery): Promise<ForgeEvent[]> {
   try { return await provider.webhooks.ingest(delivery) }
   catch (error) {
-    if (error instanceof Error && error.name === "WebhookVerificationError") throw new AgentHttpError(401, "[vitehub] Webhook signature verification failed.")
-    if (error instanceof SyntaxError) throw new AgentHttpError(400, "[vitehub] Invalid Forge webhook body.")
+    if (error instanceof Error && error.name === "WebhookVerificationError") throw agentHttpError(401, "[vitehub] Webhook signature verification failed.")
+    if (error instanceof SyntaxError) throw agentHttpError(400, "[vitehub] Invalid Forge webhook body.")
     throw error
   }
 }

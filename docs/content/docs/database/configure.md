@@ -234,6 +234,31 @@ A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehu
 
 For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so each migration folder counts as `NNNN_<name>.sql`, and a Cloudflare build writes it as that file next to the Wrangler config. `vitehub database generate` and the build keep these names in `d1-migrations.json` next to the migrations. Commit it: a listed folder keeps its name, and a new folder takes the next number, even when a merge brings a folder with an earlier timestamp. Without the file, the numbers follow the folder order. These are the names that Drizzle Kit 0.x used, so a folder that `drizzle-kit up` converted keeps its row in `d1_migrations` and does not run again. When a name in `d1_migrations` moved to another number, `vitehub database migrate` fails the check with `DATABASE_MIGRATION_CHECK_FAILED`. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
 
+### Rename a column or table
+
+When one change removes a column and adds another in the same table, Drizzle Kit cannot know if you renamed it. A rename keeps the data. A new column starts empty, and the migration drops the old column with its data. The same applies to tables.
+
+In a terminal, `vitehub database generate` asks. Without a terminal, with `CI` set, or with `--non-interactive`, it never waits for an answer. It writes no migration, exits with code 2, and prints `DATABASE_GENERATE_AMBIGUOUS_CHANGE` with one command per answer:
+
+```txt
+[DATABASE_GENERATE_AMBIGUOUS_CHANGE] The Definitions of the database "default" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, `vitehub database generate` cannot ask, so it wrote no migration.
+The changes to answer:
+  - column public.notes.content
+├▶ fix: Answer each change with a hint and run the command again. A rename keeps the data. A create adds an empty column or table, and the migration drops the removed one with its data.
+Replace <old_name> with the removed name. With several changes, put one answer per change in the same array:
+  column public.notes.content:
+    rename: vitehub database generate --hints '[{"type":"rename","kind":"column","from":["public","notes","<old_name>"],"to":["public","notes","content"]}]'
+    create: vitehub database generate --hints '[{"type":"create","kind":"column","entity":["public","notes","content"]}]'
+```
+
+Run the command for your answer. This one renames `body` to `content`:
+
+```bash [commands/generate]
+pnpm vitehub database generate --hints '[{"type":"rename","kind":"column","from":["public","notes","body"],"to":["public","notes","content"]}]'
+```
+
+`--hints` takes the JSON array that Drizzle Kit reads for its own `--hints` option, and `--hints-file <file>` reads it from a file. SQLite ids also start with `public`. ViteHub never picks an answer for you.
+
 ### Upgrade to Drizzle 1.0
 
 ViteHub uses `drizzle-orm` and `drizzle-kit` 1.0. Install `drizzle-orm@1.0.0-rc.5` and `drizzle-kit@1.0.0-rc.5`. Four things change for an app that used Drizzle 0.x:
