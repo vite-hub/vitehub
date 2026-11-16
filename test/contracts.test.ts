@@ -46,7 +46,8 @@ function exportTarget(rawTarget: unknown) {
 
 function hasExport(packageName: string, specifier: string) {
   const manifest = readPackageManifest(packageInfoByPublishName(packageName).name)
-  const subpath = specifier.slice(packageName.length)
+  // Vite resource queries select a loader; they are not part of the package export.
+  const subpath = specifier.split("?")[0]!.slice(packageName.length)
 
   if (!subpath) {
     return true
