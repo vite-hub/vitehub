@@ -109,10 +109,12 @@ describe("account Console with stored reads", () => {
     expect(projects.info.value?.name).toBe("Shop")
     expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "logs"])
     await page.session.consoleProjectReady()
-    // Both reads still went out, once each.
-    expect(app.sent).toEqual(["account", "project.get /p/p-1/_vitehub/rpc"])
+    // The account read went out. project.get waits for it to name the account, so it goes out once.
+    expect(app.sent).toEqual(["account"])
     app.release()
     await vi.waitFor(() => expect(page.device.inspectDevice()).toMatchObject({ account: "u-ada", persisted: true }))
+    await vi.waitFor(() => expect(app.sent).toEqual(["account", "project.get /p/p-1/_vitehub/rpc"]))
+    app.release()
     expect(page.navigate).not.toHaveBeenCalled()
     expect(projects.gate.value).toEqual({ kind: "ready" })
   })
@@ -267,7 +269,8 @@ describe("account Console with stored reads", () => {
   it("never stores an app answer under the stored account before /api/account confirms who is signed in", async () => {
     const app = server()
     await firstVisit(app)
-    // Bob signed in on this computer. His app answer comes first, and the account answer waits.
+    app.sent.length = 0
+    // Bob signed in on this computer. The account answer waits.
     app.answers.account = bob
     app.answers.sections = ["logs"]
     app.answers.holdAccount = true
@@ -282,10 +285,12 @@ describe("account Console with stored reads", () => {
     }
     const page = await openPage(app)
     await page.start()
-    await page.session.openConsoleProject()
+    void page.session.openConsoleProject()
     await new Promise(resolve => setTimeout(resolve, 20))
-    // The tab can close now: nothing that Bob's cookie answered is on the disk as a copy of Ada.
+    // The tab can close now: nothing that Bob's cookie answered is on the disk as a copy of Ada. The app read waits for
+    // the account read, so it has not gone out.
     expect(written).toEqual([])
+    expect(app.sent).toEqual(["account"])
     app.release()
     await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
     expect(written.filter(copy => copy.startsWith("u-ada "))).toEqual([])
@@ -298,7 +303,7 @@ describe("account Console with stored reads", () => {
     app.answers.holdAccount = true
     const page = await openPage(app)
     await page.start()
-    await page.session.openConsoleProject()
+    void page.session.openConsoleProject()
     // Another tab of this browser signs out: the server ends the session, and its device names nobody.
     app.answers.account = undefined
     const { createDevice } = await import("../../device/src/device.ts")
