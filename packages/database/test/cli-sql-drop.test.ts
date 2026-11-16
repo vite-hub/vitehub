@@ -150,19 +150,24 @@ describe("vitehub database sql", () => {
     expect(await project.run("sql", ["--database=analytics", "-- count\nSELECT count(*) AS n FROM events"])).toMatchObject({ exitCode: 0, stdout: "n\n-\n0\n(1 row)\n" })
   })
 
-  it("sends each statement to a D1 HTTP proxy with --remote", async () => {
-    const project = await createProject({ default: { cloudflare: { binding: "DB", databaseId: "db", http: { authToken: "secret", url: "https://d1.example.com/query" }, migrationsDir: "migrations" } } })
+  it.each([false, true])("sends SQL to D1 with --remote (proxy: %s)", async (proxy) => {
+    const project = await createProject({ default: { cloudflare: { binding: "DB", databaseId: "db", http: proxy ? { authToken: "secret", url: "https://d1.example.com/query" } : true, migrationsDir: "migrations" } } })
     const bodies: unknown[] = []
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)))
       return Response.json({ result: [{ results: [{ id: 1, name: "Ada" }], success: true }], success: true })
     })
 
-    const result = await project.run("sql", ["--remote", "--json", "SELECT id, name FROM users"], { fetch: fetch as typeof globalThis.fetch })
+    const options = { env: { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "secret" }, fetch: fetch as typeof globalThis.fetch }
+    const result = await project.run("sql", ["--remote", "--json", "SELECT id, name FROM users"], options)
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual([{ columns: ["id", "name"], rows: [{ id: 1, name: "Ada" }], rowsAffected: null }])
     expect(bodies).toEqual([{ params: [], sql: "SELECT id, name FROM users" }])
+    fetch.mockResolvedValueOnce(Response.json({ errors: [{ message: "SQL rejected" }], success: false }, { status: 400 }))
+    expect(await project.run("sql", ["--remote", "SELECT invalid"], options)).toMatchObject({
+      exitCode: 1, stderr: expect.stringContaining("DATABASE_SQL_FAILED"),
+    })
   })
 })
 

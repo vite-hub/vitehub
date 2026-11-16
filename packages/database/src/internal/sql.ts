@@ -66,7 +66,7 @@ export async function openSqlConnection(database: ResolvedDrizzleDatabaseConfig,
     case "libsql":
       return { connection: openLibsql({ authToken: target.authToken, url: target.url }, description) }
     case "d1-proxy":
-      return { connection: openD1(createD1Query({ proxy: { token: target.token, url: target.url } }, options.fetch), description) }
+      return { connection: openD1(createD1Query({ proxy: { token: target.token, url: target.url } }, problem => new Error(problem), options.fetch), description) }
     case "d1": {
       const missing = missingD1Credentials(target)
       if (missing.length) return { problem: `ViteHub reaches D1 with the Cloudflare API, which needs ${missing.join(" and ")}.` }
@@ -130,7 +130,7 @@ function openD1(query: D1Query, target: string): SqlConnection {
 
 async function openD1Api(target: Extract<ExportTarget, { kind: "d1" }>, request: typeof fetch | undefined, description: string): Promise<SqlConnection> {
   const databaseId = await resolveD1DatabaseId(target, cloudflareApi(target, request))
-  return openD1(createD1Query({ accountId: target.accountId, databaseId, token: target.token }, request), description)
+  return openD1(createD1Query({ accountId: target.accountId, databaseId, token: target.token }, problem => new Error(problem), request), description)
 }
 
 interface PostgresResult extends Array<Record<string, unknown>> {
