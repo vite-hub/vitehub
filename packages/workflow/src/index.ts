@@ -36,6 +36,7 @@ export type {
   WorkflowProvider,
   WorkflowProviderOptions,
   WorkflowRun,
+  WorkflowRunError,
   WorkflowRunStep,
   WorkflowRunStatus,
   WorkflowSignalResult,
@@ -45,5 +46,6 @@ export type {
   WorkflowStep,
   WorkflowStepRegistry,
   WorkflowSteps,
+  WorkflowStartDelay,
   WorkflowStartOptions,
 } from "./types.ts"

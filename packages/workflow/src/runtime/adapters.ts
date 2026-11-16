@@ -6,10 +6,12 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
+import { toCloudflareStartParams } from "./delay.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
@@ -23,6 +25,8 @@ interface RunWorkflowAdapterContext<TPayload = unknown, TResult = unknown> {
   name: string
   options: WorkflowStartOptions
   payload: TPayload | undefined
+  /** The time in milliseconds when a delayed run starts. Undefined starts the run now. */
+  startAt?: number
 }
 
 interface GetWorkflowAdapterContext {
@@ -168,6 +172,12 @@ function cloudflareRunResult(metadata: unknown): unknown {
   return isSerializedResponse(output) ? deserializeResponse(output) : output
 }
 
+/** The `error` member of a Cloudflare `status()` record. */
+function ownStatusError(metadata: unknown): unknown {
+  if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "error")) return undefined
+  return Reflect.get(metadata, "error")
+}
+
 /** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
 function isCloudflareInstanceNotFound(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false
@@ -221,6 +231,7 @@ async function readCloudflareRun(binding: CloudflareWorkflowBinding, id: string)
   return {
     instance,
     run: {
+      ...(status === "failed" ? { error: toWorkflowRunError(ownStatusError(metadata)) } : {}),
       id,
       metadata,
       provider: "cloudflare",
@@ -252,7 +263,7 @@ async function cancelCloudflareRun(binding: CloudflareWorkflowBinding, id: strin
 }
 
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  return {
+  const adapter: WorkflowRuntimeAdapter = {
     async cancel({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       // Without a binding, `vite dev` runs the Workflow inline, and an inline run cannot be cancelled.
@@ -263,16 +274,23 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       if (binding) return (await readCloudflareRun(binding, id)).run
       return await inlineAdapter(config).get({ event, id, name })
     },
-    async run({ definition, event, id, name, options, payload }) {
+    async run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>> {
+      const { definition, event, id, name, payload, startAt } = context
       // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
       if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_CLOUDFLARE_RUN_ID_INVALID({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()
+        // `createBatch` skips an id that already has an instance and returns no instance for it.
+        let created = false
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: payload }]))[0] || await binding.get(id), id),
+          async () => {
+            const [instance] = await binding.createBatch([{ id, params: toCloudflareStartParams(payload, startAt) }])
+            created = instance !== undefined
+            return normalizeCloudflareWorkflowStart(instance || await binding.get(id), id)
+          },
           {
             acknowledgement: (error, status) => status === undefined
               ? isCloudflareRejection(error) ? "rejected" : "unknown"
@@ -288,6 +306,9 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
             throw retryError
           }
         })
+        // Cloudflare does not return the payload of an existing instance, so report its state without a payload.
+        // SAFETY: The existing instance belongs to this Workflow Definition, so it has its payload and result types.
+        if (!created) return await adapter.get({ event, id, name }) as WorkflowRun<TPayload, TResult>
         return {
           id: instance.id,
           payload,
@@ -296,10 +317,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
         }
       }
 
-      return await inlineAdapter(config).run({ definition, event, id, name, options, payload })
+      return await inlineAdapter(config).run(context)
     },
     resume: () => unsupportedOperation("cloudflare", "signals"),
   }
+  return adapter
 }
 
 const warnedInlineOpenWorkflowNames = new Set<string>()
@@ -325,8 +347,8 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
       : await inline.get({ event, id, name }),
     resume: () => unsupportedOperation("openworkflow", "signals"),
     run: async (context) => {
-      const { definition, event, name, options, payload } = context
-      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event))
+      const { definition, event, name, options, payload, startAt } = context
+      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
       if (!warnedInlineOpenWorkflowNames.has(name)) {
         warnedInlineOpenWorkflowNames.add(name)
         console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
@@ -334,6 +356,15 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
       const run = await inline.run(context)
       return { ...run, metadata: { mode: "inline", workflow: name } }
     },
+  }
+}
+
+/** `setTimeout` fires at once for a delay above 2^31 - 1 ms (about 24.8 days), so a long wait uses several timers. */
+const maximumTimerDelay = 2_147_483_647
+
+async function waitUntilTime(startAt: number | undefined): Promise<void> {
+  while (startAt !== undefined && startAt > Date.now()) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(startAt - Date.now(), maximumTimerDelay)))
   }
 }
 
@@ -347,12 +378,12 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           return {
             id,
             provider: config.provider,
-            status: "running",
+            status: run.startAt === undefined ? "running" : "queued",
           }
         }
         return {
+          ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          metadata: run.error,
           provider: config.provider,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
@@ -364,12 +395,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         status: "unknown",
       }
     },
-    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload }: RunWorkflowAdapterContext<TPayload, TResult>) {
+    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload, startAt }: RunWorkflowAdapterContext<TPayload, TResult>) {
       const existing = getWorkflowRunState(name, id)
       if (existing) {
         return {
+          ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: existing.error ?? (config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined),
+          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
           provider: config.provider,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
@@ -386,13 +418,18 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         provider: config.provider,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
-      const run = Promise.resolve()
-        .then(() => recordRun ? recordRun(execute) : execute())
+      // A timer holds a delayed run in this process. It is not durable: a restart loses the run.
+      const run = waitUntilTime(startAt)
+        .then(() => {
+          runState.startAt = undefined
+          return recordRun ? recordRun(execute) : execute()
+        })
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .catch(error => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run, payload, true)
+      runState.startAt = startAt
       const waitUntil = resolveWaitUntil(event)
       if (waitUntil) {
         waitUntil(runState.promise)
@@ -457,11 +494,12 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
         throw error
       }
     },
-    async run({ definition, event, id, name, options, payload }) {
+    async run(context) {
+      const { definition, event, name, payload, startAt } = context
       if (!runsNatively(definition)) {
-        return await fallback.run({ definition, event, id, name, options, payload })
+        return await fallback.run(context)
       }
-      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
+      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event), startAt)
     },
   }
 }

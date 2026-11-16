@@ -26,6 +26,8 @@ export interface WorkflowRunState<TResult = unknown> {
   payload?: unknown
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>
   result?: TResult
+  /** Set while a delayed inline run waits for its start time, in milliseconds. The run reports `queued` until then. */
+  startAt?: number
   status: "running" | "completed" | "failed"
 }
 

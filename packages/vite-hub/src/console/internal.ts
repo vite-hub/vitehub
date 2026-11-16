@@ -1,4 +1,4 @@
-import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
+import type { ServerEnvDescription } from "@vite-hub/env"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database"
@@ -6,7 +6,6 @@ import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
-import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 
 export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
 export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
@@ -27,10 +26,6 @@ type ConsoleInvocationsByRoot = {
   get(key: string): AgentInvocations | undefined
   set(key: string, value: AgentInvocations): unknown
   readonly size: number
-}
-
-export type ConsoleEnvInspection = ServerEnvDescription & {
-  inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
 }
 
 /** The Console reads each database with `db` and lists its tables from `schema`. A Definition is SQLite or Postgres. */
@@ -90,7 +85,7 @@ export interface ConsoleState {
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
   documents?: ConsoleDocumentEditors
-  env?: ConsoleEnvInspection
+  env?: ServerEnvDescription
   projectName?: string
   sections?: readonly ConsoleSectionId[]
   /** Sections shown in navigation when local operations have more runtime sections installed. */

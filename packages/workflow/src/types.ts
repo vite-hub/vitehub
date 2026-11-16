@@ -96,9 +96,20 @@ export type WorkflowOptions =
 
 export type ResolvedWorkflowOptions = WorkflowProviderOptions
 
+/** The failure of a failed Workflow Run. Every provider fills it, and it is safe to send as JSON. */
+export interface WorkflowRunError {
+  /** Code of the thrown error, when it has one. */
+  code?: string
+  message: string
+  /** Name of the thrown error, when it is not `Error`. */
+  name?: string
+}
+
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   completedAt?: Date
   createdAt?: Date
+  /** Set when `status` is `failed`. */
+  error?: WorkflowRunError
   id: string
   provider: WorkflowProvider
   result?: TResult
@@ -222,7 +233,12 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
+/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = number | string | Date
+
 export interface WorkflowStartOptions {
+  /** Starts the run later. A `Date` in the past starts it now. */
+  delay?: WorkflowStartDelay
   id?: string
 }
 
