@@ -5,9 +5,10 @@ import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkConsoleGitHub, loadConsoleSignInState, renameConsoleAccount } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import ConsoleAccountApiKeys from "./console-account-api-keys.vue";
 import ConsoleSettingsCard from "./console-settings-card.vue";
 
-/** The account settings of an `account` Console: the name, GitHub sign-in, and passkeys. */
+/** The account settings of an `account` Console: the name, GitHub sign-in, passkeys, and API keys. */
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -176,5 +177,7 @@ function added(value: string | undefined): string {
         <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" label="Add a passkey" :loading="busy === 'passkey'" @click="run('passkey', addConsolePasskey, 'Passkey added')" />
       </template>
     </ConsoleSettingsCard>
+
+    <ConsoleAccountApiKeys />
   </div>
 </template>
