@@ -1128,7 +1128,7 @@ export function defineContent<
         view = await heads.api.at(`pr/${pull}`, name)
       }
       catch (error) {
-        if (Reflect.get(Object(error), "code") === "CONTENT_R0028") throw missing("GitHub has no such pull request")
+        if (contentErrorDiagnostics.CONTENT_R0028.is(error)) throw missing("GitHub has no such pull request")
         throw error
       }
       // An anonymous request: what a reader of the pull request gets without a cookie or a link token.
