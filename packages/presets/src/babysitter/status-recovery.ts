@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant";
 import { createHash } from "node:crypto";
 import type { PullRequestInbox, Snapshot } from "./inbox/store.ts";
 import { isStatusDeliveryCurrent, type StatusDelivery } from "./inbox/status-delivery.ts";
@@ -30,9 +31,9 @@ export function createBabysitterStatusRecovery(options: {
 }): BabysitterStatusRecovery {
   const { inbox, revision, publish } = options;
   const publishTimeoutMs = options.publishTimeoutMs ?? 20_000;
-  if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error("Status publication timeout must be positive.");
+  invariant(Number.isFinite(publishTimeoutMs) && publishTimeoutMs > 0, "createBabysitterRuntime() passes a positive status publication timeout");
   const deliveryLeaseMs = options.deliveryLeaseMs ?? 300_000;
-  if (!Number.isFinite(deliveryLeaseMs) || deliveryLeaseMs < 3 || deliveryLeaseMs > 2_147_483_647) throw new Error("Status delivery lease must be between 3 and 2,147,483,647 milliseconds.");
+  invariant(Number.isFinite(deliveryLeaseMs) && deliveryLeaseMs >= 3 && deliveryLeaseMs <= 2_147_483_647, "createBabysitterRuntime() passes a status delivery lease from 3 to 2,147,483,647 milliseconds");
   let selecting = Promise.resolve();
   const active = new Set<Promise<void>>();
 

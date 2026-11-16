@@ -780,6 +780,7 @@ describe("framework package contract", () => {
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

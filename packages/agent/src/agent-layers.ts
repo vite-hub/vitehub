@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { discoveredAgentName, discoveredAgentWorkspace } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
@@ -305,8 +306,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       const { name: _inheritedName, ...rest } = layer
       return merge(document, index === inheritedOverrides.length - 1 ? layer : rest, "")
     }, defaults)
-    // Internal invariant: merge() of record defaults and record layers always returns a record.
-    if (!record(settings)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+    invariant(record(settings), "merge() of record defaults and record layers returns a record")
     const { workspace: discoveredWorkspace, ...discoveryDefaults } = inherited.defaults ?? {}
     // Inspect final settings before discovery defaults can create Workspace access.
     // SAFETY: These settings combine a registered definition with its overrides.
@@ -314,8 +314,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       ? { ...discoveryDefaults, workspace: discoveredWorkspace }
       : discoveryDefaults
     const resolved = resolveDriverExtensions(merge(applicableDefaults, settings, ""))
-    // Internal invariant: merge() of record defaults and record overrides always returns a record.
-    if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+    invariant(record(resolved), "merge() of record defaults and record overrides returns a record")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
@@ -333,8 +332,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
   const resolved = resolveDriverExtensions(merge(defaults, overrides, ""))
-  // Internal invariant: merge() of record defaults and record overrides always returns a record.
-  if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+  invariant(record(resolved), "merge() of record defaults and record overrides returns a record")
   inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
   // SAFETY: Resolved settings merge a registered definition with its overrides.
   rememberLayerMetadata(resolved, { options: resolved as AgentSettings, defaults: inherited.defaults, parent })

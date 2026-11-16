@@ -91,6 +91,7 @@ import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentOptions, AgentSqlStateProviderOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { chatgptWithoutConnectionsSource, standaloneChannelDriverSource } from "./generated-sources.injected.ts"
 
 interface AgentCliContributingPlugin {
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
@@ -517,7 +518,8 @@ function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   const normalizedId = id.replaceAll("\\", "/")
-  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry-runtime.mjs")
+  return normalizedId.includes("/.vitehub/")
+    && (normalizedId.endsWith("/workflow/registry-runtime.mjs") || normalizedId.endsWith("/nitro/workflow/dev-registry.mjs"))
 }
 
 
@@ -1761,8 +1763,7 @@ async function generateAgentDeploymentCatalog(
             `const standaloneChannelAgents${typescript ? ": Record<string, AgentInput>" : ""} = {}`,
             ...standaloneChannels.flatMap((channel, index) => [
               `if (!channelHosts[${JSON.stringify(channel.name)}]) {`,
-              // Internal invariant: generated app source without the Agent catalog; the message names the Channel trigger to fix.
-              `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: ${standaloneChannelDriverSource(channel.name)} })`,
               `  agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
               "}",
             ]),
@@ -2950,8 +2951,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     },
     load(id) {
       if (id === chatgptModelProviderWithoutConnections) {
-        // Internal invariant: generated stub source without the Agent catalog; the message names the vitehub() option to fix.
-        return `export function createOpenAI() { throw new Error(${JSON.stringify("[vitehub] The ChatGPT model needs Connections. Enable connections in vitehub() and rebuild.")}) }`
+        return chatgptWithoutConnectionsSource
       }
       // Generated code imports Agent and Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
       return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
