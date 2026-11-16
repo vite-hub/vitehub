@@ -103,6 +103,12 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the conflict in `vitehub.lock`, or delete the entry and pull again.",
     },
 
+    // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
+    WORKSPACE_REGISTRY_LOAD_FAILED: {
+      why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,
+      fix: "Read `error.cause` for the first error. Make sure that the module of the Workspace loads without errors and exports its Definition: the default export of a file in `server/workspaces/`, or the export that the Vite plugin names in its Workspace contribution. Then restart the dev server or build again.",
+    },
+
     // Published numbered errors.
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),
