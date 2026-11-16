@@ -10,7 +10,7 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
-import { cloudflareEnv } from "./deploy/cloudflare.ts"
+import { cloudflareEnv, wranglerVarNames } from "./deploy/cloudflare.ts"
 import { denoEnv } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { netlifyEnv } from "./deploy/netlify.ts"
@@ -123,10 +123,10 @@ function linkedTarget(links: Awaited<ReturnType<typeof readSetupLinks>>, host: D
   return selected.link
 }
 
-/** The names of the last build for `host`. Builds first when there is no build output for `host`. */
-async function readNames(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<DeploymentEnvEntry[]> {
+/** The last build for `host`. Builds first when there is no build output for `host`. */
+async function readNames(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<{ env: DeploymentEnvEntry[], outputDir: string }> {
   try {
-    return (await readBuildOutput(project.root, host)).env
+    return await readBuildOutput(project.root, host)
   }
   catch (error: unknown) {
     const code = error instanceof SetupFailure ? Reflect.get(error.cause, "code") : undefined
@@ -134,7 +134,12 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
   }
   context.stderr.write(`No build output for ${host}. Building it to read the names.\n`)
   await build(project, host, context)
-  return (await readBuildOutput(project.root, host)).env
+  return await readBuildOutput(project.root, host)
+}
+
+/** The plain vars of the build's Wrangler config. Cloudflare sets them with each version, next to the secrets. */
+async function configVarNames(host: DeployHost, outputDir: string): Promise<Set<string>> {
+  return new Set(host === "cloudflare" ? await wranglerVarNames(outputDir) : [])
 }
 
 interface EnvTarget {
@@ -144,6 +149,8 @@ interface EnvTarget {
   target: HostEnvTarget
   project: SetupProject
   entries: DeploymentEnvEntry[]
+  /** Names that the build output sets, such as the plain vars of a Wrangler config. Push never writes them. */
+  configVars: Set<string>
   hostEnv: HostEnv
   run: DeployRun
   /** Values that no output may show. Push adds the values that it reads. */
@@ -155,7 +162,9 @@ async function openTarget(args: EnvArgs, command: string, context: ViteHubCliCon
   const link = linkedTarget(await readSetupLinks(project.root), args.host, command)
   const host = link.host
   const target = stageTarget(host, args.stage)
-  const entries = await readNames(project, host, context)
+  const output = await readNames(project, host, context)
+  const entries = output.env
+  const configVars = await configVarNames(host, output.outputDir)
   const secrets = tokenNames.flatMap((name) => {
     const token = context.env[name]?.trim()
     return token ? [token] : []
@@ -163,7 +172,7 @@ async function openTarget(args: EnvArgs, command: string, context: ViteHubCliCon
   // The runner reads `secrets` at each run, so values that push adds later are redacted too.
   const run = createDeployRun(context.stderr, secrets)
   const hostEnv = hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: project.root, run, secrets, target })
-  return { entries, host, hostEnv, link, project, run, secrets, stage: args.stage, target }
+  return { configVars, entries, host, hostEnv, link, project, run, secrets, stage: args.stage, target }
 }
 
 function diffEntry(entry: DeploymentEnvEntry): EnvDiffEntry {
@@ -189,16 +198,19 @@ function isSet(entry: DeploymentEnvEntry, names: ReadonlySet<string>): boolean {
   return entry.names.some(name => names.has(name)) || [...names].some(name => matchesPrefix(entry, name))
 }
 
-/** Compares the names that the build lists with the names on the host. Hosts return no values, so it never says "changed". */
-export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[]): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
-  const onHost = new Set(hostNames)
+/**
+ * Compares the names that the build lists with the names on the host. Hosts return no values, so it never says
+ * "changed". `configVars` are set by the build output itself, so they count as set and are never extra.
+ */
+export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[], configVars: ReadonlySet<string> = new Set()): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
+  const onHost = new Set([...hostNames, ...configVars])
   const missing: EnvDiffOutput["missing"] = { optional: [], required: [] }
   for (const entry of entries) {
     if (isSet(entry, onHost)) continue
     missing[isRequired(entry) ? "required" : "optional"].push(diffEntry(entry))
   }
   const known = (name: string) => entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name))
-  const extra = [...onHost].filter(name => !known(name)).sort()
+  const extra = [...onHost].filter(name => !known(name) && !configVars.has(name)).sort()
   return { extra, missing, ok: !missing.required.length }
 }
 
@@ -231,7 +243,7 @@ function writeDiff(output: EnvDiffOutput, context: ViteHubCliContext): void {
 async function runDiff(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env diff", context)
   const hostNames = await target.hostEnv.listSecretNames()
-  const output: EnvDiffOutput = { host: target.host, project: target.link.project.name, stage: target.stage, target: target.target, ...diffEnvNames(target.entries, hostNames) }
+  const output: EnvDiffOutput = { host: target.host, project: target.link.project.name, stage: target.stage, target: target.target, ...diffEnvNames(target.entries, hostNames, target.configVars) }
   if (args.json) writeSetupJson(context, output)
   else writeDiff(output, context)
   return output.ok ? setupExitCodes.done : setupExitCodes.error
@@ -272,20 +284,25 @@ interface PlannedValue {
   secret: boolean
 }
 
-/** The value of each entry: the first name in read order that has a local value, and every local name of a prefix. */
-function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<string, LocalValue>, only: readonly string[]): { planned: PlannedValue[], skipped: EnvPushOutput["skipped"] } {
+/**
+ * The value of each entry: the first name in read order that has a local value, and every local name of a prefix.
+ * `onHost` keeps what the host has: an entry with one of its names on the host keeps that alias, and a prefix entry
+ * skips only the members that the host has.
+ */
+function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<string, LocalValue>, only: readonly string[], onHost: ReadonlySet<string> = new Set()): { planned: PlannedValue[], skipped: EnvPushOutput["skipped"] } {
   const wanted = only.length ? new Set(only) : undefined
   const unknown = only.filter(name => !entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name)))
   if (unknown.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_NAME_UNKNOWN({ names: unknown.join(", ") }), setupExitCodes.inputNeeded)
   const planned = new Map<string, PlannedValue>()
   const skipped: EnvPushOutput["skipped"] = []
   for (const entry of entries) {
-    const names = wanted ? entry.names.filter(name => wanted.has(name)) : entry.names
-    const prefixed = [...values.keys()].filter(name => matchesPrefix(entry, name) && (!wanted || wanted.has(name)))
+    const names = entry.names.some(name => onHost.has(name)) ? [] : wanted ? entry.names.filter(name => wanted.has(name)) : entry.names
+    const prefixed = [...values.keys()].filter(name => matchesPrefix(entry, name) && !onHost.has(name) && (!wanted || wanted.has(name)))
     if (!names.length && !prefixed.length && wanted) continue
     const first = names.find(name => values.has(name))
     const chosen = [...(first ? [first] : []), ...prefixed]
     if (!chosen.length) {
+      if (isSet(entry, onHost)) continue
       skipped.push({ ...diffEntry(entry), required: isRequired(entry) })
       continue
     }
@@ -344,7 +361,7 @@ function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
 async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env push", context)
   const values = await readLocalEnvValues(target.project.root, target.stage, context.env)
-  const { planned, skipped } = planPush(target.entries, values, args.only)
+  const { planned, skipped } = planPush(target.entries, values, args.only, target.configVars)
   addRedactions(planned, target.secrets)
   const output: EnvPushOutput = { host: target.host, project: target.link.project.name, pushed: [], skipped, stage: target.stage, target: target.target }
   if (!planned.length) {
@@ -401,6 +418,8 @@ export interface DeployEnvOptions {
   run: DeployRun
   /** The redaction list of the deploy runner. The gate adds the values that it reads. */
   secrets: string[]
+  /** The build output. On Cloudflare, the plain vars of its Wrangler config count as set. */
+  outputDir: string
 }
 
 export interface DeployEnvPlan {
@@ -443,9 +462,11 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
   const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
   const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
+  // The deploy sets the plain vars of the build's Wrangler config with the version. A secret of the same name would
+  // clash with that binding, so those names are set and never uploaded.
+  const configVars = await configVarNames(host, options.outputDir)
   const values = await readLocalEnvValues(options.root, stage, context.env)
-  const candidates = options.pushEnv || host === "cloudflare" ? entries : entries.filter(entry => !isSet(entry, onHost))
-  const planned = planPush(candidates, values, []).planned
+  const planned = planPush(entries, values, [], options.pushEnv || host === "cloudflare" ? configVars : onHost).planned
   if (host === "cloudflare") {
     for (const name of onHost) {
       const local = values.get(name)
@@ -460,7 +481,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   }
   const label = `${link?.project.name ?? "the new project"} on ${host}`
 
-  const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...planned.map(item => item.name)])))
+  const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...configVars, ...planned.map(item => item.name)])))
   const appSecret = unset().find(entry => isRequired(entry) && entry.names.includes(appSecretName))
   if (appSecret && (options.yes || (options.interactive && await confirmGenerate(label)))) {
     planned.push({ name: appSecretName, secret: true, source: "generated", value: randomBytes(32).toString("base64") })

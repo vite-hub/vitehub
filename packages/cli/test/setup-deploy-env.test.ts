@@ -226,6 +226,85 @@ describe("vitehub deploy checks Server Env", () => {
     expectNoLeak(await kept.calls(), supplied.stdout + supplied.stderr, [value])
   })
 
+  it("sets each missing prefix member that the host lacks, even when the host has another member", async () => {
+    const prefixed = { names: [], prefix: "CFG_", required: true, secret: true, hasDefault: false, owners: ["config"] }
+    const root = await project("vercel", [prefixed], { files: { ".env.production": `CFG_B=${canary}\n` } })
+    const hosts = await fakeHosts(hostEnv.vercel)
+    await seed(hosts.env, { vercel: { production: { CFG_A: "on-host" } } })
+    const result = await deploy([], root, hosts.env)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => [...call.argv.slice(0, 3), call.stdin])).toEqual([
+      ["env", "ls", "--environment", ""],
+      ["env", "add", "CFG_B", canary],
+      ["deploy", "--prebuilt", "--yes", ""],
+    ])
+    expect(result.json.env.pushed).toEqual(["CFG_B"])
+
+    // An alias on the host keeps its precedence: the deploy does not add the other alias.
+    const aliased = { path: "env.server.github.token", names: ["VITEHUB_GITHUB_TOKEN", "GITHUB_TOKEN"], required: true, secret: true, hasDefault: false }
+    const aliasRoot = await project("vercel", [aliased], { files: { ".env.production": `VITEHUB_GITHUB_TOKEN=${canary}\n` } })
+    const alias = await fakeHosts(hostEnv.vercel)
+    await seed(alias.env, { vercel: { production: { GITHUB_TOKEN: "on-host" } } })
+    const kept = await deploy([], aliasRoot, alias.env)
+    expect(kept.exitCode, kept.stderr).toBe(0)
+    expect(kept.json.env.pushed).toEqual([])
+    expect((await alias.calls()).some(call => call.argv[1] === "add")).toBe(false)
+  })
+
+  it("counts the plain vars of the Wrangler config as set, and never uploads them as secrets", async () => {
+    const publicUrl = { path: "env.server.publicUrl", names: ["PUBLIC_URL"], required: true, secret: false, hasDefault: false }
+    const root = await project("cloudflare", [publicUrl, apiKey], {
+      files: {
+        ".output/server/wrangler.json": JSON.stringify({ main: "index.mjs", name: "my-app", vars: { PUBLIC_URL: "https://my-app.example" } }),
+        ".env.production": `API_KEY=${canary}\nPUBLIC_URL=https://local.example\n`,
+      },
+    })
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const result = await deploy([], root, hosts.env)
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls())[1]!.secretsFile?.values).toEqual({ API_KEY: canary })
+    expect(result.json.env).toMatchObject({ missing: [], pushed: ["API_KEY"] })
+
+    const withoutValue = await project("cloudflare", [publicUrl], {
+      files: { ".output/server/wrangler.json": JSON.stringify({ main: "index.mjs", name: "my-app", vars: { PUBLIC_URL: "https://my-app.example" } }) },
+    })
+    const plain = await fakeHosts(hostEnv.cloudflare)
+    const deployed = await deploy([], withoutValue, plain.env)
+    expect(deployed.exitCode, deployed.stderr).toBe(0)
+    expect(deployed.json.env).toMatchObject({ missing: [], pushed: [] })
+  })
+
+  it("keeps plain vars that were set in the Cloudflare dashboard", async () => {
+    const root = await project("cloudflare", [sentry])
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    await seed(hosts.env, { vars: { FEATURE_FLAG: "on" } })
+    const result = await deploy([], root, hosts.env)
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect((await hosts.calls())[1]!.argv).toContain("--keep-vars")
+    expect(await hosts.state()).toMatchObject({ vars: { FEATURE_FLAG: "on" } })
+
+    const preview = await deploy(["--preview"], root, hosts.env)
+    expect(preview.exitCode, preview.stderr).toBe(0)
+    expect((await hosts.calls()).at(-1)!.argv.slice(0, 2)).toEqual(["versions", "upload"])
+    expect(await hosts.state()).toMatchObject({ vars: { FEATURE_FLAG: "on" } })
+  })
+
+  it("does not count a Netlify variable without Functions scope as set", async () => {
+    const root = await builtProject("netlify", {
+      ".netlify/deployment.json": JSON.stringify({ env: [apiKey], host: "netlify", identity: { name: "my-app", source: "package" } }),
+      ".vitehub/link.json": JSON.stringify({ default: "netlify", schemaVersion: 2, targets: { netlify: { account: { id: "acct-1" }, project: { id: "site-1", name: "my-app" }, verified: true, linkedAt: "" } } }),
+    })
+    const hosts = await fakeHosts({ NETLIFY_AUTH_TOKEN: "netlify-token-1" })
+    await seed(hosts.env, { netlify: { production: { API_KEY: "build-only" } }, netlifyScopes: { API_KEY: ["builds"] } })
+    const result = await deploy([], root, hosts.env)
+
+    expect(result.exitCode).toBe(2)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_ENV_MISSING")
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([["env:list", "--context", "production", "--scope", "functions", "--json", "--site", "site-1"]])
+  })
+
   it("on a first deploy reads no host names: Cloudflare needs every required value locally, other hosts need a link", async () => {
     const root = await project("cloudflare", [apiKey], { linked: false })
     const hosts = await fakeHosts(hostEnv.cloudflare)
