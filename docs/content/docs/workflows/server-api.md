@@ -37,18 +37,44 @@ export default defineEventHandler(async (event) => {
 
 Pass the run id in the options. Use a stable id when the provider accepts your own ids and must deduplicate or resume the same run. The id that you pass is the run id: `startWorkflow()` returns it, and `getWorkflowRun()` and `cancelWorkflow()` take it, on Cloudflare, OpenWorkflow, and inline runs. A second start with the same id returns the first run. Native Vercel workflows reject an `id`. Let Workflow DevKit assign it, as in [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
+## Start a run later
+
+Pass `delay` to start the run later. Use milliseconds, a duration such as `'30 minutes'` or `'3 days'`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. Durations use ms, seconds, minutes, hours, days, and weeks. Use a `Date` for a month or a calendar time. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`.
+
+```ts [server/api/signup.post.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { startWorkflow } from 'vite-hub/workflow'
+
+export default defineEventHandler(async (event) => {
+  const body = await readBody<{ email: string, userId: string }>(event)
+  if (!body) return new Response('Missing body', { status: 400 })
+
+  return startWorkflow('send-reminder', body, { delay: '3 days', id: `reminder-${body.userId}` })
+})
+```
+
+| Provider | How the delay works | Status during the delay |
+| --- | --- | --- |
+| OpenWorkflow | The run stays pending in storage until its start time. | `queued` |
+| Cloudflare | The run sleeps until its start time before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
+| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the server process. It is not durable: a restart loses the run. | `queued` |
+
+On Cloudflare, ViteHub cannot tell the delay from other sleeps, so the run reports `running`. For a run that repeats, call `startWorkflow()` from a [Schedule](/docs/schedule) handler.
+
 ## Runtime helpers
 
 | Helper | Description |
 | --- | --- |
-| `startWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
+| `startWorkflow(name, payload?, options?)` | Starts a Workflow Run now, or after `options.delay`. |
 | `deferWorkflow(name, payload?, options?)` | Starts a run after the response, through `waitUntil`. Returns nothing. A failure goes to the log. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
 | `cancelWorkflow(name, id)` | Cancels a Cloudflare run, a native Vercel run, or a pending or running OpenWorkflow run. |
 | `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. |
 
-`WorkflowStartOptions` accepts `id`. Use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
+`WorkflowStartOptions` accepts `id` and `delay`. For `id`, use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` rejects another id with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
 

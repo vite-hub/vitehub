@@ -259,6 +259,8 @@ export interface ServerEnvInspectionEntry {
   masked: boolean
   /** The host variable names of an env declaration, in read order. See `ServerEnvDescriptionEntry.names`. */
   names?: readonly string[]
+  /** The host variable name that supplied the value, one of `names`. Omitted when no name is set. */
+  name?: string
   path?: string
   /** Provider alias for provider-backed declarations. */
   provider?: string

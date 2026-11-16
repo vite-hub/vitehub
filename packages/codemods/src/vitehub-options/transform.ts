@@ -311,9 +311,8 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
       const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
-      const frameworkOption = key !== "sandboxTask" || value.type === "BooleanLiteral"
       // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
-      if (key !== "vitehub" && frameworkOption && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
+      if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
         insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)
       }
@@ -322,9 +321,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
         remove(item)
       }
       else {
-        follow(item, !frameworkOption
-          ? "Sandbox Task accepts only a boolean in vitehub() and vite-hub/nuxt. Move these options into hubSandboxTask() by hand, and set sandboxTask: false in the framework options if it is enabled."
-          : nuxt
+        follow(item, nuxt
           ? `vite.${key} is no longer read. Set ${key} in the vite-hub/nuxt options.`
           : `The top-level Vite ${key} key is no longer read. Move it into vitehub({ ${key} }), or pass it to the feature's plugin.`)
       }

@@ -162,7 +162,7 @@ function editedValue(): unknown {
   try {
     return JSON.parse(editText.value);
   } catch {
-    throw new Error("This value is not valid JSON.");
+    throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_JSON_INVALID({ subject: "This value" });
   }
 }
 
