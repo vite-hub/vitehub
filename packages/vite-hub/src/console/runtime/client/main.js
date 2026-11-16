@@ -375,14 +375,26 @@ const loadSections = createConsoleSectionLoader(sectionsBase);
 // The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
 const ConsoleDocuments = () => import("../components/console-documents.vue");
 
-/** Adds one route for each installed section that an owner package contributes. */
+const contributedRoutes = new Map();
+let contributedNavigationVersion = 0;
+
+/** Replaces contributed routes and their descriptors with this visit's navigation. */
 function addContributedRoutes(navigation) {
+  const current = router.currentRoute.value;
+  const refresh = current.matched.some(route => contributedRoutes.has(route.name));
+  for (const remove of contributedRoutes.values()) remove();
+  contributedRoutes.clear();
+  contributedNavigationVersion++;
+  const addRoute = (route) => contributedRoutes.set(route.name, router.addRoute({
+    ...route,
+    meta: { ...route.meta, contributedNavigationVersion },
+  }));
   for (const section of navigation.sections) {
     const details = navigation.contributions[section];
     const name = consoleSectionRouteName(section);
     if (!details || router.hasRoute(name)) continue;
     if (details.view.kind === "auth-management") {
-      router.addRoute({
+      addRoute({
         component: ConsoleAuth,
         name,
         path: "/auth/:page(overview|users|sessions|organizations|agents|activity)?",
@@ -404,11 +416,11 @@ function addContributedRoutes(navigation) {
       // The main view and every page render the same component, so the section sidebar stays mounted between them.
       for (const route of describeConsoleSectionRoutes(details)) {
         if (route.redirect) {
-          router.addRoute({ name: route.name, path: route.path, redirect: route.redirect });
+          addRoute({ name: route.name, path: route.path, redirect: route.redirect });
           continue;
         }
         const page = details.pages?.find(entry => entry.id === route.page);
-        router.addRoute({
+        addRoute({
           component: ConsoleDocuments,
           name: route.name,
           path: route.path,
@@ -419,7 +431,7 @@ function addContributedRoutes(navigation) {
       continue;
     }
     if (details.view.kind === "operation-view") {
-      router.addRoute({
+      addRoute({
         component: ConsoleOperationView,
         name,
         path: `/${section}`,
@@ -428,7 +440,7 @@ function addContributedRoutes(navigation) {
       });
       continue;
     }
-    router.addRoute({
+    addRoute({
       component: ConsoleDefinitions,
       name,
       path: `/${section}`,
@@ -446,6 +458,13 @@ function addContributedRoutes(navigation) {
         sectionsBase,
       },
     });
+  }
+  if (refresh) {
+    const next = router.resolve(current.fullPath);
+    const pageRemoved = current.meta.consolePage && next.meta.consolePage !== current.meta.consolePage;
+    void router.replace(next.matched.length && !pageRemoved
+      ? { path: current.fullPath, force: true }
+      : { name: "vitehub-console", force: true });
   }
 }
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);

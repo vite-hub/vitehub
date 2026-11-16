@@ -9,7 +9,7 @@
       <ConsoleFrame :active="active" :sections-base="sectionsBase">
         <RouterView v-slot="{ Component }">
           <!-- A page reads the navigation when it mounts. When a newer answer changes it, the page mounts again. -->
-          <component :is="Component" v-if="Component" :key="navigationChanges" />
+          <component :is="Component" v-if="Component" :key="`${navigationChanges}:${route.meta.contributedNavigationVersion ?? 0}`" />
           <!-- The same panel and status as the server page, so the first paint does not change shape. -->
           <UDashboardPanel v-else id="console-opening">
             <template #header>
@@ -53,7 +53,8 @@ const active = computed(() => isConsoleSectionId(route.meta.consoleSection) ? ro
 const navigationChanges = ref(0);
 let navigationShown = false;
 onScopeDispose(subscribeConsoleNavigation(props.sectionsBase, () => {
-  if (navigationShown) navigationChanges.value++;
+  // Contributed pages remount only after the router has matched the replacement descriptor.
+  if (navigationShown && route.meta.contributedNavigationVersion === undefined) navigationChanges.value++;
   navigationShown = true;
 }));
 
