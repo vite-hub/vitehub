@@ -128,6 +128,8 @@ export interface WorkflowRunStep {
   error?: { code?: string; message: string }
   id: string
   name: string
+  /** The time a sleep step wakes. Only a `context.sleep()` step has it. */
+  sleepUntil?: Date
   startedAt?: Date
   status: WorkflowRunStatus
 }
@@ -148,8 +150,19 @@ export interface WorkflowProviderStep {
     options: WorkflowStepOptions,
     run: () => TResult | Promise<TResult>,
   ) => Promise<TResult>
-  sleep?: (name: string, duration: string) => Promise<void>
+  /** Sleeps for a number of milliseconds. ViteHub names each sleep by call order. */
+  sleep?: (name: string, milliseconds: number) => Promise<void>
+  /** Sleeps until a date. Without it, ViteHub sleeps for the time that is left until the date. */
+  sleepUntil?: (name: string, date: Date) => Promise<void>
 }
+
+export type WorkflowDurationUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
+
+/**
+ * A sleep duration: milliseconds, or a string such as `'30 seconds'` or `'1 day'`. Cloudflare and OpenWorkflow read
+ * this form the same way. A month is 30 days and a year is 365.25 days.
+ */
+export type WorkflowDuration = number | `${number} ${WorkflowDurationUnit}` | `${number} ${WorkflowDurationUnit}s`
 
 /**
  * The step files of each folder Workflow, by Workflow name and step name. ViteHub writes it to
@@ -176,8 +189,16 @@ export interface WorkflowProviderContext<TPayload = unknown> {
   step?: WorkflowProviderStep
 }
 
-export interface WorkflowExecutionContext<TPayload = unknown, TName extends string = string> extends WorkflowProviderContext<TPayload> {
+export interface WorkflowExecutionContext<TPayload = unknown, TName extends string = string> extends Omit<WorkflowProviderContext<TPayload>, "step"> {
   name: TName
+  /** The provider step runner. Use `context.sleep()` to sleep. */
+  step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil">
+  /**
+   * Sleeps for a duration such as `'1 day'` or a number of milliseconds, or until a `Date`. Only a folder Workflow's
+   * `index.ts` can sleep. In a single-file Workflow it throws `WORKFLOW_ROOT_STEP_SLEEP`. The sleep is durable on
+   * Cloudflare and OpenWorkflow. Inline runs (`vite dev` and Vercel handlers) wait with a timer, which is not durable.
+   */
+  sleep: (until: WorkflowDuration | Date) => Promise<void>
   /** Step functions from the numbered files in the Workflow folder. Empty when the Workflow has no step files. */
   steps: WorkflowSteps<TName>
 }

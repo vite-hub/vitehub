@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
@@ -101,7 +102,7 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
   const added: Record<string, { content: string | Uint8Array, materialize: "startup", mount: "", workspacePath: string }> = {}
   for (const [name, content] of Object.entries(skills)) {
     if (!/^[\w.-]+$/.test(name) || name === "." || name === "..") {
-      throw new TypeError(`[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`)
+      throw agentDiagnostics.AGENT_SKILL_NAME_INVALID({ name })
     }
     const workspacePath = `.agents/skills/${name}/SKILL.md`
     added[`__vitehubAgentSkill:${workspacePath}`] = { content, materialize: "startup", mount: "", workspacePath }

@@ -26,6 +26,7 @@ import ConsoleValue from "./console-value.vue";
 import ConsoleWorkspaceBrowser from "./console-workspace-browser.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSection from "./console-section.vue";
+import Icon from "./console-icon.vue";
 
 const props = defineProps<{
   agentsBase: string;
@@ -370,7 +371,7 @@ onBeforeUnmount(() => request?.abort());
                 :aria-label="collapsed ? entry.id : undefined"
                 @click="selectDefinition(entry.id)"
               >
-                <UIcon v-if="collapsed" :name="sectionDetails.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+                <Icon v-if="collapsed" :name="sectionDetails.icon" class="vitehub-console__section-icon" aria-hidden="true" />
                 <span v-else class="grid min-w-0 gap-0.5">
                   <span class="truncate font-mono text-xs">{{ entry.id }}</span>
                   <span v-if="entry.detail && showEntryDetail" class="truncate text-xs font-normal text-dimmed">{{ entry.detail }}</span>
@@ -521,7 +522,7 @@ onBeforeUnmount(() => request?.abort());
               </table>
             </section>
             <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
-              <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
             </p>
           </main>
@@ -563,7 +564,7 @@ onBeforeUnmount(() => request?.abort());
           <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
           <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
           <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
-            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
           </p>
         </main>

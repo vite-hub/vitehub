@@ -102,7 +102,7 @@
     outline-offset: calc(var(--ui-ring-width) * -1);
   }
 
-  /* Popups float on a 1px ring and a soft shadow, with no border. */
+  /* Popups float on a 1px ring and a soft shadow, with no border. `--popover` is translucent over a blurred page. */
   :is(
     [data-slot="menu-content"],
     [data-slot="select-content"],
@@ -116,6 +116,7 @@
   ) {
     border-width: 0;
     background: var(--popover);
+    backdrop-filter: blur(12px);
     box-shadow: var(--shadow-popover);
     color: var(--popover-foreground);
   }
