@@ -1,3 +1,5 @@
+import { toResultError } from "@vite-hub/runtime"
+
 import type { RateLimitDriver } from "../types.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -32,12 +34,12 @@ export function cloudflareRateLimitDriver(options: CloudflareRateLimitDriverOpti
         result = await options.binding.limit({ key: input.key })
       }
       catch (cause) {
-        return [rateLimitErrorDiagnostics.RATE_LIMIT_R0005({ message: "[vitehub] Cloudflare Rate Limit binding failed.", cause }), undefined]
+        return [toResultError(rateLimitErrorDiagnostics.RATE_LIMIT_R0005({ message: "[vitehub] Cloudflare Rate Limit binding failed.", cause })), undefined]
       }
       if (!result || typeof result.success !== "boolean") {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0006({ message: "[vitehub] Cloudflare Rate Limit binding returned an invalid result." })
       }
-      return [null, { allowed: result.success }]
+      return [undefined, { allowed: result.success }]
     },
     name: "cloudflare",
   }

@@ -124,7 +124,7 @@ export default defineNuxtConfig({
 ```css [app/assets/main.css]
 @import "tailwindcss";
 @import "@nuxt/ui";
-@import "@vite-hub/ui/styles.css";
+@import "vite-hub/ui/styles.css";
 
 body { margin: 0; font-family: system-ui, sans-serif; }
 ```

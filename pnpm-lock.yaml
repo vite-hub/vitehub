@@ -707,6 +707,7 @@ patchedDependencies:
   '@ui-sdk/core@0.1.0-beta.5': 9aa3c9b015a0231d251227c25558b58a3c1df6b5472fd5989870a583e123deb4
   '@ui-sdk/vue@0.1.0-beta.5': ff1812b48ad7ea35fa143d3b26c9c0726d20f4dca3b8d2169808779ccf26ba5c
   '@vercel/blob@2.8.0': 015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25
+  env-runner@0.3.11: 06b180d33dd162c165b05cc5639e84db6ab00379d54d6ec999d0cdbb88778199
   nuxt-agent-discovery@0.8.2: 938c034a9b7f331c9e2f568ddb972a1e0b279fa6637b33d970edbd146c6d3a1d
   pkce-challenge@5.0.1: 10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5
 
@@ -3348,6 +3349,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
+      happy-dom:
+        specifier: 21.0.3
+        version: 21.0.3
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13
@@ -32829,7 +32833,7 @@ snapshots:
       srvx: 1.0.8
     optional: true
 
-  env-runner@0.3.11:
+  env-runner@0.3.11(patch_hash=06b180d33dd162c165b05cc5639e84db6ab00379d54d6ec999d0cdbb88778199):
     dependencies:
       crossws: 0.4.17(srvx@1.0.8)
       srvx: 1.0.8
@@ -36126,7 +36130,7 @@ snapshots:
   nitro@3.0.261103-rc:
     dependencies:
       crossws: 0.4.17(srvx@1.0.8)
-      env-runner: 0.3.11
+      env-runner: 0.3.11(patch_hash=06b180d33dd162c165b05cc5639e84db6ab00379d54d6ec999d0cdbb88778199)
       h3: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
       ocache: 0.3.1
       rou3: 1.0.0

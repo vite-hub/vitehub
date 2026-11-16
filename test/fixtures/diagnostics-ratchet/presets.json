@@ -25,8 +25,13 @@
   },
   "codesWithoutFix": [],
   "invariants": {
+    "packages/presets/src/babysitter/pr-workspaces.ts": 1,
     "packages/presets/src/babysitter/server.ts": 7,
+    "packages/presets/src/github/auto-merge.ts": 5,
+    "packages/presets/src/github/checkout.ts": 3,
     "packages/presets/src/github/host.ts": 1,
-    "packages/presets/src/github/install.ts": 2
+    "packages/presets/src/github/install.ts": 2,
+    "packages/presets/src/github/pull-requests.ts": 1,
+    "packages/presets/src/github/repair.ts": 6
   }
 }
