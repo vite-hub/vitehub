@@ -1280,7 +1280,10 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
 }
 
 export interface GmailMailboxSyncResult {
-  /** `false` when the sync used its time budget and work remains for the next sync. */
+  /**
+   * `false` when another sync held the mailbox, or when the sync used its time budget and work remains:
+   * a checkpoint, newer history, or a pending notification.
+   */
   finished: boolean
 }
 
@@ -1316,8 +1319,8 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
     lock = await state.acquireLock(keys.lock, syncLockTtlMs)
     if (!lock) {
       if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
-      // The holder reads once more for this notification.
-      return { finished: true }
+      // The holder reads once more. The caller still learns that no sync covered this notification yet.
+      return { finished: false }
     }
     clearPending = true
   }
