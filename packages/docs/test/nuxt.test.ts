@@ -46,17 +46,21 @@ vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
   watch: watchContent,
 }))
-// The test runner resolves workspace packages from anywhere, so resolve only from the app's own node_modules.
-vi.mock("node:module", async (importOriginal) => ({
-  ...await importOriginal<typeof import("node:module")>(),
-  createRequire: (from: string) => ({
-    resolve: (id: string) => {
-      const file = join(dirname(from), "node_modules", id)
-      if (existsSync(file)) return file
-      throw new Error(`Cannot find module '${id}'`)
-    },
-  }),
-}))
+// Resolve Comments only from the app, while keeping real resolution for the docs module's dependencies.
+vi.mock("node:module", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:module")>()
+  return {
+    ...original,
+    createRequire: (from: string) => ({
+      resolve: (id: string) => {
+        if (id !== "@vite-hub/comments/package.json") return original.createRequire(from).resolve(id)
+        const file = join(dirname(from), "node_modules", id)
+        if (existsSync(file)) return file
+        throw new Error(`Cannot find module '${id}'`)
+      },
+    }),
+  }
+})
 const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
 const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
@@ -829,7 +833,7 @@ describe("docs Comments", () => {
       mkdirSync(join(rootDir, "node_modules/@vite-hub/comments"), { recursive: true })
       writeFileSync(join(rootDir, "node_modules/@vite-hub/comments/package.json"), JSON.stringify({ name: "@vite-hub/comments", exports: { "./package.json": "./package.json" } }))
     }
-    return { options: { rootDir, modules, ...(docs ? { docs } : {}) } }
+    return { options: { rootDir, modules, alias: {}, ...(docs ? { docs } : {}) } }
   }
   const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
 
