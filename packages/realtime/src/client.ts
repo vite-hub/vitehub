@@ -165,16 +165,15 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   }
 
   async function answer(current: WebsocketProvider, id: string, body: unknown) {
+    // The caller gets the reason of a refusal as text.
+    const refusal = (why: string) => encodeRealtimeRequestFrame({ kind: "answer", id, ok: false, why })
     let frame: Uint8Array
     try {
-      // Internal invariant: caught below and sent to the caller as the refusal reason.
-      if (!requestHandler) throw new Error("This page does not answer requests.")
-      frame = encodeRealtimeRequestFrame({ kind: "answer", id, ok: true, body: await requestHandler(body) })
-      // Internal invariant: caught below and sent to the caller as the refusal reason.
-      if (frame.byteLength > maxAnswerBytes) throw new Error(`The answer has ${frame.byteLength} bytes, over the 1 MiB limit.`)
+      frame = requestHandler ? encodeRealtimeRequestFrame({ kind: "answer", id, ok: true, body: await requestHandler(body) }) : refusal("This page does not answer requests.")
+      if (frame.byteLength > maxAnswerBytes) frame = refusal(`The answer has ${frame.byteLength} bytes, over the 1 MiB limit.`)
     }
     catch (error) {
-      frame = encodeRealtimeRequestFrame({ kind: "answer", id, ok: false, why: error instanceof Error ? error.message : String(error) })
+      frame = refusal(error instanceof Error ? error.message : String(error))
     }
     const socket = current.ws
     if (current.wsconnected && socket && socket.readyState === socket.OPEN) socket.send(Uint8Array.from(frame))

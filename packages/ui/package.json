@@ -87,7 +87,8 @@
     "test:browser": "vp run --cache -t @vite-hub/ui#build && node --test test/browser/workspace.browser.mjs",
     "test:bridge": "node --test test/browser/tailwind-bridge.browser.mjs",
     "test:kit-parts": "node --test test/browser/kit-parts.browser.mjs",
-    "test:parity": "node --test test/browser/parity.browser.mjs"
+    "test:parity": "node --test test/browser/parity.browser.mjs",
+    "test:ui-sdk": "node --test test/browser/ui-sdk.browser.mjs"
   },
   "dependencies": {
     "@comark/vue": "0.9.0",

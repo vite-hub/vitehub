@@ -42,6 +42,12 @@ describe("@vite-hub/kit package contract", () => {
     expect(packed).toContain("--ui-radius-popup");
   });
 
+  it("ships the Tailwind bridge unchanged", () => {
+    const source = readFileSync(new URL("../src/styles/tailwind.css", import.meta.url), "utf8");
+    const packed = readFileSync(new URL("../dist/styles/tailwind.css", import.meta.url), "utf8");
+    expect(packed).toBe(source);
+  });
+
   it("ships default.scoped.css with every rule on the scope root or inside it", () => {
     const packed = (name: string) => postcss.parse(readFileSync(new URL(`../dist/styles/${name}`, import.meta.url), "utf8"));
     const scoped = packed("default.scoped.css");

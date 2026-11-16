@@ -1,8 +1,28 @@
+import { Diagnostic } from "nostics"
 import { expect, it } from "vitest"
 
 import { checkoutFailure } from "../src/checkout.ts"
 import { workspaceErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { runWorkspaceOperation } from "../src/runtime/operations.ts"
+
+/** A diagnostic from another bundled copy of Nostics: the same fields, but not an instance of this copy's `Diagnostic`. */
+class OtherCopyDiagnostic extends Error {
+  readonly code: string
+  readonly fix: string
+  constructor(code: string, why: string, fix: string) {
+    super(why)
+    this.code = this.name = code
+    this.fix = fix
+  }
+
+  get why(): string {
+    return this.message
+  }
+
+  toJSON(): { fix: string, name: string, why: string } {
+    return { fix: this.fix, name: this.name, why: this.why }
+  }
+}
 
 const codes = {
   WORKSPACE_CHECKOUT_CONFLICT: workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_CONFLICT({ conflicted: "a.md", workspace: "docs" }),
@@ -44,4 +64,10 @@ it("gives a history operation failure its code, fix, and HTTP status", async () 
 it("prints a failure without a code as WORKSPACE_CHECKOUT_FAILED with a fix", () => {
   expect(checkoutFailure(new Error("disk full"))).toEqual({ code: "WORKSPACE_CHECKOUT_FAILED", fix: expect.stringContaining("vitehub status"), message: "disk full" })
   expect(checkoutFailure(workspaceErrorDiagnostics.WORKSPACE_LOCK_BUSY())).toMatchObject({ code: "WORKSPACE_LOCK_BUSY", fix: expect.stringContaining("vitehub.lock.lock") })
+})
+
+it("prints a diagnostic from another copy of Nostics with its own code and fix", () => {
+  const error = new OtherCopyDiagnostic("AGENT_BUSY", "The Agent is busy.", "Try again later.")
+  expect(error).not.toBeInstanceOf(Diagnostic)
+  expect(checkoutFailure(error)).toEqual({ code: "AGENT_BUSY", fix: "Try again later.", message: "The Agent is busy." })
 })

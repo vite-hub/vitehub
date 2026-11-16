@@ -7,15 +7,15 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: string }>> = {
   preset: {
     why: "`preset` was renamed to `host`. Without `host`, ViteHub detects the host, and builds for Node when it finds none.",
-    fix: "Rename `preset` to `host`.",
+    fix: "Rename `preset` to `host`. `vitehub migrate` renames it.",
   },
   sandbox: {
     why: "`sandbox` was renamed to `sandboxTask`.",
-    fix: "Rename `sandbox` to `sandboxTask: true`.",
+    fix: "Rename `sandbox` to `sandboxTask: true`. `vitehub migrate` renames it.",
   },
   devtools: {
     why: "The `devtools` option was removed with the browser DevTools.",
-    fix: "Remove `devtools`. Use the ViteHub Console with `console: true`.",
+    fix: "Remove `devtools`. Use the ViteHub Console with `console: true`. `vitehub migrate` removes it.",
   },
   logs: {
     why: "`logs` moved into `observability`.",
