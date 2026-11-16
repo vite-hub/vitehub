@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { chmod, open } from "node:fs/promises"
+import { mkdtemp, open, rename, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 
@@ -16,8 +16,11 @@ const stagePattern = /^[a-z0-9][a-z0-9_-]{0,62}$/
 /** One line of a `.env` file. A value that a parser could read in two ways goes in quotes. */
 export function dotenvLine(name: string, value: string): string {
   if (/^[\w./:@+,-]*$/.test(value)) return `${name}=${value}`
-  if (!value.includes("'") && !/[\n\r]/.test(value)) return `${name}='${value}'`
-  return `${name}="${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`
+  // dotenv keeps backslashes in single/backtick quotes; Vite expands dollars in every quote style.
+  const escaped = value.replace(/\$/g, "\\$")
+  const quote = ["'", "`", '"'].find(candidate => !value.includes(candidate) && (candidate !== '"' || !/\\[nr]/.test(value)))
+  if (!quote || value.includes("\r")) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Cannot represent ${name} faithfully in a dotenv file. Use a value without carriage returns and with an available dotenv quote delimiter.` })
+  return `${name}=${quote}${escaped}${quote}`
 }
 
 /** Run git in `cwd`. `undefined` when git is missing. */
@@ -132,19 +135,25 @@ export const envPullFeature: ViteHubCliFeature = {
       const pulled = answer.values instanceof Object ? Object.entries(answer.values as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string") : []
       const text = `# Pulled from ${credential.origin}, project ${project}, stage ${values.stage}. Do not commit this file.\n${pulled.map(([name, value]) => dotenvLine(name, value)).join("\n")}\n`
 
-      // `wx` fails on an existing file, so a file that appears after the check is not replaced either.
-      const handle = await open(target, values.yes ? "w" : "wx", 0o600).catch((error: unknown) => {
-        if (error instanceof Error && Reflect.get(error, "code") === "EEXIST") throw cliErrorDiagnostics.CLI_ENV_FILE_EXISTS({ file })
-        throw error
-      })
+      // Rename replaces the directory entry, never a symlink or hard-link target.
+      const temporary = values.yes ? await mkdtemp(join(context.cwd, ".vitehub-env-")) : undefined
       try {
-        await handle.writeFile(text)
+        const destination = temporary ? join(temporary, "values") : target
+        const handle = await open(destination, "wx", 0o600).catch((error: unknown) => {
+          if (error instanceof Error && Reflect.get(error, "code") === "EEXIST") throw cliErrorDiagnostics.CLI_ENV_FILE_EXISTS({ file })
+          throw error
+        })
+        try {
+          await handle.writeFile(text)
+        }
+        finally {
+          await handle.close()
+        }
+        if (temporary) await rename(destination, target)
       }
       finally {
-        await handle.close()
+        if (temporary) await rm(temporary, { recursive: true, force: true })
       }
-      // A replaced file keeps its old mode, so set it.
-      await chmod(target, 0o600)
 
       const names = pulled.map(([name]) => name)
       if (json) writeSetupJson(context, { console: credential.origin, file, names, project, stage: values.stage })

@@ -702,6 +702,8 @@ vitehub env pull --from console --yes                          # replace the fil
 Wrote 2 values of production to .env.production (mode 600): API_TOKEN, DATABASE_URL.
 ```
 
+- Values retain literal dollar expressions, quotes and newlines when Vite loads the file. If dotenv cannot represent a value faithfully (such as a carriage return or a value containing every quote delimiter), the pull fails before writing the file.
+- With `--yes`, the command replaces the file entry; it never writes through a symlink to another file.
 - The command prints names, never values. The Console logs each value that it gives out, with the key and the person.
 - You must be an owner or admin of the team. A member gets `CONSOLE_ENV_FORBIDDEN`.
 - `--project` is needed when the key opens more than one project.

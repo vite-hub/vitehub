@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process"
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { loadEnv } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
@@ -68,7 +69,7 @@ describe("vitehub env pull --from console", () => {
     const text = await readFile(file, "utf8")
     expect(text).toContain(`API_TOKEN=${canary}\n`)
     expect(text).toContain("GREETING='hello world'\n")
-    expect(text).toContain("MULTI=\"a\\nb\"\n")
+    expect(text).toContain("MULTI='a\nb'\n")
     expect(console.requests.map(request => `${request.method} ${request.path}`)).toEqual(["GET /api/projects", "POST /api/projects/p1/env/production/reveal"])
   })
 
@@ -139,9 +140,28 @@ describe("vitehub env pull --from console", () => {
     expect(run.exitCode).toBe(0)
   })
 
-  it("quotes values that a .env parser could misread", () => {
-    expect(dotenvLine("A", "plain-value_1.2")).toBe("A=plain-value_1.2")
-    expect(dotenvLine("A", "has space # and hash")).toBe("A='has space # and hash'")
-    expect(dotenvLine("A", "it's \"quoted\"")).toBe("A=\"it's \\\"quoted\\\"\"")
+  it("keeps a tracked target unchanged when the destination is a symlink", async () => {
+    const root = await gitProject()
+    await writeFile(join(root, "config.txt"), "PUBLIC=1\n")
+    execFileSync("git", ["add", "config.txt"], { cwd: root })
+    await symlink("config.txt", join(root, ".env.production"))
+    const run = await pull(["--from", "console", "--project", "p1", "--yes"], root, fakeConsole().fetch)
+    expect(run.exitCode).toBe(0)
+    expect(await readFile(join(root, "config.txt"), "utf8")).toBe("PUBLIC=1\n")
+    expect((await stat(join(root, ".env.production"))).mode & 0o777).toBe(0o600)
+  })
+
+  it("round-trips values through Vite's env loader", async () => {
+    const root = await gitProject()
+    const values = ["it's \"quoted\"", "path\\segment\nnext", "price $HOME", "literal ${HOME}", "back\\$HOME", "single ' and backtick `", "plain-value_1.2"]
+    for (const value of values) {
+      await writeFile(join(root, ".env.production"), `${dotenvLine("CONSOLE_ROUNDTRIP", value)}\n`)
+      expect(loadEnv("production", root, "").CONSOLE_ROUNDTRIP).toBe(value)
+    }
+  })
+
+  it("refuses values dotenv cannot preserve instead of silently changing them", () => {
+    expect(() => dotenvLine("A", "all '\"` quotes")).toThrow("Cannot represent A faithfully")
+    expect(() => dotenvLine("A", "carriage\rreturn")).toThrow("Cannot represent A faithfully")
   })
 })
