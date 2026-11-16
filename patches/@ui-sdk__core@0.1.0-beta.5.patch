@@ -341,16 +341,15 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
      }
 -    const order = numbers.length === 1 ? ["day"] : rest;
 +    const [first, second] = numbers;
-+    const order = second === void 0 ? ["day"] : first.length > 2 ? ["year", "day"] : second.length > 2 ? ["day", "year"] : styleOrder(locale, "long").filter((field) => field !== "month");
++    const order = second === void 0 ? ["day"] : first.length > 2 ? ["year", "day"] : second.length > 2 ? ["day", "year"] : namedMonthOrder(locale);
      order.forEach((field, index) => values[field] = numbers[index]);
      values.month = String(namedMonth);
    } else if (numbers.length === 1) {
-@@ -96,20 +106,133 @@ function parseDate(text, locale, options = {}) {
+@@ -96,20 +106,145 @@ function parseDate(text, locale, options = {}) {
      }
      const yearLength = digits.length - 4;
      let offset2 = 0;
--    for (const field of fields) {
-+    for (const field of yearLength === 2 ? styleOrder(locale, "short") : fields) {
+     for (const field of fields) {
        const length = field === "year" ? yearLength : 2;
        values[field] = digits.slice(offset2, offset2 += length);
      }
@@ -359,7 +358,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
 -    order.forEach((field, index) => values[field] = numbers[index]);
 +    const short = styleOrder(locale, "short");
 +    const year2 = numbers.findIndex((number) => number.length > 2);
-+    const order = year2 === -1 || numbers.length === 2 ? short : [fields, short].find((order2) => order2[year2] === "year") ?? fields;
++    const order = numbers.length === 2 ? fields : year2 === -1 ? short : [fields, short].find((order2) => order2[year2] === "year") ?? fields;
 +    order.filter((field) => numbers.length === 3 || field !== "year").forEach((field, index) => values[field] = numbers[index]);
    } else {
      return void 0;
@@ -375,8 +374,21 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
 +  }
    const offset = yearOffset(locale);
    const year = values.year === void 0 ? referenceYear : fullYear(values.year, referenceYear + offset) - offset;
-   return isoDate(year, Number(values.month), Number(values.day));
+-  return isoDate(year, Number(values.month), Number(values.day));
++  return isoDate(year, Number(values.month), Number(values.day)) ?? (dateParts(normalized) ? normalized : void 0);
  }
++var namedMonthOrders = /* @__PURE__ */ new Map();
++function namedMonthOrder(locale) {
++  const key = locale ?? "";
++  let order = namedMonthOrders.get(key);
++  if (!order) {
++    order = dateFormatter(locale, { dateStyle: "long" }).formatToParts(Date.UTC(2026, 9, 16)).flatMap(
++      (part) => part.type === "day" || part.type === "year" ? [part.type] : []
++    );
++    namedMonthOrders.set(key, order);
++  }
++  return order;
++}
 +var styleOrders = /* @__PURE__ */ new Map();
 +function styleOrder(locale, dateStyle) {
 +  const key = `${locale ?? ""}|${dateStyle}`;
@@ -482,7 +494,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
  var yearOffsets = /* @__PURE__ */ new Map();
  function yearOffset(locale) {
    const key = locale ?? "";
-@@ -133,6 +256,77 @@ function readYearOffset(locale) {
+@@ -133,6 +268,79 @@ function readYearOffset(locale) {
    }
    return year - 2026;
  }
@@ -553,14 +565,16 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
 +  return erasOf(locale).offsets.get(compact(era ?? "", locale));
 +}
 +function eraYears(text, offset, referenceYear) {
-+  return [Number(text), fullYear(text, referenceYear - offset)].map(
-+    (year) => year + offset
-+  );
++  // A padded short year is distinguishable from a literal numeric era year.
++  // Otherwise keep numeric round trips when numeric and short dates collide.
++  const literal = Number(text) + offset;
++  const expanded = fullYear(text, referenceYear - offset) + offset;
++  return /^0\d$/.test(text) ? [expanded, literal] : [literal, expanded];
 +}
  function fullYear(text, referenceYear) {
    const year = Number(text);
    if (text.length > 2) {
-@@ -176,6 +370,13 @@ function monthLookup(locale) {
+@@ -176,6 +384,13 @@ function monthLookup(locale) {
        }
      }
    }
@@ -574,7 +588,7 @@ index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a
    return lookup;
  }
  var patternWords = /* @__PURE__ */ new Map();
-@@ -192,7 +393,7 @@ function isPatternWord(word, locale) {
+@@ -192,7 +407,7 @@ function isPatternWord(word, locale) {
          Date.UTC(2026, 9, 16)
        )) {
          if (part.type === "literal") {
