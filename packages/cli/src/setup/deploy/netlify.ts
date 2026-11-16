@@ -92,7 +92,7 @@ function netlifyUpdate(existing: unknown, name: string, context: string, value: 
     is_secret: isSecret,
     key: name,
     // A secret cannot have the post-processing scope.
-    scopes: [...new Set([...scopes, "functions"])].filter(scope => !isSecret || scope !== "post-processing"),
+    scopes: [...new Set([...scopes, "functions"])].filter(scope => !isSecret || !/^post[-_]processing$/u.test(scope)),
     values: [...others, { context, value }],
   }
 }
