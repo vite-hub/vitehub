@@ -626,3 +626,84 @@ describe("the read that says who is signed in, against other changes", () => {
     expect(page.inspectDevice().persisted).toBe(true)
   })
 })
+
+describe("the read that says who is signed in, and the reads it holds", () => {
+  type Session = { user: { id: string } | null }
+  const accountOf = (session: Session) => session.user?.id ?? null
+
+  /** A first visit as `ada` that stores `projects` and `settings`. */
+  async function visitBoth() {
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    mount(() => page.useStoredData("projects", async () => ["p1"]))
+    mount(() => page.useStoredData("settings", async () => "dark"))
+    await tick()
+    await tick()
+    expect(browser.disk.keys).toEqual(["projects", "settings"])
+    for (const unmount of unmounts.splice(0)) unmount()
+  }
+
+  it("names the account of a session that answers right before the page opens the device, and never shows the copies of another account", async () => {
+    await visitBoth()
+    const page = await openPage()
+    const list = mount(() => page.useStoredData("projects", async () => new Promise<string[]>(() => undefined), { default: () => [] }))
+    mount(() => page.useStoredData("session", async (): Promise<Session> => ({ user: { id: "bob" } }), { account: accountOf }))
+    queueMicrotask(() => void page.openDevice())
+    await tick()
+    await tick()
+    await tick()
+    expect(page.inspectDevice().account).toBe("bob")
+    expect(list.root.textContent).not.toContain("p1")
+    expect(browser.disk.meta).toMatchObject({ account: "bob" })
+  })
+
+  it("stops starting held reads when a loader that starts calls the session read again", async () => {
+    await visitBoth()
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    const shownSession = mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    const projectCalls: number[] = []
+    mount(() => page.useStoredData("projects", async () => {
+      projectCalls.push(projectCalls.length)
+      void shownSession.read.refresh()
+      return ["p2"]
+    }))
+    const settings = deferredLoader<string>()
+    mount(() => page.useStoredData("settings", settings.loader))
+    expect(projectCalls).toHaveLength(0)
+    session.calls[0]!.reject(new Error("offline"))
+    await tick()
+    // The projects loader started the session read again, so settings waits for it.
+    expect(projectCalls).toHaveLength(1)
+    expect(settings.calls).toHaveLength(0)
+    session.calls[1]!.resolve({ user: { id: "ada" } })
+    await tick()
+    expect(settings.calls).toHaveLength(1)
+  })
+
+  it("resolves refresh() of a held read when its call after the hold ends", async () => {
+    await visitBoth()
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    const projects = deferredLoader<string[]>()
+    const list = mount(() => page.useStoredData("projects", projects.loader))
+    let refreshed = false
+    void list.read.refresh().then(() => {
+      refreshed = true
+    })
+    await tick()
+    expect(refreshed).toBe(false)
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    expect(projects.calls).toHaveLength(1)
+    expect(refreshed).toBe(false)
+    projects.calls[0]!.resolve(["p2"])
+    await tick()
+    expect(refreshed).toBe(true)
+    expect(list.read.status.value).toBe("success")
+  })
+})

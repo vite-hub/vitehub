@@ -59,6 +59,8 @@ interface SharedRead {
   maxAge: number
   /** The account of an answer, for the read that says who is signed in. */
   account: ((value: unknown) => string | null) | undefined
+  /** While the read is held, what `refresh()` returns: it resolves when the call after the hold ends, or the read goes. */
+  heldUntil: { promise: Promise<void>, resolve: () => void } | undefined
 }
 
 const week = 7 * 24 * 60 * 60 * 1000
@@ -79,8 +81,12 @@ const held = new Set<SharedRead>()
  * account. A naming calls them through its event.
  */
 function startHeld(device: Device): void {
-  if (identifying.size) return
-  for (const read of held) void load(read, read.loader, device)
+  // A loader that starts can start a read that says who is signed in, and then the other held reads wait again.
+  const waiting = [...held]
+  for (const read of waiting) {
+    if (identifying.size) return
+    void load(read, read.loader, device)
+  }
 }
 
 /**
@@ -133,8 +139,15 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
   if (!read.account && read.storedAt.value && identifying.size && !device.named()) {
     read.controller = undefined
     held.add(read)
-    return
+    if (!read.heldUntil) {
+      let resolve = () => undefined as void
+      const promise = new Promise<void>(done => resolve = done)
+      read.heldUntil = { promise, resolve }
+    }
+    return read.heldUntil.promise
   }
+  const waited = read.heldUntil
+  read.heldUntil = undefined
   const controller = new AbortController()
   read.controller = controller
   if (read.account) identifying.add(read)
@@ -146,10 +159,13 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     const account = read.account?.(value)
     if (read.account) {
       checkAccount(account)
-      // The naming waits for the copies of the disk. A change of the epoch meanwhile, such as a message of another tab
-      // or a naming of this page, decides instead, and the read starts over.
-      await device.whenOpen()
-      if (controller.signal.aborted || device.epoch() !== since) return
+      // The naming waits for the copies of the disk, also when `openDevice()` starts while it waits. A change of the
+      // epoch meanwhile, such as a message of another tab or a naming of this page, decides instead, and the read starts
+      // over. From the last check to the claim, nothing waits, so the device cannot start to open in between.
+      while (device.loading()) {
+        await device.whenOpen()
+        if (controller.signal.aborted || device.epoch() !== since) return
+      }
     }
     read.answered = true
     read.data.value = value
@@ -171,6 +187,7 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     read.status.value = "error"
   }
   finally {
+    waited?.resolve()
     if (read.controller === controller && identifying.delete(read)) startHeld(device)
   }
 }
@@ -195,6 +212,7 @@ function acquire(key: string, loader: (context: StoredDataContext) => Promise<un
     fallback,
     maxAge,
     account,
+    heldUntil: undefined,
   }
   read.data.value = fallback()
   show(read, device)
@@ -209,6 +227,8 @@ function release(read: SharedRead, device: Device): void {
   if (read.users) return
   read.controller?.abort()
   held.delete(read)
+  read.heldUntil?.resolve()
+  read.heldUntil = undefined
   if (reads.get(read.key) === read) reads.delete(read.key)
   if (identifying.delete(read)) startHeld(device)
 }
