@@ -4571,7 +4571,17 @@ const agentDiagnosticHandles = defineDiagnostics({
   },
 })
 
-export const agentDiagnostics = { ...agentDiagnosticHandles, ...messageDiagnostics }
+type Guarded<TGuard> = TGuard extends (error: unknown) => error is infer TError ? TError : never
+
+/**
+ * Every Agent diagnostic handle. A spread does not copy the non-enumerable `is` of each registry,
+ * so `is` is defined again here and checks both registries.
+ */
+export const agentDiagnostics: Omit<typeof agentDiagnosticHandles & typeof messageDiagnostics, "is"> & {
+  is: (error: unknown) => error is Guarded<typeof agentDiagnosticHandles.is> | Guarded<typeof messageDiagnostics.is>
+} = /*#__PURE__*/ Object.defineProperty({ ...agentDiagnosticHandles, ...messageDiagnostics }, "is", {
+  value: (error: unknown) => agentDiagnosticHandles.is(error) || messageDiagnostics.is(error),
+})
 
 /** Preserves input-error HTTP status for application TypeErrors and Agent diagnostics. */
 export function isAgentTypeDiagnostic(error: unknown): boolean {
