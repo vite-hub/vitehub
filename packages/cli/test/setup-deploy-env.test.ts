@@ -195,8 +195,8 @@ describe("vitehub deploy checks Server Env", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
   })
 
-  it("refuses a secret that expands from a tracked file, or comes from a file that git does not ignore, before any host write", async () => {
-    const root = await project("cloudflare", [apiKey], { files: { ".env": `BASE=${canary}\n`, ".env.production": "API_KEY=$BASE\n" } })
+  it.each(["$BASE", "${BASE.KEY}", "${DOLLAR}BASE"])("refuses %s from a tracked file, or an unignored file, before any host write", async (reference) => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env": `BASE=${canary}\nBASE.KEY=${canary}\n`, ".env.production": `DOLLAR=$\nAPI_KEY=${reference}\n` } })
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
     git("init", "-q")
     git("add", "-f", ".env")

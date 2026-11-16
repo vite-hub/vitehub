@@ -409,8 +409,8 @@ describe("vitehub env push value sources", () => {
   const secretOnly = [envEntries[0]!]
   const gitIn = (root: string) => (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
 
-  it.each(["$BASE", "${BASE}", "${UNSET:-$BASE}"])("refuses a secret that %s expands from a tracked file, though its own file is ignored", async (reference) => {
-    const root = await linkedProject(["cloudflare"], { ".env": `BASE=${canary}\n`, ".env.production": `VITEHUB_SECRET=${reference}\n` })
+  it.each(["$BASE", "${BASE}", "${UNSET:-$BASE}", "${BASE.KEY}", "${DOLLAR}BASE"])("refuses a secret that %s expands from a tracked file, though its own file is ignored", async (reference) => {
+    const root = await linkedProject(["cloudflare"], { ".env": `BASE=${canary}\nBASE.KEY=${canary}\n`, ".env.production": `DOLLAR=$\nVITEHUB_SECRET=${reference}\n` })
     const git = gitIn(root)
     git("init", "-q")
     git("add", "-f", ".env")

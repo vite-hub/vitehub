@@ -256,9 +256,46 @@ function fileSource(root: string, path: string): EnvValueSource {
   return `${folder ? `${folder}/` : ""}.env${basename(path).slice(".env".length)}`
 }
 
-/** The names that a raw value expands, as Vite does: `$NAME`, `${NAME}`, and names in defaults, such as BASE in `${UNSET:-$BASE}`. */
-function expandedNames(value: string): string[] {
-  return [...value.matchAll(/(?<!\\)\$\{?([A-Za-z_]\w*)/gu)].map(match => match[1]!)
+/** Trace the same replacements and iteration order as Vite's patched dotenv-expand. */
+function expandedFiles(raw: Map<string, { path: string, value: string }>, env: NodeJS.ProcessEnv): Map<string, Set<string>> {
+  const parsed = Object.fromEntries([...raw].map(([name, file]) => [name, file.value]))
+  const files = new Map([...raw].map(([name, file]) => [name, new Set([file.path])]))
+  for (const name of Object.keys(parsed)) {
+    let result = parsed[name]!
+    const sources = new Set(files.get(name))
+    if (env[name] && env[name] !== result) {
+      parsed[name] = env[name]!
+      files.set(name, new Set())
+      continue
+    }
+    // Snapshot values before this key is expanded, as dotenv-expand does.
+    const values = { ...parsed, ...env }
+    const regex = /(?<!\\)\${([^{}]+)}|(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)/g
+    const seen = new Set<string>()
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(result)) !== null) {
+      seen.add(result)
+      const template = match[0]
+      const expression = (match[1] || match[2])!
+      const operator = expression.match(/(:\+|\+|:-|-)/)?.[0]
+      const parts = operator ? expression.split(operator) : [expression]
+      const key = parts.shift()!
+      // Even a conditional reads the referenced value. Shell values carry no file.
+      if (env[key] === undefined) {
+        for (const path of files.get(key) ?? []) sources.add(path)
+      }
+      const alternate = operator === ":+" || operator === "+"
+      const fallback = alternate && !values[key] ? "" : parts.join(operator)
+      const replacement = alternate ? undefined : values[key]
+      result = result.replace(template, replacement && !seen.has(replacement) ? replacement : fallback)
+      if (result === parsed[key]) break
+      // Replacements can form new references, including across the replacement boundary.
+      regex.lastIndex = 0
+    }
+    parsed[name] = result.replace(/\\\$/g, "$")
+    files.set(name, sources)
+  }
+  return files
 }
 
 /**
@@ -276,15 +313,7 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
       if (value !== undefined) raw.set(name, { path, value })
     }
   }
-  // Vite expands a name from the shell first, else from the files. A shell value can expand file names in turn.
-  const filesOf = (name: string, seen: Set<string>): string[] => {
-    if (seen.has(name)) return []
-    seen.add(name)
-    const shell = env[name]
-    const file = shell === undefined ? raw.get(name) : undefined
-    const value = shell ?? file?.value ?? ""
-    return [...file ? [file.path] : [], ...expandedNames(value).flatMap(reference => filesOf(reference, seen))]
-  }
+  const files = expandedFiles(raw, env)
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
   const loaded = await withViteStageEnvironment(env, async () => vite.loadEnv(stage, envDir, ""))
@@ -295,7 +324,7 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
     if (env[name] !== undefined) values.set(name, { files: [], source: "process", value })
     else {
       const own = raw.get(name)
-      if (own) values.set(name, { files: [...new Set(filesOf(name, new Set()))], source: fileSource(root, own.path), value })
+      if (own) values.set(name, { files: [...files.get(name) ?? []], source: fileSource(root, own.path), value })
     }
   }
   return values
