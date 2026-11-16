@@ -61,6 +61,7 @@ const runtimeEntries = [
   "src/_internal/auth/runtime/server.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
+  "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
