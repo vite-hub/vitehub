@@ -15,7 +15,7 @@ import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
-import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
@@ -48,7 +48,7 @@ import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
-import { consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
+import { consoleDeploymentEnv, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
@@ -570,8 +570,13 @@ export interface ViteHubOptions {
    * no unit. Other hosts ignore it.
    */
   systemd?: boolean | SystemdOptions
-  /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
-  sandboxTask?: boolean
+  /**
+   * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
+   * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the provider options, such as
+   * `{ provider: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ provider: "vercel", networkPolicy: "deny-all" }`.
+   * `provider: "vercel"` also works on hosts without a Sandbox, such as `node`, with Vercel credentials.
+   */
+  sandboxTask?: boolean | ViteHubSandboxTaskOptions
   schedule?: boolean | ScheduleOptions
   workflow?: boolean | WorkflowOptions
   workspace?: boolean | WorkspaceOptions
@@ -579,6 +584,23 @@ export interface ViteHubOptions {
 
 /** Queue options accepted by the framework distribution. */
 export type ViteHubQueueOptions = QueueOptions
+
+/** Sandbox Task options accepted by the framework distribution: the options of `hubSandboxTask()`. */
+export type ViteHubSandboxTaskOptions = Exclude<SandboxTaskOptions, false>
+
+/**
+ * The Sandbox provider of the app, or undefined when Sandbox Tasks are off or the host has no Sandbox. An explicit
+ * `provider` wins over the host's Sandbox. Cloudflare Sandbox needs the Cloudflare host for its Container binding.
+ */
+export function resolveSandboxTaskProvider(sandboxTask: ViteHubOptions["sandboxTask"], plan: DeploymentPlan): "cloudflare" | "vercel" | undefined {
+  if (!sandboxTask) return
+  const provider = sandboxTask === true ? undefined : sandboxTask.provider
+  if (provider === "cloudflare" && plan.host !== "cloudflare") {
+    throw viteHubErrorDiagnostics.VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED({ message: `[vitehub] sandboxTask.provider "cloudflare" works with the "cloudflare" host only, because Cloudflare Sandbox needs the Container and Durable Object binding of a Worker. The "${plan.host}" host cannot provide them.` })
+  }
+  if (provider) return provider
+  return plan.services.sandbox.supported ? plan.services.sandbox.adapter : undefined
+}
 
 /** The local and Postgres providers run only on the Node host. */
 function assertNodeQueueProvider(queue: ViteHubOptions["queue"], host: ViteHubHost): void {
@@ -757,6 +779,7 @@ function deploymentNitroModule(
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
   envPlugin: () => EnvVitePlugin | undefined,
+  contributedEnv: () => readonly DeploymentEnvEntry[],
 ) {
   return (nitro: {
     hooks: {
@@ -795,8 +818,9 @@ function deploymentNitroModule(
         if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
-      const env = envPlugin()?.api.getServerEnvRegistry()
-      await finalizeDeploymentPlanOutput({ ...(env ? { env: deploymentEnvEntries(env) } : {}), identity, outputDir, plan, rootDir, services })
+      const registry = envPlugin()?.api.getServerEnvRegistry()
+      const env = mergeDeploymentEnv([...registry ? deploymentEnvEntries(registry) : [], ...contributedEnv()])
+      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -839,21 +863,21 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 
 /**
  * The Rate Limit provider of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
- * or a Postgres Database that every instance shares. KV selects that driver at build time, so the Rate Limit
- * runtime checks the configured driver at boot and counts in memory, with a warning, when the store cannot share counts.
+ * or a Postgres Database that every instance shares. When ViteHub selects `kv` itself, a store that cannot share counts
+ * falls back to memory with a warning. An explicit `provider: "kv"` on such a store fails the build.
  */
-function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
+function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): { memoryFallback?: true, provider: "cloudflare" | "kv" | "memory" } {
   const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
   // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
   if (configured === "kv" && plan.host !== "node") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.host}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
   }
   const policy = plan.services.rateLimit
-  if (!policy.supported) return "memory"
-  if (plan.host !== "node") return policy.adapter
-  if (configured === "kv" || configured === "memory") return configured
+  if (!policy.supported) return { provider: "memory" }
+  if (plan.host !== "node") return { provider: policy.adapter }
+  if (configured === "kv" || configured === "memory") return { provider: configured }
   const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
-  return kvEnabled ? "kv" : "memory"
+  return kvEnabled ? { memoryFallback: true, provider: "kv" } : { provider: "memory" }
 }
 
 function deploymentPlugins(
@@ -872,6 +896,12 @@ function deploymentPlugins(
   let deploymentOutputDir: string | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const deploymentEnvPlugin = { current: envPlugin }
+  let resolvedPlugins: readonly unknown[] | undefined
+  // The names that primitives read outside Server Env, for `deployment.json`. The Console belongs to this package.
+  const contributedEnv = () => [
+    ...collectDeploymentEnv(resolvedPlugins, { host: plan.host }),
+    ...consoleDeploymentEnv(resolveConsoleOptions(options.console)),
+  ]
   const subscribedEnvPlugins = new WeakSet<EnvVitePlugin>()
   const subscribeEnvPlugin = (plugin: EnvVitePlugin): void => {
     deploymentEnvPlugin.current = plugin
@@ -972,12 +1002,15 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              provider: building ? buildRateLimitProvider(plan, options) : "memory",
+              ...building ? buildRateLimitProvider(plan, options) : { provider: "memory" },
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
+            const configuredSandboxTask = options.sandboxTask && options.sandboxTask !== true ? options.sandboxTask : undefined
+            const configuredSandboxName = configuredSandboxTask && "name" in configuredSandboxTask ? configuredSandboxTask.name : undefined
             setResolvedFeatureOptions(config, "sandboxTask", {
-              ...(plan.services.sandbox.adapter === "cloudflare"
+              ...configuredSandboxTask,
+              ...(plan.services.sandbox.adapter === "cloudflare" && configuredSandboxName === undefined
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
               provider: plan.services.sandbox.adapter,
@@ -1055,7 +1088,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1109,6 +1142,12 @@ function deploymentPlugins(
         }),
       },
       config(config) {
+        // Nuxt replays config for separate Nitro builds without running Vite configResolved.
+        if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+          // Widen first: flattening Vite's recursive PluginOption type is too deep for TypeScript.
+          const plugins: readonly unknown[] | undefined = config.plugins
+          resolvedPlugins = plugins?.flat(Infinity)
+        }
         deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
         if (deploymentEnvPlugin.current) subscribeEnvPlugin(deploymentEnvPlugin.current)
         if (plan.host !== "cloudflare") return
@@ -1118,6 +1157,7 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        resolvedPlugins = config.plugins
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const inspectionNitro = (config as ResolvedConfig & { nitro?: { rootDir?: string, output?: { dir?: string } } }).nitro
         deploymentRoot = resolve(inspectionNitro?.rootDir ?? config.root ?? process.cwd())
@@ -1327,7 +1367,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   assertFeatureSupported("browser", plan.host, options)
   assertFeatureSupported("email", plan.host, options)
-  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
+  const sandboxTaskProvider = resolveSandboxTaskProvider(options.sandboxTask, plan)
+  const sandboxTaskEnabled = sandboxTaskProvider !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueProvider(options.queue, plan.host)
@@ -1379,7 +1420,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
-  if (options.sandboxTask) requestedServices.push("sandbox")
+  // The host selects the Sandbox, unless an explicit provider is not the host's own, such as Vercel Sandbox on Node.
+  const hostSandbox = plan.services.sandbox
+  if (options.sandboxTask && (options.sandboxTask === true || !options.sandboxTask.provider || (hostSandbox.supported && options.sandboxTask.provider === hostSandbox.adapter))) requestedServices.push("sandbox")
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
@@ -1538,12 +1581,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ))
   }
   if (sandboxTaskEnabled) {
-    const sandboxTaskPolicy = plan.services.sandbox
-    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask({
-      ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
+    const sandboxTaskPluginOptions = {
+      ...options.sandboxTask === true ? {} : options.sandboxTask,
+      provider: sandboxTaskProvider,
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
-    } as SandboxTaskOptions)))
+    }
+    // SAFETY: hubSandboxTask() removes the two package-private integration fields before it reads the public options.
+    plugins.push(afterApplicationConfig(requireOptionalOwner(sandboxTaskVite, "sandboxTask").hubSandboxTask(sandboxTaskPluginOptions as SandboxTaskOptions)))
   }
   if (options.agent) {
     // The generated plugin installs the journal, with the Console on or off, so the Console only reads it.
@@ -1628,7 +1673,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // SAFETY: ViteHub adds its KV re-export path to the public Rate Limit options for generated imports.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      provider: buildRateLimitProvider(plan, options),
+      ...buildRateLimitProvider(plan, options),
       kvImport: "vite-hub/kv",
     } as RateLimitOptions)))
   }

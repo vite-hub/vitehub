@@ -1,5 +1,8 @@
 import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
+import type { SandboxTaskSizeOptions } from './size'
+
+export type { SandboxTaskSizeOptions } from './size'
 
 export type SandboxTaskProvider = 'cloudflare' | 'vercel'
 
@@ -9,11 +12,10 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskProviderOptions {
+export interface VercelSandboxTaskProviderOptions extends SandboxTaskSizeOptions {
   provider: 'vercel'
   runtime?: string
   timeout?: number
-  cpu?: number
   ports?: number[]
   source?: VercelSandboxSource
   /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Vercel also takes `subnets`. */
@@ -23,8 +25,10 @@ export interface VercelSandboxTaskProviderOptions {
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionProviderOptions {
+export interface CloudflareSandboxTaskDefinitionProviderOptions extends SandboxTaskSizeOptions {
   provider: 'cloudflare'
+  /** Maximum number of Containers that run at once. Defaults to 12. */
+  maxInstances?: number
   binding?: string
   className?: string
   migrationTag?: string
@@ -43,7 +47,7 @@ export type SandboxTaskDefinitionProviderOptions
 
 export type AgentSandboxTaskConfig =
   | SandboxTaskDefinitionProviderOptions
-  | { provider?: undefined, name?: string }
+  | ({ provider?: undefined, name?: string } & SandboxTaskSizeOptions)
 
 export interface SandboxTaskDefinitionBundle {
   entry: string
