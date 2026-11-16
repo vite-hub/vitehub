@@ -65,7 +65,7 @@ Inspect generated output to verify routes, bindings, or host wiring. Import it f
 | Host deployment files | Provider Output from the integration. |
 | Server code access | A documented package or generated import. |
 
-Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/reference/runtime-helpers), and [Provider Output](/docs/reference/provider-output) for details.
+Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/runtime/helpers), and [Provider Output](/docs/reference/provider-output) for details.
 
 ## Persistent Node storage
 

@@ -95,7 +95,7 @@ Custom H3 and Nuxt routes can import `getRuntimeContext` from
 Standard Context (`event["~standard"]`): request, bindings, host `waitUntil`,
 and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
-[Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
+[Runtime Context guide](https://vitehub.dev/docs/runtime/context).
 
 The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`. `vitehub deploy --host <host>` is the exception: it builds with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, and that host wins over `host`.
 
