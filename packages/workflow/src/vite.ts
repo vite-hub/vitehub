@@ -14,6 +14,8 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { normalizeWorkflowOptions } from "./config.ts"
+import { workflowDeploymentEnv } from "./deployment-env.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
@@ -47,6 +49,8 @@ interface WorkflowNitroConfigOptions {
 export { workflowRuntimeModule }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
+  /** The variables that Workflow reads on the deployed host. See `workflowDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
@@ -382,6 +386,9 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
 
   return {
     name: "@vite-hub/workflow/vite",
+    api: {
+      deploymentEnv: context => workflowDeploymentEnv(normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? context.host, inline: allowsInline() })),
+    },
     // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
     enforce: "pre",
     config: {
