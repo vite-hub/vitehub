@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { checkServiceToken, requireServiceToken } from "../src/service-token.ts"
 import { runWithCloudflareEnv } from "../src/server.ts"
 import { cloudflareRequest } from "./cloudflare-request.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
 
 function request(authorization?: string): Request {
   return new Request("https://example.test/api/ingest", { headers: authorization ? { authorization } : {} })
@@ -70,8 +69,8 @@ describe("checkServiceToken()", () => {
   it("reads an H3 event", () => {
     vi.stubEnv("INGEST_TOKEN", "runner-token-2026")
     const event = { context: {}, req: request("Bearer runner-token-2026"), res: { headers: new Headers() } }
-    // An H3 event before Nitro installs Standard Context.
-    expect(checkServiceToken(event as unknown as ViteHubContext, "INGEST_TOKEN")[0]).toBeUndefined()
+    // An H3 event before Nitro installs Standard Context, typed without `~standard`.
+    expect(checkServiceToken(event, "INGEST_TOKEN")[0]).toBeUndefined()
   })
 })
 

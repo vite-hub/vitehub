@@ -11,7 +11,7 @@ export { deriveSecret, describeServerEnv, inspectServerEnv, loadServerEnv, runWi
 export { usePublicEnv } from "#vitehub/env/public"
 export { seal, unseal } from "./seal-value.ts"
 export { checkServiceToken, requireServiceToken } from "./service-token.ts"
-export type { ServiceTokenErrorCode } from "./service-token.ts"
+export type { ServiceTokenErrorCode, ServiceTokenEvent } from "./service-token.ts"
 export type { SealOptions, SealUsesDatabase, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {

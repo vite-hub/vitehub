@@ -5,9 +5,7 @@ import { HTTPError } from "nitro/h3"
 
 import { runtimeEnv } from "./internal/runtime-env.ts"
 
-import type { Result } from "@vite-hub/runtime"
-// From the H3 entry, so the declarations load its `~standard` field on H3 events and an H3 event type-checks.
-import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
+import type { Result, ViteHubContext } from "@vite-hub/runtime"
 
 const serviceTokenErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
@@ -29,6 +27,18 @@ const serviceTokenErrors = /*#__PURE__*/ defineErrors({
 /** The codes that `checkServiceToken()` returns. */
 export type ServiceTokenErrorCode = "ENV_SERVICE_TOKEN_INVALID" | "ENV_SERVICE_TOKEN_UNSET"
 
+/**
+ * The request to check: an H3 event, another event with Standard Context, or a web `Request`. An H3 event matches
+ * `{ req }` even when the app does not load the types that add `~standard` to it.
+ */
+export type ServiceTokenEvent = Request | ViteHubContext | { readonly req: Request }
+
+/** An H3 event without Standard Context reads it from its Request, which carries the same host data. */
+function standardSource(event: ServiceTokenEvent): Request | ViteHubContext {
+  if ("~standard" in event) return event
+  return event instanceof Request ? event : event.req
+}
+
 function readTokens(value: unknown): string[] {
   return typeof value === "string" ? value.split(",").map(token => token.trim()).filter(Boolean) : []
 }
@@ -49,10 +59,11 @@ function readTokens(value: unknown): string[] {
  * })
  * ```
  */
-export function checkServiceToken(event: Request | ViteHubContext, name: string): Result<void, ServiceTokenErrorCode> {
-  const tokens = readTokens(runtimeEnv(event)[name])
+export function checkServiceToken(event: ServiceTokenEvent, name: string): Result<void, ServiceTokenErrorCode> {
+  const source = standardSource(event)
+  const tokens = readTokens(runtimeEnv(source)[name])
   if (!tokens.length) return [serviceTokenErrors.ENV_SERVICE_TOKEN_UNSET({ name }), undefined]
-  const authorization = getStandardContext(event).req.headers.get("authorization")
+  const authorization = getStandardContext(source).req.headers.get("authorization")
   // Compare with every token, so the time does not show which token matched.
   let valid = false
   for (const token of tokens) valid = isViteHubBearerSecretEqual(authorization, token) || valid
@@ -74,7 +85,7 @@ export function checkServiceToken(event: Request | ViteHubContext, name: string)
  * })
  * ```
  */
-export function requireServiceToken(event: Request | ViteHubContext, name: string): void {
+export function requireServiceToken(event: ServiceTokenEvent, name: string): void {
   const [error] = checkServiceToken(event, name)
   if (!error) return
   const unset = error.code === "ENV_SERVICE_TOKEN_UNSET"
