@@ -64,9 +64,6 @@ function validateNpmConfig(source: string): void {
   }
 }
 
-// Internal invariant: the Babysitter checks this class with instanceof and hands the conflict to the agent. Its message names the file and the fix.
-export class GitHubDependencyConflictError extends Error {}
-
 /**
  * Validate decoded manifests and lockfiles before a package manager can read host paths.
  * `inputs` receives a SHA-256 of each input file by checkout path.
@@ -241,7 +238,7 @@ export async function validateGitHubInstallInputs(target: string, prepareLinkedB
       } else if (entry.isDirectory()) continue;
       else if (inputNames.has(entry.name)) {
         const source = await readFile(path, "utf8");
-        if (/^<{7} /m.test(source)) throw new GitHubDependencyConflictError(`Resolve dependency conflicts in ${relative(root, path)} and call refreshDependencies before validation.`);
+        if (/^<{7} /m.test(source)) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED({ path: relative(root, path) });
         hash.update(relative(root, path)).update("\0").update(source).update("\0");
         if (inputs) inputs[relative(root, path)] = createHash("sha256").update(source).digest("hex");
         if (entry.name === ".npmrc") { validateNpmConfig(source); continue; }

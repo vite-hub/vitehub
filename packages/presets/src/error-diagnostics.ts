@@ -351,6 +351,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.",
       fix: "Call refreshDependencies, read .git/vitehub-install.json for the install result, and run validation again before you commit.",
     },
+    PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED: {
+      why: ({ path }: { path: string }) => `Resolve dependency conflicts in ${path} and call refreshDependencies before validation.`,
+      fix: "Remove the merge conflict markers from the dependency file that the message names, then call refreshDependencies again.",
+    },
     PRESETS_DEPENDENCY_GIT_HOST_LOCAL: {
       why: "Host-local Git dependencies are not allowed.",
       fix: "Replace the git: or git+file: dependency in the pull request with a registry version or an https:// tarball URL.",
@@ -518,6 +522,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_PUSH_TARGET_INVALID: {
       why: "Push target must be the root of its prepared Git checkout.",
       fix: "Pass the root directory of the prepared checkout or workspace to push(), not a subdirectory.",
+    },
+    PRESETS_WORKSPACE_INSTALL_FAILED: {
+      why: ({ message }: { message: string }) => `Frozen dependency installation failed: ${message}`,
+      fix: "Read error.cause for the install step that failed and fix the dependency files that it names. The Babysitter retries a retryable failure on a later pass.",
     },
     PRESETS_YARN_LOCKFILE_INVALID: {
       why: "Invalid Yarn lockfile stanza; dependency fields must be structured.",

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, chmod, lstat, mkdir, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { invariant } from "@vite-hub/internal/invariant";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { validateGitHubInstallInputs } from "./install-inputs.ts";
 import { createGitHubInstallSnapshot, publishGitHubInstallSnapshot } from "./install-snapshot.ts";
@@ -17,9 +18,18 @@ const exists = async (path: string) => await access(path).then(() => true, () =>
 const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-// Internal invariant: a wrapper that adds retryable and kind for the Babysitter scheduler. Its cause carries the code and the fix.
-export class GitHubWorkspaceInstallError extends Error {
-  constructor(cause: unknown, readonly retryable = true, readonly kind: "capacity" | "prerequisite" | "input" | "command" | "filesystem" = "command") { super(`Frozen dependency installation failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
+/** The install step that failed. The Babysitter waits for `capacity` and reports the other kinds. */
+export type GitHubWorkspaceInstallKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
+/** A `PRESETS_WORKSPACE_INSTALL_FAILED` error, with whether the Babysitter may retry it and the step that failed. */
+export type GitHubWorkspaceInstallError = ReturnType<typeof presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED> & { retryable: boolean; kind: GitHubWorkspaceInstallKind };
+
+export function gitHubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallKind = "command"): GitHubWorkspaceInstallError {
+  const error = presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED({ message: cause instanceof Error ? cause.message : String(cause), cause });
+  return Object.assign(error, { retryable, kind });
+}
+
+export function isGitHubWorkspaceInstallError(error: unknown): error is GitHubWorkspaceInstallError {
+  return error instanceof Error && isRecord(error) && error.code === "PRESETS_WORKSPACE_INSTALL_FAILED";
 }
 
 /** Trusted host hook for dependency caching; commands and inputs have already been validated. */
@@ -67,10 +77,8 @@ export interface GitHubInstallSlotOptions {
  * concurrent installs. A cancelled waiter leaves the queue without holding up later installs.
  */
 export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 * 60_000 }: GitHubInstallSlotOptions = {}): GitHubInstallSlots {
-  // Internal invariant: only the Babysitter calls this, after it checks install.concurrency, and with a fixed queue timeout.
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("Install concurrency must be a positive integer.");
-  // Internal invariant: only the Babysitter calls this, after it checks install.concurrency, and with a fixed queue timeout.
-  if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs <= 0) throw new TypeError("Install queue timeout must be positive.");
+  invariant(Number.isSafeInteger(concurrency) && concurrency >= 1, "the Babysitter checks install.concurrency, so the install concurrency is a positive integer");
+  invariant(Number.isFinite(queueTimeoutMs) && queueTimeoutMs > 0, "the Babysitter passes a fixed install queue timeout, which is positive");
   let running = 0;
   const waiters: Array<() => void> = [];
   const release = () => {
@@ -98,7 +106,7 @@ export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 *
           reject(error);
         };
         const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
+        const timeout = setTimeout(() => fail(gitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
         const cleanup = () => {
           clearTimeout(timeout);
           signal?.removeEventListener("abort", abort);
@@ -189,14 +197,14 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let yarnConfig: string | undefined;
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
-  let kind: GitHubWorkspaceInstallError["kind"] = "input";
+  let kind: GitHubWorkspaceInstallKind = "input";
   const cleanup = async () => {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
       finally { await snapshot?.close(); }
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new GitHubWorkspaceInstallError(error);
+      throw gitHubWorkspaceInstallError(error);
     }
   };
   try {
@@ -281,7 +289,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
     const lockfileDefect = isGitHubLockfileDefect(error);
-    throw new GitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
+    throw gitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
   } finally {
     await cleanup();
   }

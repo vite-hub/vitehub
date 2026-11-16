@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { invariant } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
@@ -525,8 +526,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         : "disabled://pull-request-head-repository-unavailable"
       await exec("git", ["-C", checkout, "remote", "set-url", "--push", "origin", pushUrl], commandOptions)
       if (pullRequest.headRepository) {
-        // Internal invariant: withPullRequestCheckout() rejects headRepository without headRef before the clone.
-        if (!pullRequest.headRef) throw new Error("A pull request headRef is required when headRepository is supplied.")
+        invariant(pullRequest.headRef, "withPullRequestCheckout() rejects a headRepository without a headRef before the clone")
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()

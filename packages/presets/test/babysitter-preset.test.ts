@@ -2589,7 +2589,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
+      .mockRejectedValueOnce(githubInstalls.gitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
       .mockResolvedValueOnce();
     try {
       await f.reconcile("babysitter.install.failed");
@@ -2609,7 +2609,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
+      .mockRejectedValueOnce(githubInstalls.gitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
     try {
       await f.reconcile();
       const waiting = await f.runtime.inbox.get("acme/app", 12);
