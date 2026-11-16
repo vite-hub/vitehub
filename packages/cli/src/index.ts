@@ -145,7 +145,9 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
   const options = {
     cwd: rootDir,
     dev: command === "serve",
-    ...(mode ? { envName: mode } : {}),
+    // Nuxt reads `$development` and `$production` from NODE_ENV, which `nuxt dev` and `nuxt build` set and a CLI command
+    // does not. Without it, discovery would resolve another config than the dev server and rewrite its generated files.
+    envName: mode ?? (command === "build" ? "production" : "development"),
     overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
   } as Parameters<typeof loadNuxt>[0]
