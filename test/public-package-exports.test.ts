@@ -179,9 +179,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/task/vite", "vite"],
-      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
-      ["@vite-hub/workflow/openworkflow", "openworkflow"],
-      ["vite-hub/workflow/openworkflow", "openworkflow"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])
@@ -253,9 +250,13 @@ describe("public package export contracts", () => {
     expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
   })
 
-  it("keeps Blob declarations independent from H3 host declarations", () => {
+  it("declares H3 for Blob serve authorization callbacks", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
-    expect(source).not.toMatch(/from ["']h3["']/)
+    // Generated authorized serve routes are H3 handlers, so callbacks can use the app's H3 helpers.
+    // Keep the declaration dependency available even for consumers without a Nitro installation.
+    expect(readPackageManifest("blob").dependencies?.h3).toBeDefined()
+    expect(source).toContain("export type BlobServeAuthorize = AccessAuthorize<H3Event>")
+    expect(source).toContain("export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>")
   })
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {

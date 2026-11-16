@@ -208,6 +208,11 @@
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
+    "./invariant": {
+      "types": "./dist/invariant.d.ts",
+      "import": "./dist/invariant.js",
+      "default": "./dist/invariant.js"
+    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",

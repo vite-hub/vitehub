@@ -53,6 +53,7 @@ export function toMcpToolResult(value: unknown): McpToolResult {
       content: value.content,
       ...(isRecord(value.structuredContent) ? { structuredContent: value.structuredContent } : {}),
       isError: value.isError === true,
+      ...(isRecord(value._meta) ? { _meta: value._meta } : {}),
     }
   }
   return { content: [{ type: "text", text: JSON.stringify(value ?? null) }], ...(isRecord(value) ? { structuredContent: value } : {}), isError: false }
@@ -86,6 +87,7 @@ function listedTool(name: string, definition: McpToolDefinition): Omit<McpTool, 
     description: definition.description,
     inputSchema: { ...(definition.input ? standardJsonSchema(definition.input, "input") : undefined), type: "object" },
     ...(definition.annotations ? { annotations: definition.annotations } : {}),
+    ...(definition._meta ? { _meta: definition._meta } : {}),
   }
 }
 
@@ -225,9 +227,9 @@ function base64(bytes: Uint8Array): string {
 
 function toMcpResourceContents(uri: string, definition: McpResourceDefinition, value: McpResourceValue): McpResourceContents[] | undefined {
   if (value === undefined || value === null) return undefined
-  const mimeType = definition.mimeType ? { mimeType: definition.mimeType } : {}
-  if (typeof value === "string") return [{ uri, ...mimeType, text: value }]
-  if (value instanceof Uint8Array) return [{ uri, ...mimeType, blob: base64(value) }]
+  const fields = { ...(definition.mimeType ? { mimeType: definition.mimeType } : {}), ...(definition._meta ? { _meta: definition._meta } : {}) }
+  if (typeof value === "string") return [{ uri, ...fields, text: value }]
+  if (value instanceof Uint8Array) return [{ uri, ...fields, blob: base64(value) }]
   return value.contents
 }
 
@@ -237,6 +239,7 @@ function toMcpResource(name: string, definition: McpResourceDefinition, scope: M
     ...(definition.title ? { title: definition.title } : {}),
     ...(definition.description ? { description: definition.description } : {}),
     ...(definition.mimeType ? { mimeType: definition.mimeType } : {}),
+    ...(definition._meta ? { _meta: definition._meta } : {}),
   }
   const list = definition.list
   return {
@@ -278,6 +281,10 @@ function resolveServerInfo(info: McpServerInfo, request: Request): McpServerInfo
   }
 }
 
+function bearerToken(request: Request): string | undefined {
+  return /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
+}
+
 /** The `401` that starts the OAuth flow of an MCP client, with the location of the protected resource metadata. */
 function unauthorized(request: Request, route: string, error: { code: string, message: string }): Response {
   const metadata = `${forwardedRequestOrigin(request)}/.well-known/oauth-protected-resource${route}`
@@ -310,17 +317,22 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
   const resources = Object.entries(options.resources ?? {})
   return async (event) => {
     const request = event.req
+    const hooks = options.hooks
     let caller: McpToolCaller | undefined
     if (options.verify) {
       const [error, verified] = await options.verify(request)
-      if (error) {
-        // Read no body for a rejected request. Some dev proxies drop the connection when a body is left unread.
-        await request.body?.cancel().catch(() => undefined)
-        return unauthorized(request, options.route, error)
-      }
       caller = verified
+      if (error) {
+        const verifyToken = hooks?.verifyToken
+        const token = error.code === "AUTH_MCP_TOKEN_INVALID" && verifyToken ? bearerToken(request) : undefined
+        caller = token ? await verifyToken?.({ event, token }) : undefined
+        if (!caller) {
+          // Read no body for a rejected request. Some dev proxies drop the connection when a body is left unread.
+          await request.body?.cancel().catch(() => undefined)
+          return unauthorized(request, options.route, token ? { code: "AUTH_MCP_TOKEN_INVALID", message: "The token is not an access token of this server, and verifyToken did not accept it." } : error)
+        }
+      }
     }
-    const hooks = options.hooks
     let context: Promise<McpToolContext> | undefined
     const scope: McpRequestScope = {
       event,

@@ -1,33 +1,32 @@
 <script setup lang="ts">
-import { PrimitiveRailItem } from "@vite-hub/docs/primitive-rail";
 import { computed, defineAsyncComponent } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
+import type { ConsoleAppIdentity } from "../client/app-identity";
 import type { ConsoleProjectStatus } from "../client/project-session";
 import type { ConsoleLinkedProject } from "../client/projects";
-import { canManageConsoleProjects, checkConsoleProjects, consoleProjectDisplayName, showConsoleAccountPage, switchConsoleProject, useConsoleProjects } from "../client/project-session";
-import { consoleProjectHost } from "../client/projects";
+import { consoleAppIdentity } from "../client/app-identity";
+import { canManageConsoleProjects, checkConsoleProjects, showConsoleAccountPage, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { consoleSidebarOpen } from "../client/sidebar";
+import ConsoleAppLogo from "./console-app-logo.vue";
 
 // Only an `account` Console shows it, so it loads with the Better Auth client.
 const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
 
 /**
- * The app switcher of an `account` Console, below the Overview item of the rail. Its menu lists the apps of the active
- * team and leads back to the team: Home and Members. Unlinking an app is on Home, outside this menu.
+ * The app tile of the sidebar: the logo of the open app, and its name and host when the sidebar is open. In an `account`
+ * Console it opens the app switcher, as the organization switcher of Executor: a menu under the tile with every app of
+ * the team, then All apps and Link app. An embedded Console has one app, so the tile only names it.
  */
+const props = defineProps<{ app: ConsoleAppIdentity }>();
+
 const projects = useConsoleProjects();
-const teamName = computed(() => projects.account.value?.teams.find(team => team.id === projects.account.value?.teamId)?.name);
-// Only owners and admins link apps, as in the team sidebar.
+const switcher = computed(() => projects.mode === "account");
+// Only owners and admins link apps.
 const manage = computed(() => projects.account.value ? canManageConsoleProjects(projects.account.value) : false);
-
 const current = computed(() => projects.current.value);
-const name = computed(() => projects.info.value?.name || (current.value ? consoleProjectDisplayName(current.value) : "App"));
-const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
-const monogram = computed(() => name.value.trim().charAt(0).toUpperCase() || "A");
 
-const statusLabels: Record<ConsoleProjectStatus, string> = {
-  checking: "Checking",
-  ready: "Reachable",
+const statusLabels: Partial<Record<ConsoleProjectStatus, string>> = {
   "sign-in": "Sign-in needed",
   unreachable: "Unreachable",
 };
@@ -36,38 +35,23 @@ function status(project: ConsoleLinkedProject): ConsoleProjectStatus {
   return projects.statuses.value[project.id] ?? "checking";
 }
 
-/** The second line of an app: its host, unless the name is the host, and a status that needs attention. */
-function description(project: ConsoleLinkedProject): string | undefined {
-  const projectHost = consoleProjectHost(project);
-  const state = status(project);
-  const parts = [
-    consoleProjectDisplayName(project) === projectHost ? undefined : projectHost,
-    state === "sign-in" || state === "unreachable" ? statusLabels[state] : undefined,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : undefined;
-}
-
-// The menu opens on pointerdown, like the other menus of the rail, so it opens before the rail closes under the pointer.
-// It opens below the item: a menu at the right of a collapsed rail would sit under a pointer that clicked the expanded
-// label, and the pointerup would select the app under it.
 const items = computed<DropdownMenuItem[][]>(() => [
-  [
-    { type: "label", label: teamName.value ?? "Team" },
-    { icon: "i-lucide-house", label: "Home", onSelect: () => showConsoleAccountPage("home") },
-    { icon: "i-lucide-users", label: "Members", onSelect: () => showConsoleAccountPage("team") },
-  ],
-  [
-    { type: "label", label: "Apps" },
-    ...projects.projects.value.map((project): DropdownMenuItem => ({
-      description: description(project),
-      label: consoleProjectDisplayName(project),
+  projects.projects.value.map((project): DropdownMenuItem => {
+    const identity = consoleAppIdentity(project);
+    return {
+      label: identity.name,
+      description: identity.host === identity.name ? undefined : identity.host,
+      identity,
       project,
-      slot: "project" as const,
+      slot: "app" as const,
       onSelect: () => {
         if (project.id !== current.value?.id) switchConsoleProject(project.id);
       },
-    })),
-    ...(manage.value ? [{ icon: "i-lucide-plus", label: "Link an app", onSelect: () => { projects.linkOpen.value = true; } }] : []),
+    };
+  }),
+  [
+    { icon: "i-lucide-layout-grid", label: "All apps", onSelect: () => showConsoleAccountPage("home") },
+    ...(manage.value ? [{ icon: "i-lucide-plus", label: "Link app", onSelect: () => { projects.linkOpen.value = true; } }] : []),
   ],
 ]);
 
@@ -80,158 +64,148 @@ function projectOf(item: DropdownMenuItem): ConsoleLinkedProject | undefined {
   return projects.projects.value.find(entry => entry === project);
 }
 
-function itemStatus(item: DropdownMenuItem): ConsoleProjectStatus {
+function identityOf(item: DropdownMenuItem): ConsoleAppIdentity {
   const project = projectOf(item);
-  return project ? status(project) : "checking";
+  return project ? consoleAppIdentity(project) : props.app;
 }
+
+function attention(item: DropdownMenuItem): string | undefined {
+  const project = projectOf(item);
+  return project ? statusLabels[status(project)] : undefined;
+}
+
+const label = computed(() => `Switch app. Current: ${props.app.name}${props.app.host && props.app.host !== props.app.name ? `, ${props.app.host}` : ""}`);
 </script>
 
 <template>
   <UDropdownMenu
+    v-if="switcher"
     :items="items"
     :content="{ side: 'bottom', align: 'start', sideOffset: 4 }"
-    :ui="{ content: 'vitehub-project-menu', itemDescription: 'truncate' }"
+    :ui="{ content: consoleSidebarOpen ? 'vitehub-app-menu w-(--reka-dropdown-menu-trigger-width)' : 'vitehub-app-menu w-62', itemDescription: 'truncate' }"
     @update:open="onOpen"
   >
-    <!--
-      No tooltip: the rail shows the name and host when it expands, and the menu lists every app with its host.
-    -->
-    <PrimitiveRailItem class="vitehub-project-switcher" :label="`Switch app. Current: ${name}${host && host !== name ? `, ${host}` : ''}`">
-      <span class="vitehub-project-switcher__mark">{{ monogram }}</span>
-      <UIcon name="i-lucide-chevrons-up-down" class="vitehub-project-switcher__chevron" data-compact />
-      <template #label>
-        <span class="vitehub-project-switcher__text">
-          <span class="vitehub-project-switcher__name">{{ name }}</span>
-          <span v-if="host && host !== name" class="vitehub-project-switcher__host">{{ host }}</span>
+    <UTooltip text="Switch app" :content="{ side: 'right', sideOffset: 10 }" :disabled="consoleSidebarOpen">
+      <button type="button" class="vitehub-app-tile" :aria-label="label">
+        <ConsoleAppLogo :app="app" class="vitehub-app-tile__logo" />
+        <span class="vitehub-app-tile__text">
+          <span class="vitehub-app-tile__name">{{ app.name }}</span>
+          <span v-if="app.host && app.host !== app.name" class="vitehub-app-tile__host">{{ app.host }}</span>
         </span>
-        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-project-switcher__chevron" aria-hidden="true" />
-      </template>
-    </PrimitiveRailItem>
+        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-app-tile__chevron" aria-hidden="true" />
+      </button>
+    </UTooltip>
 
-    <template #project-leading="{ item }">
-      <!-- One line high, so the dot sits on the name line when the item has a second line. -->
-      <span class="vitehub-project-menu__status" aria-hidden="true">
-        <span class="vitehub-project-menu__dot" :data-status="itemStatus(item)" />
-      </span>
+    <template #app-leading="{ item }">
+      <ConsoleAppLogo :app="identityOf(item)" />
     </template>
-    <template #project-trailing="{ item }">
-      <span v-if="itemStatus(item) === 'ready' || itemStatus(item) === 'checking'" class="sr-only">{{ statusLabels[itemStatus(item)] }}</span>
-      <template v-if="projectOf(item)?.id === current?.id">
-        <UIcon name="i-lucide-check" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-        <span class="sr-only">Open now</span>
-      </template>
+    <template #app-trailing="{ item }">
+      <UTooltip v-if="attention(item)" :text="attention(item)">
+        <span class="vitehub-app-menu__dot" aria-hidden="true" />
+      </UTooltip>
+      <span v-if="attention(item)" class="sr-only">{{ attention(item) }}</span>
+      <span class="vitehub-app-menu__check">
+        <template v-if="projectOf(item)?.id === current?.id">
+          <UIcon name="i-lucide-check" class="size-4 text-highlighted" aria-hidden="true" />
+          <span class="sr-only">Open now</span>
+        </template>
+      </span>
     </template>
   </UDropdownMenu>
 
-  <ConsoleAccountLink v-model:open="projects.linkOpen.value" />
+  <UTooltip v-else :text="app.name" :content="{ side: 'right', sideOffset: 10 }" :disabled="consoleSidebarOpen">
+    <div class="vitehub-app-tile is-static">
+      <ConsoleAppLogo :app="app" class="vitehub-app-tile__logo" />
+      <span class="vitehub-app-tile__text">
+        <span class="vitehub-app-tile__name">{{ app.name }}</span>
+        <span v-if="app.host && app.host !== app.name" class="vitehub-app-tile__host">{{ app.host }}</span>
+      </span>
+    </div>
+  </UTooltip>
+
+  <ConsoleAccountLink v-if="switcher" v-model:open="projects.linkOpen.value" />
 </template>
 
 <style>
-/*
- * The switcher is a 40px target, 2px larger than the 36px rail items on each side, so the tile stays centered under the
- * rail icons. Compact, a chevron next to the tile says that it opens a menu. Expanded, the chevron moves to the row end.
- */
-.vh-primitive-rail .vitehub-project-switcher {
-  height: 2.5rem;
-  margin-inline: -0.125rem;
-  width: calc(100% + 0.25rem);
-}
-
-.vh-primitive-rail .vitehub-project-switcher .vh-primitive-rail__icon {
-  gap: 0.125rem;
-  width: 2.5rem;
-}
-
-.vh-primitive-rail .vitehub-project-switcher .vh-primitive-rail__label {
+/* The 30px logo sits in the middle of the 52px rail, as the 18px icons below it do. */
+.vitehub-app-tile {
   align-items: center;
+  background: none;
+  border: 0;
+  border-radius: 0.5rem;
   display: flex;
-  gap: 0.5rem;
+  flex: none;
+  gap: 0.625rem;
+  height: 2.5rem;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  padding: 0 0.1875rem;
+  text-align: start;
+  white-space: nowrap;
+  width: 100%;
 }
 
-.vitehub-project-switcher__mark {
-  align-items: center;
+button.vitehub-app-tile:hover,
+.vitehub-app-tile[aria-expanded="true"] {
   background: var(--ui-bg-elevated);
-  border: 1px solid var(--ui-border-accented);
-  border-radius: calc(var(--ui-radius) * 1.5);
-  color: var(--ui-text-highlighted);
-  display: inline-flex;
-  flex: none;
-  font-size: 0.75rem;
-  font-weight: 600;
-  height: 1.5rem;
-  justify-content: center;
-  line-height: 1;
-  width: 1.5rem;
 }
 
-.vitehub-project-switcher__chevron {
-  color: var(--ui-text-dimmed);
-  flex: none;
-  height: 0.75rem;
-  width: 0.75rem;
+.vitehub-app-tile .vitehub-app-tile__logo {
+  border-radius: 0.4375rem;
+  height: 1.875rem;
+  width: 1.875rem;
 }
 
-.vitehub-project-switcher__chevron[data-compact] {
-  transition: opacity 150ms ease;
-}
-
-.vh-primitive-rail[data-expanded] .vitehub-project-switcher__chevron[data-compact] {
-  opacity: 0;
-}
-
-.vitehub-project-switcher__text {
+.vitehub-app-tile__text {
   display: grid;
   flex: 1 1 auto;
-  line-height: 1rem;
+  line-height: 1.2;
   min-width: 0;
 }
 
-.vitehub-project-switcher__name {
+.vitehub-app-tile__name {
   color: var(--ui-text-highlighted);
+  font-size: 0.8125rem;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.vitehub-project-switcher__host {
+.vitehub-app-tile__host {
   color: var(--ui-text-dimmed);
   font-size: 0.75rem;
-  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.vitehub-project-menu {
-  width: 18rem;
-}
-
-.vitehub-project-menu__status {
-  align-items: center;
-  display: flex;
+.vitehub-app-tile__chevron {
+  color: var(--ui-text-dimmed);
   flex: none;
-  height: 1.25rem;
+  height: 0.875rem;
+  width: 0.875rem;
 }
 
-.vitehub-project-menu__dot {
-  background: var(--ui-text-dimmed);
-  border-radius: 999px;
-  height: 0.5rem;
-  width: 0.5rem;
+.vitehub-sidebar:not([data-open]) :is(.vitehub-app-tile__text, .vitehub-app-tile__chevron) {
+  opacity: 0;
 }
 
-.vitehub-project-menu__dot[data-status="ready"] {
-  background: var(--ui-success);
+@media (prefers-reduced-motion: no-preference) {
+  .vitehub-sidebar[data-ready] :is(.vitehub-app-tile__text, .vitehub-app-tile__chevron) {
+    transition: opacity 150ms ease-out;
+  }
 }
 
-.vitehub-project-menu__dot[data-status="sign-in"] {
+.vitehub-app-menu__dot {
   background: var(--ui-warning);
+  border-radius: 999px;
+  display: block;
+  height: 0.375rem;
+  width: 0.375rem;
 }
 
-.vitehub-project-menu__dot[data-status="unreachable"] {
-  background: var(--ui-error);
-}
-
-.vitehub-project-menu__dot[data-status="checking"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--ui-text-dimmed);
+.vitehub-app-menu__check {
+  display: inline-flex;
+  flex: none;
+  width: 1rem;
 }
 </style>

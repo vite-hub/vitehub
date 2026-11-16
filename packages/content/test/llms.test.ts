@@ -182,6 +182,83 @@ describe("llms files", { timeout: 30_000 }, () => {
   })
 })
 
+describe("Markdown copies of collections", { timeout: 30_000 }, () => {
+  /** A guide whose `::phrases` block reads from the app, and whose live `::booking` widget means nothing to an agent. */
+  async function guideSite() {
+    const phrases = [["Hello", "สวัสดี"], ["Thank you", "ขอบคุณ"]]
+    const content = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: {
+        guide: documents({
+          path: "guide/{locale}/*.md",
+          locales: ["en", "es"],
+          fields: { title: z.string(), draft: z.boolean().optional() },
+          url: "/:id",
+          markdown: ({ id, path, locale, data, body, title, site }) => {
+            if (data.draft) return null
+            const table = ["| Meaning | Thai |", "| --- | --- |", ...phrases.map(([meaning, thai]) => `| ${meaning} | ${thai} |`)].join("\n")
+            const text = body.replace(/^::phrases\n::$/m, table).replace(/^::booking\n::\n?/m, "").replace(/\]\(\//g, `](${site}/`).trim()
+            return { markdown: `# ${title}\n\nSource: ${site}${path} (${locale}, ${id})\n\n${text}\n`, footer: "\nIndex: /llms.txt\n" }
+          },
+        }),
+      },
+      seo: { site: "https://example.com", markdown: { prefix: "/raw" }, llms: { title: "Guide" }, mcp: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const guide = content.collection("guide")
+    await guide.save("thai", { data: { title: "Speak Thai" }, body: "Read [the trip](/trip) first.\n\n::phrases\n::\n\n::booking\n::\n" })
+    await guide.save("thai", { data: { title: "Hablar tailandés" }, body: "Lee [el viaje](/es/trip).\n" }, { locale: "es" })
+    await guide.save("later", { data: { title: "Later", draft: true }, body: "Not yet." })
+    await content.publish({ collection: "guide" })
+    return content
+  }
+
+  it("serves the copy that the markdown option renders, with its footer only at the .md URL", async () => {
+    const content = await guideSite()
+    const copy = "# Speak Thai\n\nSource: https://example.com/thai (en, thai)\n\nRead [the trip](https://example.com/trip) first.\n\n| Meaning | Thai |\n| --- | --- |\n| Hello | สวัสดี |\n| Thank you | ขอบคุณ |\n\nIndex: /llms.txt\n"
+    expect(await content.markdown("/thai.md")).toBe(copy)
+    expect(await content.markdown("/raw/thai.md")).toBe(copy)
+    expect(await content.markdown("/raw/es/thai.md")).toBe("# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n\nIndex: /llms.txt\n")
+    const response = await new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page").request("https://example.com/thai", { headers: { accept: "text/markdown" } })
+    expect(await response.text()).toBe(copy)
+    // A page that the option returns null for has no copy.
+    expect(await content.markdown("/raw/later.md")).toBeNull()
+    expect(await content.page("/later")).toBeNull()
+  })
+
+  it("joins the rendered copies without footers in llms-full.txt and get-page", async () => {
+    const content = await guideSite()
+    const full = await content.llms({ file: "llms-full.txt" })
+    expect(full).toContain("URL: https://example.com/thai\n\n# Speak Thai\n\nSource: https://example.com/thai (en, thai)\n\n")
+    expect(full).toContain("URL: https://example.com/es/thai\n\n# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n\n---\n\n")
+    expect(full).toMatch(/\| Thank you \| ขอบคุณ \|\n$/)
+    expect(full).not.toContain("::")
+    expect(full).not.toContain("Index: /llms.txt")
+    expect(full).not.toContain("Not yet.")
+    expect(await content.page("/es/thai")).toMatchObject({ content: "# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n" })
+  })
+
+  it("does not discover or advertise a copy suppressed by the collection renderer", async () => {
+    const content = await guideSite()
+    for (const prefix of ["", "/raw"]) {
+      expect(await content.markdown(`${prefix}/later.md`)).toBeNull()
+      expect(await content.hasMarkdown(`${prefix}/later.md`)).toBe(false)
+      expect(await content.hasMarkdown(`${prefix}/thai.md`)).toBe(true)
+    }
+    const handler = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => new Response("<p>Later</p>", { headers: { "content-type": "text/html" } }))
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handler.request("https://example.com/later", { method })
+      expect(response.headers.get("link")).toBeNull()
+    }
+  })
+
+  it("rejects a markdown option that is not a function, or that has no url", () => {
+    expect(() => documents({ path: "guide/*.md", fields: { title: z.string() }, markdown: () => "" })).toThrow(/needs a url/)
+    expect(() => singleton({ path: "home.md", fields: { title: z.string() }, url: "/", markdown: "copy" as never })).toThrow(/markdown must be a function/)
+  })
+})
+
 describe("llms files of Sources", { timeout: 30_000 }, () => {
   /** A docs Source with its own frontmatter for "not indexed" and its own Markdown copy with a footer. */
   function docsSite() {
@@ -403,6 +480,30 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const browser = await missing.request("https://example.com/blog/nope", { headers: { accept: "text/html" } })
     expect(browser.status).toBe(404)
     expect(browser.headers.get("content-type")).not.toContain("markdown")
+  })
+
+  it("answers a .md URL with the Markdown 404 when only an HTML fallback page matches it", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    // A single-page app answers every path with its HTML shell.
+    const shells = [
+      () => new Response("<!doctype html><div id=__nuxt></div>", { headers: { "content-type": "text/html;charset=utf-8" } }),
+      (event: { res: { headers: Headers } }) => {
+        event.res.headers.set("content-type", "text/html; charset=utf-8")
+        return "<!doctype html><div id=__nuxt></div>"
+      },
+    ]
+    for (const shell of shells) {
+      const server = new H3().use(defineContentMarkdownHandler(content)).all("/**", shell)
+      const copy = await server.request("https://example.com/docs/nope.md")
+      expect(copy.status).toBe(404)
+      expect(copy.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(await copy.text()).toContain("The page `/docs/nope.md` does not exist on https://example.com.")
+      // The page URL keeps the shell, also for an agent: Accept states a preference.
+      expect((await server.request("https://example.com/docs/nope", { headers: { accept: "text/markdown" } })).status).toBe(200)
+    }
+    // A route of the app that serves the .md URL as text keeps its answer.
+    const text = await app(content, () => new Response("# Notes", { headers: { "content-type": "text/markdown" } })).request("https://example.com/notes.md")
+    expect(await text.text()).toBe("# Notes")
   })
 
   it("loads Content to check copies for downstream responses", async () => {
