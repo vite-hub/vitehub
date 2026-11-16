@@ -1,5 +1,7 @@
 import { commentsApiRoute, commentsRoute } from "../page.ts"
-import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
+import { Diagnostic } from "nostics"
+
+import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 
 import type { RestTransport } from "../rest-transport.ts"
 import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
@@ -64,7 +66,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
     return [undefined, (await send<T>(path, init)).data]
   }
   catch (error) {
-    if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
+    // createCommentsRestRequest() throws only diagnostics for a failed request.
+    if (error instanceof Diagnostic) return [{ code: error.code, why: error.message, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
     throw error
   }
 }

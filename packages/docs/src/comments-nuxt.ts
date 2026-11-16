@@ -1,6 +1,7 @@
 import { createRequire } from "node:module"
 import { join } from "node:path"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { viteHubModuleOptions } from "./module-options.ts"
 
 import type { ModuleOptionsNuxt } from "./module-options.ts"
@@ -14,17 +15,6 @@ export interface DocsCommentsOptions {
   /** `false` leaves the overlay out of the pages. The Comments API, the operations, and the Console section stay. */
   overlay?: false
 }
-
-/** The error that the build shows when Comments cannot run on the docs site. */
-// Internal invariant: this class puts the why and the fix in its message, and the build prints it.
-export class DocsCommentsSetupError extends Error {
-  constructor(why: string, fix: string) {
-    super(`[@vite-hub/docs] ${why} ${fix}`)
-    this.name = "DocsCommentsSetupError"
-  }
-}
-
-const optOut = "or set docs: { comments: false } in nuxt.config.ts."
 
 /** Whether the app can import `name`, as `vite-hub` resolves its optional peers. */
 function installed(name: string, rootDir: string): boolean {
@@ -50,14 +40,14 @@ export async function docsCommentsDependencies(
   if (comments === false) return vitehub ? { "vite-hub/nuxt": { optional: true, defaults: { comments: false } } } : {}
   if (!vitehub) {
     if (comments === undefined) return {}
-    throw new DocsCommentsSetupError("docs.comments needs vite-hub/nuxt, which keeps the threads in a ViteHub Database.", `Add "vite-hub/nuxt" to modules, ${optOut}`)
+    throw docsErrorDiagnostics.DOCS_COMMENTS_VITEHUB_MISSING()
   }
   if (vitehub.comments === false) return {}
   if (!installed("@vite-hub/comments", nuxt.options.rootDir)) {
-    throw new DocsCommentsSetupError("Docs sites on vite-hub/nuxt have Comments on, which needs @vite-hub/comments.", `Run \`pnpm add @vite-hub/comments\`, ${optOut}`)
+    throw docsErrorDiagnostics.DOCS_COMMENTS_PACKAGE_MISSING()
   }
   if (Reflect.get(vitehub, "database") === false) {
-    throw new DocsCommentsSetupError("Docs sites on vite-hub/nuxt have Comments on, which keeps threads in the Database, but vitehub sets database: false.", `Remove database: false, ${optOut}`)
+    throw docsErrorDiagnostics.DOCS_COMMENTS_DATABASE_OFF()
   }
   return { "vite-hub/nuxt": { optional: true, defaults: { comments: comments === undefined || comments === true ? true : comments } } }
 }

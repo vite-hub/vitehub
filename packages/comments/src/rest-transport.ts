@@ -1,3 +1,4 @@
+import { commentsAnswerError, commentsUnansweredError } from "./client-diagnostics.ts"
 import { commentsRoute } from "./page.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
@@ -44,24 +45,6 @@ export interface RestTransportOptions {
   onAnswer?: (answer: CommentsRestAnswer<unknown>) => void
 }
 
-/** A failed request of the Comments API: the code, `why`, and `fix` of the error object, and the HTTP status. */
-// Internal invariant: this class already carries a code, a fix, and a status for every surface.
-export class CommentsRestError extends Error {
-  readonly code: string
-  readonly why: string
-  readonly fix?: string
-  readonly status: number
-
-  constructor(failure: { code: string, why: string, fix?: string, status: number }) {
-    super(failure.why)
-    this.name = "CommentsRestError"
-    this.code = failure.code
-    this.why = failure.why
-    this.status = failure.status
-    if (failure.fix) this.fix = failure.fix
-  }
-}
-
 /** A thread as the API answers it: with what the reader may do with it. */
 export type RestCommentThread = CommentThread & { can?: { comment: boolean, resolve: boolean, delete?: boolean } }
 
@@ -83,7 +66,7 @@ export function commentAttachmentUrl(key: string, base = ""): string {
 
 /**
  * Requests to the Comments API at `<base>/api/_vitehub/comments`, with the guest headers and the session cookie. A
- * failure throws `CommentsRestError` with the error object of the answer.
+ * failure throws a diagnostic with the `code`, `why`, and `fix` of the error object of the answer, and its `status`.
  */
 export function createCommentsRestRequest(options: RestTransportOptions & { route?: string } = {}): CommentsRestRequest {
   const route = options.route ?? `${(options.base ?? "").replace(/\/+$/, "")}${commentsRoute}`
@@ -102,12 +85,13 @@ export function createCommentsRestRequest(options: RestTransportOptions & { rout
       response = await send(`${route}${path}`, { ...init, headers, credentials: options.credentials ?? "same-origin", cache: "no-store" })
     }
     catch (cause) {
-      throw new CommentsRestError({ code: "COMMENTS_R0013", why: `The request failed: ${cause instanceof Error ? cause.message : String(cause)}`, fix: "Check the connection and the app URL, then try again.", status: 0 })
+      throw commentsUnansweredError(0, cause)
     }
     const value: unknown = await response.json().catch(() => undefined)
     if (isRecord(value) && isRecord(value.error)) {
       const { code, why, fix } = value.error
-      throw new CommentsRestError({ code: typeof code === "string" ? code : "COMMENTS_R0013", why: typeof why === "string" ? why : `The server answered ${response.status}.`, ...(typeof fix === "string" ? { fix } : {}), status: response.status })
+      if (typeof code !== "string" || typeof why !== "string") throw commentsUnansweredError(response.status)
+      throw commentsAnswerError({ code, why, ...(typeof fix === "string" ? { fix } : {}), status: response.status })
     }
     if (isRecord(value) && "data" in value) {
       const answer: CommentsRestAnswer<T> = {
@@ -120,7 +104,7 @@ export function createCommentsRestRequest(options: RestTransportOptions & { rout
       options.onAnswer?.(answer)
       return answer
     }
-    throw new CommentsRestError({ code: "COMMENTS_R0013", why: `The server answered ${response.status} without data.`, status: response.status })
+    throw commentsUnansweredError(response.status)
   }
 }
 
@@ -176,7 +160,7 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
     },
     async reply({ threadId, ...input }: CommentReplyInput) {
       const answer = await request<unknown>(`${thread(threadId)}/comments`, post(input))
-      if (!answer.thread) throw new CommentsRestError({ code: "COMMENTS_R0013", why: "The server answered the reply without its thread.", status: 200 })
+      if (!answer.thread) throw commentsUnansweredError(200)
       return answer.thread
     },
     async edit({ threadId, messageId, ...input }: CommentEditInput) {

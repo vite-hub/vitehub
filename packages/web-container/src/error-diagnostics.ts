@@ -36,6 +36,12 @@ export const webContainerErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ code }: { code: number }) => `Restoring the links of the snapshot exited with code ${code}.`,
       fix: "Build the snapshot again with `createNodeModulesSnapshot()` from `@vite-hub/web-container/snapshot`, and pass it to `bootWebContainer({ snapshot })`.",
     },
+    WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH: {
+      why: ({ wasm }: { wasm: boolean }) => wasm
+        ? "The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it."
+        : "The lockfile does not match the app. Pass frozenLockfile: false to update it.",
+      fix: "Pass `frozenLockfile: false` to `createNodeModulesSnapshot()` to update the lockfile, then save the `lockfile` of its result.",
+    },
     WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID: {
       why: "partBytes must be a positive safe integer.",
       fix: "Pass a whole number of bytes above 0 as `partBytes` to `packSnapshot()`, such as `20 * 2 ** 20`, or leave it out.",

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createNodeModulesSnapshot, SnapshotLockfileMismatchError } from "../src/snapshot.ts"
+import { createNodeModulesSnapshot } from "../src/snapshot.ts"
 
 const npm = vi.hoisted(() => vi.fn())
 vi.mock("node:child_process", async () => {
@@ -73,7 +73,7 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
   })
 
   it("reports a confirmed wasm alias mismatch separately", async () => {
-    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toBeInstanceOf(SnapshotLockfileMismatchError)
+    await expect(createNodeModulesSnapshot({ dir, lockfile: '{"packages":{"":{}}}' })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", fix: expect.stringContaining("frozenLockfile: false") })
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
   })
 

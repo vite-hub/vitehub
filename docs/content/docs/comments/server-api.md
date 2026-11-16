@@ -325,7 +325,7 @@ const src = transport.attachmentUrl(thread.messages[0].attachments[0])
 | `credentials` | `same-origin` | Sends the session cookie. |
 | `fetch` | `globalThis.fetch` | For tests or a server. |
 
-A failed request throws `CommentsRestError` with the response's `code`, `why`, `fix`, and `status`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
+A failed request throws a diagnostic with the response's `code`, `fix`, and `status`. Its `message` is the `why`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
 
 ## Content field addresses
 

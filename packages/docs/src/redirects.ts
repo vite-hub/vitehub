@@ -1,6 +1,8 @@
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsManifestPages, docsRawPath, docsSectionForPath, isDocsPath, normalizeDocsPath } from "./navigation.ts"
 
 import type { DocsManifest } from "./types.ts"
+import type { Diagnostic } from "nostics"
 
 /** A route rule as `routeRules` in `nuxt.config` writes it. Only `redirect` matters here. */
 export interface DocsRouteRule {
@@ -70,13 +72,7 @@ function targetPath(to: string): string | undefined {
 }
 
 /** Redirect route rules that break links. The build stops on them while the link checker is on. */
-// Internal invariant: public error class with the list of problems. The build prints it and stops.
-export class DocsRedirectError extends Error {
-  readonly problems: readonly string[]
-
-  constructor(problems: readonly string[]) {
-    super(`Docs redirects break links:\n${problems.map(problem => `- ${problem}`).join("\n")}`)
-    this.name = "DocsRedirectError"
-    this.problems = problems
-  }
+/** `DOCS_REDIRECTS_BROKEN`, with the list of problems in `problems`. */
+export function docsRedirectError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
+  return Object.assign(docsErrorDiagnostics.DOCS_REDIRECTS_BROKEN({ problems }), { problems })
 }
