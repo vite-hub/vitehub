@@ -122,7 +122,10 @@
   },
   "devDependencies": {
     "@ai-sdk/vue": "catalog:ai",
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",
+    "@iconify/vue": "catalog:ui",
     "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
