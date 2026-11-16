@@ -10,7 +10,7 @@ import { addViteHubOptions, bindingFree, ConfigEditor, createLineResolver, useVi
 import { readDependencies } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { classify, importsFile, localSpecifiersNaming, rewriteT3CallSites } from "./call-sites.ts"
 import { loadT3EnvOptions } from "./load.ts"
 import { planT3Env } from "./plan.ts"
@@ -51,14 +51,14 @@ function keyLines(code: string): Map<string, number> {
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const modules = await findEnvModules(cwd)
-  if (!modules.length) throw new CodemodError(`No file imports createEnv from ${packageName}, so there is nothing to migrate.`)
-  if (modules.length > 1) throw new CodemodError(`More than one file calls createEnv(): ${modules.join(", ")}. The codemod migrates one env module. Merge them first, then run the codemod again.`)
+  if (!modules.length) throw codemodError(`No file imports createEnv from ${packageName}, so there is nothing to migrate.`)
+  if (modules.length > 1) throw codemodError(`More than one file calls createEnv(): ${modules.join(", ")}. The codemod migrates one env module. Merge them first, then run the codemod again.`)
   const envFile = modules[0]!
   const envCode = await readFile(join(cwd, envFile), "utf8")
   const lines = keyLines(envCode)
   const options = await loadT3EnvOptions(cwd, envFile)
   const plan = await planT3Env(options, cwd)
-  if (!plan.fields.length) throw new CodemodError(`${envFile} declares no variable that Env can hold. Migrate it by hand.`)
+  if (!plan.fields.length) throw codemodError(`${envFile} declares no variable that Env can hold. Migrate it by hand.`)
   const fields = plan.fields.map(entry => entry.field)
 
   const config = await readNuxtConfig(cwd)

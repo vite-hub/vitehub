@@ -15,7 +15,7 @@ const manifest: {
 describe("@vite-hub/kit package contract", () => {
   it("installs ui-sdk and nothing else", () => {
     // The package exists so that headless parts do not install the dependencies of @vite-hub/ui (CodeMirror, xterm, Shiki).
-    expect(manifest.dependencies).toEqual({ "@ui-sdk/core": "0.1.0-beta.2", "@ui-sdk/vue": "0.1.0-beta.2" });
+    expect(manifest.dependencies).toEqual({ "@ui-sdk/core": "0.1.0-beta.5", "@ui-sdk/vue": "0.1.0-beta.5" });
     expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "@nuxt/schema", "nuxt", "vue"]);
   });
 
@@ -26,6 +26,14 @@ describe("@vite-hub/kit package contract", () => {
   it("has one entry for each part it adds, and none that ui-sdk has", () => {
     expect(kitEntries.toSorted()).toEqual(ownEntries.toSorted());
     expect(kitEntries.filter((entry) => uiSdkEntries.includes(entry))).toEqual([]);
+  });
+
+  it("ships the patched web.css inside default.css, not an import of the npm file", () => {
+    const packed = readFileSync(new URL("../dist/styles/default.css", import.meta.url), "utf8");
+    expect(packed).not.toContain('@import "@ui-sdk');
+    // Rules that only the workspace patch of @ui-sdk/core adds.
+    expect(packed).toContain('[data-slot="input-group"]');
+    expect(packed).toContain("--ui-radius-popup");
   });
 
   it("loads each entry from the built package", async () => {
