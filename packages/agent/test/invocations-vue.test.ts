@@ -401,7 +401,8 @@ describe("Agent Invocation Vue composables", () => {
     await loadMore;
 
     expect(resource.loadMoreError.value).toMatchObject({
-      message: "[vitehub] Agent Invocation pagination returned a repeated cursor.",
+      code: "AGENT_INVOCATION_CURSOR_REPEATED",
+      message: "[vitehub] Agent Invocation listing returned a repeated pagination cursor.",
     });
     expect(resource.cursor.value).toBe("page-2");
     scope.stop();

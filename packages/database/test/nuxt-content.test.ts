@@ -112,6 +112,10 @@ describe("Nuxt Content database from the default Database Definition", () => {
 
   it("does not map Postgres on Cloudflare, where Content keeps one client across requests", async () => {
     await expect(createApp("{ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} }", { preset: "cloudflare_module" }))
-      .rejects.toThrow("Nuxt Content on Cloudflare requires")
+      .rejects.toMatchObject({
+        code: "DATABASE_NUXT_CONTENT_D1_MISSING",
+        fix: expect.stringContaining("content: { database: { type: \"d1\""),
+        message: expect.stringContaining("Nuxt Content on Cloudflare requires"),
+      })
   })
 })

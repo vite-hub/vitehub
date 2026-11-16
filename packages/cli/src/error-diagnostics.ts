@@ -5,12 +5,17 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
+// Retired codes. Do not reuse them: CLI_R0006, SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
-    CLI_R0001: dynamicError,
-    CLI_R0002: dynamicError,
+    /** A host API answered with a shape that the CLI cannot read. */
+    CLI_HOST_RESPONSE_INVALID: {
+      fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
+      why: ({ host }: { host: string }) => `[vitehub] The ${host} API returned an unexpected response.`,
+    },
+    CLI_R0001: { ...dynamicError, fix: "Install `nuxt` in the project, such as with `pnpm add nuxt`, then run the command again." },
+    CLI_R0002: { ...dynamicError, fix: "Install `@vite-hub/cli` again, such as with `pnpm add -D @vite-hub/cli`." },
     CLI_R0003: {
       fix: "Run the command with --help to see its input.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
@@ -19,7 +24,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Start `vite dev` in this project, or pass `--url <origin>` of a running or deployed app. `VITEHUB_DEV_SERVER_URL` also names a server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
-    CLI_R0006: dynamicError,
+    /** A setup command failed with an error that has no code, and `--json` reports it. */
+    CLI_SETUP_FAILED: {
+      fix: "Fix the cause that the message names, then run the command again.",
+      why: ({ message }: { message: string }) => message,
+    },
     SETUP_CONFIG_NOT_LITERAL: {
       fix: "Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand.",
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `The vitehub() options in ${String(file)} cannot be read without running the config (${String(reason)}).`,
@@ -89,7 +98,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => `The ${String(host)} host has no project to link. A self-hosted Node server needs no link.`,
     },
     SETUP_LINK_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
     },
     SETUP_LINK_ACCOUNT_REQUIRED: {
@@ -131,7 +140,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
     },
     SETUP_DEPLOY_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
     },
     SETUP_DEPLOY_TEMPORARY_UNSUPPORTED: {
@@ -164,6 +173,22 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
       why: ({ command }: { command?: unknown }) => `The build output names a deploy command that ViteHub did not write, so it does not run it: ${String(command)}`,
     },
+    SETUP_DEPLOY_ENV_MISSING: {
+      fix: ({ firstDeploy, host }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+        ? `Set each name in the shell or in .env.<stage>, then deploy again. If the ${String(host)} project already exists, run \`vitehub link --host ${String(host)}\` first, so deploy reads its variables.`
+        : `Run \`vitehub env push --host ${String(host)}\`, set the names in the ${String(host)} dashboard, or set them in the shell or in .env.<stage> and deploy again.`,
+      why: ({ firstDeploy, host, names, stage }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+        ? `The app needs ${String(names)}, and no value was found. This is the first deploy to ${String(host)}: the project is not linked, so the host has no variables yet and every required name needs a local value for the ${String(stage)} stage. Nothing was deployed.`
+        : `The app needs ${String(names)}, and neither ${String(host)} nor a local value for the ${String(stage)} stage has one. Nothing was deployed.`,
+    },
+    SETUP_DEPLOY_ENV_NOT_LINKED: {
+      fix: ({ host }: { host?: unknown, names?: unknown }) => `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
+      why: ({ host, names }: { host?: unknown, names?: unknown }) => `The ${String(host)} project is not linked, so deploy cannot set ${String(names)} before the first deploy. Nothing was deployed.`,
+    },
+    SETUP_DEPLOY_ENV_STAGE_UNSAFE: {
+      why: ({ names, stage }: { names?: unknown, stage?: unknown }) => `These existing Cloudflare secrets have no local value for stage ${String(stage)}: ${String(names)}. The latest uploaded version may belong to another stage, so inheriting its values is unsafe. Nothing was deployed.`,
+      fix: ({ stage }: { names?: unknown, stage?: unknown }) => `Set every listed name in the shell or an untracked .env.${String(stage)} file and deploy again. Cloudflare deploys re-supply all existing secrets with the version to preserve stage isolation.`,
+    },
     SETUP_DEPLOY_FAILED: {
       fix: "Read the host output above, fix the cause, and run the command again.",
       why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
@@ -173,7 +198,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => host ? `The project has no ${String(host)} target in .vitehub/link.json, so the host project to read is not known.` : "The project has no host link in .vitehub/link.json, so the host project to read is not known.",
     },
     SETUP_DEPLOYMENTS_CREDENTIALS_MISSING: {
-      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login, so the deployments cannot be read.`,
     },
     SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED: {
@@ -191,6 +216,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_DEPLOY_CHECKOUT_MODULE_FAILED: {
       fix: "Reinstall the project dependencies and check that the Workspace package is the same version as the CLI. Or pass --no-push to deploy without the push.",
       why: ({ file, message, specifier }: { file?: unknown, message?: unknown, specifier?: unknown }) => `The project installs ${String(specifier)}, but ViteHub cannot load it from ${String(file)}, so it cannot push the checkout folders of vitehub.lock. Nothing was built or deployed: ${String(message)}`,
+    },
+    SETUP_DEPLOY_PROVISION_NEEDS_BUILD: {
+      fix: "Deploy again without --no-build, so the build gets the new ids.",
+      why: ({ count }: { count?: unknown, host?: unknown }) => `The deploy must create or change ${String(count)} resources, but --no-build deploys an output that was built without their ids. Nothing was created or deployed.`,
+    },
+    SETUP_DEPLOY_PROVISION_UNCHECKED: {
+      fix: "Set the credential that the reason names and deploy again. Or deploy with --no-provision to skip the resources.",
+      why: ({ host, missing, warnings }: { host?: unknown, missing?: unknown, warnings?: unknown }) => `The deploy could not check the ${String(host)} resources of the app, so it created and deployed nothing: ${String(warnings)} ${String(missing)}`,
     },
     SETUP_DEPLOY_PUSH_FAILED: {
       fix: ({ fix }: { fix?: unknown, message?: unknown, url?: unknown }) => `${fix ? `${String(fix)} ` : ""}Then run \`vitehub push\`. Do not deploy again.`,

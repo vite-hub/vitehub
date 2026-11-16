@@ -35,6 +35,7 @@ interface WorkspaceLock {
 /** Calls one operation of the app, as `callOperationFromCli()` does. Tests pass a direct call. */
 export type WorkspaceCheckoutCall = (operation: string, input: unknown, remote: string | undefined) => Promise<{ ok: true, value: unknown } | { ok: false, code?: string, message: string, fix?: string, status?: number }>
 
+// Internal invariant: this class already carries a code and a fix.
 export class WorkspaceCheckoutError extends Error {
   constructor(readonly code: string, message: string, readonly fix?: string) {
     super(message)

@@ -4,6 +4,7 @@ import type { ChatStatus, FileUIPart } from "ai";
 import UButton from "@nuxt/ui/components/Button.vue";
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { h } from "vue";
 import { PromptInput } from "../src/components/prompt-input.ts";
 import * as attachments from "../src/composables/attachments.ts";
 
@@ -35,6 +36,27 @@ async function pickFile(wrapper: Awaited<ReturnType<typeof renderPrompt>>) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("PromptInput submission with Nuxt UI", () => {
+  it("blocks custom submit buttons and form submission while read-only, then resumes", async () => {
+    const wrapper = mount(PromptInput, {
+      // Native submit-button clicks only submit forms connected to the document.
+      attachTo: document.body,
+      props: { attachments: false, modelValue: "Sending", readonly: true },
+      slots: {
+        submit: ({ canSubmit }) => h("button", { disabled: !canSubmit, type: "submit" }, "Publish"),
+      },
+    });
+
+    expect(wrapper.get("button").element.disabled).toBe(true);
+    await wrapper.get("form").trigger("submit");
+    expect(wrapper.emitted("submit")).toBeUndefined();
+
+    await wrapper.setProps({ readonly: false });
+    expect(wrapper.get("button").element.disabled).toBe(false);
+    await wrapper.get("button").trigger("click");
+    expect(wrapper.emitted("submit")).toEqual([[{ text: "Sending", files: [] }]]);
+    wrapper.unmount();
+  });
+
   it.each(["submitted", "streaming", "error"] satisfies ChatStatus[])(
     "keeps Enter and form submission inert in the %s state without losing the draft",
     async (status) => {
