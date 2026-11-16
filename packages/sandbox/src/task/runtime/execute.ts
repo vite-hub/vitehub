@@ -1,7 +1,7 @@
 import { decodeSandboxTaskValue, encodeSandboxTaskValue } from './binary-sidecars'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { combineSandboxTaskErrors, readSandboxTaskErrorMetadata } from './error-normalization'
-import { createEntrySource } from './entry-script'
+import { createEntrySource } from './entry-script.injected'
 import { prepareSandboxTaskDefinition } from './definition-preparation'
 import {
   createExecutionFiles,

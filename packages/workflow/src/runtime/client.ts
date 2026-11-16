@@ -223,7 +223,7 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
   const definition = await loadRequiredWorkflowDefinition(name)
   const test = getViteHubTestMode()
   if (test) {
-    if (config.provider === "cloudflare" || (config.provider === "vercel" && !definition.options?.native)) {
+    if (config.provider === "vercel" && !definition.options?.native) {
       throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.provider } })
     }
     return getWorkflowTestRun(test, config.provider, name, id, true)

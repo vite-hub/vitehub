@@ -43,7 +43,7 @@ async function plannedCloudflareResources(root: string, pluginOptions: PluginOpt
   process.env.CLOUDFLARE_ACCOUNT_ID = "account"
   process.env.CLOUDFLARE_API_TOKEN = "token"
   try {
-    const result = await runCli(root, pluginOptions, ["provision", "run", "--provider", "cloudflare", "--dry-run", "--json"])
+    const result = await runCli(root, pluginOptions, ["provision", "run", "--host", "cloudflare", "--dry-run", "--json"])
     expect(result.exitCode).toBe(0)
     const plan = JSON.parse(result.stdout) as { actions?: Array<{ kind: string, name: string }>, steps?: unknown }
     return plan

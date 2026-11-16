@@ -236,6 +236,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
 }
 
 /** A fetch failure known to originate at the network boundary. */
+// Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
 export class ConsoleNetworkError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })

@@ -275,7 +275,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         // `nuxt prepare` writes the same output as the build, so the types match, but it skips the checks that only
         // a deployable build needs. An app runs it in `postinstall`, before it has D1 resources.
-        const building = !nuxtOptions.dev && !nuxtOptions._prepare
+        // CLI discovery also runs readiness hooks before its Provision Steps can create those resources.
+        const building = !nuxtOptions.dev && !nuxtOptions._prepare && !nuxtOptions.vitehubCliDiscovery
         if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
             throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })

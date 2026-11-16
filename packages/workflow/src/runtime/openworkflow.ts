@@ -1,5 +1,5 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
-import { runSerializedWorkflowHandler } from "./execute.ts"
+import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
@@ -375,11 +375,25 @@ function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryP
 
 function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
   return {
+    // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
-      return await step.run({
+      const output = await step.run({
         name,
         ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
-      }, run)
+      }, async () => {
+        try {
+          return await run()
+        }
+        catch (error) {
+          const result = toNonRetryableStepResult(error)
+          if (result) return result
+          throw error
+        }
+      })
+      const error = readNonRetryableStepResult(output)
+      if (error) throw error
+      // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
+      return output as Awaited<ReturnType<typeof run>>
     },
     // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
     sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
@@ -471,14 +485,15 @@ function toWorkflowRunStepError(error: unknown): WorkflowRunStep["error"] {
 function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunStep[] {
   const steps = new Map<string, WorkflowRunStep>()
   for (const attempt of attempts) {
+    const nonRetryable = readNonRetryableStepResult(attempt.output)
     steps.set(attempt.stepName, {
       attempt: (steps.get(attempt.stepName)?.attempt ?? 0) + 1,
       ...(attempt.finishedAt ? { completedAt: attempt.finishedAt } : {}),
-      ...(attempt.status === "failed" ? { error: toWorkflowRunStepError(attempt.error) } : {}),
+      ...(attempt.status === "failed" || nonRetryable ? { error: toWorkflowRunStepError(nonRetryable ?? attempt.error) } : {}),
       id: attempt.id,
       name: attempt.stepName,
       ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
-      status: normalizeOpenWorkflowStatus(attempt.status),
+      status: nonRetryable ? "failed" : normalizeOpenWorkflowStatus(attempt.status),
     })
   }
   return [...steps.values()]
