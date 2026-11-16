@@ -51,7 +51,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, checksTestedBase, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -224,6 +224,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const minorReviewRounds = presetOptions.minorReviewRounds ?? false;
   const reviewConvergencePushes = presetOptions.reviewConvergencePushes ?? false;
   const repairStackChildren = merge.mode === "direct" && presetOptions.repairStackChildren === true;
+  const foldStacks = merge.mode === "direct" && merge.foldStacks;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: () => repositorySource.known(),
@@ -235,7 +236,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     priorityLabels: presetOptions.priorityLabels ?? [],
     mainRepairBranchPrefix: presetOptions.mainRepairBranchPrefix,
-    claimStackChildren: repairStackChildren,
+    // A stack child is claimed to fold it into its parent's branch, even when it gets no repair pass.
+    claimStackChildren: repairStackChildren || foldStacks,
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
   });
@@ -767,7 +769,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * Merges a PR that inbox evidence, the merge policy, and GitHub's live state all report ready.
    * Returns `not-ready` for a normal pass, and `blocked` while a merge outcome is unknown.
    */
-  async function mergeReadyPullRequest(claim: Claim, owner: Record<string, unknown>, signal: AbortSignal): Promise<"merged" | "blocked" | "not-ready"> {
+  async function mergeReadyPullRequest(claim: Claim, owner: Record<string, unknown>, signal: AbortSignal, foldInto?: number): Promise<"merged" | "blocked" | "not-ready"> {
     if (merge.mode !== "direct") return "not-ready";
     const { snapshot } = claim;
     const { repository, number } = snapshot;
@@ -855,7 +857,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     if (signal.aborted) return "blocked";
-    const evaluation = await checkEvaluation(snapshot, await requiredChecks.read(repository, base), signal);
+    const evaluation = await checkEvaluation(snapshot, await requiredCheckPolicy(snapshot, foldInto !== undefined), signal);
     const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
     // Version 1 also acknowledged feedback after a push without an explicit review.
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
@@ -887,8 +889,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (isRuntimeRecord(stopped) && stopped.head === decision.head && hasRuntimeType(stopped.until, "number") && stopped.until > Date.now()) {
       return await parkMerge(hasRuntimeType(stopped.reason, "string") ? stopped.reason : "Stopped waiting for a pending GitHub merge.", stopped.until);
     }
+    // A child's merge into this branch must finish first: its commits must land with this PR.
+    const folding = pending ? undefined : await pullRequestInbox.foldingChild(repository, number);
+    if (folding !== undefined) return await parkMerge(`Waiting for the merge of stacked pull request #${folding} into this branch.`);
     let mergeStarted = false;
     const bypass = evaluation.bypassedRequiredChecks.length > 0;
+    if (foldInto !== undefined && bypass) {
+      schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: "a fold never merges past failing required checks" });
+      return pending?.asynchronous ? await parkMerge("Unconfirmed fold is waiting for passing required checks.") : "not-ready";
+    }
     let inheritedProof: Exclude<Awaited<ReturnType<typeof verifyInheritedMerge>>, { refused: string }> | undefined;
     const mergeToken = pending?.token ?? claim.token;
     try {
@@ -905,6 +914,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const current = liveMergeReadiness(bypass && isRuntimeRecord(live) && live.mergeable === true && live.mergeable_state === "blocked" ? { ...live, mergeable_state: "unstable" } : live, decision.head, {
         automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
         reviews: liveReviews.map(parseEvidence),
+        ...foldInto === undefined ? {} : { foldInto: base },
       });
       if (!current.ready) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: current.reason });
@@ -959,6 +969,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: branchSafety });
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${branchSafety}.`) : "not-ready";
       }
+      if (foldInto !== undefined) {
+        // The parent must still be the one open pull request from this branch, with no merge of its own in flight.
+        const owners = await readPulls(repository, { state: "open", head: `${repository.split("/")[0]}:${base}`, limit: 10 }, signal);
+        const folded = foldParent(live, owners);
+        const reason = folded?.number !== foldInto ? `parent #${foldInto} no longer owns ${base}`
+          : await pullRequestInbox.directMergeAttempt(repository, foldInto) ? `parent #${foldInto} has a merge in flight` : undefined;
+        if (reason) {
+          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason });
+          return pending?.asynchronous ? await parkMerge(`Unconfirmed fold is waiting: ${reason}.`) : "not-ready";
+        }
+      }
       // Revalidate the durable lease and revision after the live provider read and
       // immediately before the irreversible merge request. A webhook or another
       // worker that changed the inbox invalidates this claim.
@@ -977,7 +998,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (!verified.ready) return await parkMerge(`Inherited-check bypass is waiting for ${verified.reason}.`);
       }
       signal.throwIfAborted();
-      if (!pending && !(await pullRequestInbox.beginDirectMerge(claim, decision.head, true))) {
+      if (!pending && !(await pullRequestInbox.beginDirectMerge(claim, decision.head, true, foldInto))) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: "merge attempt already in flight or claim changed" });
         return "blocked";
       }
@@ -990,7 +1011,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       mergeStarted = true;
       try {
         // GitHub's asynchronous merge with the expected head. A verified inherited failure merges past the branch rules.
-        await forgeMerge(provider, pull(number), { method: merge.method, sha: decision.head, signal, bypassRules: Boolean(inheritedProof) });
+        await forgeMerge(provider, pull(number), { method: foldInto === undefined ? merge.method : foldMethod(merge.method, repositorySettings), sha: decision.head, signal, bypassRules: Boolean(inheritedProof) });
       } catch (error) {
         if (!(error instanceof MergeBlockedError) || error.status === 409) throw error;
         if (mergeResultStatus(error) === "enqueued") {
@@ -1011,6 +1032,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return await parkMerge(`GitHub merge request failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
     }
     await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
+    if (foldInto !== undefined) {
+      await pullRequestInbox.finish(claim, { text: `Merged ${decision.head} into ${base}, the branch of parent #${foldInto}: it lands with its parent.`, terminal: true });
+      schedulerEvent("babysitter.stack.folded", { ...owner, child: number, parent: foldInto, branch: base, head_sha: decision.head });
+      return "merged";
+    }
     await pullRequestInbox.finish(claim, {
       text: inheritedProof
         ? `Merged ${decision.head} directly past ${inheritedProof.evaluation.bypassedRequiredChecks.join(", ")}, which fail the same way on base ${inheritedProof.baseSha}; every other merge rule was satisfied.`
@@ -1164,14 +1190,24 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return inheritedCheckEvaluation(snapshot, policy, inherited, waitPolicy.pendingReviewChecks, bypassChecksFor(snapshot.repository));
   }
 
-  async function requiredCheckEvaluation(snapshot: Snapshot, signal: AbortSignal = AbortSignal.timeout(120_000)) {
-    const base = snapshot.pr?.base?.ref;
-    if (!base) return undefined;
-    return await checkEvaluation(snapshot, await requiredChecks.read(snapshot.repository, base), signal);
+  /**
+   * The required-check policy of the PR's base branch. A fold into a parent's branch must pass the
+   * default branch's required checks, because the stack lands there with its parent.
+   */
+  async function requiredCheckPolicy(snapshot: Snapshot, fold = false): Promise<GitHubRequiredCheckPolicy> {
+    const base = snapshot.pr?.base?.ref ?? "";
+    const defaultBranch = snapshot.pr?.base?.repo?.default_branch;
+    if (!fold || !defaultBranch) return await requiredChecks.read(snapshot.repository, base);
+    return { ...await requiredChecks.read(snapshot.repository, defaultBranch), branch: base };
   }
 
-  async function requiredCheckState(snapshot: Snapshot, signal?: AbortSignal) {
-    return (await requiredCheckEvaluation(snapshot, signal))?.state ?? "unknown";
+  async function requiredCheckEvaluation(snapshot: Snapshot, signal: AbortSignal = AbortSignal.timeout(120_000), fold = false) {
+    if (!snapshot.pr?.base?.ref) return undefined;
+    return await checkEvaluation(snapshot, await requiredCheckPolicy(snapshot, fold), signal);
+  }
+
+  async function requiredCheckState(snapshot: Snapshot, signal?: AbortSignal, fold = false) {
+    return (await requiredCheckEvaluation(snapshot, signal, fold))?.state ?? "unknown";
   }
 
   /** Times of the PR's repair pushes in the last 24 hours, kept while `dailyPushBudget` is set. */
@@ -1378,7 +1414,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       let reasons = wakeReasons(snapshot, checks, { ...waitPolicy, heldThreads: await heldOpenThreads(snapshot) });
       if (parentMerged) reasons.push("stack-parent-merged");
       if (snapshot.wait?.reason === "non-default-base" && snapshot.pr && !nonDefaultBase(snapshot.pr)) reasons.push("base-retargeted");
-      if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, checks))) {
+      // A stack child parked on its parent wakes when the default branch's required checks pass on its
+      // head, so it can fold into the parent's branch.
+      const foldWake = foldStacks && snapshot.wait?.reason === "stack-parent" && snapshot.generation > snapshot.handled && !reasons.includes("ready-to-merge")
+        && await requiredCheckState(snapshot, undefined, true) === "passed";
+      if (foldWake) reasons.push("ready-to-merge");
+      if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, foldWake ? "passed" : checks))) {
         reasons = reasons.filter(reason => reason !== "ready-to-merge");
       }
       if (snapshot.wait?.retryAt !== undefined && snapshot.wait.retryAt <= Date.now()) reasons.push("merge-retry");
@@ -1401,23 +1442,36 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
   }
 
-  /** Moves a stacked PR to the default branch after its parent merged there. */
-  async function retargetMergedStackBase(claim: Claim, signal: AbortSignal): Promise<{ from: string; to: string } | { parent: number } | undefined> {
+  /** Moves a stacked PR to the default branch after its parent merged there, or to the open branch its parent folded into. */
+  async function retargetMergedStackBase(claim: Claim, signal: AbortSignal): Promise<{ from: string; to: string } | { parent: number; ownsBase: boolean } | undefined> {
     const snapshot = claim.snapshot;
     const pr = snapshot.pr;
     const dependency = await pullRequestInbox.metaNumber(`stack-dependency:${snapshot.repository}#${snapshot.number}`);
     if (dependency !== undefined) {
       const parent = await readPull(snapshot.repository, dependency, signal);
-      if (!isRuntimeRecord(parent) || !(parent.merged === true || hasRuntimeType(parent.merged_at, "string"))) return { parent: dependency };
+      if (!isRuntimeRecord(parent) || !(parent.merged === true || hasRuntimeType(parent.merged_at, "string"))) return { parent: dependency, ownsBase: false };
     }
     const target = pr && nonDefaultBase(pr);
     if (!pr || !target) return undefined;
     const { base, owner } = target;
     const parents = await readPulls(snapshot.repository, { state: "all", head: `${owner}:${base}`, limit: 10 }, signal);
-    const to = stackRetargetBase(pr, parents);
+    // A parent that folded into another pull request's branch moves its children there. When that
+    // pull request merged too, follow the chain up to an open pull request's branch or the default
+    // branch. A branch without an open or merged owner may be stale, and moving there would strand the change.
+    let to = stackRetargetBase(pr, parents);
+    for (let hop = 0; to && to !== pr.base?.repo?.default_branch; hop++) {
+      const branch: string = to;
+      if (hop === 10) { to = undefined; break; }
+      const owners = await readPulls(snapshot.repository, { state: "all", head: `${owner}:${branch}`, limit: 10 }, signal);
+      if (owners.some(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && isRuntimeRecord(value.head) && value.head.ref === branch)) break;
+      to = stackRetargetBase({ ...pr, base: { ...pr.base, ref: branch } }, owners);
+    }
     if (!to) {
-      const parent = parents.find(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number));
-      return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number } : undefined;
+      const open = parents.filter(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number)
+        && isRuntimeRecord(value.head) && value.head.ref === base);
+      const parent = open[0];
+      // Two open pull requests from one branch make the fold target unclear, so the child only waits.
+      return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number, ownsBase: open.length === 1 } : undefined;
     }
     const live = await readPull(snapshot.repository, snapshot.number, signal);
     if (!isRuntimeRecord(live) || String(live.state).toLowerCase() !== "open"
@@ -1883,6 +1937,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               wait: await externalWait(inboxClaim.snapshot, { kind: "pull-request", repository, number: parent }, "stack-parent") });
             schedulerEvent("babysitter.stack.waiting", { ...owner, parent });
           };
+          // A ready child merges into its open parent's branch, so it lands on the default branch with the parent.
+          if (foldStacks && retargeted && "ownsBase" in retargeted && retargeted.ownsBase
+            && await mergeReadyPullRequest(inboxClaim, owner, passSignal, retargeted.parent) !== "not-ready") return;
           if (stackParent !== undefined && !repairStackChildren) {
             await parkOnStackParent(stackParent, `Waiting for open parent PR #${stackParent} before repairing its child.`);
             return;
@@ -1894,7 +1951,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             return;
           }
           if (merge.mode === "direct") {
-            // A stack child never merges into its parent's branch.
+            // A stack child merges into its parent's branch only through the fold above.
             if (stackParent === undefined && await mergeReadyPullRequest(inboxClaim, owner, passSignal) !== "not-ready") return;
             // A previous pass explicitly reviewed this unchanged head. If the
             // merge gates are still closed, keep waiting instead of invoking

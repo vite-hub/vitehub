@@ -242,6 +242,8 @@ catalogs:
 overrides:
   "mdast-util-from-markdown>micromark": 4.0.2
   mdast-util-to-markdown: 2.1.2
+  # Nuxt UI asks for ^2.5.1. Before 2.6.0 the icon API returned an empty body on Nitro 3 (nuxt/icon#542).
+  "@nuxt/icon": ^2.6.2
   "@vercel/blob>undici": ^6.28.0
   "@voidzero-dev/vite-plus-core": 0.3.3
   "ai@>=7.0.0 <8.0.0": 7.0.130
@@ -278,6 +280,10 @@ patchedDependencies:
   "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
   "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
+  # Cloudflare dev (Nitro 3 `miniflare` runner) served `require("*.json")` as CommonJS, so workerd failed to parse it
+  # and @nuxt/icon's dev server bundle returned 500. The patch serves .json files as JSON modules. Remove it when an
+  # env-runner release fixes unjs/env-runner#110 (https://github.com/unjs/env-runner/issues/110) and Nitro uses it.
+  env-runner@0.3.11: patches/env-runner@0.3.11.patch
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch

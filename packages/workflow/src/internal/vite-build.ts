@@ -172,6 +172,31 @@ export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   }
 }
 
+/** The Workflow DevKit packages that a native Vercel Workflow needs. They are optional peers of this package. */
+const vercelWorkflowDevKitPackages = ["workflow", "@workflow/builders"] as const
+
+function missingVercelWorkflowDevKitError() {
+  return workflowErrorDiagnostics.WORKFLOW_R0006({ message: "[vitehub] Native Vercel Workflows need workflow, @workflow/builders. A Workflow folder, a `native` entry, or a \"use workflow\" function makes a Workflow native. Install them in your app with: pnpm add workflow @workflow/builders" })
+}
+
+/**
+ * Throws when the app did not install the Workflow DevKit. `hasVercelNativeWorkflowEntry()` calls it, so every path that
+ * builds a native Workflow, such as the Schedule entry that starts one, stops here before it resolves `workflow/api`.
+ */
+function assertVercelWorkflowDevKit(): void {
+  const require = createRequire(import.meta.url)
+  const installed = (name: string) => {
+    try {
+      require.resolve(name)
+      return true
+    }
+    catch (error) {
+      return !(error instanceof Error && "code" in error && (error.code === "MODULE_NOT_FOUND" || error.code === "ERR_MODULE_NOT_FOUND"))
+    }
+  }
+  if (!vercelWorkflowDevKitPackages.every(installed)) throw missingVercelWorkflowDevKitError()
+}
+
 async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | undefined> {
   try {
     const require = createRequire(import.meta.url)
@@ -256,6 +281,10 @@ async function withVercelWorkflowPackageLink<T>(rootDir: string, run: () => Prom
   }
 }
 
+/**
+ * Whether a Workflow builds as a native Vercel Workflow. It throws when one does and the app did not install the
+ * Workflow DevKit, so every native build path reports the same coded error.
+ */
 export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = []): boolean {
   if (!definitions.length) return false
   const definitionDirs = [...new Set([
@@ -325,6 +354,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
   }
   for (const definition of definitions) visit(definition.handler)
   for (const file of nativeFiles) visit(file)
+  if (hasNativeEntry) assertVercelWorkflowDevKit()
   return hasNativeEntry
 }
 
@@ -548,7 +578,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   }
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) {
-    throw workflowErrorDiagnostics.WORKFLOW_R0006({ message: "Native Vercel workflows require the optional workflow and @workflow/builders peer dependencies." })
+    throw missingVercelWorkflowDevKitError()
   }
 
   const snapshot = await snapshotVercelNativeWorkflowOutput(rootDir)
