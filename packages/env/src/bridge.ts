@@ -59,7 +59,8 @@ export interface EnvActivity {
   timestamp: string;
   actor: EnvActor;
   key: string;
-  action: "inspect" | "preview" | "replace" | "resolve" | "use" | "grant" | "revoke";
+  /** `remove`: a store deleted the key, such as the env values of a Console. The bridge never writes it. */
+  action: "inspect" | "preview" | "replace" | "remove" | "resolve" | "use" | "grant" | "revoke";
   outcome: "started" | "succeeded" | "failed" | "denied";
   revision?: string;
   operation?: string;

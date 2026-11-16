@@ -5,14 +5,14 @@ import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
-import { GitHubDependencyConflictError } from "../github/index.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { invariant } from "@vite-hub/internal/invariant";
 import * as v from "valibot";
 import { join, resolve } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, gitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubWorkspaceInstallError, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
@@ -199,7 +199,7 @@ export interface BabysitterRuntime {
 
 export function createBabysitterRuntime(options: BabysitterRuntimeOptions): BabysitterRuntime {
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
-    throw new Error("Babysitter concurrency must be a positive integer.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "concurrency", expected: "a positive integer" });
   }
   const baseAgent = options.agent;
   assertBabysitterAgent(baseAgent);
@@ -339,7 +339,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     for (let page = 1; pulls.length < query.limit; page++) {
       const perPage = Math.min(100, query.limit);
       const response = await retryTransient(() => provider.request<unknown>("GET", `/repos/${repository}/pulls`, { query: { state: query.state, base: query.base, head: query.head, per_page: perPage, page }, signal }), signal);
-      if (!Array.isArray(response.data)) throw new Error("GitHub did not return a pull request list.");
+      if (!Array.isArray(response.data)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_LIST_MISSING({ path: `/repos/${repository}/pulls` });
       pulls.push(...response.data);
       if (response.data.length < perPage) break;
     }
@@ -362,7 +362,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       else {
         const key = /^\.(\w+)\[\]$/.exec(projection)?.[1];
         const list = key ? (isRuntimeRecord(response.data) ? response.data[key] : undefined) : response.data;
-        if (!Array.isArray(list)) throw new Error(`GitHub did not return a list for ${path}.`);
+        if (!Array.isArray(list)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_GITHUB_LIST_MISSING({ path });
         items.push(...list);
       }
       next = response.headers.get("link")?.split(",").map(part => /<([^>]+)>\s*;\s*rel="next"/.exec(part)?.[1]).find(Boolean);
@@ -801,7 +801,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMergeQueueEntry", variables: { owner: repositoryOwner, name, number } }, signal })).data;
           if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
             const messages = response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error));
-            throw new Error(`GitHub merge queue query failed: ${messages.join("; ")}`);
+            throw presetsErrorDiagnostics.PRESETS_BABYSITTER_MERGE_QUEUE_QUERY_FAILED({ errors: messages.join("; ") });
           }
           const queued = v.parse(v.object({ repository: v.object({ pullRequest: v.object({
             state: v.string(), headRefOid: v.string(), mergeQueueEntry: v.nullable(v.object({ id: v.string() })),
@@ -993,7 +993,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       } catch (error) {
         if (!(error instanceof MergeBlockedError) || error.status === 409) throw error;
         if (mergeResultStatus(error) === "enqueued") {
-          if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
+          if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_DIRECT_MERGE_CLAIM_LOST();
           return await parkMerge("GitHub enqueued the pull request; waiting for its merge webhook.");
         }
         await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
@@ -1253,7 +1253,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await writeFile(join(gitDirectory, "vitehub-install.json"), JSON.stringify(record));
       const { output, ...timing } = record;
       schedulerEvent("babysitter.install.finished", { ...owner, ...timing });
-      if (!record.ok) throw new GitHubWorkspaceInstallError(new Error(output));
+      if (!record.ok) throw gitHubWorkspaceInstallError(new Error(output));
       return;
     }
     await installGitHubPullRequestWorkspace(cwd, signal, async prepared => {
@@ -1261,7 +1261,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (!record) return;
       const { output, ...timing } = record;
       schedulerEvent("babysitter.install.finished", { ...owner, ...timing });
-      if (!record.ok) throw new Error(output || "Dependency installation failed.");
+      if (!record.ok) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INSTALL_COMMAND_FAILED({ output });
       return { ...timing, scripts: isRuntimeRecord(installOption) && installOption.command ? "custom" : false };
     }, { slots: installSlots });
   }
@@ -1296,7 +1296,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Dependency reads are host-owned. A parked model never polls unchanged checks.
     if (wake.kind === "pull-request") {
       const pr = await readPull(wake.repository, wake.number);
-      if (!isRuntimeRecord(pr)) throw new Error("Missing external pull-request state.");
+      if (!isRuntimeRecord(pr)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_EXTERNAL_STATE_MISSING();
       return digest({ state: pr.state, mergedAt: pr.merged_at, head: isRuntimeRecord(pr.head) ? pr.head.sha : undefined });
     }
     const { provider, repo } = await forge(wake.repository);
@@ -1316,7 +1316,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const wait = { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason };
       return isWorkerBlocker({ lastResult: observed.lastResult, wait: { ...wait, headSha: observed.pr?.head?.sha ?? "" } }) ? wait : { ...wait, retryAt };
     }
-    if (!repositorySource.known().includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
+    if (!repositorySource.known().includes(wake.repository.toLowerCase())) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_WAKE_REPOSITORY_UNKNOWN();
     const evidence = await dependencyEvidence(wake);
     await pullRequestInbox.setMeta(`dependency:${observed.repository}#${observed.number}`, evidence);
     const otherPullRequest = wake.kind === "pull-request"
@@ -2209,7 +2209,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 const ref = (await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${encodeURIComponent(pullRequest.baseRefName)}`, { signal: abortSignal })).data;
                 if (!isRuntimeRecord(ref) || ref.ref !== `refs/heads/${pullRequest.baseRefName}` || !isRuntimeRecord(ref.object)
                   || ref.object.type !== "commit" || !hasRuntimeType(ref.object.sha, "string") || !/^[a-f\d]{40}$/i.test(ref.object.sha)) {
-                  throw new Error("Conflict repair requires the exact live base branch commit.");
+                  throw presetsErrorDiagnostics.PRESETS_BABYSITTER_BASE_COMMIT_UNREADABLE();
                 }
                 return ref.object.sha;
               };
@@ -2271,9 +2271,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   else if (hostInstall()) {
                     try { await installDependencies(directory, abortSignal, owner, nodeOptions); }
                     catch (error) {
-                      if (abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError)) throw error;
+                      if (abortSignal.aborted || !isGitHubWorkspaceInstallError(error)) throw error;
                       // Dependency conflicts must be resolved before the explicit refresh tool can install.
-                      const conflict = error.cause instanceof GitHubDependencyConflictError;
+                      const conflict = isRuntimeRecord(error.cause) && error.cause.code === "PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED";
                       if (conflict && !preparedMergeBase) throw error;
                       // Busy installer slots are a host wait, not a failed install. The PR waits
                       // for capacity instead of spending a pass without dependencies.
@@ -2317,7 +2317,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   return await readGitHubDependencyStatus(providerDirectory ?? checkout);
                 },
                 refreshDependencies: async () => {
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -2332,7 +2332,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                 },
                 commitRepair: async (input) => {
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   // After a failed optional install there is nothing to verify against; hosted CI validates the dependency inputs.
@@ -2347,7 +2347,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   return head;
                 },
                 push: async () => {
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   const renewLease = async () => {
@@ -2441,16 +2441,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 !("kind" in driver) ||
                 (driver.kind !== "codex" && driver.kind !== "claude-code")
               ) {
-                throw new Error(
-                  "Babysitter requires a Codex or Claude Code driver for its isolated Git checkout.",
-                );
+                throw presetsErrorDiagnostics.PRESETS_BABYSITTER_DRIVER_UNSUPPORTED();
               }
               const workerDriver = driver as
                 | CodexDriver<unknown, BabysitterPassResult>
                 | ClaudeCodeDriver<unknown, BabysitterPassResult>;
               const activityEnabled = statusComment;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
-              if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
+              invariant(baseSettings, "createBabysitterRuntime() reads the base Agent settings before it starts a pass");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
               // the host forge access, but dropping the whole map loses other
@@ -2526,7 +2524,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
                 if (!workerSettings.sandbox) return;
                 const session = activeProviderSandbox(context);
-                if (!session) throw new Error("The repair Sandbox is not prepared.");
+                invariant(session, "the Babysitter pass starts the repair Sandbox before this hook runs");
                 await assertLease();
                 if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
@@ -2555,7 +2553,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   const sandbox = activeProviderSandbox(context);
-                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  invariant(sandbox, "the Babysitter pass starts the repair Sandbox before the agent can call a repair tool");
                   if (!sandbox.localWorkspace) {
                     await importSandboxCommit(sandbox.session, checkout, pullRequest.headRefOid, abortSignal);
                     if (paths) await importSandboxRepairFiles(sandbox.session, checkout, paths, abortSignal);
@@ -2567,7 +2565,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!workerSettings.sandbox || presetOptions.install === false) return;
                   await assertLease();
                   const sandbox = activeProviderSandbox(context);
-                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  invariant(sandbox, "the Babysitter pass starts the repair Sandbox before the agent can call a repair tool");
                   if (!sandbox.localWorkspace) await publishSandboxDependencies(sandbox.session, checkout, abortSignal);
                   await assertLease();
                 },
@@ -2844,7 +2842,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           // A pass that pushed ends on the post-push grace abort; its workspace holds the pushed head.
           if (pushedHead && (isAbortError(error) || (error instanceof Error && error.name === "TimeoutError"))) workspaceRun.ok = true;
           if (modelWorkParked) return;
-          if (error instanceof GitHubWorkspaceInstallError) {
+          if (isGitHubWorkspaceInstallError(error)) {
             outcome = "waiting";
             const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
             wait.kind = "external";
@@ -3011,7 +3009,7 @@ function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAg
     !hasRuntimeType(agent.options.filter, "object") ||
     Array.isArray(agent.options.filter)
   ) {
-    throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_AGENT_INVALID();
   }
 }
 

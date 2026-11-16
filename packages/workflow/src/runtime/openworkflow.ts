@@ -396,8 +396,8 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
       // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
       return output as Awaited<ReturnType<typeof run>>
     },
-    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
-    sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
+    // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
+    sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
   }
 }
 
@@ -495,6 +495,7 @@ function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunSte
       ...(attempt.status === "failed" || nonRetryable ? { error: toWorkflowRunStepError(nonRetryable ?? attempt.error) } : {}),
       id: attempt.id,
       name: attempt.stepName,
+      ...(attempt.context?.kind === "sleep" ? { sleepUntil: new Date(attempt.context.resumeAt) } : {}),
       ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
       status: nonRetryable ? "failed" : normalizeOpenWorkflowStatus(attempt.status),
     })

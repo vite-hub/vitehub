@@ -234,16 +234,11 @@ function authConsoleError(status: number, detail: string): ResultError<AuthConso
   return code ? errors[code]({ detail }) : errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause: detail });
 }
 
-/** An Auth Console error that a call site raised, as opposed to a failure of Better Auth or the database. */
-function isAuthConsoleError(value: unknown): value is ResultError<AuthConsoleErrorCode> {
-  return value instanceof Error && Object.hasOwn(errors, String(Reflect.get(value, "code")));
-}
-
 async function result<T>(run: () => Promise<T>): Promise<Result<T, AuthConsoleErrorCode>> {
   try {
     return [undefined, await run()];
   } catch (cause) {
-    if (isAuthConsoleError(cause)) return [cause, undefined];
+    if (errors.is(cause)) return [cause, undefined];
     return [errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause }), undefined];
   }
 }
@@ -455,7 +450,7 @@ export function createAuthConsole(
     try {
       return await actingRequest(request);
     } catch (cause) {
-      if (host.actor && isAuthConsoleError(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED") return undefined;
+      if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED") return undefined;
       throw cause;
     }
   }
@@ -1323,7 +1318,7 @@ export function createAuthConsole(
           acting = await actingRequest(request);
         } catch (cause) {
           // A signed Console person without an app account or a live session can still read. The actions say why not.
-          if (host.actor && isAuthConsoleError(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED")
+          if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED")
             return await describe(undefined, cause.message);
           throw cause;
         }
