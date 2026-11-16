@@ -119,28 +119,61 @@ const exitedCode = "1"
 
 const marker = `# ${generatedHeader}`
 
+interface UnitPaths {
+  service: string
+  timer: string
+}
+
 /**
  * The unit or file that holds `name` when ViteHub did not install it: a file at our path without our header, or a
  * loaded unit that systemd reads from another file, such as /usr/lib/systemd/user/<name>.service or a transient unit.
  */
-function foreignResource(paths: { service: string, timer: string }, texts: { service?: string, timer?: string }, units: Map<string, Map<string, string>>, name: string): string | undefined {
+async function foreignResource(host: OsHost, paths: UnitPaths, texts: { service?: string, timer?: string }, units: Map<string, Map<string, string>>, name: string): Promise<string | undefined> {
   for (const kind of ["service", "timer"] as const) {
     const text = texts[kind]
     if (text !== undefined && !text.startsWith(marker)) return paths[kind]
     const unit = units.get(`${name}.${kind}`)
     const state = unit?.get("LoadState")
-    if (state && state !== "not-found" && unit?.get("FragmentPath") !== paths[kind]) return unit?.get("FragmentPath") || `${name}.${kind}`
+    if (!state || state === "not-found") continue
+    const fragment = unit?.get("FragmentPath")
+    if (!fragment) return `${name}.${kind}`
+    // systemd can print the path with symbolic links resolved, as for a ~/.config that links to a dotfiles folder.
+    if (fragment !== paths[kind] && await host.fs.realpath(fragment) !== await host.fs.realpath(paths[kind])) return fragment
   }
   return undefined
+}
+
+/**
+ * The folder of user units that the systemd user manager reads: `<config home>/systemd/user`, next to the
+ * `user.control` folder that comes first in its unit path. The manager has its own environment, so the
+ * XDG_CONFIG_HOME or HOME of this process can point elsewhere.
+ */
+export function userUnitDirectory(unitPath: string): string | undefined {
+  const paths = unitPath.trim().split(/\s+/)
+  const control = paths.find(path => path.endsWith("/systemd/user.control"))
+  const directory = control?.slice(0, -".control".length)
+  return directory?.startsWith("/") && paths.includes(directory) ? directory : undefined
 }
 
 /** systemd timers, as `systemctl --user` units or system units in /etc/systemd/system. */
 export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
   const user = scope === "user"
-  const directory = user ? join(host.env.XDG_CONFIG_HOME || join(host.homedir, ".config"), "systemd/user") : "/etc/systemd/system"
   // `systemctl --user` finds the user manager through XDG_RUNTIME_DIR, which `sudo -u` and cron jobs do not set.
   const execEnv = user && !host.env.XDG_RUNTIME_DIR && host.uid !== undefined ? { XDG_RUNTIME_DIR: `/run/user/${host.uid}` } : undefined
-  const paths = (name: string) => ({ service: join(directory, `${name}.service`), timer: join(directory, `${name}.timer`) })
+  let directory: Promise<string> | undefined
+
+  async function unitDirectory(): Promise<string> {
+    if (!user) return "/etc/systemd/system"
+    const result = await systemctl("show", "-p", "UnitPath", "--value")
+    // Without an answer, the next systemctl command returns the error. Until then, use the systemd default.
+    return (result.code === 0 ? userUnitDirectory(result.stdout) : undefined) ?? join(host.env.XDG_CONFIG_HOME || join(host.homedir, ".config"), "systemd/user")
+  }
+
+  async function paths(name: string): Promise<UnitPaths> {
+    directory ??= unitDirectory()
+    const folder = await directory
+    return { service: join(folder, `${name}.service`), timer: join(folder, `${name}.timer`) }
+  }
 
   function systemctl(...args: string[]): Promise<ExecResult> {
     return host.exec("systemctl", user ? ["--user", ...args] : args, execEnv)
@@ -167,29 +200,27 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     return value?.replaceAll("%%", "%")
   }
 
-  async function readUnits(name: string): Promise<{ service?: string, timer?: string }> {
-    const files = paths(name)
+  async function readUnits(files: UnitPaths): Promise<{ service?: string, timer?: string }> {
     const [service, timer] = [await host.fs.readFile(files.service), await host.fs.readFile(files.timer)]
     return { ...(service === undefined ? {} : { service }), ...(timer === undefined ? {} : { timer }) }
   }
 
   /** The resource that holds `name` when ViteHub did not install it in this scope. */
-  async function foreign(name: string, texts: { service?: string, timer?: string }): Promise<Result<string | undefined, OsScheduleErrorCode>> {
-    const files = paths(name)
-    const fileOwner = foreignResource(files, texts, new Map(), name)
+  async function foreign(name: string, files: UnitPaths, texts: { service?: string, timer?: string }): Promise<Result<string | undefined, OsScheduleErrorCode>> {
+    const fileOwner = await foreignResource(host, files, texts, new Map(), name)
     if (fileOwner) return [undefined, fileOwner]
     const [error, result] = await run("show", `${name}.service`, `${name}.timer`, "-p", "Id,LoadState,FragmentPath")
     if (error) return [error, undefined]
-    return [undefined, foreignResource(files, texts, parseSystemctlShow(result.stdout), name)]
+    return [undefined, await foreignResource(host, files, texts, parseSystemctlShow(result.stdout), name)]
   }
 
   return {
     async install(spec) {
-      const files = paths(spec.name)
+      const files = await paths(spec.name)
       const service = renderSystemdService(spec)
       const timer = renderSystemdTimer(spec)
-      const current = await readUnits(spec.name)
-      const [foreignError, resource] = await foreign(spec.name, current)
+      const current = await readUnits(files)
+      const [foreignError, resource] = await foreign(spec.name, files, current)
       if (foreignError) return [foreignError, undefined]
       if (resource) return [osScheduleErrors.SCHEDULE_OS_NAME_TAKEN({ platform: "linux", name: spec.name, scope, resource }), undefined]
       const changed = current.service !== service || current.timer !== timer
@@ -227,9 +258,10 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const [error, result] = await run(...args)
       if (error) return [error, undefined]
       const units = parseSystemctlShow(result.stdout)
-      const texts = await readUnits(name)
+      const files = await paths(name)
+      const texts = await readUnits(files)
       const lingering = await linger()
-      if (foreignResource(paths(name), texts, units, name)) {
+      if (await foreignResource(host, files, texts, units, name)) {
         return [undefined, { name, platform: "linux", scope, installed: false, running: false, ...(lingering === undefined ? {} : { linger: lingering }) }]
       }
       const timer = units.get(`${name}.timer`)
@@ -258,13 +290,13 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     },
 
     async uninstall(name) {
-      const files = paths(name)
-      const texts = await readUnits(name)
+      const files = await paths(name)
+      const texts = await readUnits(files)
       const logFile = logFileOf(texts.service)
       const nothing = { name, platform: "linux" as const, scope, removed: [], existed: false }
       // Without our files there is nothing of ours to stop, and a unit of the same name is not ours.
       if (texts.service === undefined && texts.timer === undefined) return [undefined, nothing]
-      const [foreignError, resource] = await foreign(name, texts)
+      const [foreignError, resource] = await foreign(name, files, texts)
       if (foreignError) return [foreignError, undefined]
       if (resource) return [undefined, nothing]
       // A unit that systemd never loaded has nothing to stop.
