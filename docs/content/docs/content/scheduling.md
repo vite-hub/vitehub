@@ -99,7 +99,7 @@ If Schedule is off, or no definition calls `publishDue()`, the Console turns off
 | Cloudflare | A Cron Trigger from the Schedule Definition. | Within a minute of `at`. |
 | Vercel | A Vercel Cron Job. Hobby projects run cron jobs once a day, so use a daily cron there. | Within a minute on Pro. At the next daily run on Hobby. |
 | Netlify | A Scheduled Function. | Within a minute of `at`. |
-| Node or Docker | The Schedule [Process Runtime](/docs/schedule/hosts) in one long-lived replica. | Within its scan interval, at most a minute. |
+| Node or Docker | The Schedule [Process Runtime](/docs/schedule/hosts) in each server. With a Postgres or remote libSQL Default Database, one server runs each occurrence. Without one, run one long-lived replica. | Within its scan interval, at most a minute. |
 | Development | `pnpm vitehub schedule run content-publish` on Vite + Nitro, because the definition sets `manual: true`, or the Process Runtime. | When you run it. |
 
 Runs can overlap, for example from two replicas. Each publish checks the digests, so each schedule settles once. On another error, such as a store that is down, the schedule stays pending and the Schedule Run records the error.
