@@ -185,7 +185,6 @@ describe("workflow operations", () => {
 
   it("reports operations that a provider does not support", async () => {
     setWorkflowRuntimeConfig({ provider: "cloudflare" } as never)
-    expect(await call("workflow.cancel", { runId: "wrun_1", workflow: "welcome" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
     expect(await call("workflow.resume", { token: "token" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
   })
 

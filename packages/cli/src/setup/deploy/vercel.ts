@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises"
 import { createVercelProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
-import { createDeployRun, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
+import { createDeployRun, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, lastJsonObject, optionalString } from "./host.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
-import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
+import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
 /** Check the CLI's saved session without reading its auth files or exposing a token. */
 export async function hasVercelLogin(root: string, context: ViteHubCliContext): Promise<boolean> {
@@ -61,6 +61,38 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
       const id = optionalString(deployment?.id)
       const claim = context.temporary ? await readClaim(context.root) : undefined
       return { url, ...(id ? { deploymentId: id } : {}), ...(claim ? { claim } : {}), ...(context.temporary ? {} : { project: { name: context.projectName, ...(team ? { accountId: team } : {}) } }) }
+    },
+  }
+}
+
+/**
+ * The Environment Variables of the linked project for `production` or `preview`. Vercel CLI 65.11 (`vercel env add
+ * --help`, `vercel env ls --help`, in test/fixtures/host-cli-help/). `env add` reads the value from stdin, and `--force`
+ * replaces the value in the same environment. `env ls --json` prints readable values too, so its stdout never goes
+ * into an error.
+ */
+export function vercelEnv(context: HostEnvContext): HostEnv {
+  const vercel = hostCli("vercel", "vercel", context.root, context.env)
+  const team = context.link.account?.id ?? optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
+  const project = ["--project", context.link.project.id ?? context.link.project.name, ...(team ? ["--scope", team] : [])]
+  const run = (args: readonly string[], stdin?: string) =>
+    context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...(stdin === undefined ? {} : { stdin }) })
+
+  return {
+    async listSecretNames() {
+      const result = await run(["env", "ls", "--environment", context.target, "--json", ...project])
+      if (result.exitCode !== 0) throw hostListFailed("vercel env ls", result, context.secrets)
+      const envs = lastJsonObject(result.stdout)?.envs
+      if (!Array.isArray(envs)) throw hostListFailed("vercel env ls printed no envs", result, context.secrets)
+      return envs.flatMap((item) => {
+        if (!isRecord(item) || typeof item.key !== "string") return []
+        const targets = Array.isArray(item.target) ? item.target : typeof item.target === "string" ? [item.target] : undefined
+        return !targets || targets.includes(context.target) ? [item.key] : []
+      })
+    },
+    async setSecret(name, value, { secret }) {
+      const result = await run(["env", "add", name, "--environment", context.target, secret ? "--sensitive" : "--no-sensitive", "--force", "--yes", ...project], value)
+      if (result.exitCode !== 0) throw hostCliFailed(`vercel env add ${name}`, result, context.secrets)
     },
   }
 }

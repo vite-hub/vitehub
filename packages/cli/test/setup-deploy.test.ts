@@ -19,6 +19,8 @@ const vercelEnv = { VERCEL_TEAM_ID: "team_1", VERCEL_TOKEN: "vercel-token-1" }
 const netlifyEnv = { NETLIFY_AUTH_TOKEN: "netlify-token-1" }
 const denoEnv = { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: "deno-token-1" }
 const tokens = ["cf-token-1", "vercel-token-1", "netlify-token-1", "deno-token-1"]
+/** `env` of a build that lists no env names. */
+const noEnv = { checked: [], missing: [], pushed: [], stage: "production" }
 
 function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, runHostCli?: HostCliRun, spawn?: ViteHubCliSpawn } = {}) {
   return runSetup<DeployJson>(["deploy", ...args, "--json"], root, env, options)
@@ -41,6 +43,7 @@ describe("vitehub deploy on Cloudflare", () => {
     ])
     expect(calls.every(call => call.cwd === join(root, ".output"))).toBe(true)
     expect(result.json).toEqual({
+      env: noEnv,
       host: "cloudflare",
       schemaVersion: 1,
       url: "https://my-app.example.workers.dev",
@@ -52,10 +55,11 @@ describe("vitehub deploy on Cloudflare", () => {
   })
 
   it("passes the flags of the build command through and rejects any other command", async () => {
-    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config ./server/wrangler.json --secrets-file ./'my secrets.env' --containers-rollout=gradual"))
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config './server/my wrangler.json' --containers-rollout=gradual"))
+    await writeFile(join(root, ".output/server/my wrangler.json"), JSON.stringify({ main: "index.mjs", name: "my-app" }))
     const hosts = await fakeHosts(cloudflareEnv)
     expect((await deploy(["--no-build", "--yes"], root, hosts.env)).exitCode).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--secrets-file", "./my secrets.env", "--containers-rollout=gradual"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/my wrangler.json", "--containers-rollout=gradual"])
 
     const deployCommand = "npx wrangler deploy --config ./server/wrangler.json"
     for (const command of [
@@ -70,6 +74,8 @@ describe("vitehub deploy on Cloudflare", () => {
       `npx wrangler d1 migrations apply DB --remote --config ./other/wrangler.json && ${deployCommand}`,
       `npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json --env production && ${deployCommand}`,
       `${deployCommand} && npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json`,
+      // Deploy writes its own secrets file, so a build command must not name one.
+      `${deployCommand} --secrets-file ./.env`,
     ]) {
       const rejected = await builtProject("cloudflare", buildOutput("cloudflare", command))
       const other = await fakeHosts(cloudflareEnv)
@@ -232,6 +238,7 @@ describe("vitehub deploy on Vercel", () => {
     ])
     expect(result.json).toEqual({
       deploymentId: "dpl_1",
+      env: noEnv,
       host: "vercel",
       schemaVersion: 1,
       url: "https://my-app.vercel.app",
@@ -307,7 +314,7 @@ describe("vitehub deploy on Netlify", () => {
     expect((await hosts.calls()).map(call => call.argv)).toEqual([
       ["deploy", "--no-build", "--dir", "dist", "--json", "--prod", "--site-name", "my-app"],
     ])
-    expect(result.json).toEqual({ deploymentId: "deploy-1", host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
+    expect(result.json).toEqual({ deploymentId: "deploy-1", env: noEnv, host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
     expect(await readLink(root)).toMatchObject({ default: "netlify", targets: { netlify: { project: { id: "site-1", name: "my-app" }, verified: false } } })
   })
@@ -352,7 +359,7 @@ describe("vitehub deploy on Deno", () => {
     expect((await hosts.calls()).map(call => [call.argv, call.stdin])).toEqual([
       [["deploy", "create", ".", "--source", "local", "--allow-node-modules", "--org", "acme", "--app", "my-app"], ""],
     ])
-    expect(result.json).toEqual({ host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
+    expect(result.json).toEqual({ env: noEnv, host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 

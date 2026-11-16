@@ -29,7 +29,10 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
-  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  /**
+   * Invocations that run on other hosts and do not take this queue. They count toward concurrency but
+   * reserve no local memory.
+   */
   remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
@@ -146,10 +149,11 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
       const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
         ? remoteActive
         : 0
-      const localActive = Math.max(0, context.active - validRemoteActive)
-      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
+      // Remote invocations do not take this queue, so every active invocation is local. Remote ones
+      // still hold concurrency slots.
+      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
-      const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
+      const concurrency = Math.max(0, Math.min(context.concurrency - validRemoteActive, memoryConcurrency))
       return concurrency > context.active
         ? { concurrency, reason: `capacity available (${formatBytes(availableMemory)} memory headroom)` }
         : { concurrency, reason: `waiting for capacity (${formatBytes(availableMemory)} memory headroom)` }
@@ -173,11 +177,7 @@ function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): vo
 
 async function readProcessResources(signal: AbortSignal): Promise<ProcessResourceSample> {
   const [cgroup, meminfo, cpu, memory] = await Promise.all([
-    readCgroupResources(signal).catch((error) => {
-      if (signal.aborted) throw error
-      if (error instanceof Error && error.message.startsWith("Invalid cgroup ")) return undefined
-      throw error
-    }),
+    readCgroupResources(signal),
     readOptionalCgroupFile("/proc/meminfo", signal),
     readOptionalCgroupFile("/proc/pressure/cpu", signal),
     readOptionalCgroupFile("/proc/pressure/memory", signal),
@@ -223,16 +223,24 @@ async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessRe
       readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
       readOptionalCgroupFile(`${root}/memory.pressure`, signal),
     ])
+    const memoryCurrent = current === undefined ? 0 : parseCgroupNumber(current)
+    const memoryHigh = high === undefined ? Infinity : parseLimit(high)
+    const memoryHighEvents = parseEvent(events ?? "", "high")
+    const memoryMax = max === undefined ? Infinity : parseLimit(max)
+    const memoryReclaimable = parseEvent(stat ?? "", "inactive_file")
+    if (memoryCurrent === undefined || memoryHigh === undefined || memoryHighEvents === undefined || memoryMax === undefined || memoryReclaimable === undefined) return
     return {
       cpuPressure: parsePressure(cpuPressure ?? ""),
-      memoryCurrent: current === undefined ? 0 : parseCgroupNumber(current, "memory.current"),
-      memoryHigh: high === undefined ? Infinity : parseLimit(high, "memory.high"),
-      memoryHighEvents: parseEvent(events ?? "", "high"),
-      memoryMax: max === undefined ? Infinity : parseLimit(max, "memory.max"),
+      memoryCurrent,
+      memoryHigh,
+      memoryHighEvents,
+      memoryMax,
       memoryPressure: parsePressure(memoryPressure ?? ""),
-      memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0,
+      memoryReclaimable,
     }
   }))
+  // A cgroup file that does not hold a number skips the cgroup limits.
+  if (!groups.every(group => group !== undefined)) return
   let limiting = groups[0]
   if (!limiting) return
   const ownReclaimable = limiting.memoryReclaimable
@@ -270,22 +278,21 @@ async function readOptionalCgroupFile(path: string, signal: AbortSignal): Promis
   }
 }
 
-function parseEvent(value: string, name: string): number {
+function parseEvent(value: string, name: string): number | undefined {
   const line = value.split(/\r?\n/).find((entry) => entry.startsWith(`${name} `))
-  return line ? parseCgroupNumber(line.slice(name.length + 1), `memory.events.${name}`) : 0
+  return line ? parseCgroupNumber(line.slice(name.length + 1)) : 0
 }
 
-function parseLimit(value: string, name: string): number {
+function parseLimit(value: string): number | undefined {
   const parsed = value.trim()
-  return parsed === "max" ? Number.POSITIVE_INFINITY : parseCgroupNumber(parsed, name)
+  return parsed === "max" ? Number.POSITIVE_INFINITY : parseCgroupNumber(parsed)
 }
 
-function parseCgroupNumber(value: string, name: string): number {
+/** The number in a cgroup file, or `undefined` when the file does not hold a whole number. */
+function parseCgroupNumber(value: string): number | undefined {
   const parsed = value.trim()
-  if (!/^\d+$/.test(parsed)) throw new Error(`Invalid cgroup ${name} value.`)
   const number = Number(parsed)
-  if (!Number.isFinite(number)) throw new Error(`Invalid cgroup ${name} value.`)
-  return number
+  return /^\d+$/.test(parsed) && Number.isFinite(number) ? number : undefined
 }
 
 function parsePressure(value: string): number {

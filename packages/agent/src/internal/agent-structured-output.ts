@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import { toAgentRunResult } from "../agent-output.ts"
@@ -15,7 +16,7 @@ type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
 function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
   if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
-    throw agentDiagnostics.AGENT_R0515({ message: "[vitehub] Agent output errors require a known code." })
+    throw invariantError("only this module calls agentOutputValidationError(), always with a typed code")
   }
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
 }

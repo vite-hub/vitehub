@@ -1,6 +1,6 @@
 import { lte } from "drizzle-orm"
 import { db } from "vite-hub/database"
-import { codeImages } from "../databases/default/index"
+import { codeImages } from "../databases/default"
 import { defineSchedule } from "vite-hub/schedule"
 
 /** The hourly cleanup of expired code images. */
