@@ -1,7 +1,7 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, isExecutionBudgetExceededError, type ExecutionBudget, type ExecutionBudgetExceededError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
@@ -770,7 +770,7 @@ function withWorkspaceFallbackFullStream(
         const streamError = errorRecord?.error
         const budgetReason = context.executionBudget?.signal.reason
         const budgetTimedOut = budgetReason instanceof DOMException && budgetReason.name === "TimeoutError"
-        if (streamError instanceof ExecutionBudgetExceededError || budgetReason instanceof ExecutionBudgetExceededError || budgetTimedOut) return
+        if (isExecutionBudgetExceededError(streamError) || isExecutionBudgetExceededError(budgetReason) || budgetTimedOut) return
         if (typeof event !== "object" || (event as { recoverable?: unknown }).recoverable !== true) return
       }
     }
@@ -1485,7 +1485,7 @@ async function createAgent(
           return { ...toolCall, input: JSON.stringify(result.output) }
         }
         catch (error) {
-          if (error instanceof ExecutionBudgetExceededError) {
+          if (isExecutionBudgetExceededError(error)) {
             // The budget aborts its shared signal when the limit is exceeded. Re-throw
             // so AI SDK cannot turn the repair into a successful tool call.
             throw error
