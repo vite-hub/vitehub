@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@ui-sdk/vue/dialog";
+const modal = new URLSearchParams(location.search).has("slot-focus") ? "trap-focus" : true;
 </script>
 
 <template>
-  <Dialog>
+  <Dialog :modal="modal">
     <DialogTrigger>Open settings</DialogTrigger>
     <DialogBackdrop style="position: fixed; inset: 0; background: rgb(0 0 0 / 0.3)" />
     <DialogContent style="position: fixed; top: 200px; left: 200px; width: 300px; padding: 16px; background: white">

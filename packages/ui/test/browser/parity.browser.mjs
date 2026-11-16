@@ -147,3 +147,29 @@ for (const engine of Object.keys(engines).filter(name => name !== reference)) {
     })
   }
 }
+
+test("ui-sdk dialog traps focus in composed slot order", async () => {
+  const page = await open("?engine=ui-sdk&component=dialog&slot-focus")
+  try {
+    await page.getByRole("button", { name: "Open settings" }).click()
+    await page.getByRole("dialog").evaluate(dialog => {
+      const host = document.createElement("task-actions")
+      host.innerHTML = '<button id="slotted-save">Save</button>'
+      host.attachShadow({ mode: "open" }).innerHTML = '<slot></slot><button id="shadow-cancel">Cancel</button>'
+      dialog.replaceChildren(host)
+    })
+    const save = page.locator("#slotted-save")
+    const cancel = page.locator("#shadow-cancel")
+    await save.focus()
+    await page.keyboard.press("Tab")
+    assert.equal(await cancel.evaluate(el => el.getRootNode().activeElement === el), true)
+    await page.keyboard.press("Tab")
+    assert.equal(await save.evaluate(el => document.activeElement === el), true)
+    await page.keyboard.press("Shift+Tab")
+    assert.equal(await cancel.evaluate(el => el.getRootNode().activeElement === el), true)
+    await page.keyboard.press("Shift+Tab")
+    assert.equal(await save.evaluate(el => document.activeElement === el), true)
+  } finally {
+    await page.context().close()
+  }
+})

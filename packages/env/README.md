@@ -113,7 +113,7 @@ export async function uploadUrl(userId: string) {
 
 export async function readTicket(ticket: string) {
   const [error, upload] = await unseal("my-app:upload", ticket, { schema: Upload });
-  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, or ENV_SEAL_WRONG_PURPOSE
+  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, ENV_SEAL_USED_UP, or ENV_SEAL_WRONG_PURPOSE
   return upload;
 }
 ```
@@ -121,6 +121,26 @@ export async function readTicket(ticket: string) {
 Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
 A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [App secret](https://vitehub.dev/docs/env/app-secret#seal-a-value).
+
+### Single-use values
+
+Pass `uses` and a `db` to make a share link that opens once, or N times, and then is gone. Pass the same `db` to `unseal()`. Each read takes one use with one conditional `UPDATE`, so of two reads of the last use on any instances, one gets the value and the other gets `ENV_SEAL_USED_UP`.
+
+```ts
+// server/api/share/[token].get.ts
+import { defineEventHandler, getRouterParam, HTTPError } from "h3";
+import { unseal } from "vite-hub/env";
+import { db } from "vite-hub/database";
+
+// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: 3600, db })
+export default defineEventHandler(async (event) => {
+  const [error, shared] = await unseal("my-app:share", getRouterParam(event, "token")!, { db });
+  if (error) throw new HTTPError({ status: 410, message: error.why }); // ENV_SEAL_USED_UP, ENV_SEAL_EXPIRED, ...
+  return shared;
+});
+```
+
+The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry, so a leak of the database does not leak values. `db` is a SQLite, libSQL, or D1 Drizzle database; KV cannot take a use atomically. A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
 
 ## Typed server values
 
@@ -352,7 +372,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 vitehub env status --url https://my-app.example.com
 ```
 
-The result has `ok` and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
+The result has `ok`, the `host` that the app runs on when it is known, and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
 
 ### Managed credentials
 

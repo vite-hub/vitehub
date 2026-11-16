@@ -24,7 +24,7 @@ async function runMigrate(args: string[], context: ViteHubCliContext): Promise<n
       context.stdout.write(codemods.formatReport(run))
     }
     catch (error) {
-      if (!(error instanceof codemods.CodemodError)) throw error
+      if (!codemods.isCodemodError(error)) throw error
       context.stderr.write(`[vitehub] ${codemod.name}: ${error.message}\n`)
       failed = true
     }

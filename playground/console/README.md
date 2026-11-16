@@ -41,6 +41,23 @@ The check uses installed Playwright Chromium, the real Console components, and i
 
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
+`icons.html` draws every icon name of the Console sources with Nuxt UI's `UIcon` and with the Console `Icon` (`console-icon.vue`). `packages/vite-hub/test/console-icon.browser.mjs` uses the same server and checks that both give the same SVG and the same box:
+
+```bash
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-icon.browser.mjs
+```
+
+To prove that a change does not move pixels, such as a token rename, capture every Console route on the base and on your branch, and compare the captures:
+
+```bash
+pnpm exec vp run --cache -t @vite-hub/auth#build
+node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/base   # on the base commit
+node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/head   # on your branch
+node packages/vite-hub/test/console-pixels.browser.mjs compare .cache/console-pixels/base .cache/console-pixels/head
+```
+
+`capture` reads the routes from the Console router, so a new route is captured without a change to the script. It starts this playground on port 4381 (`--port` changes it), opens each route in light and dark at 1280px and 390px, and stops the playground at the end. The browser and the playground share a fixed clock, so relative times do not change between captures. A route with a required parameter takes its value from a page that opens it, such as `/agents` opening its first session. `manifest.json` lists each shot and each route that has no shot of its own. `compare` prints the share of changed pixels per shot, writes red diff images next to the head folder, and exits with 1 when a shot is missing or changes more than `--threshold` percent (default 0.01). The Console code loads from source. `@vite-hub/ui/theme.css` loads from `packages/ui/dist`, so run `pnpm exec vp run -t @vite-hub/ui#build` on each side when the change is in that file. A shot shows each page as it opens. Panels, menus, and states that need a click are not captured.
+
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/_vitehub/api/`, and it also matches the paths under it:
 
