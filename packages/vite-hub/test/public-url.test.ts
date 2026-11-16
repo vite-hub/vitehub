@@ -41,11 +41,11 @@ describe("vitehub({ publicUrl })", () => {
         __VITEHUB_PUBLIC_URL__: JSON.stringify({ agents: { bot: "https://agent.example.com", "bot-dev": "https://agent-dev.example.com" } }),
       })
       expect(define(byAgent, root, "serve")).toBeUndefined()
-      expect(() => define(publicUrlPlugin("https://agents.example.com/app"), root, "build")).toThrow("publicUrl must be an http(s) origin")
-      expect(() => define(publicUrlPlugin(""), root, "build")).toThrow("publicUrl must be an http(s) origin")
-      expect(() => define(publicUrlPlugin("https://user:secret@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
-      expect(() => define(publicUrlPlugin("https://@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
-      expect(() => define(publicUrlPlugin("https://:@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
+      expect(() => define(publicUrlPlugin("https://agents.example.com/app"), root, "build")).toThrow(expect.objectContaining({ code: "VITE_HUB_PUBLIC_URL_INVALID" }))
+      expect(() => define(publicUrlPlugin(""), root, "build")).toThrow(expect.objectContaining({ code: "VITE_HUB_PUBLIC_URL_INVALID" }))
+      expect(() => define(publicUrlPlugin("https://user:secret@agents.example.com"), root, "build")).toThrow(expect.objectContaining({ code: "VITE_HUB_PUBLIC_URL_INVALID" }))
+      expect(() => define(publicUrlPlugin("https://@agents.example.com"), root, "build")).toThrow(expect.objectContaining({ code: "VITE_HUB_PUBLIC_URL_INVALID" }))
+      expect(() => define(publicUrlPlugin("https://:@agents.example.com"), root, "build")).toThrow(expect.objectContaining({ code: "VITE_HUB_PUBLIC_URL_INVALID" }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
