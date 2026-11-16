@@ -374,6 +374,7 @@ The accounts in `VITEHUB_ADMINS` and users with the admin role of `admin()` can 
 - An email that is not verified does not count. With email and password sign-in, turn on `emailAndPassword.requireEmailVerification`, so the person signs in after they open the link.
 - A person you remove from the list cannot sign in again, and loses a running session within five minutes, or the `recheck` of `access.policy`. MCP access tokens stop working too. It works like [`access.policy`](/docs/auth/server-api#decide-who-can-stay-signed-in), and both must allow the user.
 - When GitHub cannot answer the membership check, Auth refuses a sign-in with `AUTH_GITHUB_UNAVAILABLE` and keeps a running session.
+- For a request with a user id but no session, such as an upload link, call [`checkAuthMember()`](/docs/auth/server-api#check-a-member-without-a-session).
 - Auth must store sessions to end them. With `stateless()`, Auth fails with `AUTH_MEMBERS_SESSION_STORE_REQUIRED`. An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`.
 
 On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_MEMBERS`. The Auth Console shows the list in its access notes.

@@ -19,6 +19,8 @@ export interface AccessPolicyPlugin extends BetterAuthPlugin {
   allows: (user: PolicyUser, key: string) => Promise<boolean>
   /** The `VITEHUB_MEMBERS` entries, for the Console. */
   options: { members: readonly string[] }
+  /** The check of `VITEHUB_MEMBERS`, when it is set. `checkAuthMember()` uses it. */
+  members?: MembersGate
 }
 
 // Keys are SHA-256 digests, so the cache never holds a session token.
@@ -85,6 +87,7 @@ export function createAccessPolicyPlugin({ policy, members }: { policy?: AuthAcc
   return {
     id: accessPolicyPluginId,
     allows,
+    members,
     options: { members: members?.entries ?? [] },
     hooks: {
       before: [{

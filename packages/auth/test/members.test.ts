@@ -153,7 +153,8 @@ describe("VITEHUB_MEMBERS", () => {
   it("refuses an organization sign-up while GitHub is down, and keeps no user", async () => {
     vi.stubEnv("VITEHUB_MEMBERS", "github-org:acme")
     const { db, auth } = createMembersAuth()
-    stubGitHub({ id: 22072217, email: "ada@example.com", orgs: { acme: 503 } })
+    // Another account, so no confirmed membership from an earlier test is reused.
+    stubGitHub({ id: 5, email: "ada@example.com", orgs: { acme: 503 } })
 
     expect((await githubSignIn(auth())).error).toBe("AUTH_GITHUB_UNAVAILABLE")
     expect(db.user).toHaveLength(0)

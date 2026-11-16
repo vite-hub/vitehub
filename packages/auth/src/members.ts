@@ -5,9 +5,16 @@ import { adminRoleGrant } from "./admins.ts"
 import { checkGitHubOrgMember } from "./github.ts"
 import { authCloudflareEnv } from "./request.ts"
 
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { Result, ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { Account, AuthContext, BetterAuthOptions, BetterAuthPlugin, User } from "better-auth"
 import type { AdminAccount } from "./admins.ts"
+import type { GitHubOrgMemberErrorCode } from "./github.ts"
+
+/** Why `checkAuthMember()` did not let a user in. */
+export type AuthMemberErrorCode = "AUTH_NOT_MEMBER" | "AUTH_GITHUB_UNAVAILABLE"
+
+// Reuse a confirmed organization membership for this long, as `access.policy` reuses an allowed answer.
+const orgCacheMs = 300_000
 
 /** The variable that lists who may sign up and sign in. */
 export const membersVariable = "VITEHUB_MEMBERS"
@@ -100,11 +107,23 @@ export function withMemberScopes(
   return { ...socialProviders, github: typeof github === "function" ? async () => withReadOrg(await github()) : withReadOrg(github) }
 }
 
+/** The error of a user that `VITEHUB_MEMBERS` does not let in. */
+export function notMemberError(): ResultError<"AUTH_NOT_MEMBER"> {
+  return memberErrors.AUTH_NOT_MEMBER()
+}
+
 /** The answer that Auth sends for a refused sign-up or sign-in. */
 function notMember(): APIError {
-  const error = memberErrors.AUTH_NOT_MEMBER()
+  const error = notMemberError()
   return new APIError("FORBIDDEN", { code: error.code, message: error.why })
 }
+
+type GitHubUnavailable = ResultError<"AUTH_GITHUB_UNAVAILABLE">
+
+const isGitHubUnavailable = (error: ResultError<GitHubOrgMemberErrorCode | AuthMemberErrorCode>): error is GitHubUnavailable => error.code === "AUTH_GITHUB_UNAVAILABLE"
+
+// A GitHub outage must not let anyone in, and must not end a session either: the request fails instead.
+const unavailable = (error: GitHubUnavailable) => new APIError("SERVICE_UNAVAILABLE", { code: error.code, message: error.why })
 
 type MemberUser = Pick<User, "id" | "email" | "emailVerified"> & Record<string, unknown>
 type MemberAccount = Pick<Account, "providerId" | "accountId" | "accessToken">
@@ -114,8 +133,10 @@ export interface MembersGate {
   entries: readonly string[]
   /**
    * Whether the list lets `user` in now: a verified email or its domain, a linked account, a listed admin, the admin
-   * role, or an active membership of a listed GitHub organization. Throws when GitHub cannot answer.
+   * role, or an active membership of a listed GitHub organization. Returns `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot answer.
    */
+  check: (context: AuthContext, user: MemberUser) => Promise<Result<void, AuthMemberErrorCode>>
+  /** `check` as a boolean for Better Auth hooks. Throws a `503` when GitHub cannot answer. */
   allows: (context: AuthContext, user: MemberUser) => Promise<boolean>
   /** Refuses the sign-up of a person that the list cannot let in. */
   databaseHooks: (context: AuthContext) => NonNullable<BetterAuthOptions["databaseHooks"]>
@@ -138,30 +159,43 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
   }
   const accountListed = (account: MemberAccount) => accounts.some(entry => entry.providerId === account.providerId && entry.accountId === account.accountId)
 
-  const orgMember = async (context: AuthContext, account: MemberAccount) => {
+  /** `true` for an active membership of a listed organization, the GitHub outage error, or `false`. */
+  const orgMember = async (context: AuthContext, account: MemberAccount): Promise<boolean | GitHubUnavailable> => {
     if (account.providerId !== "github" || !account.accessToken || !orgs.length) return false
     const token = await decryptOAuthToken(account.accessToken, context)
+    let outage: GitHubUnavailable | undefined
     for (const org of orgs) {
-      const [error] = await checkGitHubOrgMember(token, org)
+      const [error] = await checkGitHubOrgMember(token, org, { cacheMs: orgCacheMs })
       if (!error) return true
-      // A GitHub outage must not let anyone in, and must not end a session either: the request fails instead.
-      if (error.code === "AUTH_GITHUB_UNAVAILABLE") throw new APIError("SERVICE_UNAVAILABLE", { code: error.code, message: error.why })
+      if (isGitHubUnavailable(error)) outage = error
     }
-    return false
+    return outage ?? false
+  }
+
+  const check = async (context: AuthContext, user: MemberUser): Promise<Result<void, AuthMemberErrorCode>> => {
+    if (user.emailVerified && emailListed(user.email)) return [undefined, undefined]
+    const role = user.role
+    if (adminRole && typeof role === "string" && role.split(",").some(name => name.trim() === adminRole)) return [undefined, undefined]
+    const linked = await context.internalAdapter.findAccounts(user.id)
+    if (linked.some(accountListed)) return [undefined, undefined]
+    let outage: GitHubUnavailable | undefined
+    for (const account of linked) {
+      const answer = await orgMember(context, account)
+      if (answer === true) return [undefined, undefined]
+      if (answer) outage = answer
+    }
+    return [outage ?? notMemberError(), undefined]
   }
 
   const allows = async (context: AuthContext, user: MemberUser) => {
-    if (user.emailVerified && emailListed(user.email)) return true
-    const role = user.role
-    if (adminRole && typeof role === "string" && role.split(",").some(name => name.trim() === adminRole)) return true
-    const linked = await context.internalAdapter.findAccounts(user.id)
-    if (linked.some(accountListed)) return true
-    for (const account of linked) if (await orgMember(context, account)) return true
-    return false
+    const [error] = await check(context, user)
+    if (error && isGitHubUnavailable(error)) throw unavailable(error)
+    return !error
   }
 
   return {
     entries: members.map(formatMemberEntry),
+    check,
     allows,
     refusal: notMember,
     databaseHooks: context => ({
@@ -180,15 +214,11 @@ export function createMembersGate(members: readonly MemberEntry[], admins: reado
           before: async (account) => {
             if ((await context.internalAdapter.findAccounts(account.userId)).length) return
             const user = await context.internalAdapter.findUserById(account.userId)
-            let allowed = Boolean(user && emailListed(user.email)) || accountListed(account)
-            try {
-              allowed ||= await orgMember(context, account)
-            }
-            finally {
-              // Without a transaction, Better Auth would keep the user of a refused sign-up.
-              if (!allowed && user) await context.internalAdapter.deleteUser(user.id)
-            }
-            if (!allowed) throw notMember()
+            const answer = Boolean(user && emailListed(user.email)) || accountListed(account) || await orgMember(context, account)
+            if (answer === true) return
+            // Without a transaction, Better Auth would keep the user of a refused sign-up.
+            if (user) await context.internalAdapter.deleteUser(user.id)
+            throw answer ? unavailable(answer) : notMember()
           },
         },
       },

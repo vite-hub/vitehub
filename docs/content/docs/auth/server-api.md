@@ -166,6 +166,7 @@ export default defineHandler(async (event) => {
 | `requireAuthorization(event, authorize, definition?)` | Returns the checked `authorization` when allowed. Otherwise it throws an `HTTPError` with the status and headers of the `withAuthorization()` response. |
 | `requireAbility(event, name, ...args)` | Returns `authorization` when the [ability](/docs/auth/abilities) allows the caller. Else throws `AbilityError`, which H3 sends with status `401`, `403`, or the status of `deny()`, and `{ code, details }` in `data`. |
 | `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
+| `checkAuthMember(userId, event?)` | Checks [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) for a user without a session. See [Check a member without a session](#check-a-member-without-a-session). |
 
 `useAuth()`, `auth`, `getAuth()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `vite-hub/auth` names it.
 
@@ -213,6 +214,31 @@ export async function requireTeamMember(token: string | null | undefined) {
   if (error) throw new HTTPError({ status: statuses[error.code], message: error.why, data: { code: error.code } })
 }
 ```
+
+### Check a member without a session
+
+Sign-in and every session already check [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in). Some requests carry a user id but no session, such as an upload link or a signed review token. Check them with `checkAuthMember()`:
+
+```ts [server/api/uploads/[ticket].put.ts]
+import { checkAuthMember } from 'vite-hub/auth/server'
+import { defineHandler, HTTPError } from 'h3'
+import { readUploadTicket } from '../../utils/uploads'
+
+export default defineHandler(async (event) => {
+  const ticket = await readUploadTicket(event)
+  const [error] = await checkAuthMember(ticket.userId, event)
+  // During a GitHub outage, ask the uploader to try again.
+  if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw new HTTPError({ status: 503 })
+  if (error) throw new HTTPError({ status: 403 })
+  // ...store the upload
+})
+```
+
+- It uses the rules of sign-in: a verified email or domain, a listed account, the accounts in `VITEHUB_ADMINS`, the admin role, or an active GitHub organization membership.
+- It returns `[undefined, undefined]` when the list lets the user in, or when `VITEHUB_MEMBERS` is not set.
+- It returns `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot confirm a membership.
+- It reuses a confirmed organization membership for five minutes, from the token that the user's GitHub account stores.
+- Pass the request event when you have one. On Cloudflare, Auth reads `VITEHUB_MEMBERS` from its bindings.
 
 ### Authorize access routes
 

@@ -92,6 +92,8 @@ With a claim code set, Auth sets `verification.storeInDatabase: true`, including
 
 Auth refuses to create a user that no entry lets in, and refuses each new session. A refusal answers `403` with `AUTH_NOT_MEMBER`, or an OAuth redirect with `?error=AUTH_NOT_MEMBER`. The list runs in the same plugin as `access.policy`, so a removed person loses a running session within five minutes and their MCP access tokens stop working. It needs stored sessions (`AUTH_MEMBERS_SESSION_STORE_REQUIRED`). An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`. The Auth Console lists the entries in its access notes.
 
+`checkAuthMember(userId, event?)` from `@vite-hub/auth/server` runs the same rules for code that has a user id but no session, such as an upload ticket. It returns `[undefined, undefined]` for a member or when the variable is not set, `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot answer. A confirmed organization membership is reused for five minutes.
+
 ## Sessions without a database
 
 `stateless()` keeps each session in an encrypted cookie. Sessions survive restarts and work across replicas and Workers when every instance uses the same secret.
