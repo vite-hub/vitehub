@@ -2,8 +2,9 @@ import { createWorkflowError } from "../errors.ts"
 
 import { generatedNativeEntryKey, workflowStartAtKey } from "./delay.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 
-import type { WorkflowDefinition, WorkflowDefinitionOptions, WorkflowProviderContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
+import type { WorkflowDefinition, WorkflowDefinitionOptions, WorkflowProviderContext, WorkflowRun, WorkflowRunError, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface VercelRun {
@@ -231,6 +232,23 @@ async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { ex
   return { exists, workflowName }
 }
 
+/**
+ * The error of a failed native run. Workflow DevKit rejects `returnValue` of a failed run with
+ * `WorkflowRunFailedError`, which keeps the thrown value in `cause`.
+ */
+async function readVercelRunError(run: VercelRun): Promise<WorkflowRunError> {
+  try {
+    await run.returnValue
+  }
+  catch (error) {
+    const cause = typeof error === "object" && error !== null && Reflect.get(error, "name") === "WorkflowRunFailedError"
+      ? Reflect.get(error, "cause")
+      : undefined
+    return toWorkflowRunError(cause ?? error)
+  }
+  return toWorkflowRunError(undefined)
+}
+
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   // SAFETY: Vercel's transform attaches workflowId to the generated native handler.
   const workflowName = (definition.options?.native as NonNullable<WorkflowDefinitionOptions<TPayload, TResult>["native"]> & { workflowId?: string } | undefined)?.workflowId
@@ -272,9 +290,11 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
     // SAFETY: A completed run's return value has the Workflow definition's declared result contract.
     ? await runWorkflowProviderOperation("vercel", "get-run", () => run.returnValue) as TResult
     : undefined
+  const error = snapshot.status === "failed" ? await readVercelRunError(run) : undefined
   return {
     completedAt: snapshot.completedAt,
     createdAt: snapshot.createdAt,
+    ...(error ? { error } : {}),
     id,
     metadata: { workflow: name },
     payload,
