@@ -1,13 +1,13 @@
 import { isSyncDefinition } from "./define.ts"
 import { syncErrors } from "./errors.ts"
-import { handleSyncRequest } from "./handler.ts"
+import { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
 
 import type { SyncDatabase } from "./database.ts"
-import type { SyncCaller, SyncServices } from "./handler.ts"
+import type { SyncCaller, SyncLiveServices } from "./handler.ts"
 import type { SyncDefinition } from "./types.ts"
 
-export { handleSyncRequest } from "./handler.ts"
-export type { SyncCaller, SyncServices } from "./handler.ts"
+export { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
+export type { SyncCaller, SyncLiveServices, SyncServices } from "./handler.ts"
 
 /** What the generated route of a ViteHub app passes. */
 export interface SyncRuntimeOptions {
@@ -50,8 +50,9 @@ function selectDatabase(db: unknown): SyncDatabase {
 }
 
 /**
- * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`. The generated Nitro handler of a
- * ViteHub app calls it with the definitions of `server/sync/` when the server starts.
+ * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`, and of their live stream at
+ * `<base>api/_vitehub/sync`. The generated Nitro handler of a ViteHub app calls it with the definitions of `server/sync/`
+ * when the server starts.
  */
 export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
   const definitions = new Map<string, SyncDefinition>()
@@ -60,13 +61,17 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
     definitions.set(name, definition)
   }
   const db = () => selectDatabase(options.db())
+  const all = Object.fromEntries(definitions)
   // One services object for every definition: its `db` function is the key of the live streams of each table and of
   // the triggers that this process checked, also when two definitions sync one table.
-  const services: SyncServices = { db, definitions: Object.fromEntries(definitions), ...(options.session ? { identify: options.session } : {}) }
+  const services: SyncLiveServices = { db, definitions: all, ...(options.session ? { identify: options.session } : {}) }
   Reflect.set(globalThis, installedKey, { names: [...definitions.keys()].sort(), definition: name => definitions.get(name), db } satisfies InstalledSync)
   return {
     async fetch(request) {
-      const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
+      const segments = new URL(request.url).pathname.split("/").filter(Boolean)
+      // A definition named "sync" has the route `.../_vitehub/sync/sync`.
+      if (segments.at(-2) === "_vitehub" && segments.at(-1) === "sync") return await handleSyncLiveRequest(request, services)
+      const segment = segments.at(-1) ?? ""
       let name = segment
       try {
         name = decodeURIComponent(segment)

@@ -69,8 +69,8 @@ interface SyncState<TRow> {
   /** `true` when the rows and the queue are in IndexedDB and survive a reload. */
   persisted: boolean
   /**
-   * `true` while this tab holds the live stream, so changes of other people show within a second. One visible tab of
-   * the app holds it, and the other tabs get the changes from that tab.
+   * `true` while this tab streams the live changes of this store, so changes of other people show within a second. One
+   * visible tab streams them, in the one live stream of that tab, and the other tabs get the changes from that tab.
    */
   live: boolean
 }

@@ -221,21 +221,21 @@ export default defineSync({
 - `sync(name).get(key)` reads a row of that definition when the caller may see it. When another write changes that row before the batch applies, the action runs again, as for its own table.
 - The rows have the type of that definition. A name that is not a file of `server/sync/` is a type error, and throws `SYNC_UNKNOWN_NAME` at run time, which refuses the action.
 - The browsers of the other table get the change as for any write. A live stream in the same server process gets it at once.
-- With `handleSyncRequest()` in your own route, pass every definition in `definitions`, such as `{ db, definitions: { issues, comments } }`.
+- With `handleSyncRequest()` in your own route, pass every definition in `definitions`, such as `{ db, definitions: { issues, comments } }`. Pass the same object to `handleSyncLiveRequest(request, services)` from the live route.
 
 ## Live pulls
 
-While a page shows, one tab of the browser keeps a live stream open. Other people's changes show within about a second.
+While a page shows, each tab keeps one live stream open for all its synced tables and subsets. Other people's changes show within about a second.
 
-The stream is `GET <route>?live&cursor&scope&version&where`, as Server-Sent Events. The server:
+The stream is `POST <base>api/_vitehub/sync` with `{ pulls: [{ name, where, cursor, scope, version }] }`, one item for each store of the tab. The answer is Server-Sent Events. The server:
 
-1. Checks who the caller is once, when the stream opens. A refused caller gets 401 or 403 before the stream starts.
-2. Sends the comment `: open` at once, so the headers reach the browser at once. Then it sends an `event: pull` with `id: <cursor>`, if anything changed since the cursor.
-3. Reads the newest cursor of the change log every second, and sends a pull when it moved and the change is in the caller's scope.
-4. Wakes at once after a push in the same server process. A write of server code shows at the next check.
-5. Sends the comment `: ping` every 15 seconds, and ends the stream after 25 seconds, also while it sends a long backlog. The browser then opens a new one.
+1. Checks each store once, when the stream opens, with the `where` of its definition. A store that the caller may not see gets an `event: error` with its `name`, `where`, and the error. The other stores stream on.
+2. Sends the comment `: open` at once, so the headers reach the browser at once. Then it sends an `event: pull` with `{ name, where, pull }` for each store that changed since its cursor.
+3. Reads the change log every second, once for the whole stream, and pulls the stores whose table changed in one batch.
+4. Wakes at once after a push in the same server process, also for the stores of each table that an action wrote. A write of server code shows at the next check.
+5. Sends the comment `: ping` every 15 seconds, and ends the stream after 25 seconds, also while it sends a long backlog. It also ends the stream before a check could pass 40 Database calls. The browser then opens a new one.
 
-The cost is one indexed query for each second and each open stream. Only one tab of each browser opens a stream. Set `live: false` to turn streams off for a table: the browser then pulls on focus, on reconnect, on a timer, and after writes.
+The cost is one indexed query for each second and each open stream, for any number of stores, and one batch when tables changed. A batch is one Database call. On the Workers Free plan, D1 allows 50 calls in a Worker invocation, and each new stream is a new invocation. A store open in two tabs streams in one of them. Set `live: false` to turn streams off for a table: the server refuses its store with `SYNC_BAD_REQUEST`, and the browser pulls it on focus, on reconnect, on a timer, and after writes.
 
 ## The route
 
@@ -244,12 +244,13 @@ Each Sync name has one route: `<base>api/_vitehub/sync/<name>`. Every answer has
 | Request | Does |
 | --- | --- |
 | `GET ?cursor=<n>&scope=<id>&version=<v>&where=<json>` | Pulls the rows that changed since `cursor`. Without `cursor`, or with another scope or version, the answer is every row of the scope. |
-| `GET ?live&...` | A [live stream](#live-pulls) of pulls. |
 | `POST` | Applies up to 100 writes and actions in order, and answers with the result of each and a pull. |
+
+`POST <base>api/_vitehub/sync` is the [live stream](#live-pulls) of every Sync name.
 
 Each pull has `version`, a fingerprint of the table's columns. When you change the table, the browser drops the rows that it stored and gets every row again. Its queued writes stay. Each pull also has `defaults`: the static `.default()` values of the columns, so a new row shows every column at once.
 
-The types of the requests and answers are in `@vite-hub/sync`'s `protocol.ts`: `SyncPullResponse`, `SyncPushRequest`, `SyncPushResponse`, and `SyncLiveEvent`. The cursor is a number from the change log of the Database, not a time, so a clock that is wrong cannot skip a change.
+The types of the requests and answers are in `@vite-hub/sync`'s `protocol.ts`: `SyncPullResponse`, `SyncPushRequest`, `SyncPushResponse`, `SyncLiveRequest`, and `SyncLiveEvent`. The cursor is a number from the change log of the Database, not a time, so a clock that is wrong cannot skip a change.
 
 Each write applies in one transaction with its id. A write that the server applied before is answered `duplicate`, and is not applied again. One refused write does not stop the others of a push.
 

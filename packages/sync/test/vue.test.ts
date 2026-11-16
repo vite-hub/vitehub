@@ -4,6 +4,7 @@ import { createApp, createSSRApp, defineComponent, h, nextTick, ref } from "vue"
 import { renderToString } from "vue/server-renderer"
 
 import { clearSync } from "../src/client.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
 import { useSync } from "../src/vue.ts"
 import { createFakeSyncServer } from "./client-fake-server.ts"
 import { until } from "./client-harness.ts"
@@ -57,7 +58,7 @@ describe("useSync", () => {
     const one = mountTodos(server)
     const two = mountTodos(server)
     await until(() => one.todos().status === "ready" && two.todos().status === "ready")
-    expect(server.requests.filter(request => !request.url.searchParams.has("live")).length).toBe(1)
+    expect(server.requests.filter(request => request.url.pathname !== syncLiveRoute).length).toBe(1)
     await one.todos().insert({ title: "Milk" })
     await nextTick()
     expect(two.root.querySelectorAll("li").length).toBe(1)
@@ -123,7 +124,7 @@ describe("useSync", () => {
     const write = todos.insert({ title: "New in l2" })
     expect(todos.get(write.key)).toMatchObject({ listId: "l2" })
     await write
-    const pulls = () => server.requests.filter(request => request.method === "GET" && !request.url.searchParams.has("live"))
+    const pulls = () => server.requests.filter(request => request.method === "GET")
     expect(pulls().map(request => request.url.searchParams.get("where"))).toEqual([`{"listId":"l1"}`, `{"listId":"l2"}`])
     // The store of l1 stopped, so it does not pull on events.
     const count = pulls().length

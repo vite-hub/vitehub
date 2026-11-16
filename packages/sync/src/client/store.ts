@@ -1,12 +1,12 @@
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
-import { readEvents } from "./live.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
+import type { SyncLive, SyncLiveEntry } from "./live.ts"
 import type { SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange } from "./storage.ts"
 import type { SyncActionCalls, SyncFailure, SyncLocal, SyncState, SyncStatus, SyncStore, SyncWrite } from "./types.ts"
 import type { SyncLinkedWrite, SyncView, SyncViewPage } from "./view.ts"
@@ -49,6 +49,8 @@ interface SyncStoreOptions {
   fetch: typeof fetch
   storage: SyncStorage
   environment: SyncEnvironment
+  /** The live stream of the tab. Without it, the store only pulls. */
+  live?: SyncLive
   interval: number | false
   /** Called once when a destroyed store stopped, after it sent its writes. */
   onStop?: () => void
@@ -79,31 +81,13 @@ interface LivePull {
   pull: SyncPullResponse
 }
 
-/** How a live stream ended. `stale` means that its pulls belong to rows that the store does not show now. */
-type StreamEnd = "ended" | "failed" | "refused" | "aborted" | "stale"
-
 /** Milliseconds between pulls while the live stream is open. The stream brings the changes, so this is a fallback. */
 const livePullInterval = 300_000
-
-/** A stream that ends sooner than this counts as a failure, so a proxy that closes it at once gets backoff. */
-const shortestStream = 1000
 
 const actionName = /^[a-z]\w*$/i
 
 function isRetryable(error: SyncError): boolean {
   return error.code === "SYNC_NETWORK" || error.code === "SYNC_SERVER_ERROR"
-}
-
-function isPull(value: unknown): value is SyncPullResponse {
-  if (!value || typeof value !== "object") return false
-  const scope: unknown = Reflect.get(value, "scope")
-  return typeof Reflect.get(value, "key") === "string"
-    && typeof Reflect.get(value, "cursor") === "number"
-    && typeof Reflect.get(value, "account") === "string"
-    && typeof Reflect.get(value, "version") === "string"
-    && Array.isArray(Reflect.get(value, "rows"))
-    && Array.isArray(Reflect.get(value, "deleted"))
-    && Boolean(scope) && typeof scope === "object" && typeof Reflect.get(scope as object, "id") === "string"
 }
 
 function isPush(value: unknown): value is SyncPushResponse {
@@ -188,7 +172,8 @@ function actionCalls<TArgs>(call: (name: string, args: unknown) => SyncWrite<unk
 
 /**
  * The Sync client of one route and subset. It reads the stored copy, pulls, and sends the outbox in order, one push at
- * a time. Every write goes to storage before it is sent. One visible tab keeps a live stream open.
+ * a time. Every write goes to storage before it is sent. One visible tab leads its live changes, in the live stream
+ * that every store of that tab shares.
  */
 function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, options: SyncStoreOptions): SyncStoreWithReset<TRow, TArgs> {
   const { url, storage, environment } = options
@@ -244,14 +229,14 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   let cancelTick: (() => void) | undefined
   let running: Promise<void> | undefined
   let again = false
-  // Live stream: the leader lock, a server that has no stream, and pulls of the stream that wait for the lock.
+  // Live changes: the leader lock, the end of the lead, a server that has no stream, and pulls of the stream that wait
+  // for the lock.
   let stopLeader: (() => void) | undefined
+  let endLead: (() => void) | undefined
   let liveRefused = false
-  // Live streams that failed or ended at once in a row. The next stream waits for the backoff of this count.
-  let liveFailures = 0
   let livePulls: LivePull[] = []
-  // The generation of the open live stream. An object, so a stream that ended late does not clear the next one.
-  let streamGeneration: { value: string } | undefined
+  // The generation of the rows when the stream of the tab opened with this store.
+  let streamGeneration: string | undefined
   // Writes of the actions of other stores of the page: the writes of applied actions until the next pull, the actions
   // of this store whose writes other stores hold now, and the writes that the view shows.
   const { page } = options
@@ -681,9 +666,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return { ok: true, body, response }
   }
 
-  /** The query of a pull or a stream: where the client is, and its subset. */
-  function pullQuery(extra: Record<string, string> = {}): string {
-    const query = new URLSearchParams(extra)
+  /** The query of a pull: where the client is, and its subset. */
+  function pullQuery(): string {
+    const query = new URLSearchParams()
     if (meta) {
       query.set("cursor", String(meta.cursor))
       query.set("scope", meta.scope.id)
@@ -869,125 +854,80 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     publish()
   }
 
-  /** Waits `ms`, or until `signal` aborts. */
-  function wait(ms: number, signal: AbortSignal): Promise<void> {
-    if (signal.aborted) return Promise.resolve()
-    return new Promise((resolve) => {
-      const stop = environment.schedule(done, ms)
-      signal.addEventListener("abort", done, { once: true })
-      function done() {
-        stop()
-        signal.removeEventListener("abort", done)
-        resolve()
-      }
-    })
-  }
-
-  /**
-   * Opens one live stream and queues its pulls until it ends. The stream belongs to the generation of the rows when it
-   * opens. A pull of another generation ends it, such as after the session changed on the server.
-   */
-  async function stream(signal: AbortSignal): Promise<StreamEnd> {
-    let cursor = meta!.cursor
-    const opened = generationOf(meta!, subset)
-    let response: Response
-    try {
-      response = await options.fetch(`${url}${pullQuery({ live: "1" })}`, { method: "GET", headers: { accept: "text/event-stream" }, cache: "no-store", signal })
-    }
-    catch {
-      return signal.aborted ? "aborted" : "failed"
-    }
-    if (!response.ok) {
-      const reason = readError(response.status, await response.json().catch(() => undefined))
-      // `live: false` in the definition, or a server without live streams.
-      return reason.code === "SYNC_BAD_REQUEST" ? "refused" : "failed"
-    }
-    if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
-      await response.body?.cancel().catch(() => undefined)
-      return "refused"
-    }
-    const own = { value: opened }
-    streamGeneration = own
-    setLive(true)
-    try {
-      for await (const event of readEvents(response.body)) {
-        if (signal.aborted) return "aborted"
-        if (event.type === "error") return "failed"
-        if (event.type !== "pull") continue
-        const data: unknown = JSON.parse(event.data)
-        const next: unknown = data && typeof data === "object" ? Reflect.get(data, "pull") : undefined
-        if (!isPull(next)) continue
-        if (generationOf(next, subset) !== opened || !meta || generationOf(meta, subset) !== opened) return "stale"
-        livePulls.push({ base: cursor, generation: opened, pull: next })
-        cursor = next.cursor
+  /** This store in the live stream of its tab. */
+  const liveEntry: SyncLiveEntry = {
+    name,
+    where,
+    held() {
+      if (!meta) return undefined
+      streamGeneration = generationOf(meta, subset)
+      return { cursor: meta.cursor, scope: meta.scope.id, version: meta.version }
+    },
+    live: setLive,
+    pull(next, base) {
+      const opened = streamGeneration
+      if (opened === undefined) return
+      if (generationOf(next, subset) === opened && meta && generationOf(meta, subset) === opened) {
+        livePulls.push({ base, generation: opened, pull: next })
         void schedule(false)
+        return
       }
-    }
-    catch {
-      return signal.aborted ? "aborted" : "failed"
-    }
-    finally {
-      if (streamGeneration === own) streamGeneration = undefined
-    }
-    return signal.aborted ? "aborted" : "ended"
-  }
-
-  /**
-   * Ends a live stream whose generation is not the one of the stored rows, such as after a pull of another account or
-   * scope, and opens one for the new generation. Its pulls that wait are dropped.
-   */
-  function followGeneration(): void {
-    const open = streamGeneration?.value
-    if (open === undefined || (meta && generationOf(meta, subset) === open)) return
-    livePulls = livePulls.filter(item => meta && item.generation === generationOf(meta, subset))
-    streamGeneration = undefined
-    stopLive()
-    startLive()
-  }
-
-  /**
-   * The live loop of the leader tab: a stream, then the next one. After a failure, a pull shows what went wrong, and the
-   * round that succeeds opens the next stream, after backoff.
-   */
-  async function runLive(signal: AbortSignal): Promise<void> {
-    while (!signal.aborted && canLive()) {
-      if (liveFailures) await wait(backoffDelay(liveFailures - 1, environment.random()), signal)
-      if (signal.aborted) return
-      const opened = Date.now()
-      const from = meta && generationOf(meta, subset)
-      const end = await stream(signal)
-      setLive(false)
-      if (end === "aborted") return
-      if (end === "stale") {
-        // A pull shows the rows of the new generation, then the next stream opens for them.
-        wantPull = true
-        await schedule(false)
-        if (!meta || generationOf(meta, subset) === from) liveFailures++
-        continue
-      }
+      // A pull of another account, scope or table version: the stream gives nothing more to this store. The store pulls,
+      // then opens the stream again. When the pull keeps the generation, the stream is wrong, such as a proxy that mixed
+      // two sessions, and the next stream waits for the backoff.
+      streamGeneration = undefined
+      wantPull = true
+      void schedule(false).then(() => {
+        if (stopLeader && meta) options.live?.reopen(generationOf(meta, subset) === opened)
+      })
+    },
+    stop(end) {
+      endLead?.()
       if (end === "refused") {
         liveRefused = true
         return
       }
-      liveFailures = end === "ended" && Date.now() - opened >= shortestStream ? 0 : liveFailures + 1
-      if (end === "failed") {
-        wantPull = true
-        void schedule(false)
-        return
-      }
-    }
+      // A pull shows what went wrong, and the round that succeeds joins the stream again.
+      wantPull = true
+      void schedule(false)
+    },
+  }
+
+  /**
+   * After a pull of another account, scope or table version, the stream has the old one. Its pulls that wait are
+   * dropped, and the stream of the tab opens again with the new one.
+   */
+  function followGeneration(): void {
+    const open = streamGeneration
+    if (open === undefined || (meta && generationOf(meta, subset) === open)) return
+    livePulls = livePulls.filter(item => meta && item.generation === generationOf(meta, subset))
+    streamGeneration = undefined
+    if (meta) options.live?.reopen()
+    else stopLive()
   }
 
   function canLive(): boolean {
     return !destroyed && !liveRefused && meta !== undefined && environment.isVisible() && environment.isOnline()
   }
 
+  /** Leads the live changes of this store, in one tab at a time, through the stream of the tab. */
   function startLive(): void {
-    if (stopLeader || !canLive()) return
-    const stop = environment.lead(`vitehub-sync-live:${id}`, signal => runLive(signal).finally(() => {
-      if (stopLeader === stop) stopLeader = undefined
+    const live = options.live
+    if (!live || stopLeader || !canLive()) return
+    stopLeader = environment.lead(`vitehub-sync-live:${id}`, signal => new Promise<void>((resolve) => {
+      const leave = live.join(liveEntry)
+      const done = () => {
+        signal.removeEventListener("abort", done)
+        endLead = undefined
+        stopLeader = undefined
+        leave()
+        streamGeneration = undefined
+        setLive(false)
+        resolve()
+      }
+      endLead = done
+      signal.addEventListener("abort", done)
     }))
-    stopLeader = stop
   }
 
   function stopLive(): void {
@@ -1036,8 +976,6 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       publish()
       return
     }
-    // The network or the page is back, so a stream may work again at once.
-    liveFailures = 0
     wantPull = true
     void schedule(true)
   })

@@ -6,11 +6,12 @@ import { afterAll, beforeAll, expect, it } from "vitest"
 
 import { syncTables } from "../src/database.ts"
 import { defineSync } from "../src/define.ts"
-import { handleSyncRequest } from "../src/runtime.ts"
-import { origin, teamsOf } from "./handler-harness.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
+import { handleSyncLiveRequest, handleSyncRequest } from "../src/runtime.ts"
+import { origin, readEvents, teamsOf } from "./handler-harness.ts"
 
 import type { SyncPullResponse, SyncPushResponse } from "../src/protocol.ts"
-import type { SyncServices } from "../src/runtime.ts"
+import type { SyncLiveServices, SyncServices } from "../src/runtime.ts"
 import type { SyncDefinition } from "../src/types.ts"
 
 const columns = {
@@ -148,4 +149,33 @@ it("applies an action that reads 60 rows of two definitions on D1, which allows 
   expect((await db.select().from(cards)).every(row => row.count === 1)).toBe(true)
   expect((await db.select().from(notes)).every(row => row.count === 1)).toBe(true)
   // Each read of the action is a request to the local D1, which is slow on a busy machine.
+}, 30_000)
+
+it("streams a change of 50 stores on D1, where one batch of 200 statements pulls them all", async () => {
+  await d1.prepare("CREATE TABLE `tickets` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `title` text NOT NULL)").run()
+  const tickets = sqliteTable("tickets", { id: text("id").primaryKey(), teamId: text("team_id").notNull(), title: text("title").notNull() })
+  const definition = defineSync({ table: tickets, where: ({ user }) => user ? { teamId: teamsOf(user) } : false })
+  const teams = Array.from({ length: 50 }, (_, index) => `t${index}`)
+  const caller = { user: "alice", teams }
+  const server = processOf(definition, "tickets", { tickets: definition })
+  const pulls = []
+  for (const teamId of teams) pulls.push({ name: "tickets", ...held(await server.pull(caller, { where: { teamId } }), { teamId }) })
+  const services: SyncLiveServices = { db: () => drizzle(d1), definitions: { tickets: definition }, identify: async () => ({ user: { id: "alice", teams }, session: null }), live: { interval: 50, seconds: 20 } }
+  const controller = new AbortController()
+  const response = await handleSyncLiveRequest(new Request(new URL(syncLiveRoute, origin), { method: "POST", signal: controller.signal, headers: { "content-type": "application/json", origin }, body: JSON.stringify({ pulls }) }), services)
+  const events = readEvents(response)
+  expect(await events.next(5000)).toMatchObject({ event: "open" })
+
+  // Server code writes a row in each team. The next check pulls the 50 stores in one batch of 200 statements.
+  await d1.prepare("INSERT INTO `tickets` (`id`, `team_id`, `title`) SELECT 'x-' || value, value, 'New' FROM json_each(?)").bind(JSON.stringify(teams)).run()
+  const streamed = new Set<unknown>()
+  while (streamed.size < teams.length) {
+    const event = await events.next(10_000)
+    if (typeof event !== "object") throw new Error(`The stream sent ${streamed.size} of ${teams.length} pulls, then: ${event}`)
+    // SAFETY: the test reads the documented data of a `pull` event.
+    const { where, pull } = event.data as { where: { teamId: string }, pull: SyncPullResponse }
+    expect(pull.rows).toEqual([{ id: `x-${where.teamId}`, teamId: where.teamId, title: "New" }])
+    streamed.add(where.teamId)
+  }
+  controller.abort()
 }, 30_000)

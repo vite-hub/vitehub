@@ -2,12 +2,13 @@ import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 
 import { syncTables } from "../src/database.ts"
-import { handleSyncRequest } from "../src/runtime.ts"
+import { syncLiveRoute } from "../src/protocol.ts"
+import { handleSyncLiveRequest, handleSyncRequest } from "../src/runtime.ts"
 
 import type { InStatement } from "@libsql/client"
 import type { SyncDatabase } from "../src/database.ts"
-import type { SyncPullResponse, SyncPushResponse, SyncValues } from "../src/protocol.ts"
-import type { SyncServices } from "../src/runtime.ts"
+import type { SyncLivePull, SyncPullResponse, SyncPushResponse, SyncValues } from "../src/protocol.ts"
+import type { SyncLiveServices, SyncServices } from "../src/runtime.ts"
 import type { SyncDefinition, SyncUser } from "../src/types.ts"
 
 export const origin = "https://app.test"
@@ -38,20 +39,22 @@ function callerHeaders(caller: Caller | string | null): Record<string, string> {
 }
 
 /**
- * A Sync definition on a real libSQL Database in memory. `statements` records the number of bound parameters of every
- * statement, so tests can check D1's limit of 100.
+ * A Sync definition on a real libSQL Database in memory. `parameters` records the number of bound parameters of every
+ * statement, so tests can check D1's limit of 100. `calls()` counts the calls to the Database, where a batch is one
+ * call, so tests can check D1's limit of 50 calls in a Worker invocation on the Free plan. `client` is not counted.
  */
 export async function createHarness<TTable, TRow, TArgs>(options: {
   name: string
   ddl: readonly string[]
   definition: SyncDefinition<TTable, TRow, TArgs>
   live?: SyncServices["live"]
-  /** The other definitions of the app, for `sync(name)` in actions. */
-  definitions?: SyncServices["definitions"]
+  /** The other definitions of the app, by name, for `sync(name)` in actions and for the live stream. */
+  definitions?: Record<string, Pick<SyncDefinition, "~sync">>
 }) {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${[...syncTables, ...options.ddl].join(";\n")};`)
   const parameters: number[] = []
+  let calls = 0
   const record = (statement: InStatement) => {
     if (typeof statement === "string") parameters.push(0)
     else parameters.push(Array.isArray(statement.args) ? statement.args.length : Object.keys(statement.args ?? {}).length)
@@ -60,12 +63,14 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     get(target, property) {
       if (property === "execute") {
         return async (statement: InStatement) => {
+          calls++
           record(statement)
           return await target.execute(statement)
         }
       }
       if (property === "batch") {
         return async (statements: InStatement[], mode?: "write" | "read" | "deferred") => {
+          calls++
           statements.forEach(record)
           return await target.batch(statements, mode)
         }
@@ -77,7 +82,7 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   const db: SyncDatabase = drizzle({ client: counted })
   // The real time: the triggers stamp the change log with the time of the Database, and compaction compares it.
   const clock = { now: Date.now() }
-  const services: SyncServices = {
+  const services: SyncLiveServices = {
     db,
     now: () => clock.now,
     identify: async (request: Request) => {
@@ -86,14 +91,14 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
       return id ? { user: { id, ...(teams !== null ? { teams: teams ? teams.split(",") : [] } : {}) }, session: null } : null
     },
     ...(options.live ? { live: options.live } : {}),
-    ...(options.definitions ? { definitions: options.definitions } : {}),
+    // Every definition, for the live stream and for `sync(name)` in actions.
+    definitions: { [options.name]: options.definition, ...options.definitions },
   }
   const route = `/api/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)
 
-  function pullUrl(query: Held & { where?: SyncValues, live?: boolean }): URL {
+  function pullUrl(query: Held & { where?: SyncValues }): URL {
     const url = new URL(route, origin)
-    if (query.live) url.searchParams.set("live", "1")
     if (query.cursor !== undefined) url.searchParams.set("cursor", String(query.cursor))
     if (query.scope) url.searchParams.set("scope", query.scope)
     if (query.version) url.searchParams.set("version", query.version)
@@ -123,13 +128,21 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     return { status: response.status, body: await response.json() as SyncPushResponse & { code?: string, message?: string } }
   }
 
-  async function live(caller: Caller | string | null, query: Held & { where?: SyncValues } = {}, using: SyncServices = services) {
+  const liveCall = (request: Request, using: SyncLiveServices = services) => handleSyncLiveRequest(request, using)
+
+  /** Opens a live stream for these stores. A store without `name` is a store of this definition. */
+  async function live(caller: Caller | string | null, pulls: Partial<SyncLivePull>[] = [{}], using: SyncLiveServices = services) {
     const controller = new AbortController()
-    const response = await call(new Request(pullUrl({ ...query, live: true }), { headers: callerHeaders(caller), signal: controller.signal }), using)
+    const response = await liveCall(new Request(new URL(syncLiveRoute, origin), {
+      method: "POST",
+      headers: { "content-type": "application/json", origin, ...callerHeaders(caller) },
+      body: JSON.stringify({ pulls: pulls.map(pull => ({ name: options.name, ...pull })) }),
+      signal: controller.signal,
+    }), using)
     return { response, abort: () => controller.abort() }
   }
 
-  return { client, db, clock, services, parameters, call, pull, start, push, live }
+  return { client, db, clock, services, parameters, calls: () => calls, call, pull, start, push, live, liveCall }
 }
 
 /** One event of a live stream, as the client parses it. */

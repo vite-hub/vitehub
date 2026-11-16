@@ -295,8 +295,9 @@ describe("actions across definitions", () => {
     await app.db.insert(cards).values({ id: "c1", teamId: "a", title: "Card" })
     const held = await app.start(dave)
     const first = await (await app.pullActivity(dave, "")).json() as { cursor: number, scope: { id: string }, version: string }
-    const stream = await app.pullActivity(dave, `?live&cursor=${first.cursor}&scope=${first.scope.id}&version=${first.version}`)
-    const events = readEvents(stream)
+    const stream = await app.live(dave, [{ name: "activity", cursor: first.cursor, scope: first.scope.id, version: first.version }])
+    const events = readEvents(stream.response)
+    expect(await events.next(1000)).toMatchObject({ event: "open" })
     expect(await events.next(50)).toBe("timeout")
 
     const { body } = await app.push(dave, { ...as(held), cursor: held.cursor, mutations: [action("m1", "move", { id: "c1", teamId: "b", noteId: "n1", text: "Moved to b" })] })
@@ -307,8 +308,8 @@ describe("actions across definitions", () => {
     expect((await app.db.select().from(syncMutations)).map(row => [row.id, row.name])).toEqual([["m1", "cards"]])
     // The triggers of activity logged the row, so its browsers get it, here at once on the live stream.
     const event = await events.next(2000)
-    expect(event).toMatchObject({ event: "pull", data: { pull: { rows: [{ id: "n1", text: "Moved to b" }] } } })
-    await events.cancel()
+    expect(event).toMatchObject({ event: "pull", data: { name: "activity", pull: { rows: [{ id: "n1", text: "Moved to b" }] } } })
+    stream.abort()
   })
 
   it("refuses the whole action when the other definition refuses one write", async () => {
