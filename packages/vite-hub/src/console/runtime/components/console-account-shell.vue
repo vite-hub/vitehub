@@ -22,6 +22,7 @@ import ConsoleSidebar from "./console-sidebar.vue";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
 import ConsoleSidebarTrigger from "./console-sidebar-trigger.vue";
 import ConsoleToaster from "./console-toaster.vue";
+import Icon from "./console-icon.vue";
 
 // A page whose code has loaded renders at once. The page of the first paint loads before the app mounts, and the other
 // pages load when the browser is idle. Until then, a page loads on demand.
@@ -211,7 +212,7 @@ async function retry(): Promise<void> {
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
           <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">
-            <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+            <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Opening {{ title }}…
           </p>
           <div v-else-if="gate.kind === 'problem'" class="grid max-w-2xl gap-6">
@@ -266,7 +267,7 @@ async function retry(): Promise<void> {
 }
 
 .vitehub-account-shell__dot[data-status="checking"] {
-  box-shadow: inset 0 0 0 1px var(--ui-text-muted);
+  box-shadow: inset 0 0 0 1px var(--muted-foreground);
 }
 
 .vitehub-account-shell__dot[data-status="connected"] {

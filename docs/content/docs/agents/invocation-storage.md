@@ -605,7 +605,7 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 `compact` measures the file, WAL, page count, free pages, and `auto_vacuum` mode, then runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`. It prints the size before and after, reclaimed bytes, and the new mode. `--dry-run` prints the measurements, projected size, and free space check without changes, and exits 1 when compact would refuse. Prune first, so the rebuilt file holds only what you keep.
 
-- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_R0931`.
+- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED`.
 - `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses when a volume lacks 1.1 times the live data per file, plus the current WAL, counting both files on a shared volume. Set `SQLITE_TMPDIR` to put the copy elsewhere.
 - `VACUUM` holds the write lock until done, so server writes wait. Stop the server or run it when quiet. If another process holds the lock over 5 seconds, compact fails without changes.
 

@@ -12,15 +12,17 @@ import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
 import { cloudflareEnv } from "./deploy/cloudflare.ts"
 import { denoEnv } from "./deploy/deno.ts"
+import { githubEnv, isGitHubSecretName, resolveGitHubRepository, resolveGitHubToken } from "./deploy/github.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { netlifyEnv } from "./deploy/netlify.ts"
 import { vercelEnv } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { isSetupFailure, setupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
+import type { GitHubEnvDestination } from "./deploy/github.ts"
 import type { DeployHost, DeployRun, HostEnv, HostEnvContext, HostEnvTarget } from "./deploy/host.ts"
 import type { SetupLink } from "./link.ts"
 import type { SetupProject } from "./project.ts"
@@ -43,6 +45,8 @@ const noPreview: ReadonlySet<DeployHost> = new Set(["cloudflare", "deno"])
 
 interface EnvArgs {
   host?: DeployHost
+  /** `--to github`: write the Actions secrets of a GitHub repository instead of the host variables. */
+  github?: { repo?: string, environment?: string }
   stage: string
   only: string[]
   yes: boolean
@@ -61,10 +65,14 @@ export interface EnvDiffEntry {
 
 /** What `vitehub env diff --json` prints, after `schemaVersion: 1`. */
 export interface EnvDiffOutput {
+  /** The host of the build that lists the names. With `--to github`, the names still come from this build. */
   host: DeployHost
   project: string
   stage: string
-  target: HostEnvTarget
+  /** The host environment. Absent with `--to github`. */
+  target?: HostEnvTarget
+  /** The GitHub Actions secrets of `--to github`. */
+  github?: GitHubEnvDestination
   /** True when no required name is missing. */
   ok: boolean
   missing: { required: EnvDiffEntry[], optional: EnvDiffEntry[] }
@@ -80,7 +88,8 @@ export interface EnvPushOutput {
   host: DeployHost
   project: string
   stage: string
-  target: HostEnvTarget
+  target?: HostEnvTarget
+  github?: GitHubEnvDestination
   pushed: { name: string, source: EnvValueSource, secret: boolean, replaced: boolean }[]
   /** Entries without a local value. The host keeps what it has. */
   skipped: (EnvDiffEntry & { required: boolean })[]
@@ -95,6 +104,9 @@ function readEnvArgs(args: readonly string[], push: boolean, usage: string | und
         host: { type: "string" },
         json: { type: "boolean", default: false },
         stage: { type: "string" },
+        to: { type: "string" },
+        repo: { type: "string" },
+        environment: { type: "string" },
         ...(push ? { only: { multiple: true, type: "string" }, yes: { short: "y", type: "boolean", default: false } } : {}),
       },
       strict: true,
@@ -102,24 +114,29 @@ function readEnvArgs(args: readonly string[], push: boolean, usage: string | und
     const host = readLinkHostOption(typeof values.host === "string" ? values.host : undefined)
     const stage = typeof values.stage === "string" ? values.stage : defaultStage
     const only = Array.isArray(values.only) ? values.only.filter(item => typeof item === "string") : []
-    return { help: values.help === true, ...(host ? { host } : {}), json: values.json === true, only, stage, yes: values.yes === true }
+    const repo = typeof values.repo === "string" ? values.repo : undefined
+    const environment = typeof values.environment === "string" ? values.environment : undefined
+    if (values.to !== undefined && values.to !== "github") throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown --to ${JSON.stringify(values.to)}. The only destination is github. For a host, use --host.` })
+    if (values.to === undefined && (repo !== undefined || environment !== undefined)) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] --repo and --environment need --to github. Usage: ${usage}` })
+    const github = values.to === "github" ? { ...(repo === undefined ? {} : { repo }), ...(environment === undefined ? {} : { environment }) } : undefined
+    return { help: values.help === true, ...(host ? { host } : {}), ...(github ? { github } : {}), json: values.json === true, only, stage, yes: values.yes === true }
   }
   catch (error: unknown) {
-    if (error instanceof SetupFailure || (error instanceof Error && "why" in error)) throw error
+    if (isSetupFailure(error) || (error instanceof Error && "why" in error)) throw error
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
 
 function stageTarget(host: DeployHost, stage: string): HostEnvTarget {
   if (stage === "production") return "production"
-  if (stage !== "preview" || noPreview.has(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_STAGE_UNSUPPORTED({ host, stage }), setupExitCodes.conflict)
+  if (stage !== "preview" || noPreview.has(host)) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_STAGE_UNSUPPORTED({ host, stage }), setupExitCodes.conflict)
   return "preview"
 }
 
 function linkedTarget(links: Awaited<ReturnType<typeof readSetupLinks>>, host: DeployHost | undefined, command: string): SetupLink {
   const selected = selectSetupLink(links, host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, command)
-  if (!selected.link) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
+  if (!selected.link) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
   return selected.link
 }
 
@@ -129,7 +146,7 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
     return (await readBuildOutput(project.root, host)).env
   }
   catch (error: unknown) {
-    const code = error instanceof SetupFailure ? Reflect.get(error.cause, "code") : undefined
+    const code = isSetupFailure(error) ? Reflect.get(error, "code") : undefined
     if (code !== "SETUP_DEPLOY_OUTPUT_MISSING" && code !== "SETUP_DEPLOY_HOST_MISMATCH") throw error
   }
   context.stderr.write(`No build output for ${host}. Building it to read the names.\n`)
@@ -139,9 +156,11 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
 
 interface EnvTarget {
   host: DeployHost
-  link: SetupLink
+  /** The host project name, or the build name for `--to github` without a link. */
+  name: string
   stage: string
-  target: HostEnvTarget
+  target?: HostEnvTarget
+  github?: GitHubEnvDestination
   project: SetupProject
   entries: DeploymentEnvEntry[]
   hostEnv: HostEnv
@@ -150,20 +169,49 @@ interface EnvTarget {
   secrets: string[]
 }
 
+function hostTokens(env: NodeJS.ProcessEnv): string[] {
+  return tokenNames.flatMap((name) => {
+    const token = env[name]?.trim()
+    return token ? [token] : []
+  })
+}
+
 async function openTarget(args: EnvArgs, command: string, context: ViteHubCliContext): Promise<EnvTarget> {
   const project = await readSetupProject(context.rootDir, context.env)
+  if (args.github) return await openGitHubTarget(args, args.github, project, command, context)
   const link = linkedTarget(await readSetupLinks(project.root), args.host, command)
   const host = link.host
   const target = stageTarget(host, args.stage)
   const entries = await readNames(project, host, context)
-  const secrets = tokenNames.flatMap((name) => {
-    const token = context.env[name]?.trim()
-    return token ? [token] : []
-  })
+  const secrets = hostTokens(context.env)
   // The runner reads `secrets` at each run, so values that push adds later are redacted too.
   const run = createDeployRun(context.stderr, secrets)
   const hostEnv = hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: project.root, run, secrets, target })
-  return { entries, host, hostEnv, link, project, run, secrets, stage: args.stage, target }
+  return { entries, host, hostEnv, name: link.project.name, project, run, secrets, stage: args.stage, target }
+}
+
+/**
+ * GitHub is a destination, not a host: the names come from the build of the linked host (or `--host`), and the stage
+ * only picks the local `.env.<stage>` file. Names that GitHub reserves (`GITHUB_*`) drop out of each entry.
+ */
+async function openGitHubTarget(args: EnvArgs, options: NonNullable<EnvArgs["github"]>, project: SetupProject, command: string, context: ViteHubCliContext): Promise<EnvTarget> {
+  const selected = selectSetupLink(await readSetupLinks(project.root), args.host)
+  if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, `${command} --to github`)
+  const host = args.host ?? selected.link?.host
+  if (!host) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({}), setupExitCodes.inputNeeded, { missing: [{ field: "host" }], rerun: `${command} --to github --host cloudflare` })
+  const entries = (await readNames(project, host, context)).flatMap((entry) => {
+    const names = entry.names.filter(isGitHubSecretName)
+    return names.length || entry.prefix ? [{ ...entry, names }] : []
+  })
+  const secrets = hostTokens(context.env)
+  const run = createDeployRun(context.stderr, secrets)
+  const fetch = context.fetch ?? globalThis.fetch
+  const repository = await resolveGitHubRepository(options.repo, { env: context.env, root: project.root, run })
+  const token = await resolveGitHubToken(repository, { env: context.env, fetch, root: project.root, run })
+  secrets.push(token)
+  const github: GitHubEnvDestination = { repository, ...(options.environment ? { environment: options.environment } : {}) }
+  const name = selected.link?.project.name ?? (await readBuildOutput(project.root, host)).identityName ?? repository
+  return { entries, github, host, hostEnv: githubEnv({ ...github, fetch, secrets, token }), name, project, run, secrets, stage: args.stage }
 }
 
 function diffEntry(entry: DeploymentEnvEntry): EnvDiffEntry {
@@ -190,15 +238,22 @@ function isSet(entry: DeploymentEnvEntry, names: ReadonlySet<string>): boolean {
 }
 
 /** Compares the names that the build lists with the names on the host. Hosts return no values, so it never says "changed". */
-export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[]): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
-  const onHost = new Set(hostNames)
+export function diffEnvNames(entries: readonly DeploymentEnvEntry[], hostNames: readonly string[], ignoreCase = false): Pick<EnvDiffOutput, "extra" | "missing" | "ok"> {
+  const normalize = (name: string) => ignoreCase ? name.toUpperCase() : name
+  const comparable = (entry: DeploymentEnvEntry): DeploymentEnvEntry => ignoreCase
+    ? { ...entry, names: entry.names.map(normalize), ...(entry.prefix ? { prefix: normalize(entry.prefix) } : {}) }
+    : entry
+  const onHost = new Set(hostNames.map(normalize))
   const missing: EnvDiffOutput["missing"] = { optional: [], required: [] }
   for (const entry of entries) {
-    if (isSet(entry, onHost)) continue
+    if (isSet(comparable(entry), onHost)) continue
     missing[isRequired(entry) ? "required" : "optional"].push(diffEntry(entry))
   }
-  const known = (name: string) => entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name))
-  const extra = [...onHost].filter(name => !known(name)).sort()
+  const known = (name: string) => entries.some((entry) => {
+    const compared = comparable(entry)
+    return compared.names.includes(normalize(name)) || matchesPrefix(compared, normalize(name))
+  })
+  const extra = hostNames.filter(name => !known(name)).sort()
   return { extra, missing, ok: !missing.required.length }
 }
 
@@ -208,8 +263,17 @@ function entryLabel(entry: EnvDiffEntry): string {
   return from ? `${names} (${from})` : names
 }
 
-function targetLabel(output: { host: DeployHost, project: string, stage: string, target: HostEnvTarget }): string {
+function targetLabel(output: { host: DeployHost, project: string, stage: string, target?: HostEnvTarget, github?: GitHubEnvDestination }): string {
+  if (output.github) return `the GitHub Actions secrets of ${output.github.repository}${output.github.environment ? `, environment ${output.github.environment}` : ""}, stage ${output.stage}`
   return `${output.project} on ${output.host}, stage ${output.stage}${output.target === output.stage ? "" : ` (${output.target})`}`
+}
+
+/** The flags that name the destination again, for a hint or a rerun. */
+function destinationFlags(output: { host: DeployHost, stage: string, github?: GitHubEnvDestination }): string[] {
+  return [
+    ...(output.github ? ["--to github", `--repo ${output.github.repository}`, `--host ${output.host}`, ...(output.github.environment ? [`--environment ${output.github.environment}`] : [])] : [`--host ${output.host}`]),
+    ...(output.stage === defaultStage ? [] : [`--stage ${output.stage}`]),
+  ]
 }
 
 function writeDiff(output: EnvDiffOutput, context: ViteHubCliContext): void {
@@ -219,11 +283,12 @@ function writeDiff(output: EnvDiffOutput, context: ViteHubCliContext): void {
   }
   section("Missing required", output.missing.required.map(entryLabel))
   section("Missing optional", output.missing.optional.map(entryLabel))
-  section("Extra on the host, read by no declaration", output.extra)
-  if (!output.missing.required.length && !output.missing.optional.length && !output.extra.length) lines.push("Every name is on the host.")
-  lines.push("Hosts do not return values, so this compares names only.")
+  const where = output.github ? "on GitHub" : "on the host"
+  section(`Extra ${where}, read by no declaration`, output.extra)
+  if (!output.missing.required.length && !output.missing.optional.length && !output.extra.length) lines.push(`Every name is ${where}.`)
+  lines.push(`${output.github ? "GitHub does" : "Hosts do"} not return values, so this compares names only.`)
   if (output.missing.required.length || output.missing.optional.length) {
-    lines.push(`Run \`vitehub env push --host ${output.host}${output.stage === defaultStage ? "" : ` --stage ${output.stage}`}\` to set them from the shell and .env.${output.stage}.`)
+    lines.push(`Run \`${["vitehub env push", ...destinationFlags(output)].join(" ")}\` to set them from the shell and .env.${output.stage}.`)
   }
   context.stdout.write(`${lines.join("\n")}\n`)
 }
@@ -231,10 +296,14 @@ function writeDiff(output: EnvDiffOutput, context: ViteHubCliContext): void {
 async function runDiff(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env diff", context)
   const hostNames = await target.hostEnv.listSecretNames()
-  const output: EnvDiffOutput = { host: target.host, project: target.link.project.name, stage: target.stage, target: target.target, ...diffEnvNames(target.entries, hostNames) }
+  const output: EnvDiffOutput = { ...destination(target), ...diffEnvNames(target.entries, hostNames, !!target.github) }
   if (args.json) writeSetupJson(context, output)
   else writeDiff(output, context)
   return output.ok ? setupExitCodes.done : setupExitCodes.error
+}
+
+function destination(target: EnvTarget): Pick<EnvDiffOutput, "github" | "host" | "project" | "stage" | "target"> {
+  return { host: target.host, project: target.name, stage: target.stage, ...(target.target ? { target: target.target } : {}), ...(target.github ? { github: target.github } : {}) }
 }
 
 interface LocalValue {
@@ -256,13 +325,28 @@ export async function readLocalEnvValues(root: string, stage: string, env: NodeJ
   }
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
-  const loaded = await withViteStageEnvironment(env, async () => vite.loadEnv(stage, root, ""))
+  const loaded = await withViteStageEnvironment(env, async () => withoutStderr(() => vite.loadEnv(stage, root, "")))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
     const source = env[name] !== undefined ? "process" : sources.get(name)
     if (source && value !== "") values.set(name, { source, value })
   }
   return values
+}
+
+/**
+ * With `DEBUG=vite:env`, Vite logs every value that loadEnv resolves to stderr. loadEnv is synchronous, so this drops
+ * only its own writes.
+ */
+function withoutStderr<T>(load: () => T): T {
+  const write = process.stderr.write
+  process.stderr.write = () => true
+  try {
+    return load()
+  }
+  finally {
+    process.stderr.write = write
+  }
 }
 
 interface PlannedValue {
@@ -276,7 +360,7 @@ interface PlannedValue {
 function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<string, LocalValue>, only: readonly string[]): { planned: PlannedValue[], skipped: EnvPushOutput["skipped"] } {
   const wanted = only.length ? new Set(only) : undefined
   const unknown = only.filter(name => !entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name)))
-  if (unknown.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_NAME_UNKNOWN({ names: unknown.join(", ") }), setupExitCodes.inputNeeded)
+  if (unknown.length) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_NAME_UNKNOWN({ names: unknown.join(", ") }), setupExitCodes.inputNeeded)
   const planned = new Map<string, PlannedValue>()
   const skipped: EnvPushOutput["skipped"] = []
   for (const entry of entries) {
@@ -306,7 +390,7 @@ async function assertUntracked(planned: readonly PlannedValue[], root: string, r
   }
   for (const [file, names] of byFile) {
     const result = await run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: root, env }).catch(() => undefined)
-    if (result?.exitCode === 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
+    if (result?.exitCode === 0) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
   }
 }
 
@@ -321,7 +405,8 @@ async function confirmPush(planned: readonly PlannedValue[], label: string): Pro
 }
 
 function pushRerun(args: EnvArgs): string {
-  return ["vitehub env push", ...(args.host ? [`--host ${args.host}`] : []), ...(args.stage === defaultStage ? [] : [`--stage ${args.stage}`]), ...args.only.map(name => `--only ${name}`), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
+  const github = args.github ? ["--to github", ...(args.github.repo ? [`--repo ${args.github.repo}`] : []), ...(args.github.environment ? [`--environment ${args.github.environment}`] : [])] : []
+  return ["vitehub env push", ...(args.host ? [`--host ${args.host}`] : []), ...github, ...(args.stage === defaultStage ? [] : [`--stage ${args.stage}`]), ...args.only.map(name => `--only ${name}`), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
 /** Short plain values, such as "1", would hide host output that has nothing to do with them. */
@@ -337,7 +422,7 @@ function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
   const lines = output.pushed.length
     ? [`Pushed to ${targetLabel(output)}:`, ...output.pushed.map(item => `  ${item.name} from ${sourceLabel(item.source)}${item.replaced ? ", replaced" : ""}`)]
     : [`Nothing to push to ${targetLabel(output)}.`]
-  if (output.skipped.length) lines.push("No local value, so the host keeps what it has:", ...output.skipped.map(item => `  ${entryLabel(item)}${item.required ? " (required)" : ""}`))
+  if (output.skipped.length) lines.push(`No local value, so ${output.github ? "GitHub" : "the host"} keeps what it has:`, ...output.skipped.map(item => `  ${entryLabel(item)}${item.required ? " (required)" : ""}`))
   context.stdout.write(`${lines.join("\n")}\n`)
 }
 
@@ -346,7 +431,7 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   const values = await readLocalEnvValues(target.project.root, target.stage, context.env)
   const { planned, skipped } = planPush(target.entries, values, args.only)
   addRedactions(planned, target.secrets)
-  const output: EnvPushOutput = { host: target.host, project: target.link.project.name, pushed: [], skipped, stage: target.stage, target: target.target }
+  const output: EnvPushOutput = { ...destination(target), pushed: [], skipped }
   if (!planned.length) {
     if (args.json) writeSetupJson(context, output)
     else writePush(output, context)
@@ -355,13 +440,14 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   await assertUntracked(planned, target.project.root, target.run, context.env)
   if (!args.yes) {
     const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
-    if (!interactive) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub env push` changes host variables and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
-    if (!await confirmPush(planned, targetLabel(output))) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The push was not confirmed. Nothing was pushed." }), setupExitCodes.error)
+    if (!interactive) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: `[vitehub] \`vitehub env push\` changes ${target.github ? "GitHub Actions secrets" : "host variables"} and was not confirmed. Without a terminal, pass --yes.` }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
+    if (!await confirmPush(planned, targetLabel(output))) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The push was not confirmed. Nothing was pushed." }), setupExitCodes.error)
   }
-  const onHost = new Set(await target.hostEnv.listSecretNames())
+  const remoteName = (name: string) => target.github ? name.toUpperCase() : name
+  const onHost = new Set((await target.hostEnv.listSecretNames()).map(remoteName))
   for (const item of planned) {
     await target.hostEnv.setSecret(item.name, item.value, { secret: item.secret })
-    output.pushed.push({ name: item.name, replaced: onHost.has(item.name), secret: item.secret, source: item.source })
+    output.pushed.push({ name: item.name, replaced: onHost.has(remoteName(item.name)), secret: item.secret, source: item.source })
   }
   if (args.json) writeSetupJson(context, output)
   else writePush(output, context)
@@ -454,7 +540,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
     // Even an undeclared or optional remote secret would otherwise inherit the other stage's value.
     const unavailable = [...onHost].filter(name => !values.has(name))
     if (unavailable.length) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
+      throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
     }
     for (const item of planned) if (onHost.has(item.name)) item.secret = true
   }
@@ -472,13 +558,13 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const required = missing.filter(isRequired)
   if (required.length) {
     const names = required.map(entry => entryLabel(diffEntry(entry))).join(", ")
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
       data: { env: { ...output, missing: missing.map(diffEntry) } },
       missing: required.map(entry => ({ field: entry.names[0] ?? `${entry.prefix}*` })),
     })
   }
   if (planned.length && !hostEnv && host !== "cloudflare") {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
   }
   await assertUntracked(planned, options.root, options.run, context.env)
 
