@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { MigrationPlan } from "./internal/migration-plan.ts"
+import type { AdoptedMigration, MigrationPlan } from "./internal/migration-plan.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
@@ -431,6 +431,12 @@ async function runDrizzleKit(
       if (result !== 0) return result
       continue
     }
+    // The type guards above narrow `database` to undefined, so read the run's Database.
+    if (feature === "migrate" && run.database?.dialect === "sqlite") {
+      // Record the migrations that another ledger lists first, so Drizzle Kit does not run them again.
+      const result = await adoptSqliteMigrations(run.database, projectRoot, context)
+      if (result !== 0) return result
+    }
     const plan = database && upToDate.get(database)
     if (plan) {
       writeMigrationPlan(plan, context)
@@ -635,6 +641,10 @@ async function recordConvertedUniques(
 function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
   const count = plan.pending.length
   const lines = [`[vitehub] Database "${plan.database}" (${plan.target}): ${count ? `${count} pending ${count === 1 ? "migration" : "migrations"}.` : "no pending migrations."}`]
+  for (const from of new Set(plan.adopted.map(migration => migration.from))) {
+    const names = plan.adopted.filter(migration => migration.from === from).map(migration => migration.name)
+    lines.push(`  Applied before, as ${from} lists: ${names.join(", ")}`)
+  }
   for (const migration of plan.pending) {
     lines.push("", `  ${migration.name}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
@@ -676,6 +686,7 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
     { ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) },
     { env: context.env ?? process.env, projectRoot },
     name => context.stdout.write(`[vitehub] Database "${database.name}": applied ${name}.\n`),
+    migration => writeAdopted(database.name, migration, context),
   )
   if (problem) {
     context.stderr.write(isRuntimeDiagnostic(problem)
@@ -684,6 +695,25 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
     return 1
   }
   context.stdout.write(`[vitehub] Database "${database.name}": D1 migrations are up to date.\n`)
+  return 0
+}
+
+function writeAdopted(database: string, migration: AdoptedMigration, context: ViteHubCliContext) {
+  context.stdout.write(`[vitehub] Database "${database}": recorded ${migration.name} as applied, as ${migration.from} lists it.\n`)
+}
+
+/** Records the migrations that another ledger lists in Drizzle's ledger of a SQLite or libSQL database. Returns the exit code. */
+async function adoptSqliteMigrations(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<number> {
+  const { adoptSqliteMigrations: adopt } = await import("./internal/migration-plan.ts")
+  const error = await adopt(
+    { ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) },
+    { env: context.env ?? process.env, projectRoot },
+    migration => writeAdopted(database.name, migration, context),
+  )
+  if (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    return 1
+  }
   return 0
 }
 

@@ -404,6 +404,13 @@ Definition, in `server/databases/default/migrations/`. It applies them with driz
 for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
 different history tables by default.
 
+For SQLite, libSQL, and D1 HTTP, you can keep NuxtHub's migration files. Move
+them to `server/databases/default/migrations/`, run `pnpm vitehub database up`,
+and run `pnpm vitehub database migrate`. It reads `_hub_migrations` and does not
+run the migrations that NuxtHub applied. See
+[Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table).
+The baseline sections below start a new migration history instead.
+
 ::warning
 Do not set Wrangler's history table to `_hub_migrations` to skip the baseline.
 NuxtHub records normalized migration names, and Wrangler records filenames, so

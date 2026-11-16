@@ -425,6 +425,135 @@ describe("vitehub database migrate", () => {
   })
 })
 
+describe("vitehub database migrate with an existing migrations table", () => {
+  /** Runs SQL on the local database file, as another tool left it. */
+  async function seedDatabase(rootDir: string, sql: string) {
+    await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
+    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await client.executeMultiple(sql)
+    }
+    finally {
+      client.close()
+    }
+  }
+
+  async function rows(rootDir: string, sql: string) {
+    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      const result = await client.execute(sql)
+      return result.rows.map(row => result.columns.map((_, index) => row[index]))
+    }
+    finally {
+      client.close()
+    }
+  }
+
+  async function folder(migrationsDir: string, tag: string, sql: string) {
+    await mkdir(join(migrationsDir, tag), { recursive: true })
+    await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
+  }
+
+  it("keeps the migrations that NuxtHub recorded in _hub_migrations, and applies the next one", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(drizzleKit0xFixture, migrationsDir, { recursive: true })
+    await project.writeSchema(["title", "body"])
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
+    const tags = await migrationTags(migrationsDir)
+    // NuxtHub applied both files and recorded each name without `.sql`.
+    await seedDatabase(project.rootDir, [
+      await readFile(join(drizzleKit0xFixture, "0000_init.sql"), "utf8"),
+      await readFile(join(drizzleKit0xFixture, "0001_add_body.sql"), "utf8"),
+      "CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+      "INSERT INTO _hub_migrations (name) VALUES ('0000_init'), ('0001_add_body');",
+    ].join("\n"))
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`no pending migrations.\n  Applied before, as _hub_migrations lists: ${tags.join(", ")}\n`)
+    await expect(rows(project.rootDir, "SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).resolves.toEqual([])
+
+    await project.writeSchema(["title", "body", "tags"])
+    await nextSecond()
+    await expect(project.run("generate", ["--name", "add_tags"])).resolves.toMatchObject({ exitCode: 0 })
+    const applied = await project.run("migrate")
+    expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+    for (const tag of tags) expect(applied.stdout).toContain(`[vitehub] Database "default": recorded ${tag} as applied, as _hub_migrations lists it.`)
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body", "tags"])
+    const all = await migrationTags(migrationsDir)
+    await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY id")).resolves.toEqual(all.map(tag => [tag]))
+
+    const again = await project.run("migrate")
+    expect(again).toMatchObject({ exitCode: 0, stderr: "", stdout: "[vitehub] Database \"default\" (local SQLite .vitehub/data/database/sqlite.db): no pending migrations.\n" })
+  }, 120_000)
+
+  it("keeps Wrangler's d1_migrations rows of old flat files and Drizzle Kit 0.x rows, and applies the rest", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    // The folders keep the old flat file names, such as `0000_init.sql`, after the timestamp.
+    await folder(migrationsDir, "20261027095547_0000_init", "CREATE TABLE notes (id integer PRIMARY KEY, title text);")
+    await folder(migrationsDir, "20261031111000_0001_add_body", "ALTER TABLE notes ADD body text;")
+    await folder(migrationsDir, "20261031111000_0002_add_tags", "ALTER TABLE notes ADD tags text;")
+    // Wrangler applied the first file. Drizzle Kit 0.x created its ledger, with no row yet.
+    await seedDatabase(project.rootDir, [
+      "CREATE TABLE notes (id integer PRIMARY KEY, title text);",
+      "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+      "INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');",
+      "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric);",
+    ].join("\n"))
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("2 pending migrations.\n  Applied before, as d1_migrations lists: 20261027095547_0000_init\n")
+
+    const applied = await project.run("migrate")
+    expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(applied.stdout).toContain("recorded 20261027095547_0000_init as applied, as d1_migrations lists it.")
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body", "tags"])
+    // Drizzle 1.0 upgraded its ledger and named the adopted row.
+    await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY id")).resolves.toEqual([
+      ["20261027095547_0000_init"], ["20261031111000_0001_add_body"], ["20261031111000_0002_add_tags"],
+    ])
+  }, 120_000)
+
+  it("keeps a migration whose folder was renamed, by the SQL hash in Drizzle's ledger", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await folder(migrationsDir, "20261109120000_init", "CREATE TABLE notes (id integer PRIMARY KEY, title text);")
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await rm(join(migrationsDir, "20261109120000_init"), { recursive: true })
+    await folder(migrationsDir, "20261109120500_create_notes", "CREATE TABLE notes (id integer PRIMARY KEY, title text);")
+    await folder(migrationsDir, "20261109121000_add_body", "ALTER TABLE notes ADD body text;")
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain("1 pending migration.\n  Applied before, as __drizzle_migrations lists: 20261109120500_create_notes\n")
+
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
+    await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY id")).resolves.toEqual([
+      ["20261109120000_init"], ["20261109120500_create_notes"], ["20261109121000_add_body"],
+    ])
+  }, 120_000)
+
+  it("fails the check when _hub_migrations lists a migration that now has another number", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await folder(migrationsDir, "20261001000000_early", "SELECT 1;")
+    await folder(migrationsDir, "20261109120000_init", "CREATE TABLE notes (id integer);")
+    await seedDatabase(project.rootDir, "CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO _hub_migrations (name) VALUES ('0000_init');")
+
+    const [error] = await readMigrationPlan(project.database, { env: process.env, projectRoot: project.rootDir })
+    expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+    expect(error?.why).toContain(`The migrations table _hub_migrations lists 0000_init, but that migration is now 0001_init.sql (20261109120000_init), so ViteHub would apply it again.`)
+    expect(error?.why).toContain(`set "20261109120000_init": "0000_init.sql" in it`)
+    const refused = await project.run("migrate", ["--allow-data-loss"])
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("DATABASE_MIGRATION_CHECK_FAILED")
+    await expect(rows(project.rootDir, "SELECT name FROM sqlite_master WHERE name = 'notes'")).resolves.toEqual([])
+  })
+})
+
 describe("readMigrationPlan", () => {
   async function d1Project() {
     const project = await createProject()
@@ -480,7 +609,7 @@ describe("readMigrationPlan", () => {
     const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: d1.fetch, projectRoot: rootDir })
 
     expect(error).toBeUndefined()
-    expect(plan).toEqual({ applied: 1, database: "default", pending: [], target: "Cloudflare D1 database-id over HTTP" })
+    expect(plan).toEqual({ adopted: [], applied: 1, database: "default", pending: [], target: "Cloudflare D1 database-id over HTTP" })
     expect(d1.fetch).toHaveBeenCalledWith("https://api.cloudflare.com/client/v4/accounts/account/d1/database/database-id/query", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer token" }),
       method: "POST",
@@ -822,6 +951,41 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
     await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
     d1.client.close()
+  }, 120_000)
+
+  it("records the migrations of NuxtHub's _hub_migrations in Wrangler's table", async () => {
+    const project = await d1MigrateProject()
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO _hub_migrations (name) VALUES ('0000_init');`)
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      const dryRun = await project.migrate(["--dry-run"])
+      expect(dryRun.stdout).toContain(`1 pending migration.\n  Applied before, as _hub_migrations lists: ${project.initTag}\n`)
+
+      const applied = await project.migrate()
+      expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+      expect(applied.stdout).toContain(`recorded ${project.initTag} as applied, as _hub_migrations lists it.`)
+      expect(applied.stdout).toContain("applied 0001_add_body.sql.")
+      expect(applied.stdout).not.toContain("applied 0000_init.sql.")
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+      await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
+    }
+    finally {
+      d1.client.close()
+    }
+  }, 120_000)
+
+  it("adds file names to a _hub_migrations table that Wrangler uses, so Wrangler does not apply NuxtHub's names again", async () => {
+    const project = await d1MigrateProject("_hub_migrations")
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO _hub_migrations (name) VALUES ('0000_init');`)
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(d1.rows("SELECT name FROM _hub_migrations ORDER BY id")).resolves.toEqual([["0000_init"], ["0000_init.sql"], ["0001_add_body.sql"]])
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'd1_migrations'")).resolves.toEqual([])
+    }
+    finally {
+      d1.client.close()
+    }
   }, 120_000)
 
   it("leaves the ledger as it was when a migration fails", async () => {
