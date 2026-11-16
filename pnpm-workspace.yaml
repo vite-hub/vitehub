@@ -103,6 +103,7 @@ catalogs:
     "@lingui/vue": 6.12.0
   markdown:
     "@comark/html": ^0.9.0
+    "@mdream/js": 2.1.0
     "@types/mdast": ^4.0.4
     comark: ^0.9.0
   # Ranges, not pins: an app installs one copy of Comark and Comark UI that both it and ViteHub use.
@@ -273,12 +274,14 @@ patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
   # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
-  "@ui-sdk/core@0.1.0-beta.2": patches/@ui-sdk__core@0.1.0-beta.2.patch
+  # Also 12 core bug fixes and 3 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571).
+  "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
+  "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
-# @vite-hub/kit pins ui-sdk 0.1.0-beta.2, published on 2026-11-13. Remove these after 2026-11-14T13:05Z, when the release age passes.
+# @vite-hub/kit pins ui-sdk 0.1.0-beta.5, published on 2026-11-15. Remove these after 2026-11-16T09:58Z, when the release age passes.
 minimumReleaseAgeExclude:
-  - "@ui-sdk/core@0.1.0-beta.2"
-  - "@ui-sdk/vue@0.1.0-beta.2"
+  - "@ui-sdk/core@0.1.0-beta.5"
+  - "@ui-sdk/vue@0.1.0-beta.5"

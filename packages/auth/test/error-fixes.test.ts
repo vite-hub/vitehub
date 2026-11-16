@@ -4,7 +4,7 @@ import { authErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { stateless } from "../src/presets.ts"
 
 it("gives each Auth code a fix and its own docs page", () => {
-  // The named codes take typed params. Their own tests check them.
+  // The named codes take typed params. error-fixes-classes.test.ts checks them.
   for (const [code, create] of Object.entries(authErrorDiagnostics).filter(([code]) => /_[BCR]\d{4}$/.test(code))) {
     const error: { docs?: string, fix?: string } = Reflect.apply(create, undefined, [{ message: "message" }])
     expect(error.fix, code).toMatch(/\S/)

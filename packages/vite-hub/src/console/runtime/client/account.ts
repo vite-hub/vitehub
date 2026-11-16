@@ -73,7 +73,10 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
     const message: unknown = body instanceof Object ? Reflect.get(body, "message") : undefined
-    throw failure({ status: response.status }, String(message) === message && message ? message : `The Console answered ${response.status}.`)
+    // A code of the Console catalog also carries its fix.
+    const fix: unknown = body instanceof Object ? Reflect.get(body, "fix") : undefined
+    const why = String(message) === message && message ? message : `The Console answered ${response.status}.`
+    throw failure({ status: response.status }, String(fix) === fix && fix ? `${why} ${fix}` : why)
   }
   // SAFETY: The Console server owns these routes and their answers.
   return body as T
@@ -251,6 +254,34 @@ export async function renameConsoleAccount(name: string): Promise<void> {
   if (error) throw failure(error, "The name was not saved.")
 }
 
+/** An API key of the signed-in person, as `GET /api/api-keys` lists it. It never holds the key. */
+export interface ConsoleApiKey {
+  id: string
+  name: string
+  /** The prefix and the first characters of the key, such as `vhk_Ab3x`. */
+  start: string
+  team: { id: string, name: string }
+  /** The projects that the key may open, or `null` for every project of the team. */
+  projectIds: string[] | null
+  createdAt: number
+  expiresAt: number
+  lastUsedAt: number | null
+}
+
+export async function listConsoleApiKeys(): Promise<ConsoleApiKey[]> {
+  return (await json<{ apiKeys: ConsoleApiKey[] }>("/api/api-keys")).apiKeys
+}
+
+/** Make an API key in the active team. The answer holds the key once: show it, then forget it. */
+export async function createConsoleApiKey(input: { name: string, projectIds?: string[], days: number }): Promise<{ apiKey: ConsoleApiKey, key: string }> {
+  return await json<{ apiKey: ConsoleApiKey, key: string }>("/api/api-keys", { body: JSON.stringify(input), method: "POST" })
+}
+
+export async function revokeConsoleApiKey(id: string): Promise<void> {
+  const response = await fetch(`/api/api-keys/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
+}
+
 /**
  * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
  * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
@@ -353,3 +384,48 @@ export const earlyConsoleTeam: EarlyLoad<ConsoleTeamDetails> = early(loadConsole
 
 /** The data of Account settings, loaded early. */
 export const earlyConsoleSignInState: EarlyLoad<ConsoleSignInState> = early(loadConsoleSignInState)
+
+/** A name of a stage, as `GET /api/projects/<id>/env/<stage>` lists it. The Console never lists values. */
+export interface ConsoleEnvVariable {
+  name: string
+  updatedAt: string
+}
+
+/**
+ * The env values of one stage of a project. `off` is a Console that stores no values, which is the default: `message`
+ * says how its operator turns them on.
+ */
+export type ConsoleEnvStage =
+  | { off: true, message: string }
+  | { off: false, stage: string, stages: string[], variables: ConsoleEnvVariable[], canReveal: boolean }
+
+function envPath(projectId: string, ...parts: string[]): string {
+  return [`/api/projects/${encodeURIComponent(projectId)}/env`, ...parts.map(encodeURIComponent)].join("/")
+}
+
+export async function loadConsoleEnvStage(projectId: string, stage: string): Promise<ConsoleEnvStage> {
+  const response = await fetch(envPath(projectId, stage), { credentials: "same-origin", headers: { accept: "application/json" } })
+  const body: unknown = await response.json().catch(() => undefined)
+  const field = (name: string): unknown => body instanceof Object ? Reflect.get(body, name) : undefined
+  const message = field("message")
+  if (field("code") === "CONSOLE_ENV_VALUES_OFF") return { message: String(message), off: true }
+  if (!response.ok) throw failure({ status: response.status }, typeof message === "string" && message ? message : `The Console answered ${response.status}.`)
+  // SAFETY: The Console server owns this route and its answer.
+  return { ...(body as Omit<ConsoleEnvStage & { off: false }, "off">), off: false }
+}
+
+/** Set or replace a value. Only owners and admins. The page never shows the value again. */
+export async function setConsoleEnvValue(projectId: string, stage: string, name: string, value: string): Promise<void> {
+  await json(envPath(projectId, stage, name), { body: JSON.stringify({ value }), method: "PUT" })
+}
+
+export async function deleteConsoleEnvValue(projectId: string, stage: string, name: string): Promise<void> {
+  const response = await fetch(envPath(projectId, stage, name), { credentials: "same-origin", method: "DELETE" })
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
+}
+
+/** Read one value. The Console writes who read it in the env activity first. */
+export async function revealConsoleEnvValue(projectId: string, stage: string, name: string): Promise<string | undefined> {
+  const { values } = await json<{ values: Record<string, string> }>(envPath(projectId, stage, "reveal"), { body: JSON.stringify({ names: [name] }), method: "POST" })
+  return values[name]
+}
