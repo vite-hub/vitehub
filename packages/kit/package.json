@@ -29,6 +29,7 @@
   "sideEffects": [
     "./dist/styles/default.css",
     "./dist/styles/tailwind.css",
+    "./dist/styles/default.scoped.css",
     "./dist/styles/tokens.css"
   ],
   "exports": {
@@ -45,6 +46,7 @@
     "./package.json": "./package.json",
     "./styles/default.css": "./dist/styles/default.css",
     "./styles/tailwind.css": "./dist/styles/tailwind.css",
+    "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
     "./styles/tokens.css": "./dist/styles/tokens.css"
   },
   "scripts": {
@@ -55,8 +57,8 @@
     "test:styles": "node --test test/browser/styles.browser.mjs"
   },
   "dependencies": {
-    "@ui-sdk/core": "0.1.0-beta.2",
-    "@ui-sdk/vue": "0.1.0-beta.2"
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/vue": "0.1.0-beta.5"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "catalog:ui",
@@ -69,6 +71,8 @@
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "playwright-core": "catalog:browser",
+    "postcss": "^8.5.29",
+    "postcss-selector-parser": "^7.1.6",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

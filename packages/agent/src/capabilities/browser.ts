@@ -166,7 +166,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
         return
       }
       if (launched) {
-        throw new Error("[vitehub] browser({ runtime: \"managed\" }) cannot be used with driver.launch because the launcher may run on another filesystem. Remove runtime, or use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+        throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: true })
       }
       const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({

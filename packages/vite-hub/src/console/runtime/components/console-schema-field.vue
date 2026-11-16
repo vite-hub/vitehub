@@ -237,7 +237,7 @@ function updateChild(name: string, value: unknown): void {
         :aria-controls="`${inputId}-fields`"
         @click="expanded = !expanded"
       >
-        <span v-if="field.image" class="vitehub-image-backdrop grid h-5 w-8 shrink-0 place-items-center overflow-hidden rounded-md p-0.5 outline outline-(--ui-border) -outline-offset-1">
+        <span v-if="field.image" class="vitehub-image-backdrop grid h-5 w-8 shrink-0 place-items-center overflow-hidden rounded-md p-0.5 outline outline-(--border) -outline-offset-1">
           <img v-if="imageSource && !imageFailed" :src="imageSource" alt="" class="size-full object-contain" @error="imageFailed = true">
           <UIcon v-else name="i-lucide-image" class="size-3 text-dimmed" aria-hidden="true" />
         </span>
@@ -258,7 +258,7 @@ function updateChild(name: string, value: unknown): void {
     <div v-if="expanded" :id="`${inputId}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
       <ConsolePropertyRow v-if="field.image && imageSource && !imageFailed" icon="i-lucide-eye" label="Preview" :depth="level + 1">
         <div class="px-2.5 py-1.5">
-          <img :src="imageSource" :alt="imageAlt" class="vitehub-image-backdrop max-h-24 max-w-full rounded-md object-contain p-2 outline outline-(--ui-border) -outline-offset-1" @error="imageFailed = true">
+          <img :src="imageSource" :alt="imageAlt" class="vitehub-image-backdrop max-h-24 max-w-full rounded-md object-contain p-2 outline outline-(--border) -outline-offset-1" @error="imageFailed = true">
         </div>
       </ConsolePropertyRow>
       <ConsoleSchemaField
@@ -442,7 +442,7 @@ function updateChild(name: string, value: unknown): void {
 <style>
 /* A checkerboard behind image previews, so transparent areas of the artwork stay visible. */
 .vitehub-image-backdrop {
-  background-color: var(--ui-bg);
+  background-color: var(--background);
   background-image: conic-gradient(var(--ui-bg-accented) 25%, transparent 0 50%, var(--ui-bg-accented) 0 75%, transparent 0);
   background-size: 12px 12px;
 }

@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { createTwoFilesPatch } from "diff"
 
 import { codemods } from "./registry.ts"
-import { CodemodError } from "./types.ts"
+import { codemodError, codemodsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, FileEdit } from "./types.ts"
 
@@ -29,14 +29,14 @@ export interface CodemodRun {
 export async function checkEditPath(root: string, file: string): Promise<void> {
   const local = relative(root, resolve(root, file))
   if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local)) {
-    throw new CodemodError(`Cannot migrate ${file}: the edit is outside the project.`)
+    throw codemodError(`Cannot migrate ${file}: the edit is outside the project.`)
   }
   let path = root
   for (const part of local.split(sep)) {
     path = join(path, part)
     try {
       if ((await lstat(path)).isSymbolicLink()) {
-        throw new CodemodError(`Cannot migrate ${file}: it is a symbolic link or is inside a symbolic link. Replace the link with a local file or directory before migrating.`)
+        throw codemodError(`Cannot migrate ${file}: it is a symbolic link or is inside a symbolic link. Replace the link with a local file or directory before migrating.`)
       }
     }
     catch (error) {
@@ -62,13 +62,13 @@ export function findCodemod(name: string): Codemod | undefined {
 }
 
 /**
- * Runs one codemod. Writes its edits unless `dryRun` is set. Throws `CodemodError` when it cannot migrate, also when an
+ * Runs one codemod. Writes its edits unless `dryRun` is set. Throws `CODEMODS_BLOCKED` when it cannot migrate, also when an
  * edit is a symbolic link or is inside one.
  */
 export async function runCodemod(name: string, options: RunCodemodOptions = {}): Promise<CodemodRun> {
   const codemod = findCodemod(name)
   if (!codemod) {
-    throw new CodemodError(`Unknown codemod "${name}". Available: ${codemods.map(entry => entry.name).join(", ")}.`)
+    throw codemodsErrorDiagnostics.CODEMODS_UNKNOWN({ available: codemods.map(entry => entry.name), name })
   }
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false

@@ -160,7 +160,7 @@
 
 /* Before the app picks a mode with `.light`, `.dark`, or `data-theme`, the page follows the system. */
 @media (prefers-color-scheme: dark) {
-  :root:not(.light, [data-theme]) {
+  :root:not(.light, .dark, [data-theme]) {
     color-scheme: dark;
 
     --background: oklch(0.145 0 0);
