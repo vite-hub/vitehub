@@ -116,6 +116,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
   // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
+  "@vite-hub/ui/comment-marks.css",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/theme",
   "@vite-hub/ui/theme.css",
