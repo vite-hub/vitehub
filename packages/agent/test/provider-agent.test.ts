@@ -6400,7 +6400,7 @@ cli_auth_credentials_store = "keyring"
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "AGENT_R0712" })
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("colocated Skill under .agents/skills/<name>") })
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
   })
 
