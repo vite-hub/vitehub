@@ -1,4 +1,4 @@
-import { clearDevice, openDevice, setDeviceAccount } from "@vite-hub/device"
+import { clearDevice, inspectDevice, openDevice, setDeviceAccount } from "@vite-hub/device"
 import { ref, shallowRef } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
@@ -434,9 +434,15 @@ interface ConsoleAccountBoot {
 export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<string | undefined> {
   showAccountPath = options.showPath
   await openDevice({ version: consoleDeviceVersion })
-  const read = readStored(consoleAccountKey, loadConsoleAccount)
   // Only a page with a session cookie uses the stored account. The server picks the sign-in page without one.
   const signedIn = options.boot === "app" || options.boot === "shell"
+  // The device stores only the answers of reads that start after the page names its account. With a session cookie, the
+  // account is most likely the account of the last visit, so the page names it before its first read. An answer for
+  // another person names that person before the device can store it, and then the device deletes every copy. The device
+  // names the account during the call, so the reads do not wait for IndexedDB.
+  const kept = inspectDevice().account
+  if (signedIn && kept) void setDeviceAccount(kept)
+  const read = readStored(consoleAccountKey, () => loadDeviceAccount(kept))
   const stored = signedIn && read.stored && opensFromStored(read.stored, options) ? read.stored : undefined
   // Without a stored account, the `project.get` of a `?app=<id>` link goes out now, so it does not wait for the account.
   const linked = new URLSearchParams(options.search ?? "").get("app")
@@ -448,9 +454,24 @@ export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<
     return address
   }
   const account = await read.answer.catch(() => undefined)
-  // Another account deletes the stored answers. This page does not open from them, so it does not wait.
+  // Another account deletes the stored answers. The page names the account before the reads of the app start, so the
+  // device keeps their answers for the next visit. It does not wait for IndexedDB to delete the old ones.
   void setDeviceAccount(account?.user.id ?? null)
+  // The first answer started before the page named this account, so the device did not keep it. The next visit opens
+  // from the account only when the device has it.
+  if (account && account.user.id !== kept) void readStored(consoleAccountKey, loadConsoleAccount).answer.catch(() => undefined)
   return startAccountState(account, options)
+}
+
+/**
+ * Load the account of this visit for a page that named `kept`. An answer for another person, or for nobody, names
+ * that account before it returns, so the device never stores it as a copy of `kept`.
+ */
+async function loadDeviceAccount(kept: string | null): Promise<ConsoleAccount | undefined> {
+  const account = await loadConsoleAccount()
+  const id = account?.user.id ?? null
+  if (kept && id !== kept) void setDeviceAccount(id)
+  return account
 }
 
 /** Set the projects of the account and the gate of the page. Returns the address that the page shows. */

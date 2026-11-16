@@ -159,10 +159,22 @@ describe("account Console with stored reads", () => {
     await firstVisit(app)
     app.answers.hold = true
     app.answers.account = bob
+    // Each copy that reaches the disk, with the account of the disk that the write expects.
+    const written: string[] = []
+    const open = browser.disk.open
+    browser.disk.open = async () => {
+      const storage = await open()
+      return { ...storage, write: (expected, change) => {
+        written.push(...change.puts.map(entry => `${expected.account} ${entry.json}`))
+        return storage.write(expected, change)
+      } }
+    }
     const page = await openPage(app)
     await page.start()
     app.release()
     await vi.waitFor(() => expect(page.navigate).toHaveBeenCalledWith("/"))
+    // The answer for Bob never reached the disk as a copy of Ada, also not for a moment, as when the tab closes then.
+    expect(written.filter(copy => copy.startsWith("u-ada ") && copy.includes("u-bob"))).toEqual([])
     // Nothing of Ada stays on the device, and the device belongs to Bob now.
     expect(browser.disk.keys).toEqual([])
     expect(browser.disk.meta?.account).toBe("u-bob")
