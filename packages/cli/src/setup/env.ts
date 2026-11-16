@@ -16,7 +16,7 @@ import { githubEnv, isGitHubSecretName, resolveGitHubRepository, resolveGitHubTo
 import { createDeployRun } from "./deploy/host.ts"
 import { netlifyEnv } from "./deploy/netlify.ts"
 import { vercelEnv } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { isSetupFailure, setupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 
@@ -122,21 +122,21 @@ function readEnvArgs(args: readonly string[], push: boolean, usage: string | und
     return { help: values.help === true, ...(host ? { host } : {}), ...(github ? { github } : {}), json: values.json === true, only, stage, yes: values.yes === true }
   }
   catch (error: unknown) {
-    if (error instanceof SetupFailure || (error instanceof Error && "why" in error)) throw error
+    if (isSetupFailure(error) || (error instanceof Error && "why" in error)) throw error
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
 
 function stageTarget(host: DeployHost, stage: string): HostEnvTarget {
   if (stage === "production") return "production"
-  if (stage !== "preview" || noPreview.has(host)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_STAGE_UNSUPPORTED({ host, stage }), setupExitCodes.conflict)
+  if (stage !== "preview" || noPreview.has(host)) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_STAGE_UNSUPPORTED({ host, stage }), setupExitCodes.conflict)
   return "preview"
 }
 
 function linkedTarget(links: Awaited<ReturnType<typeof readSetupLinks>>, host: DeployHost | undefined, command: string): SetupLink {
   const selected = selectSetupLink(links, host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, command)
-  if (!selected.link) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
+  if (!selected.link) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
   return selected.link
 }
 
@@ -146,7 +146,7 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
     return (await readBuildOutput(project.root, host)).env
   }
   catch (error: unknown) {
-    const code = error instanceof SetupFailure ? Reflect.get(error.cause, "code") : undefined
+    const code = isSetupFailure(error) ? Reflect.get(error, "code") : undefined
     if (code !== "SETUP_DEPLOY_OUTPUT_MISSING" && code !== "SETUP_DEPLOY_HOST_MISMATCH") throw error
   }
   context.stderr.write(`No build output for ${host}. Building it to read the names.\n`)
@@ -198,7 +198,7 @@ async function openGitHubTarget(args: EnvArgs, options: NonNullable<EnvArgs["git
   const selected = selectSetupLink(await readSetupLinks(project.root), args.host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, `${command} --to github`)
   const host = args.host ?? selected.link?.host
-  if (!host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({}), setupExitCodes.inputNeeded, { missing: [{ field: "host" }], rerun: `${command} --to github --host cloudflare` })
+  if (!host) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({}), setupExitCodes.inputNeeded, { missing: [{ field: "host" }], rerun: `${command} --to github --host cloudflare` })
   const entries = (await readNames(project, host, context)).flatMap((entry) => {
     const names = entry.names.filter(isGitHubSecretName)
     return names.length || entry.prefix ? [{ ...entry, names }] : []
@@ -360,7 +360,7 @@ interface PlannedValue {
 function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<string, LocalValue>, only: readonly string[]): { planned: PlannedValue[], skipped: EnvPushOutput["skipped"] } {
   const wanted = only.length ? new Set(only) : undefined
   const unknown = only.filter(name => !entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name)))
-  if (unknown.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_NAME_UNKNOWN({ names: unknown.join(", ") }), setupExitCodes.inputNeeded)
+  if (unknown.length) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_NAME_UNKNOWN({ names: unknown.join(", ") }), setupExitCodes.inputNeeded)
   const planned = new Map<string, PlannedValue>()
   const skipped: EnvPushOutput["skipped"] = []
   for (const entry of entries) {
@@ -390,7 +390,7 @@ async function assertUntracked(planned: readonly PlannedValue[], root: string, r
   }
   for (const [file, names] of byFile) {
     const result = await run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: root, env }).catch(() => undefined)
-    if (result?.exitCode === 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
+    if (result?.exitCode === 0) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
   }
 }
 
@@ -440,8 +440,8 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   await assertUntracked(planned, target.project.root, target.run, context.env)
   if (!args.yes) {
     const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
-    if (!interactive) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: `[vitehub] \`vitehub env push\` changes ${target.github ? "GitHub Actions secrets" : "host variables"} and was not confirmed. Without a terminal, pass --yes.` }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
-    if (!await confirmPush(planned, targetLabel(output))) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The push was not confirmed. Nothing was pushed." }), setupExitCodes.error)
+    if (!interactive) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: `[vitehub] \`vitehub env push\` changes ${target.github ? "GitHub Actions secrets" : "host variables"} and was not confirmed. Without a terminal, pass --yes.` }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
+    if (!await confirmPush(planned, targetLabel(output))) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The push was not confirmed. Nothing was pushed." }), setupExitCodes.error)
   }
   const remoteName = (name: string) => target.github ? name.toUpperCase() : name
   const onHost = new Set((await target.hostEnv.listSecretNames()).map(remoteName))
@@ -540,7 +540,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
     // Even an undeclared or optional remote secret would otherwise inherit the other stage's value.
     const unavailable = [...onHost].filter(name => !values.has(name))
     if (unavailable.length) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
+      throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
     }
     for (const item of planned) if (onHost.has(item.name)) item.secret = true
   }
@@ -558,13 +558,13 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const required = missing.filter(isRequired)
   if (required.length) {
     const names = required.map(entry => entryLabel(diffEntry(entry))).join(", ")
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
       data: { env: { ...output, missing: missing.map(diffEntry) } },
       missing: required.map(entry => ({ field: entry.names[0] ?? `${entry.prefix}*` })),
     })
   }
   if (planned.length && !hostEnv && host !== "cloudflare") {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
   }
   await assertUntracked(planned, options.root, options.run, context.env)
 

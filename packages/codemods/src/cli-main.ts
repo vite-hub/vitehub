@@ -1,7 +1,7 @@
 import { formatMigrationReport, runMigration } from "./migrate.ts"
 import { codemods } from "./registry.ts"
 import { formatDiff, formatReport, runCodemod } from "./runner.ts"
-import { CodemodError } from "./types.ts"
+import { isCodemodError } from "./error-diagnostics.ts"
 
 export interface CliOutput {
   stdout: (text: string) => void
@@ -65,8 +65,8 @@ export async function runCli(argv: readonly string[], output: CliOutput = defaul
     return migration.steps.some(step => step.error) ? 1 : 0
   }
   catch (error) {
-    if (error instanceof CodemodError) {
-      output.stderr(`Error: ${error.message}\n`)
+    if (isCodemodError(error)) {
+      output.stderr(`Error: ${error.message}\n${error.fix ? `Fix: ${error.fix}\n` : ""}`)
       return 1
     }
     output.stderr(`Error: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)

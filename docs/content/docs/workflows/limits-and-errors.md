@@ -79,21 +79,33 @@ It works in a step file, in a single-file Workflow, and in a `native` entry:
 
 ViteHub finds the error by `isRetryable === false` or by the name `NonRetryableError`, so an error from another copy of the package also works. In a folder `index.ts` on OpenWorkflow, a `catch` gets a new `NonRetryableError` with the same `name`, `message`, and `code`, not the original object.
 
-A `setTimeout` in a handler is not durable. Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps, with a duration such as `'1 day'`. The run sleeps on Cloudflare and OpenWorkflow. A Vercel `native` entry uses `sleep()` from Workflow DevKit. Inline runs and normal Vercel handlers have no `context.step` in a folder Workflow.
+A `setTimeout` in a handler is not durable. Only a folder Workflow can sleep. Its `index.ts` calls `context.sleep()` between steps, with a duration or a `Date`:
 
 ```ts [server/workflows/remind-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('remind-user', async (payload: { email: string }, { step, steps }) => {
+export default defineWorkflow('remind-user', async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
   await steps.sendWelcome(payload)
-  await step?.sleep?.('wait-a-day', '1 day')
+  await sleep('1 day')
+  await sleep(new Date(payload.remindAt))
   await steps.sendReminder(payload)
 })
 ```
 
-After a sleep, the provider runs `index.ts` again from the start. Completed step files return their stored results and do not run again, so put each side effect in a numbered step file.
+A duration is a number of milliseconds or a string such as `'30 seconds'` or `'1 day'`: a number, one space, and a unit (second, minute, hour, day, week, month, or year, with or without a final `s`). A month is 30 days and a year is 365.25 days. Another form throws `WORKFLOW_SLEEP_DURATION_INVALID`.
 
-A single-file Workflow, such as `server/workflows/remind-user.ts`, runs as one root step. A replay after a sleep would run the code before the sleep again. So `context.step.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. Move the Workflow to a folder to fix it.
+| Provider | Sleep |
+| --- | --- |
+| Cloudflare | Durable. Uses `step.sleep()` and `step.sleepUntil()`, at most 365 days. |
+| OpenWorkflow | Durable. Stores the wake time in its database. |
+| Inline runs (`vite dev`, normal Vercel handlers) | Waits with a timer. Not durable: a restart loses the run. |
+| Vercel `native` entry | Use `sleep()` from Workflow DevKit. |
+
+After a sleep, the provider runs `index.ts` again from the start. Completed step files return their stored results and do not run again, so put each side effect in a numbered step file. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put a value that changes, such as `Date.now()`, in a step file.
+
+`getWorkflowRun()` lists each OpenWorkflow sleep in `steps`, with the name `sleep-1` and the wake time in `sleepUntil`. A sleeping Cloudflare run reports `running`, and `metadata.status` is `waiting`.
+
+A single-file Workflow, such as `server/workflows/remind-user.ts`, runs as one root step. A replay after a sleep would run the code before the sleep again. So `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. Move the Workflow to a folder to fix it.
 
 ## Production checks
 
