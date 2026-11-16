@@ -15,6 +15,7 @@ import ConsoleMediaFocal from "./console-media-focal.vue";
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaFocal as ConsoleMediaFocalPoint, ConsoleMediaReferenceDocument } from "../client/media-library";
 import ConsoleSection from "./console-section.vue";
 import ConsoleStatGrid from "./console-stat-grid.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The details of one file: a preview, alt text and caption that save as you type, size and format, the served URL,
@@ -184,7 +185,7 @@ const facts = computed(() => [
           @update:model-value="setFocal"
         />
         <div v-else class="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-md bg-elevated text-dimmed">
-          <UIcon :name="consoleMediaTypeIcons[type]" class="size-8" aria-hidden="true" />
+          <Icon :name="consoleMediaTypeIcons[type]" class="size-8" aria-hidden="true" />
           <span class="text-xs">{{ url ? consoleMediaFormat(file) : "Not served. Enable blob.serve to preview files." }}</span>
         </div>
         <p v-if="preview" class="text-xs text-muted">
@@ -265,7 +266,7 @@ const facts = computed(() => [
               :to="documentRoute(reference)"
               class="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] hover:bg-elevated"
             >
-              <UIcon name="i-lucide-file-text" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
+              <Icon name="i-lucide-file-text" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate text-highlighted">{{ reference.title }}</span>
               <span class="shrink-0 text-xs text-dimmed">{{ reference.refs.includes("published") ? (reference.refs.includes("draft") ? "Published" : "Published only") : "Draft" }}</span>
             </RouterLink>

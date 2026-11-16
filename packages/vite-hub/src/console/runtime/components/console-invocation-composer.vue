@@ -7,6 +7,7 @@ import { consoleBytes } from "../client/format";
 import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../client/invocation";
 import { ConsoleRequestError } from "../client/request";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -114,7 +115,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           <template #footer-leading>
             <div class="console-invocation-composer__context flex min-w-0 items-center gap-0.5 text-xs text-muted">
               <span class="flex h-7 min-w-0 items-center gap-1.5 px-2">
-                <UIcon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
+                <Icon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
                 <span class="truncate">{{ agent }}</span>
               </span>
               <template v-if="profiles.length > 1">
