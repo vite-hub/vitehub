@@ -2450,14 +2450,15 @@ describe("Babysitter preset runtime", () => {
   describe("merge.foldStacks", () => {
     const parent = { number: 7, state: "open", head: { ref: "feat/parent", sha: "d".repeat(40), repo: { full_name: "acme/app", owner: { login: "acme" } } }, base: { ref: "main" } };
     /** A stack child of open PR #7, whose live record the fixture serves. */
-    const stackChild = async (options: { merge?: unknown; deleteBranchOnMerge?: boolean } = {}) => {
-      const f = await fixture(false, false, { merge: options.merge ?? "direct", base: "feat/parent", parents: [parent] });
+    const stackChild = async (options: { merge?: unknown; deleteBranchOnMerge?: boolean; parents?: unknown[] } = {}) => {
+      const parents = options.parents ?? [parent];
+      const f = await fixture(false, false, { merge: options.merge ?? "direct", base: "feat/parent", parents });
       const command = f.command.getMockImplementation()!;
       let grandchildBase = "fix";
       f.command.mockImplementation(async (args, request) => {
         const text = args.join(" ");
         const path = args.find(arg => arg.startsWith("repos/")) ?? "";
-        if (path === "repos/acme/app/pulls/7" && !text.includes("-X")) return { stdout: JSON.stringify(parent), stderr: "" };
+        if (path.includes("state=open") && path.includes("head=acme%3Afeat%2Fparent")) return { stdout: parents.map(value => JSON.stringify(value)).join("\n"), stderr: "" };
         if (options.deleteBranchOnMerge) {
           if (path === "repos/acme/app") return { stdout: JSON.stringify({ ...JSON.parse((await command(args, request)).stdout), delete_branch_on_merge: true }), stderr: "" };
           if (text.includes("-X PATCH") && path === "repos/acme/app/pulls/13") {
@@ -2494,6 +2495,15 @@ describe("Babysitter preset runtime", () => {
         expect(f.grandchildBase()).toBe("feat/parent");
         expect(f.events).toHaveBeenCalledWith("babysitter.stack.children_retargeted", expect.objectContaining({ children: [13], base: "feat/parent" }));
         expect(mergeRequest(f)).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async"]));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("does not fold into a branch that two open pull requests own", async () => {
+      const f = await stackChild({ parents: [parent, { ...parent, number: 8, base: { ref: "release" } }] });
+      try {
+        await f.reconcile();
+        expect(mergeRequest(f)).toBeUndefined();
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
       } finally { await f.runtime.inbox.close(); }
     });
 
@@ -2878,6 +2888,21 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
       expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=feat/grandparent"]));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retargets a stacked PR past a merged chain of folded parents to the default branch", async () => {
+    // B (feat/parent) folded into A (feat/grandparent), then A merged into main before this child moved.
+    const b = { state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "feat/grandparent" } };
+    const a = { number: 5, state: "closed", merged_at: "2026-10-02T00:00:00Z", head: { ref: "feat/grandparent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } };
+    const f = await fixture(false, false, { base: "feat/parent", parents: [b] });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => (args.find(arg => arg.startsWith("repos/")) ?? "").includes("head=acme%3Afeat%2Fgrandparent")
+      ? { stdout: JSON.stringify(a), stderr: "" } : command(args, request));
+    try {
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
     } finally { await f.runtime.inbox.close(); }
   });
 

@@ -467,8 +467,8 @@ A stacked pull request has the branch of another open pull request as its base. 
 - The fold uses a merge commit, so a grandchild keeps its own diff when it moves onto the parent's branch. The parent's merge into the default branch still uses `merge.method`. When the repository does not allow merge commits, the fold uses `merge.method`.
 - Only a child and a parent with branches in the repository itself fold. A fork's pull request waits for its parent.
 - The host folds only into a branch that exactly one open pull request owns. A long-lived branch without an open pull request, such as an integration branch, keeps the old behavior: the child waits there.
-- A fold and a merge of the parent never run at the same time, so a child never lands on a branch that already merged.
-- When the repository deletes merged branches, the host first moves the grandchildren onto the parent's branch. When it keeps them, it moves each grandchild to the parent's branch after the fold.
+- A fold and a merge of the parent never run at the same time, and only one child folds into a parent at a time, so a child never lands on a branch that already merged.
+- When the repository deletes merged branches, the host first moves the grandchildren onto the parent's branch. When it keeps them, it moves each grandchild to the parent's branch after the fold. When that parent also merged, the grandchild moves up the chain to the first open pull request's branch, or to the default branch.
 
 Without a fold, when the parent of a stacked pull request merges into the default branch, the host retargets the child to the default branch. Until then the child waits for its parent. With `repairStackChildren: true`, the child gets passes for its own checks, conflicts and feedback in parallel, and waits for the parent once its reviewed head has nothing left to repair.
 

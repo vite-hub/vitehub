@@ -803,7 +803,9 @@ export class PullRequestInbox {
         (s.revision ?? 0) !== (claim.snapshot.revision ?? 0) || s.leaseUntil <= this.clock()) return false
       if (await this.metaIn(tx, this.directMergeKey(s.repository, s.number)) !== undefined) return false
       if (await this.foldingChildIn(tx, s.repository, s.number) !== undefined) return false
-      if (foldInto !== undefined && await this.metaIn(tx, this.directMergeKey(s.repository, foldInto)) !== undefined) return false
+      // One fold at a time per parent: the parent's marker names one child, and a sibling must not replace it.
+      if (foldInto !== undefined && (await this.metaIn(tx, this.directMergeKey(s.repository, foldInto)) !== undefined
+        || await this.foldingChildIn(tx, s.repository, foldInto) !== undefined)) return false
       await this.setMetaIn(tx, this.directMergeKey(s.repository, s.number), {
         token: claim.token, generation: claim.generation, revision: claim.snapshot.revision ?? 0,
         head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}), ...(foldInto === undefined ? {} : { foldInto }),

@@ -970,8 +970,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
       if (foldInto !== undefined) {
         // The parent must still be the one open pull request from this branch, with no merge of its own in flight.
-        const parent = await readPull(repository, foldInto, signal);
-        const folded = foldParent(live, [parent]);
+        const owners = await readPulls(repository, { state: "open", head: `${repository.split("/")[0]}:${base}`, limit: 10 }, signal);
+        const folded = foldParent(live, owners);
         const reason = folded?.number !== foldInto ? `parent #${foldInto} no longer owns ${base}`
           : await pullRequestInbox.directMergeAttempt(repository, foldInto) ? `parent #${foldInto} has a merge in flight` : undefined;
         if (reason) {
@@ -1454,15 +1454,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!pr || !target) return undefined;
     const { base, owner } = target;
     const parents = await readPulls(snapshot.repository, { state: "all", head: `${owner}:${base}`, limit: 10 }, signal);
+    // A parent that folded into another pull request's branch moves its children there. When that
+    // pull request merged too, follow the chain up to an open pull request's branch or the default
+    // branch. A branch without an open or merged owner may be stale, and moving there would strand the change.
     let to = stackRetargetBase(pr, parents);
-    // A parent that folded into another pull request's branch moves its children there. A branch
-    // without an open pull request may be stale, and moving there would strand the change.
-    if (to && to !== pr.base?.repo?.default_branch
-      && !(await readPulls(snapshot.repository, { state: "open", head: `${owner}:${to}`, limit: 10 }, signal)).some(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open"
-        && isRuntimeRecord(value.head) && value.head.ref === to)) to = undefined;
+    for (let hop = 0; to && to !== pr.base?.repo?.default_branch; hop++) {
+      const branch: string = to;
+      if (hop === 10) { to = undefined; break; }
+      const owners = await readPulls(snapshot.repository, { state: "all", head: `${owner}:${branch}`, limit: 10 }, signal);
+      if (owners.some(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && isRuntimeRecord(value.head) && value.head.ref === branch)) break;
+      to = stackRetargetBase({ ...pr, base: { ...pr.base, ref: branch } }, owners);
+    }
     if (!to) {
-      const parent = parents.find(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number));
-      return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number, ownsBase: true } : undefined;
+      const open = parents.filter(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number)
+        && isRuntimeRecord(value.head) && value.head.ref === base);
+      const parent = open[0];
+      // Two open pull requests from one branch make the fold target unclear, so the child only waits.
+      return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number, ownsBase: open.length === 1 } : undefined;
     }
     const live = await readPull(snapshot.repository, snapshot.number, signal);
     if (!isRuntimeRecord(live) || String(live.state).toLowerCase() !== "open"
