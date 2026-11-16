@@ -42,10 +42,11 @@ describe("discoverSync", () => {
 })
 
 describe("renderSyncHandler", () => {
-  it("passes the Database registry, and the session only with Auth", () => {
+  it("passes the default or only Database, and the session only with Auth", () => {
     const definitions = [{ name: "todos", file: "/app/server/sync/todos.ts" }]
     const bare = renderSyncHandler(definitions, { imports })
-    expect(bare).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
+    expect(bare).toContain("import { useDatabase } from \"@vite-hub/database/runtime/registry\"")
+    expect(bare).toContain("db: () => useDatabase().db")
     expect(bare).toContain("import sync0 from \"/app/server/sync/todos.ts\"")
     expect(bare).toContain("definitions: { \"todos\": sync0 }")
     expect(bare).not.toContain("useAuth")
@@ -64,7 +65,7 @@ describe("hubSync", () => {
     const nitro: unknown = Reflect.get(config, "nitro")
     expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, route: "/api/_vitehub/sync/**" }]))
     expect(readFileSync(join(root, ".vitehub/types/sync.d.ts"), "utf8")).toContain("interface ViteHubSyncMap")
-    expect(plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
+    expect(plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncColumns: "vitehub_sync_columns", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
   })
 
   it("does nothing without server/sync/, and removes old output", async () => {

@@ -3603,6 +3603,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      miniflare:
+        specifier: 4.20260730.0
+        version: 4.20260730.0
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0

@@ -4551,7 +4551,29 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       // SAFETY: The module initializes Nuxt's imports collection.
       const imports = (nuxt: typeof withSync.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
       expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/client", name: "clearSync" })
       expect(imports(withoutSync.nuxt)).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      // Without Auth, no plugin clears Sync on sign-out.
+      expect(withSync.nuxt.options.plugins).toEqual([])
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("clears Sync after a sign-out of ViteHub Auth, only when the app has Auth and server/sync/", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-auth-"))
+    try {
+      await mkdir(resolve(root, "server/sync"), { recursive: true })
+      const { nuxt } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.serverDir = resolve(root, "server")
+
+      await viteHubNuxtModule({ auth: true, host: "node" }, nuxt)
+
+      const src = resolve(root, ".vitehub/sync/nuxt-sign-out.mjs")
+      expect(nuxt.options.plugins).toContainEqual({ src, mode: "client" })
+      expect(await readFile(src, "utf8")).toContain("onSignOut(() => clearSync())")
     }
     finally {
       await rm(root, { recursive: true, force: true })

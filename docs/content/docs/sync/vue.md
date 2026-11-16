@@ -1,6 +1,6 @@
 ---
 title: Sync in Vue
-description: Read and write a synced table in Vue with useSync(), handle refused writes, sign out, and use the store without Vue.
+description: Read and write a synced table in Vue with useSync(), load subsets, call actions, show pending rows and live changes, and use the store without Vue.
 navigation.title: Vue
 navigation.order: 8
 icon: i-lucide-panels-top-left
@@ -30,28 +30,33 @@ Components that use one name share one store. It stops when the last of them unm
 | `rows` | The rows from the server, with the writes that wait applied on top. New rows come last. |
 | `status` | `idle` on the server and until the stored rows are read, so a server-rendered page hydrates without a mismatch. Then `loading` until the first pull, and `ready`. `offline` when the network failed, `error` when the server refused the caller or failed. |
 | `error` | The error of the last pull or push, with its `code`. `null` after a success. |
-| `queued` | The number of writes that the server did not confirm yet. |
+| `queued` | The number of writes of the signed-in account that the server did not confirm yet. |
 | `failures` | Refused writes, oldest first. Each has `key`, `mutation`, and `error`. |
 | `persisted` | `true` when the rows and the queue are in IndexedDB. |
+| `live` | `true` while the live stream of this tab is open for this table or subset. It is `false` while the stream opens again, such as after it ended or a store joined. See [Live changes](#live-changes). |
 
-| Action | Does |
+| Method | Does |
 | --- | --- |
 | `get(key)` | The row with this key, or `undefined`. |
-| `insert(value)` | Adds a row. It makes the key with `crypto.randomUUID()`, unless `value` has one, and adds the `where` values. |
+| `pending(key)` | `true` while a write that waits changes this row. |
+| `insert(value)` | Adds a row. It makes the key with `crypto.randomUUID()`, unless `value` has one, and adds the defaults of the table and the `where` values. |
 | `update(key, patch)` | Changes the columns in `patch`. The other columns stay as the server has them. |
 | `delete(key)` | Deletes the row. |
+| `actions.<name>(args)` | Calls a server action. See [Actions](#actions). |
 | `refresh()` | Pulls now and sends the queue. |
 | `retry(failure)` | Sends a refused write again, on top of the latest rows. |
 | `dismiss(failure)` | Drops a refused write. |
 
 | Option | Default | Does |
 | --- | --- | --- |
-| `interval` | `30000` | Milliseconds between pulls while the page shows. `false` turns it off. |
+| `where` | none | A subset of the rows, such as `{ issueId }`. A plain object, a ref, or a getter. See [Subsets](#subsets). |
+| `actions` | none | Optimistic functions of actions, by name. See [Actions](#actions). |
+| `interval` | `30000` | Milliseconds between pulls while the page shows. While the live stream is open, it pulls every 5 minutes at most. `false` turns it off. |
 | `persist` | `true` | `false` keeps the rows and the queue in memory only. |
 | `baseURL` | the app base | The base of the app, when it is not at the root. |
 | `fetch` | `fetch` | The function that sends the requests. |
 
-The first `useSync()` of a name sets the options. Later calls share that store.
+The first `useSync()` of a name and subset sets the options. Later calls share that store. Optimistic functions of later calls are added when the store does not have one with that name.
 
 ## Wait for the server
 
@@ -72,6 +77,153 @@ catch (error) {
 
 `SyncError` comes from `vite-hub/sync/client`. A write that waits for the network does not throw. It stays in the queue until it is sent.
 
+Writes that you make in one tick go out in one push. When you change a row two times in one tick, the two updates become one, and the later value wins. An update in a later tick is a new write, also while offline, and the server applies the updates in order. So a retry never sends old values again over newer ones.
+
+## Pending rows
+
+`pending(key)` is `true` while a write or an optimistic action that waits changes the row. Use it to show that a change is not on the server yet:
+
+```vue [app/components/TodoRow.vue] fragment
+<script setup lang="ts">
+const props = defineProps<{ id: string }>()
+const todos = useSync('todos')
+</script>
+
+<template>
+  <li :class="{ 'opacity-60': todos.pending(props.id) }">
+    {{ todos.get(props.id)?.title }}
+  </li>
+</template>
+```
+
+## Subsets
+
+A large table, such as the comments of every issue, does not have to come to the browser at once. Pass `where` to load only a subset. A getter or a ref works, so the subset follows a prop or a route:
+
+```vue [app/components/IssueComments.vue] fragment
+<script setup lang="ts">
+const props = defineProps<{ issueId: string }>()
+const comments = useSync('comments', { where: () => ({ issueId: props.issueId }) })
+</script>
+
+<template>
+  <p v-for="comment in comments.rows" :key="comment.id">{{ comment.body }}</p>
+  <button @click="comments.insert({ body: 'Thanks' })">Reply</button>
+</template>
+```
+
+- Each subset is its own store, with its own rows and queue in IndexedDB. When the issue changes, `useSync()` moves to the store of the new issue. The old store stops when no component uses it.
+- A subset that the browser saw before shows at once, before its pull. Going back to an issue is local.
+- `insert()` adds the subset values, so the new comment has `issueId` at once.
+- The server adds the subset to `where` of the definition. A subset can only narrow what the caller may see. A subset outside `where` gets `SYNC_OUT_OF_SCOPE`.
+- Each value of a subset is one value of a column: a string, a number, a boolean, or `null`. An `undefined` value is left out.
+
+## Actions
+
+An action is a named write with server logic, such as `complete` or `rate`. Define it in the Sync definition. Annotate `args`, so the browser call has the type:
+
+```ts [server/sync/todos.ts] fragment
+import { createError } from 'h3'
+
+export default defineSync({
+  table: todos,
+  where: ({ user }) => user ? { ownerId: user.id } : false,
+  actions: {
+    complete: async ({ get, update }, { id }: { id: string }) => {
+      const todo = await get(id)
+      if (!todo) throw createError({ status: 404, message: 'This todo is gone.' })
+      update(id, { done: true })
+      return { done: true }
+    },
+  },
+})
+```
+
+The [Server API](/docs/sync/server-api) tells what an action gets and how its writes apply.
+
+Call it in the browser. It waits in the same queue as row writes, in order with them, and survives offline time and a reload. Await it for the value that the server action returned:
+
+```ts [app/components/TodoRow.vue] fragment
+const todos = useSync('todos')
+
+const result = await todos.actions.complete({ id })
+```
+
+Without more, the rows change when the server answers, since the answer has the rows that the action wrote. To show the change at once, give an optimistic function. It changes a local copy as the server action will:
+
+```ts [app/components/TodoRow.vue] fragment
+const todos = useSync('todos', {
+  actions: {
+    complete: (local, { id }) => local.update(id, { done: true }),
+  },
+})
+```
+
+- `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait, and `sync(name)` for the stores of another name (see below).
+- The function runs again each time the rows change, until the server answers. Keep it pure: no requests, no random values, no clock.
+- An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
+- When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message of an error with a status below 500, such as the `createError()` above. Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
+- An error in the optimistic function shows in the console. The action still goes to the server.
+- The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
+
+When the server action writes another definition with `sync(name)`, the optimistic function can change the open stores of that name with `local.sync(name)`:
+
+```ts [app/pages/issues/new.vue] fragment
+const issues = useSync('issues', {
+  actions: {
+    create: (local, { id, teamId, title, comment }) => {
+      local.insert({ id, teamId, title })
+      local.sync('comments').insert({ issueId: id, teamId, body: comment })
+    },
+  },
+})
+```
+
+- An insert shows in each open store of that name on the page whose subset the row matches, such as `useSync('comments', { where: { issueId } })`. A store that opens later gets the row from the server.
+- An update that changes a subset column moves the row: it leaves the stores whose subset it does not match now, and shows in the stores whose subset it matches.
+- `local.sync(name).get(key)` reads the row as that store has it without the changes of optimistic functions, plus the changes of the earlier actions in the queue. So when the function runs again, it does not apply its own change twice, such as a count that goes up by one.
+- When the server refuses the action, the change goes away in every store.
+- When the server applies the action, the stores that show a change of it pull at once, and keep the change until their pull brings the rows of the server. A row does not go away or come back in between.
+
+## Live changes
+
+The rows of other people show within about a second. Each tab that shows and is online keeps one live stream open for all its synced tables and subsets, so many `useSync()` calls use one connection. A table or subset that two tabs show streams in one of them, and the other tab gets its changes from that tab. You do not have to turn anything on.
+
+- `live` is `true` in the tab that streams the table or subset. When that tab hides, another tab that shows takes over.
+- When a component opens or closes a table or subset, the tab opens its stream again after a short pause, once for all the changes of that pause.
+- While the stream is open, the interval pull runs every 5 minutes at most. The client still pulls when the page shows again and when the network comes back.
+- The server ends a stream after about 25 seconds, and the client opens a new one at once. After a failure, it waits 1 second, doubling to 30 seconds.
+- A stream belongs to the account, scope and table version of the rows when it opens. When they change, such as after a sign-in or after the person left a team, the client ends the stream, drops its changes, and opens a new one.
+- A definition with `live: false` has no stream. The client then pulls as before: on start, when the page shows, every `interval`, and after each write.
+
+## Accounts and sign-out
+
+Each write belongs to the account that was signed in when it was made: the user that `identify` returns, else the user of ViteHub Auth, else the scope. When another person signs in on the device, the old writes wait in IndexedDB. They do not show in `rows`, do not count in `queued`, and are never sent with the other person's session. When the first person signs in again, they go out.
+
+Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
+
+With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync()` for you, after the server ended the session and before the next page opens. In a Vue app without Nuxt, add it once with `onSignOut()`:
+
+```ts [src/main.ts] fragment
+import { onSignOut } from 'vite-hub/auth/vue'
+import { clearSync } from 'vite-hub/sync/client'
+
+onSignOut(() => clearSync())
+```
+
+With another sign-in, call `clearSync()` after the sign-out request ended. Active stores stay paused after `clearSync()`. After signing in again, call `refresh()` to resume syncing, or create a new store after destroying the old one:
+
+```ts [app/composables/sign-out.ts] fragment
+import { clearSync } from 'vite-hub/sync/client'
+
+export async function signOutEverywhere() {
+  await $fetch('/api/logout', { method: 'POST' })
+  await clearSync()
+}
+```
+
+If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
+
 ## Refused writes
 
 A refused write leaves `rows`, so the row shows what the server has. The write goes to `failures`. Show them, and let the person try again or drop them:
@@ -90,24 +242,7 @@ const todos = useSync('todos')
 </template>
 ```
 
-`retry()` sends the same change on top of the row as it is now, so it keeps the changes that other people made since. A write made for another person, with the code `SYNC_SCOPE_CHANGED`, is never sent. `retry()` keeps it in `failures`.
-
-## Sign out
-
-The rows stay in the browser after a sign-out. Call `clearSync()` when a person signs out, so the next person on the device does not see them. It empties every synced table in every tab, and drops the writes that wait:
-
-```ts [app/composables/sign-out.ts] fragment
-import { clearSync } from 'vite-hub/sync/client'
-
-export async function signOutEverywhere() {
-  await clearSync()
-  await signOut()
-}
-```
-
-Cleared stores stay paused through the identity transition. After signing in again, call `refresh()` on an active store to resume syncing, or create a new store after destroying the old one.
-
-If you forget it, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
+`retry()` sends the same change on top of the row as it is now, so it keeps the changes that other people made since. For an action, it calls the action again.
 
 ## Without Vue
 
@@ -116,13 +251,22 @@ If you forget it, the next person still never gets the old rows from the server,
 ```ts [app/todos.ts] fragment
 import { createSync } from 'vite-hub/sync/client'
 
-const todos = createSync('todos')
+const todos = createSync('todos', {
+  actions: { complete: (local, { id }) => local.update(id, { done: true }) },
+})
 const stop = todos.subscribe(() => render(todos.getState().rows))
 todos.insert({ title: 'Milk' })
+todos.actions.complete({ id: 'a' })
+
+// A subset is its own store.
+const comments = createSync('comments', { where: { issueId: 'i1' } })
 
 // When the view goes away
 stop()
 todos.destroy()
+comments.destroy()
 ```
 
-On the server, `createSync()` makes no request and starts no timer. Its writes throw, since they belong in the browser.
+A store keeps sending its queue after `destroy()`, and stops when the queue is empty or the server refuses the caller. This also holds when a component unmounts in the tick of its write. When the page closes first, the next page sends the writes on its first `createSync()` and when the network comes back, also when it never opens that table or subset again.
+
+On the server, `createSync()` makes no request and starts no timer. Its writes and actions throw, since they belong in the browser.
