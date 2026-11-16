@@ -281,10 +281,14 @@ It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
 
-With `multiple: false` and `ensure.maxSize`, a request whose `Content-Length`
-is more than `maxSize` plus 64 KB for the form framing gets a 413 error before
-the body is read. With more than one file, the total has no limit, so the body
-is read before `ensure` runs. Limit the request body on your host too.
+Set `maxFiles` to limit the number of files. A request with more files gets a
+400 error when the next file starts, before ViteHub reads that file.
+`multiple: false` is the same as `maxFiles: 1`.
+
+With `maxFiles` and `ensure.maxSize`, a request whose `Content-Length` is more
+than `maxFiles` times `maxSize` plus 64 KB for each file's form framing gets a
+413 error before the body is read. Without `maxFiles`, the total has no limit,
+so the body is read before `ensure` runs. Limit the request body on your host too.
 
 `event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
 `Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
@@ -310,6 +314,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | `formKey` | `"files"` | Form field that holds the files. |
 | `multiple` | `true` | Set `false` to accept one file. |
+| `maxFiles` | none | The most files that `formKey` accepts. |
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
 | `onBeforeUpload` | none | Runs for each file before anything is stored, with `{ pathname, contentType, size, request }`. Throw to reject the file. Return `{ pathname }` to store it under another pathname. `put.prefix` and `put.addRandomSuffix` still apply. |
