@@ -48,7 +48,7 @@ The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form 
 
 The method, content type, and origin checks run before HTML redirects are enabled. A response returned by `onSubmit` is sent as it is.
 
-The rate limit counts in each server process. On Cloudflare Workers, each isolate counts alone.
+The rate limit counts in each server process, or in Rate Limit when its KV store is shared. See [Limits](/docs/forms/limits-and-errors#limits).
 
 ## The inbox
 
