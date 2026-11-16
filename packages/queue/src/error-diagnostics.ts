@@ -79,7 +79,9 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database }: { database?: string }) => database
         ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no postgres.js client and no connection URL in this runtime.`
         : "The postgres queue provider has no connection: the build found no Postgres Default Database, and `QUEUE_POSTGRES_URL` is not set.",
-      fix: "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
+      fix: ({ database }: { database?: string }) => database
+        ? `Set \`connection.url\` on the Database "${database}", or set \`QUEUE_POSTGRES_URL\` on the server to the Postgres URL of the jobs.`
+        : "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
