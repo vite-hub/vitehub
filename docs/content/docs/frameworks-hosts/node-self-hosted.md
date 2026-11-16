@@ -164,7 +164,13 @@ export default defineConfig({
 
 - `trustProxy` never reads `X-Forwarded-Host`. The proxy must send the
   client's `Host` header to Node. Caddy does this by default. In nginx, set
-  `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-Proto $scheme;`.
+  these directives so the proxy sets the protocol and appends the client address:
+
+  ```nginx
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  ```
 - `sameOriginWrites` answers `403` to a request that is not `GET`, `HEAD`, or
   `OPTIONS`, has a `Cookie` header, and has `Sec-Fetch-Site: same-site` or
   `cross-site`, or an `Origin` that is not the app's origin. A sibling
@@ -176,9 +182,13 @@ export default defineConfig({
   prefix matches the path and the paths below it.
 
 ::warning
-Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`.
-Without a proxy, a client can send the header and make the server build
-`https://` URLs for a plain HTTP request.
+Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`
+and overwrites `X-Forwarded-For` or appends its peer address. Keep Node reachable
+only through that proxy. If clients can supply either trusted value, they can
+make the server build `https://` URLs for plain HTTP requests or spoof the
+address used by Auth and Rate Limit to bypass IP-based rate limits and set
+`session.ipAddress`. If you already use `trustProxy`, check both headers in
+your proxy configuration before upgrading.
 ::
 
 Both options work on every host. On Cloudflare, Vercel, Netlify, and Deno
