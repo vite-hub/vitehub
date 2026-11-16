@@ -272,7 +272,7 @@ export default defineAuth({
 
 ### Decide who can stay signed in
 
-`access.policy` decides who can use the app. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
+`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
 import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'

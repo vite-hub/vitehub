@@ -35,7 +35,7 @@ export default defineAuth({
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
 | `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
-| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in. See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
+| `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
@@ -154,7 +154,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The current request's origin. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps need no separate auth URL variable. |
 | `request` | The current request headers and URL, if there is a request. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request origin only when `publicUrl` is unset. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request origin only when `publicUrl` is unset. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth routes and OAuth callbacks live below it, such as `/app/api/auth`. Set `baseURL` to an origin only, because Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard runs the Definition callback once (twice with proxy trust, below). Each new request gets fresh options. Requests with equal options share one Better Auth instance, and all guards of one request share one session lookup. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or adapters on each call, other than `authDatabase()`, gets a new instance on each request. Create them outside the callback when they do not depend on the request.
 
 ### Behind a proxy that ends TLS
 
@@ -352,6 +352,31 @@ The routes are `GET <auth base>/vitehub/admin-claim/status`, which answers `{ "a
 Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
+## Choose who can sign in
+
+By default, anyone can sign up. Set `VITEHUB_MEMBERS` to let only some people sign up and sign in. Separate the entries with commas:
+
+```bash [Terminal]
+VITEHUB_MEMBERS=github:22072217,ada@example.com,@acme.com,github-org:acme pnpm dev
+```
+
+| Entry | Who it lets in |
+| --- | --- |
+| `<provider>:<account id>`, such as `github:22072217` | The user with this linked account. Write it as in `VITEHUB_ADMINS`. |
+| `ada@example.com` | The user with this email, when the sign-in provider verified it. |
+| `@acme.com` | Users with a verified email at this domain. Subdomains do not match. |
+| `github-org:acme` | Active members of this GitHub organization. Auth adds the `read:org` scope to the GitHub provider. |
+
+The accounts in `VITEHUB_ADMINS` and users with the admin role of `admin()` can always sign in.
+
+- Auth refuses to create a user that no entry lets in, so a refused sign-up leaves no row. A refused request answers `403` with the code [`AUTH_NOT_MEMBER`](/docs/auth/diagnostics/auth_not_member). An OAuth sign-in redirects to its `errorCallbackURL` with `?error=AUTH_NOT_MEMBER`.
+- An email that is not verified does not count. With email and password sign-in, turn on `emailAndPassword.requireEmailVerification`, so the person signs in after they open the link.
+- A person you remove from the list cannot sign in again, and loses a running session within five minutes, or the `recheck` of `access.policy`. MCP access tokens stop working too. It works like [`access.policy`](/docs/auth/server-api#decide-who-can-stay-signed-in), and both must allow the user.
+- When GitHub cannot answer the membership check, Auth refuses a sign-in with `AUTH_GITHUB_UNAVAILABLE` and keeps a running session.
+- Auth must store sessions to end them. With `stateless()`, Auth fails with `AUTH_MEMBERS_SESSION_STORE_REQUIRED`. An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`.
+
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_MEMBERS`. The Auth Console shows the list in its access notes.
 
 ## Sign in through a trusted proxy
 

@@ -4,6 +4,8 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { adminClaimPluginId } from "./admin-claim.ts";
 import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
+import { accessPolicyPluginId } from "./access-policy.ts";
+import { membersVariable } from "./members.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
 import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
@@ -343,6 +345,13 @@ function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   return [`${adminsVariable} gives the ${role} role to ${admins.join(", ")} on sign-in.`];
 }
 
+/** The `VITEHUB_MEMBERS` rule as an access note, so the Console shows who may sign in. */
+function membersAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === accessPolicyPluginId)?.options;
+  const members: unknown = options && typeof options === "object" ? Reflect.get(options, "members") : undefined;
+  return Array.isArray(members) && members.length ? [`${membersVariable} lets only ${members.join(", ")} and the admins sign up and sign in.`] : [];
+}
+
 /** The `VITEHUB_ADMIN_CLAIM` rule as an access note. */
 function adminClaimAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   const options: unknown = plugins?.find((plugin) => plugin.id === adminClaimPluginId)?.options;
@@ -581,7 +590,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
+      access: [...(policy.access ?? []), ...membersAccess(ctx.options.plugins), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [
