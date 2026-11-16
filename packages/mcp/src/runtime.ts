@@ -1,4 +1,4 @@
-import { McpMethodError, serveMcp } from "@vite-hub/internal/runtime/mcp-server"
+import { mcpArgumentsInvalid, mcpMethodFailed, mcpMethodRpcCode, serveMcp } from "@vite-hub/internal/runtime/mcp-server"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { standardJsonSchema } from "@vite-hub/internal/standard-schema"
 
@@ -182,12 +182,12 @@ function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefiniti
 }
 
 /** The JSON-RPC error of a prompt or resource handler that threw: its message for a 4xx `status`, else a generic one. */
-function methodFailure(kind: "prompt" | "resource", name: string, error: unknown): McpMethodError {
-  if (error instanceof McpMethodError) return error
+function methodFailure(kind: "prompt" | "resource", name: string, error: unknown): unknown {
+  if (mcpMethodRpcCode(error) !== undefined) return error
   const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
-  if (status >= 400 && status < 500 && error instanceof Error) return new McpMethodError(-32602, error.message)
+  if (status >= 400 && status < 500 && error instanceof Error) return mcpArgumentsInvalid(error.message, error)
   console.error(`[vitehub] MCP ${kind} ${name} failed:`, error)
-  return new McpMethodError(-32603, `${name} failed on the server.`)
+  return mcpMethodFailed(name, error)
 }
 
 /** The arguments that `prompts/list` shows: the fields of the input JSON Schema. */
@@ -230,7 +230,7 @@ function toMcpPrompt(listed: Omit<McpPrompt, "get">, definition: McpPromptDefini
       try {
         if (definition.input) {
           const result = await definition.input["~standard"].validate(raw)
-          if (result.issues) throw new McpMethodError(-32602, issuesText(name, result.issues))
+          if (result.issues) throw mcpArgumentsInvalid(issuesText(name, result.issues))
           input = result.value
         }
         // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.

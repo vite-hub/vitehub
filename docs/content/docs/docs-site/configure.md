@@ -49,7 +49,7 @@ related: [reference]
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     categories: ['Learn', 'Build', 'Reference'],
     railExclude: ['Reference'],
@@ -69,7 +69,7 @@ List the sections in `groups`, or set `group` in their `.navigation.yml`:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     groups: [
       { title: 'Components', icon: 'i-lucide-blocks', sections: ['tabs', 'steps', 'cards'] },
@@ -149,7 +149,7 @@ When a page moves, keep its old URL with a `redirect` route rule:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   routeRules: {
     '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
   },
@@ -293,7 +293,7 @@ Pages with a collapsible navigation fill the viewport, so they leave out the `ba
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     site: {
       name: 'Lumen',
@@ -463,7 +463,7 @@ D2, PlantUML, and Graphviz fences stay code blocks. comark-ui draws them through
 The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. Plugins are functions, so the parser options go in a module that `parser` names, not in `nuxt.config.ts` itself:
 
 ```ts [docs.parser.ts]
-import type { DocsParserOptions } from '@vite-hub/docs/server'
+import type { DocsParserOptions } from 'vite-hub/docs/server'
 import emoji from 'comark/plugins/emoji'
 
 export default {
@@ -475,7 +475,7 @@ export default {
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: { parser: './docs.parser.ts' },
 })
 ```
@@ -504,7 +504,7 @@ An app page that is not a docs page gets a Markdown copy too. Content renders th
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: { markdownPages: false },
 })
 ```
@@ -515,7 +515,7 @@ Each page header has **Copy page**, **View as Markdown**, **Open in ChatGPT**, *
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     llms: {
       details: 'Rules for coding agents: read the installed types before you write code.',
@@ -541,7 +541,7 @@ When a page uses a component with no Markdown form, `rawMarkdown` rewrites the p
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     rawMarkdown: markdown => markdown.replace(/::demo-video\{src="([^"]+)"\}\n::/g, '[Watch the demo]($1)'),
   },
@@ -564,7 +564,7 @@ pnpm add @vite-hub/comments
 export default defineNuxtConfig({
   modules: [
     ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
-    '@vite-hub/docs/nuxt',
+    'vite-hub/docs/nuxt',
   ],
 })
 ```
@@ -593,12 +593,12 @@ A site without `vite-hub/nuxt` has no server for threads, so it has no Comments.
 
 The ViteHub Console edits and publishes docs pages through the [CMS](/docs/cms). The site still renders the Markdown files. The CMS stores and publishes drafts.
 
-Install `vite-hub/nuxt` next to `@vite-hub/docs/nuxt` and add one file:
+Install `vite-hub/nuxt` next to `vite-hub/docs/nuxt` and add one file:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
 import cms from 'vite-hub/cms'
-import { docsCollection } from '@vite-hub/docs'
+import { docsCollection } from 'vite-hub/docs'
 
 export default defineContent({
   extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
