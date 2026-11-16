@@ -174,5 +174,12 @@ export type SyncSubsetOf<TName extends string> = TName extends keyof ViteHubSync
       : Partial<Pick<SyncRowOf<TName>, InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>>>
   : Partial<SyncRowOf<TName>>
 
+/**
+ * Refuses a `where` with a column outside `TAllowed`: its options then need a `where` of type `never`. TypeScript checks
+ * extra properties only on an object literal, so a getter, a ref, or a variable would otherwise pass a column that the
+ * server refuses with `SYNC_BAD_REQUEST`.
+ */
+export type SyncExactWhere<TWhere, TAllowed> = [Exclude<keyof TWhere, keyof TAllowed>] extends [never] ? unknown : { where: never }
+
 /** A Sync name of the app, or any string when the map is empty. */
 export type SyncName = keyof ViteHubSyncMap extends never ? string : Extract<keyof ViteHubSyncMap, string>

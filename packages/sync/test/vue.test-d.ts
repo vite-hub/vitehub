@@ -55,6 +55,22 @@ test("useSync() and createSync() take only the `subsets` columns in `where`", ()
   useSync("memos", { where: () => ({ body: "x" }) })
 })
 
+test("a `where` from a getter, a ref, or a variable takes no column outside `subsets`, also next to a subset column", () => {
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: () => ({ todoId: "t1", body: "x" }) })
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: ref({ todoId: "t1", body: "x" }) })
+  const mixed = { todoId: "t1", body: "x" }
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: mixed })
+  // @ts-expect-error `body` is not in `subsets`.
+  createSync("comments", { where: mixed })
+  const subset = { todoId: "t1" }
+  useSync("comments", { where: subset })
+  createSync("comments", { where: subset })
+  useSync("comments", { where: () => (Math.random() > 0.5 ? { todoId: "t1" } : undefined) })
+})
+
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {
   const todos = useSync("todos", {
     where: () => ({ listId: "l1" }),

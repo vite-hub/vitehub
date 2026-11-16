@@ -1,12 +1,12 @@
 import { computed, getCurrentScope, markRaw, onScopeDispose, reactive, shallowRef, toValue, triggerRef, watch } from "vue"
 
-import { createSync } from "./client.ts"
+import { openSync } from "./client/open.ts"
 import { whereKey } from "./client/view.ts"
 
 import type { MaybeRefOrGetter } from "vue"
 import type { SyncKey } from "./protocol.ts"
 import type { SyncActionCalls, SyncOptions, SyncState, SyncStore } from "./client/types.ts"
-import type { SyncActionsOf, SyncName, SyncRowOf, SyncSubsetOf } from "./types.ts"
+import type { SyncActionsOf, SyncExactWhere, SyncName, SyncRowOf, SyncSubsetOf } from "./types.ts"
 
 /**
  * Options of `useSync()`: the options of `createSync()`, with a `where` that may be a ref or a getter. When its value
@@ -42,8 +42,9 @@ interface UseSyncReturn<TRow, TArgs = Record<string, never>> extends Readonly<Sy
  * ```
  * @experimental
  */
-function useSync<TName extends SyncName>(name: TName, options: UseSyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>, SyncSubsetOf<TName>> = {}): UseSyncReturn<SyncRowOf<TName>, SyncActionsOf<TName>> {
-  const open = () => createSync(name, { ...options, where: toValue(options.where) })
+function useSync<TName extends SyncName, TWhere extends SyncSubsetOf<TName> = SyncSubsetOf<TName>>(name: TName, checked?: UseSyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>, TWhere> & SyncExactWhere<TWhere, SyncSubsetOf<TName>>): UseSyncReturn<SyncRowOf<TName>, SyncActionsOf<TName>> {
+  const options: UseSyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>, SyncSubsetOf<TName>> = checked ?? {}
+  const open = () => openSync(name, { ...options, where: toValue(options.where) })
   const store = shallowRef(open())
   // A change only marks the state. The store builds it when a render or a script reads it, once for many writes.
   const changed = shallowRef(0)
