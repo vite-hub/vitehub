@@ -176,8 +176,7 @@ export function channelDelivery<TOptions, TMessage = string>(options: ChannelDel
           async execute(input) {
             checkLimit()
             const message = isRuntimeRecord(input) && typeof input.message === "string" ? input.message.trim() : ""
-            // Internal invariant: a tool input error that the model reads and corrects; the app developer cannot fix it.
-            if (!message) throw new TypeError(`[vitehub] ${name} requires a non-empty message.`)
+            if (!message) throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING({ name })
             await options.validate?.(message)
             const text = options.format ? await options.format(message, context) : message
             if (!text.trim()) throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY({ name })

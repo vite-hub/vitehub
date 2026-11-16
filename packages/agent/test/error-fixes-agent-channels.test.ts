@@ -3,11 +3,13 @@ import { expect, it } from "vitest"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts"
 import { channelDelivery } from "../src/capabilities/index.ts"
 import { pullAgentChannel, runChannelStateTransaction } from "../src/internal/channel-state.ts"
+import { createGmailOAuthClient } from "../src/internal/gmail-channel.ts"
 
 const codes = [
   "AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID",
   "AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY",
   "AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID",
+  "AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING",
   "AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID",
   "AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED",
   "AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID",
@@ -17,6 +19,7 @@ const codes = [
   "AGENT_CHANNEL_PULL_OPTIONS_INVALID",
   "AGENT_CHANNEL_PULL_PAGE_INVALID",
   "AGENT_CHANNEL_PULL_STATE_MISSING",
+  "AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING",
   "AGENT_CHANNEL_STATE_DURATION_INVALID",
   "AGENT_CHANNEL_STATE_LOCK_BUSY",
   "AGENT_CHANNEL_STATE_QUEUE_MISSING",
@@ -34,11 +37,13 @@ const codes = [
   "AGENT_GMAIL_DISPATCH_FAILED",
   "AGENT_GMAIL_LOCK_LOST",
   "AGENT_GMAIL_MAILBOX_MISMATCH",
+  "AGENT_GMAIL_OAUTH_REFRESH_FAILED",
+  "AGENT_GMAIL_REQUEST_FAILED",
   "AGENT_GMAIL_SYNC_BUSY",
   "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
 ] as const
 
-const params = { action: "delete messages", allowZero: false, count: 1, cursor: 1, cursorType: "number", key: "k", kind: "gap", label: "Slack", lock: "mailbox", name: "ttlMs", need: "a callback", next: 2, root: true, triggerId: "t", waitMs: 1 } as const
+const params = { action: "delete messages", allowZero: false, count: 1, cursor: 1, cursorType: "number", key: "k", kind: "gap", label: "Slack", lock: "mailbox", name: "ttlMs", need: "a callback", next: 2, request: "Gmail GET labels", root: true, status: 500, triggerId: "t", waitMs: 1 } as const
 
 it("gives each Channel code a fix and its own docs page", () => {
   for (const code of codes) {
@@ -48,6 +53,37 @@ it("gives each Channel code a fix and its own docs page", () => {
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${code.toLowerCase()}`)
   }
+})
+
+it("gives each Channels operation code a fix and its own docs page", () => {
+  const errors = [
+    agentDiagnostics.AGENT_CHANNELS_ADAPTER_MISSING(),
+    agentDiagnostics.AGENT_CHANNELS_CURSOR_INVALID(),
+    agentDiagnostics.AGENT_CHANNELS_EXPORT_TOO_LARGE({ archive: "export" }),
+    agentDiagnostics.AGENT_CHANNELS_FORBIDDEN({ problem: "participant" }),
+    agentDiagnostics.AGENT_CHANNELS_HOST_UNAVAILABLE({ read: "host" }),
+    agentDiagnostics.AGENT_CHANNELS_NO_CONVERSATIONS({ channel: "\"gmail\"" }),
+    agentDiagnostics.AGENT_CHANNELS_NO_STATUS({ channel: "\"slack\"" }),
+    agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: "\"slack\"", problem: "unknown" }),
+    agentDiagnostics.AGENT_CHANNELS_PROVIDER_FAILED({ detail: "down" }),
+    agentDiagnostics.AGENT_CHANNELS_THREAD_UNKNOWN({ thread: "\"t\"" }),
+  ]
+  for (const error of errors) {
+    expect(error.message, error.code).toMatch(/\S/)
+    expect(error.fix, error.code).toMatch(/\S/)
+    expect(error.docs, error.code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${error.code.toLowerCase()}`)
+  }
+})
+
+it("reports a refused Gmail OAuth refresh with a code, the HTTP status, and a fix", async () => {
+  const fetch: typeof globalThis.fetch = async () => Response.json({ error: "invalid_grant" }, { status: 400 })
+  const client = createGmailOAuthClient({ clientId: crypto.randomUUID(), clientSecret: "secret", refreshToken: "revoked" }, fetch)
+  await expect(client({ method: "GET", path: "labels" })).rejects.toMatchObject({
+    code: "AGENT_GMAIL_OAUTH_REFRESH_FAILED",
+    message: "Google OAuth token refresh failed with HTTP 400: invalid_grant.",
+    status: 400,
+    fix: expect.stringContaining("refresh token"),
+  })
 })
 
 const channel = { name: "teams", send: async () => ({ id: "m" }) }

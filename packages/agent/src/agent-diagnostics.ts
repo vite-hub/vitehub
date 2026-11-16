@@ -416,11 +416,13 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID",
   "AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY",
   "AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID",
+  "AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING",
   "AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID",
   "AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED",
   "AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID",
   "AGENT_CHANNEL_PULL_OPTIONS_INVALID",
   "AGENT_CHANNEL_PULL_PAGE_INVALID",
+  "AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING",
   "AGENT_CHANNEL_STATE_DURATION_INVALID",
   "AGENT_CHANNEL_STATE_TRANSACTION_INVALID",
   "AGENT_CHANNEL_STATE_TRANSACTION_NESTED",
@@ -3543,6 +3545,75 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    AGENT_CAPABILITY_EXTEND_ID_CHANGED: {
+      why: ({ id }: { id: string }) => `[vitehub] Capability "${id}" extend() must return a Capability with the same id.`,
+      fix: "Return a Capability with the same `id` from the Capability `extend()` function, such as `{ ...inherited, tools }`.",
+    },
+    AGENT_CAPABILITY_ID_MISSING: {
+      why: "[vitehub] Agent layers require explicit capability definitions with stable IDs.",
+      fix: "Pass Capability objects with a string `id` in `defineAgent({ capabilities })` when the Agent uses `extends`.",
+    },
+    AGENT_CHANNELS_ADAPTER_MISSING: {
+      why: "Channel history export could not resolve the configured Chat adapter.",
+      fix: "Configure the Chat adapter of the Channel, such as its bot token, so that ViteHub can read the provider history.",
+    },
+    AGENT_CHANNELS_CURSOR_INVALID: {
+      why: "The cursor is not valid.",
+      fix: "Pass the `nextCursor` of the previous page, or omit the cursor to read the first page.",
+    },
+    AGENT_CHANNELS_EXPORT_TOO_LARGE: {
+      why: ({ archive }: { archive: "export" | "history" }) => archive === "history" ? "Channel history archive exceeds the 35 MiB response limit." : "The conversation is larger than the 35 MiB limit of an export.",
+      fix: "Export without media, or read the conversation page by page with `vitehub channels conversation`.",
+    },
+    AGENT_CHANNELS_FORBIDDEN: {
+      why: ({ problem }: { problem: "conversations" | "identity" | "participant" | "status" }) => ({
+        conversations: "An Agent can read Channel conversations only when its operations() capability sets `conversations`.",
+        identity: "The Actor has no identity that can be matched to the people of this thread.",
+        participant: "The Actor is not a participant of this thread.",
+        status: "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.",
+      })[problem],
+      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread and the Channel status with `operations({ conversations: \"all\" })`.",
+    },
+    AGENT_CHANNELS_HOST_UNAVAILABLE: {
+      why: ({ detail, read }: { detail?: string, read: "admission" | "durable" | "host" | "participants" | "state" | "transcripts" }) => ({
+        admission: `The thread admission could not be read from the Agent State: ${detail}`,
+        durable: "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.",
+        host: "The Channel webhook routes of this app have not started in this process, or the Agent State cannot read conversations.",
+        participants: `The transcript participants could not be read from the Agent State: ${detail}`,
+        state: `The Agent State could not be read: ${detail}`,
+        transcripts: `The transcripts could not be read from the Agent State: ${detail}`,
+      })[read],
+      fix: "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state.driver: \"cloudflare\"`). The generated webhook route installs the reader when the server starts.",
+    },
+    AGENT_CHANNELS_NOT_FOUND: {
+      why: ({ agent, channel, problem }: { agent?: string, channel?: string, problem: "agent" | "channel" | "history" | "unknown" }) => ({
+        agent: `The app has no Agent named ${agent} with Channels.`,
+        channel: `The Agent ${agent} has no Channel ${channel}.`,
+        history: `Channel ${channel} has its own history collection and no per-thread conversation.`,
+        unknown: `Unknown Channel ${channel}.`,
+      })[problem],
+      fix: "Run `vitehub channels list` to see the Agents and the Channels that keep conversations, and pass one of their names.",
+    },
+    AGENT_CHANNELS_NO_CONVERSATIONS: {
+      why: ({ channel }: { channel: string }) => `Channel ${channel} has its own history collection and no per-thread conversation.`,
+      fix: "Use `vitehub channels replay` to work with the history of this Channel.",
+    },
+    AGENT_CHANNELS_NO_STATUS: {
+      why: ({ channel }: { channel: string }) => `Channel ${channel} has no sync status.`,
+      fix: "Read the status of a Channel that reads a provider cursor, such as Gmail. Other Channels have no sync status.",
+    },
+    AGENT_CHANNELS_PROVIDER_FAILED: {
+      why: ({ detail }: { detail: string }) => `The provider history could not be read: ${detail}`,
+      fix: "Read `error.cause` for the provider error. Check the credentials of the Chat adapter of the Channel, then try again.",
+    },
+    AGENT_CHANNELS_THREAD_UNKNOWN: {
+      why: ({ thread }: { thread: string }) => `The Channel has no Invocation and no transcript for the thread ${thread}.`,
+      fix: "Run `vitehub channels threads <agent> <channel>` to see the threads of the Channel.",
+    },
+    AGENT_CHANNEL_ACTIVITY_UNSUPPORTED: {
+      why: ({ channelId }: { channelId: string }) => `Agent channel ${channelId} does not support activity.`,
+      fix: "Pass the id of a Channel that has an `activity` adapter to `publishAgentActivity({ channelId })`.",
+    },
     AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID: {
       why: "[vitehub] channelDelivery({ channel }) requires a Channel client, for example useChannel(\"teams\").",
       fix: "Pass a Channel client with a `send()` method to `channelDelivery({ channel })`, such as `useChannel(\"teams\")`.",
@@ -3554,6 +3625,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID: {
       why: "[vitehub] channelDelivery({ maxCalls }) must be a positive integer.",
       fix: "Set `channelDelivery({ maxCalls })` to an integer of 1 or more, or omit it to allow one call.",
+    },
+    AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires a non-empty message.`,
+      fix: "The model called the delivery tool that the message names without text. It reads this error and can call the tool again; if it does not, tell it in the Agent instructions to pass the text to send in `message`.",
     },
     AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID: {
       why: "[vitehub] channelDelivery({ reminder: { instruction } }) must be a non-empty string.",
@@ -3597,6 +3672,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ triggerId }: { triggerId: string }) => `[vitehub] Channel trigger "${triggerId}" can pull only with the Channel's State. Run it through the Channel's webhook route.`,
       fix: "Call `context.pull()` only in a trigger that runs from the Channel webhook route, where the Channel State is bound.",
     },
+    AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING: {
+      why: ({ name }: { name: string }) => `[vitehub] ${name} requires a non-empty reason.`,
+      fix: "The model called the skip reply tool that the message names without a reason. It reads this error and can call the tool again; if it does not, tell it in the Agent instructions to give a short `reason` when it skips a reply.",
+    },
     AGENT_CHANNEL_STATE_DURATION_INVALID: {
       why: ({ name, allowZero }: { name: "ttlMs" | "waitMs", allowZero: boolean }) => `[vitehub] channelState.transaction() ${name} must be a ${allowZero ? "non-negative" : "positive"} finite number.`,
       fix: "Pass `ttlMs` as a number above 0 and `waitMs` as a number of 0 or more to `channelState.transaction(key, run, { ttlMs, waitMs })`.",
@@ -3616,6 +3695,30 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CHANNEL_STATE_TRANSACTION_NESTED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State key "${key}" already has a transaction in this trigger call.`,
       fix: "Use one `channelState.transaction()` per key in a trigger call, and read and write that key inside its callback.",
+    },
+    AGENT_CHANNEL_TASK_HANDLED: {
+      why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
+      fix: "Make the queued Channel task that the message names start an Agent or a `run` function, and not answer with a `Response`.",
+    },
+    AGENT_CHAT_RECOVERY_INDEX_CONFLICT: {
+      why: ({ step }: { step: "acquire" | "commit" | "owner" }) => step === "acquire"
+        ? "Could not acquire the interrupted chat index lock."
+        : step === "commit"
+          ? "Lost the interrupted chat index lock before committing."
+          : "Interrupted chat recovery no longer owns this record.",
+      fix: "Nothing to change when it happens once: another server instance recovers the same chat. If it repeats, check that the Agent State can take and keep locks.",
+    },
+    AGENT_CONFIGURED_OPTIONS_INVALID: {
+      why: "[vitehub] A configured Agent requires only options defaults and a configure callback.",
+      fix: "Pass only `options` (an object), `configure` (a function), and an optional `configKey` to `defineAgent({ options, configure })`.",
+    },
+    AGENT_CONFIGURE_RESULT_INVALID: {
+      why: "[vitehub] Agent configure must return an Agent Definition created by defineAgent().",
+      fix: "Return `defineAgent({ ... })` from the `configure` callback of `defineAgent({ options, configure })`.",
+    },
+    AGENT_CONFIG_KEY_INVALID: {
+      why: "[vitehub] Agent configKey must be a non-reserved configuration key.",
+      fix: "Set `configKey` in `defineAgent({ options, configure, configKey })` to a camelCase name that is not an Agent option, such as `\"babysitter\"`.",
     },
     AGENT_CONNECTOR_ADAPTER_UNSUPPORTED: {
       why: ({ label, action }: { label: string, action: "delete messages" | "open direct messages" | "post channel messages" }) => `[vitehub] The ${label} adapter cannot ${action}.`,
@@ -3648,67 +3751,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CONNECTOR_THREAD_UNSUPPORTED: {
       why: ({ name }: { name: string }) => `[vitehub] ${name}.connector() does not support thread.`,
       fix: "Remove `thread` from `send()` for this connector. The Slack and Teams connectors support `thread`.",
-    },
-    AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
-      why: "GitHub activity session links require an Agent identity.",
-      fix: "Run the GitHub Channel from an Agent Definition so the activity has an Agent identity, or remove `activity.publicUrl` from the GitHub Channel options.",
-    },
-    AGENT_GMAIL_DISPATCH_FAILED: {
-      why: ({ count }: { count: number }) => `Gmail message dispatch failed for ${count} message(s); saved for retry.`,
-      fix: "Read the failed Invocations of the Gmail Channel for the cause. The messages are saved, and the next poll retries them.",
-    },
-    AGENT_GMAIL_LOCK_LOST: {
-      why: ({ lock }: { lock: "mailbox" | "skipped messages" }) => lock === "mailbox" ? "Lost ownership of the Gmail mailbox lease." : "Lost the lock of the Gmail skipped messages.",
-      fix: "Poll the Gmail Channel again. Another process took the lock after it expired, which a slow Agent State can cause.",
-    },
-    AGENT_GMAIL_MAILBOX_MISMATCH: {
-      why: "Gmail notification belongs to another mailbox.",
-      fix: "Point the Pub/Sub push subscription of this Gmail Channel only at the mailbox of its refresh token.",
-    },
-    AGENT_GMAIL_SYNC_BUSY: {
-      why: "Gmail mailbox synchronization is already running; retry polling after it completes.",
-      fix: "Poll the Gmail Channel again after the running synchronization completes.",
-    },
-    AGENT_SLACK_CONNECTOR_ADAPTER_MISSING: {
-      why: "[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
-      fix: "Pass the Slack adapter of the app to `slack.connector({ adapter })`, or a function that returns it.",
-    },
-    // Named errors. Keep these codes in alphabetical order.
-    AGENT_CAPABILITY_EXTEND_ID_CHANGED: {
-      why: ({ id }: { id: string }) => `[vitehub] Capability "${id}" extend() must return a Capability with the same id.`,
-      fix: "Return a Capability with the same `id` from the Capability `extend()` function, such as `{ ...inherited, tools }`.",
-    },
-    AGENT_CAPABILITY_ID_MISSING: {
-      why: "[vitehub] Agent layers require explicit capability definitions with stable IDs.",
-      fix: "Pass Capability objects with a string `id` in `defineAgent({ capabilities })` when the Agent uses `extends`.",
-    },
-    AGENT_CHANNEL_ACTIVITY_UNSUPPORTED: {
-      why: ({ channelId }: { channelId: string }) => `Agent channel ${channelId} does not support activity.`,
-      fix: "Pass the id of a Channel that has an `activity` adapter to `publishAgentActivity({ channelId })`.",
-    },
-    AGENT_CHANNEL_TASK_HANDLED: {
-      why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
-      fix: "Make the queued Channel task that the message names start an Agent or a `run` function, and not answer with a `Response`.",
-    },
-    AGENT_CHAT_RECOVERY_INDEX_CONFLICT: {
-      why: ({ step }: { step: "acquire" | "commit" | "owner" }) => step === "acquire"
-        ? "Could not acquire the interrupted chat index lock."
-        : step === "commit"
-          ? "Lost the interrupted chat index lock before committing."
-          : "Interrupted chat recovery no longer owns this record.",
-      fix: "Nothing to change when it happens once: another server instance recovers the same chat. If it repeats, check that the Agent State can take and keep locks.",
-    },
-    AGENT_CONFIGURED_OPTIONS_INVALID: {
-      why: "[vitehub] A configured Agent requires only options defaults and a configure callback.",
-      fix: "Pass only `options` (an object), `configure` (a function), and an optional `configKey` to `defineAgent({ options, configure })`.",
-    },
-    AGENT_CONFIGURE_RESULT_INVALID: {
-      why: "[vitehub] Agent configure must return an Agent Definition created by defineAgent().",
-      fix: "Return `defineAgent({ ... })` from the `configure` callback of `defineAgent({ options, configure })`.",
-    },
-    AGENT_CONFIG_KEY_INVALID: {
-      why: "[vitehub] Agent configKey must be a non-reserved configuration key.",
-      fix: "Set `configKey` in `defineAgent({ options, configure, configKey })` to a camelCase name that is not an Agent option, such as `\"babysitter\"`.",
     },
     AGENT_CONSOLE_DELIVERY_INCOMPLETE: {
       why: "Console delivery requires both url and token.",
@@ -3784,6 +3826,34 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
+      why: "GitHub activity session links require an Agent identity.",
+      fix: "Run the GitHub Channel from an Agent Definition so the activity has an Agent identity, or remove `activity.publicUrl` from the GitHub Channel options.",
+    },
+    AGENT_GMAIL_DISPATCH_FAILED: {
+      why: ({ count }: { count: number }) => `Gmail message dispatch failed for ${count} message(s); saved for retry.`,
+      fix: "Read the failed Invocations of the Gmail Channel for the cause. The messages are saved, and the next poll retries them.",
+    },
+    AGENT_GMAIL_LOCK_LOST: {
+      why: ({ lock }: { lock: "mailbox" | "skipped messages" }) => lock === "mailbox" ? "Lost ownership of the Gmail mailbox lease." : "Lost the lock of the Gmail skipped messages.",
+      fix: "Poll the Gmail Channel again. Another process took the lock after it expired, which a slow Agent State can cause.",
+    },
+    AGENT_GMAIL_MAILBOX_MISMATCH: {
+      why: "Gmail notification belongs to another mailbox.",
+      fix: "Point the Pub/Sub push subscription of this Gmail Channel only at the mailbox of its refresh token.",
+    },
+    AGENT_GMAIL_OAUTH_REFRESH_FAILED: {
+      why: ({ detail, status }: { detail?: string, status: number }) => status ? `Google OAuth token refresh failed with HTTP ${status}${detail ? `: ${detail}` : ""}.` : `Google OAuth token refresh failed: ${detail}`,
+      fix: "Check the Gmail OAuth client ID, client secret, and refresh token in Server Env `gmail`, and that Google has not revoked the refresh token. Without an HTTP status, read `error.cause` for the network failure and try again.",
+    },
+    AGENT_GMAIL_REQUEST_FAILED: {
+      why: ({ reason, request, status }: { reason?: string, request: string, status: number }) => `${request} failed with HTTP ${status}${reason ? `: ${reason}` : ""}.`,
+      fix: "Read the HTTP status and the Google error in the message. For 401 or 403, check the Gmail OAuth client, refresh token, and scopes in Server Env `gmail`. For 429 or a 5xx status, try again later.",
+    },
+    AGENT_GMAIL_SYNC_BUSY: {
+      why: "Gmail mailbox synchronization is already running; retry polling after it completes.",
+      fix: "Poll the Gmail Channel again after the running synchronization completes.",
     },
     AGENT_HOST_ROUTE_DUPLICATE: {
       why: ({ route }: { route: string }) => `Agent host route already registered: ${route}`,
@@ -3886,6 +3956,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_REPLAY_TASK_OTHER_AGENT: {
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
+    },
+    AGENT_SLACK_CONNECTOR_ADAPTER_MISSING: {
+      why: "[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
+      fix: "Pass the Slack adapter of the app to `slack.connector({ adapter })`, or a function that returns it.",
     },
     AGENT_STORAGE_PREFIX_INVALID: {
       why: ({ capability, prefix }: { capability: string, prefix: unknown }) => `[vitehub] ${capability}() prefix must name a non-empty key or path without "." or ".." segments, but it is ${JSON.stringify(prefix)}.`,

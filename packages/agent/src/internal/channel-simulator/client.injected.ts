@@ -21,7 +21,6 @@ export function channelSimulatorClient(
 
   const find = (id: string): SimulatorElement => {
     const element = document.getElementById(id)
-    // Internal invariant: browser page code that cannot load the Agent catalog; the page shows the message.
     if (!element) throw new Error(`The simulator page has no #${id} element.`)
     return element
   }
@@ -200,11 +199,9 @@ export function channelSimulatorClient(
         headers: { accept: "text/event-stream", "content-type": "application/json" },
         method: "POST",
       })
-      // Internal invariant: browser page code that cannot load the Agent catalog; the page shows the message.
       if (!response.ok || !response.body) throw new Error(`The Channel route answered with HTTP ${response.status}.`)
       for await (const event of events(response.body)) {
         if (event.type === "text-delta" && typeof event.delta === "string") append(event.delta)
-        // Internal invariant: browser page code that cannot load the Agent catalog; the page shows the message.
         else if (event.type === "error") throw new Error(typeof event.errorText === "string" ? event.errorText : "The Agent stream failed.")
       }
     }

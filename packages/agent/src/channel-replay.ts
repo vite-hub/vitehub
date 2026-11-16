@@ -356,7 +356,8 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
         })
       }
       catch (error) {
-        if (cursor && isRuntimeRecord(error) && error.name === "CollectionCursorError") {
+        // A Source collection names its cursor error `CollectionCursorError`. The Gmail history raises AGENT_R0936 without the Channel name.
+        if (cursor && isRuntimeRecord(error) && (error.name === "CollectionCursorError" || error.code === "AGENT_R0936")) {
           throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Invalid Channel "${channel}" history cursor.` })
         }
         throw error

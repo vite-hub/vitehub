@@ -335,7 +335,7 @@ describe("Channel conversation operations", () => {
     expect(second.threads[0].thread).not.toBe(first.threads[0].thread)
     const all = await operation("channels.threads")({ agent: "support", channel: "telegram" })
     expect(all.threads.map(thread => thread.thread)).toContain(second.threads[0].thread)
-    await expect(operation("channels.threads")({ agent: "support", channel: "telegram", cursor: "nope" })).rejects.toMatchObject({ code: "CHANNELS_CURSOR_INVALID", status: 400 })
+    await expect(operation("channels.threads")({ agent: "support", channel: "telegram", cursor: "nope" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_CURSOR_INVALID", status: 400 })
   })
 
   it("reads journal threads using the Channel id when its adapter key differs", async () => {
@@ -526,7 +526,7 @@ describe("Channel conversation operations", () => {
     const second = await operation("channels.conversation")({ agent: "support", channel: "telegram", cursor: first.nextCursor, limit: 10, thread: "telegram:456" })
     expect(lines(second.messages)).toEqual(["user: question 5", "assistant: reply 3", "user: question 7", "assistant: reply 4"])
     expect(second.nextCursor).toBeUndefined()
-    await expect(operation("channels.conversation")({ agent: "support", channel: "telegram", cursor: "nope", thread: "telegram:456" })).rejects.toMatchObject({ code: "CHANNELS_CURSOR_INVALID" })
+    await expect(operation("channels.conversation")({ agent: "support", channel: "telegram", cursor: "nope", thread: "telegram:456" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_CURSOR_INVALID" })
   })
 
   it("keeps equal-time messages after the cursor message leaves the provider window", async () => {
@@ -544,9 +544,9 @@ describe("Channel conversation operations", () => {
 
   it("fails with a coded error for an unknown Agent or Channel", async () => {
     await fixture()
-    await expect(conversation("t", {})).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN" })
-    await expect(operation("channels.conversation")({ agent: "ghost", channel: "telegram", thread: "t" })).rejects.toMatchObject({ code: "CHANNELS_NOT_FOUND", status: 404 })
-    await expect(operation("channels.conversation")({ agent: "support", channel: "ghost", thread: "t" })).rejects.toMatchObject({ code: "CHANNELS_NOT_FOUND", status: 404 })
+    await expect(conversation("t", {})).rejects.toMatchObject({ code: "AGENT_CHANNELS_THREAD_UNKNOWN" })
+    await expect(operation("channels.conversation")({ agent: "ghost", channel: "telegram", thread: "t" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_NOT_FOUND", status: 404 })
+    await expect(operation("channels.conversation")({ agent: "support", channel: "ghost", thread: "t" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_NOT_FOUND", status: 404 })
   })
 })
 
@@ -647,8 +647,8 @@ describe("conversation privacy", () => {
     const index = await chat.state.getList("chat:support:telegram:transcripts:thread:telegram:-100")
     expect(index).not.toHaveLength(0)
     chat.adapter.fetchMessages.mockClear()
-    await expect(conversation("telegram:-100")).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN", status: 404 })
-    await expect(operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:-100" })).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN" })
+    await expect(conversation("telegram:-100")).rejects.toMatchObject({ code: "AGENT_CHANNELS_THREAD_UNKNOWN", status: 404 })
+    await expect(operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:-100" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_THREAD_UNKNOWN" })
     expect(chat.adapter.fetchMessages).not.toHaveBeenCalled()
   })
 
@@ -656,8 +656,8 @@ describe("conversation privacy", () => {
     const chat = await fixture()
     await chat.say(1, "hello")
     chat.adapter.fetchMessages.mockClear()
-    await expect(conversation("telegram:999")).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN", status: 404 })
-    await expect(operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:999" })).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN" })
+    await expect(conversation("telegram:999")).rejects.toMatchObject({ code: "AGENT_CHANNELS_THREAD_UNKNOWN", status: 404 })
+    await expect(operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:999" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_THREAD_UNKNOWN" })
     expect(chat.adapter.fetchMessages).not.toHaveBeenCalled()
     // A thread with a transcript is known, even when the journal lost its Invocations.
     await expect(conversation("telegram:456")).resolves.toMatchObject({ messageCount: 2 })
@@ -669,17 +669,17 @@ describe("conversation privacy", () => {
     const actor = { id: "telegram:456", kind: "chat" }
     const agentSurface = (overrides: Partial<OperationContext> = {}): Partial<OperationContext> => ({ actor, surface: "agent", user: null, ...overrides })
     // Unset: refused, on every operation that shows a conversation.
-    await expect(conversation("telegram:456", agentSurface())).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
-    await expect(operation("channels.threads", agentSurface())({ agent: "support", channel: "telegram" })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN" })
-    await expect(operation("conversations.export", agentSurface())({ agent: "support", channel: "telegram", thread: "telegram:456" })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN" })
+    await expect(conversation("telegram:456", agentSurface())).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", status: 403 })
+    await expect(operation("channels.threads", agentSurface())({ agent: "support", channel: "telegram" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN" })
+    await expect(operation("conversations.export", agentSurface())({ agent: "support", channel: "telegram", thread: "telegram:456" })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN" })
     // Participant: the Actor is the person of this thread.
     await expect(conversation("telegram:456", agentSurface({ conversations: "participant" }))).resolves.toMatchObject({ messageCount: 2 })
     // The Auth user of the Actor matches the same way.
     await expect(conversation("telegram:456", agentSurface({ actor: { id: "agent-1", meta: { authUserId: "456" } }, conversations: "participant" }))).resolves.toMatchObject({ messageCount: 2 })
     // Another person's thread, an Actor without an identity, and an unknown id are refused.
     await chat.say(3, "other", {}, 789)
-    await expect(conversation("telegram:789", agentSurface({ conversations: "participant" }))).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", message: expect.stringContaining("not a participant") })
-    await expect(conversation("telegram:456", { conversations: "participant", surface: "agent", user: null })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", message: expect.stringContaining("no identity") })
+    await expect(conversation("telegram:789", agentSurface({ conversations: "participant" }))).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", message: expect.stringContaining("not a participant") })
+    await expect(conversation("telegram:456", { conversations: "participant", surface: "agent", user: null })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", message: expect.stringContaining("no identity") })
     // The thread list shows an Actor only its own threads.
     const own = await operation("channels.threads", agentSurface({ conversations: "participant" }))({ agent: "support", channel: "telegram" })
     expect(own.threads.map(thread => thread.thread)).toEqual(["telegram:456"])
@@ -693,8 +693,8 @@ describe("conversation privacy", () => {
     await chat.say(1, "private question")
     await chat.say(3, "another private question")
     const participant = { conversations: "participant", surface: "agent", user: null } as const
-    await expect(conversation("telegram:456", { ...participant, actor: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
-    await expect(conversation("telegram:456", { ...participant, user: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:456", { ...participant, actor: { id: "verified" } })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:456", { ...participant, user: { id: "verified" } })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", status: 403 })
     await expect(conversation("telegram:456", { ...participant, actor: { id: "account:verified" } })).resolves.toMatchObject({ messageCount: 4 })
   })
 
@@ -707,7 +707,7 @@ describe("conversation privacy", () => {
     await chat.say(3, "current participant", { chat: group, from: { id: 789, username: "second" } }, group.id)
     await chat.history("telegram:-100") // Make the journal unavailable, so retained transcript identities decide access.
     const participant = { conversations: "participant", surface: "agent", user: null } as const
-    await expect(conversation("telegram:-100", { ...participant, actor: { id: "telegram:456" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:-100", { ...participant, actor: { id: "telegram:456" } })).rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN", status: 403 })
     await expect(conversation("telegram:-100", { ...participant, actor: { id: "telegram:789" } })).resolves.toMatchObject({ messageCount: 2 })
   })
 
@@ -850,24 +850,24 @@ describe("conversations.export", () => {
 
 describe("operation failures", () => {
   it("name their cause and their fix", async () => {
-    const { ChannelAdapterUnavailableError, ChannelArchiveTooLargeError, ChannelStateUnavailableError } = await import("../src/channels-console-host.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
     const fail = (error: Error) => installChannelsConsoleHost({
       agents: { support: {} as never },
       handlers: { support: { channels: async () => [], conversation: async () => { throw error }, threads: async () => [] } as never },
       options: () => ({}),
     })
-    fail(new ChannelArchiveTooLargeError("Channel history archive exceeds the 35 MiB response limit."))
-    await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_EXPORT_TOO_LARGE", status: 413 })
-    fail(new ChannelAdapterUnavailableError("no adapter"))
-    await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_ADAPTER_MISSING", status: 500 })
-    fail(new ChannelStateUnavailableError("The Agent State could not be read: down"))
-    await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", status: 503, fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL") })
+    fail(agentDiagnostics.AGENT_CHANNELS_EXPORT_TOO_LARGE({ archive: "history" }))
+    await expect(conversation()).rejects.toMatchObject({ code: "AGENT_CHANNELS_EXPORT_TOO_LARGE", status: 413 })
+    fail(agentDiagnostics.AGENT_CHANNELS_ADAPTER_MISSING())
+    await expect(conversation()).rejects.toMatchObject({ code: "AGENT_CHANNELS_ADAPTER_MISSING", status: 500 })
+    fail(agentDiagnostics.AGENT_CHANNELS_HOST_UNAVAILABLE({ detail: "down", read: "state" }))
+    await expect(conversation()).rejects.toMatchObject({ code: "AGENT_CHANNELS_HOST_UNAVAILABLE", status: 503, fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL") })
     fail(new Error("provider exploded"))
-    await expect(conversation()).rejects.toMatchObject({ code: "CHANNELS_PROVIDER_FAILED", status: 502 })
+    await expect(conversation()).rejects.toMatchObject({ code: "AGENT_CHANNELS_PROVIDER_FAILED", status: 502 })
   })
 
-  it("answers CHANNELS_HOST_UNAVAILABLE, naming the State options, until the webhook routes have started", async () => {
+  it("answers AGENT_CHANNELS_HOST_UNAVAILABLE, naming the State options, until the webhook routes have started", async () => {
     Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.channels-console"))
-    await expect(operation("channels.list")({})).rejects.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("Durable Object") })
+    await expect(operation("channels.list")({})).rejects.toMatchObject({ code: "AGENT_CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("Durable Object") })
   })
 })
