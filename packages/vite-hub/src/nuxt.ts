@@ -1,6 +1,8 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
+import { cloudflareWorkersDevShimSource } from "./cloudflare-workers-dev-shim.injected.ts"
+import { invariant } from "@vite-hub/internal/invariant"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
@@ -28,7 +30,7 @@ import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@v
 import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
-import { viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { resolveSandboxTaskProvider, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
@@ -279,24 +281,7 @@ function nitroViteHubH3(generatedRoots: string[]) {
 /** Node development uses request bindings without importing the production Cloudflare runtime. */
 async function writeCloudflareWorkersDevShim(buildDir: string): Promise<string> {
   const file = join(buildDir, "vitehub/cloudflare-workers.dev.mjs")
-  await writeFileIfChanged(file, [
-    "const bindings = () => globalThis.__env__ ?? process.env",
-    "const read = key => bindings()[key] ?? process.env[key]",
-    "export const env = new Proxy({}, {",
-    "  get: (_, key) => read(key),",
-    "  has: (_, key) => key in bindings() || key in process.env,",
-    "  ownKeys: () => [...new Set([...Reflect.ownKeys(process.env), ...Reflect.ownKeys(bindings())])],",
-    "  getOwnPropertyDescriptor(_, key) {",
-    "    const descriptor = Object.getOwnPropertyDescriptor(bindings(), key) ?? Object.getOwnPropertyDescriptor(process.env, key)",
-    "    return descriptor && { configurable: true, enumerable: descriptor.enumerable, writable: true, value: read(key) }",
-    "  },",
-    "})",
-    "export async function waitUntil(promise) { if (globalThis.__wait_until__) return globalThis.__wait_until__(promise); await promise }",
-    "export function withEnv() { throw new Error('cloudflare.withEnv is not available in Node development.') }",
-    "class Unsupported { constructor() { throw new Error('This Cloudflare runtime class is not available in Node development.') } }",
-    "export { Unsupported as DurableObject, Unsupported as RpcTarget, Unsupported as WorkerEntrypoint, Unsupported as WorkflowEntrypoint }",
-    "",
-  ].join("\n"))
+  await writeFileIfChanged(file, cloudflareWorkersDevShimSource)
   return file
 }
 
@@ -339,6 +324,7 @@ const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
   "@vite-hub/content/vite",
   "@vite-hub/sandbox/task/vite",
+  "@vite-hub/workflow/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -389,7 +375,10 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
   const transformWorkspaceAgent = (plugin as Plugin & {
     vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
   }).vitehub?.agent?.transformWorkspaceAgent
-  if (!resolveId && !load && !transformWorkspaceAgent) return
+  const workflowTransform = plugin.name === "@vite-hub/workflow/vite"
+    ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
+    : undefined
+  if (!resolveId && !load && !transformWorkspaceAgent && !workflowTransform) return
 
   const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
     // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
@@ -401,11 +390,19 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
     // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
     return load.call(this, id, { ...options, ssr: true })
   }
+  const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id, options) {
+    // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
+    return workflowTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
+  }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
     // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
     ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
     ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
+    ...(replayWorkflowTransform ? {
+      // SAFETY: the filter belongs to the same Workflow transform hook.
+      transform: withHookFilter(plugin.transform, replayWorkflowTransform) as Plugin["transform"],
+    } : {}),
     ...(transformWorkspaceAgent ? {
       transform: {
         filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
@@ -819,6 +816,13 @@ async function applyNitroConfig(
 
   await finalizeNitroReplayPlugins(plugins, config)
 
+  if (!nuxt.options.dev && !nuxt.options._prepare) {
+    const rateLimit = plugins.find(plugin => plugin.name === "@vite-hub/rate-limit/vite")
+    // SAFETY: The canonical Rate Limit owner exposes validation for Nitro-only builds.
+    const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => void } | undefined
+    api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
+  }
+
   if (config.nitro) {
     installVitePluginNitroModules(config.nitro, plugins)
     Object.assign(nitroConfig, config.nitro)
@@ -1038,7 +1042,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     host: plan.host,
     queue: effectiveQueue,
-    sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
+    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
   })
   if (nuxt.options.dev) consoleSections.splice(0, consoleSections.length, ...insertConsoleSection(consoleSections, "setup"))
   const runtimeCapabilityImports = {
@@ -1066,7 +1070,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     kv: effectiveKV,
     queue: effectiveQueue && plan.services.queue.supported,
-    sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
+    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
     // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
     workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
   })
@@ -1074,7 +1078,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let consoleAccess: ConsoleAccessBuild | undefined
   if (consoleOptions) {
     const configuredConsole = resolveConsoleOptions(consoleOptions)
-    if (!configuredConsole) throw new TypeError("[vitehub] Invalid console configuration")
+    invariant(configuredConsole, "resolveConsoleOptions() returns options for a console option that is set")
     if (!nuxt.options.vitehubCliDiscovery) {
       const appAuth = effectiveAuth
         ? requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(effectiveAuth === true ? undefined : effectiveAuth, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
@@ -1415,7 +1419,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : getResolvedFeatureOptions(replayConfig, "queue") ?? effectiveQueue,
-        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && plan.services.sandbox.supported,
+        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
         workspace: options.workspace,
         workflow: options.workflow,
       })

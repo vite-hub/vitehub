@@ -35,6 +35,7 @@ const actionSchema = v.variant("action", [
     state: id,
   }),
   v.object({ action: v.literal("revoke"), name }),
+  v.object({ action: v.literal("rotate-key") }),
   v.object({ action: v.literal("chatgpt-export"), name }),
   v.object({ action: v.literal("chatgpt-import"), name, credential: v.unknown() }),
   v.object({ action: v.literal("chatgpt-models"), name }),
@@ -334,6 +335,8 @@ const action: ConnectionsRoute = {
         return json({ models: await chatgptTransfers(connections).models({ actor, name: input.name }) });
       case "revoke":
         return json({ connection: await connections.revoke({ actor, name: input.name }) });
+      case "rotate-key":
+        return json({ rotation: await connections.rotateKey() });
       case "set-key":
         return json({
           connection: await connections.setKey({ actor, key: input.key, name: input.name }),

@@ -15,7 +15,7 @@ Both run locally, with no account or model key.
 - [Get started](/docs/getting-started) Install in Nuxt or Vite, then save a value or run your first Agent.
 - [Server Primitives](/docs/getting-started/server-primitives) Choose storage, background work, access, delivery, or file APIs.
 - [Agents](/docs/agents) Define an Agent, add tools and context, then inspect its work.
-- [UI](/docs/ui) Build with chat and inspection blocks, then customize components.
+- [UI](/docs/ui) Build UI that people and Agents use: parts, forms, Agent specs, and chat blocks.
 - [Develop and deploy](/docs/getting-started/build-and-deploy) Run locally, choose a host, configure persistence, and verify deployment.
 - [Reference](/docs/reference) Look up shared configuration, imports, file conventions, and errors.
 ::

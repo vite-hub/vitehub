@@ -58,7 +58,7 @@ Set both variables before you build. The binding name alone does not identify
 the remote database.
 
 ViteHub can also create the database. Set only the name, then run
-[`vitehub provision run --provider cloudflare`](/docs/development/provisioning).
+[`vitehub provision run --host cloudflare`](/docs/development/provisioning).
 It writes the ID to `.vitehub/provision.json`, and the build reads it there.
 
 ## Generate and apply the D1 migration
