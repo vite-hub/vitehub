@@ -1,7 +1,9 @@
 import { installOperationSectionResolver } from "@vite-hub/internal/operation-registry"
+import { invariant, invariantError } from "@vite-hub/internal/invariant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { isConsoleDevelopmentBuild } from "./development.ts"
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { ConsoleUser } from "../../auth-types.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -21,14 +23,12 @@ export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } take
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
-  if (!(policy instanceof Object) || !modes.has(policy.mode)) {
-    throw new TypeError("[vitehub] Console access requires a known access mode.")
-  }
+  invariant(policy instanceof Object && modes.has(policy.mode), "generated Console output passes an access mode that resolveConsoleOptions() derived from checked options")
   if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
-    throw new TypeError("[vitehub] console.authorize must default-export a function.")
+    throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_NOT_FUNCTION({ site: "file" })
   }
   if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
-    throw new TypeError("[vitehub] console.impersonation must be true or false.")
+    throw invariantError("generated Console output passes console.impersonation after resolveConsoleOptions() checked it")
   }
   if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentBuild() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
@@ -63,4 +63,17 @@ export function consoleAuthorizedSections(result: unknown): readonly ConsoleSect
   const sections: unknown[] = sectionsValue
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
+}
+
+/**
+ * The `grants` of a `console.authorize` result: the page tool roles that Site access gives. `undefined` without the
+ * field, and `false` when the field is not a list of role ids.
+ */
+export function consoleAuthorizedGrants(result: unknown): readonly string[] | undefined | false {
+  if (result === null || typeof result !== "object" || !("grants" in result)) return undefined
+  const value: unknown = Reflect.get(result, "grants")
+  if (!Array.isArray(value)) return false
+  const grants: unknown[] = value
+  if (!grants.every((grant): grant is string => typeof grant === "string" && grant.length > 0)) return false
+  return Object.freeze([...new Set(grants)])
 }

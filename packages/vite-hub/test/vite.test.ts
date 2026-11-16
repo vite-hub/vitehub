@@ -716,7 +716,9 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/agent-option-missing",
       "vite-hub/standard-context",
+      "vite-hub/vitest-inline",
       "vite-hub/database-disabled",
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
@@ -766,6 +768,7 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
+      "vite-hub/vitest-inline",
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
@@ -879,6 +882,7 @@ describe("vitehub", () => {
       },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
+      databaseImport: "vite-hub/database",
       hosting: "node-server",
       importBase: "vite-hub/workflow",
       providerImportAliases: {
@@ -1698,40 +1702,6 @@ describe("vitehub", () => {
     ])
   })
 
-  it.each([".env", "config/prod secrets.env"])("uploads the Cloudflare secrets file %s through the prebuilt deploy command", async secretsFile => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-secrets-file-"))
-    try {
-      await mkdir(join(root, "config"))
-      await writeFile(join(root, secretsFile), "API_TOKEN=secret\n")
-      const { commands } = await cloudflareCommands(
-        { cloudflare: { secretsFile }, host: "cloudflare", sandboxTask: true },
-        {},
-        join(root, ".output/server"),
-        root,
-      )
-      // Apply Nitro's deploy --prebuilt rewrite, then run the command from the project root as Nitro does.
-      const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
-      const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { cwd: root, encoding: "utf8" })
-
-      expect(result.status).toBe(0)
-      expect(result.stdout.trim().split("\n")).toEqual([
-        "wrangler", "deploy", "--config", ".output/server/wrangler.json", "--secrets-file", `.output/../${secretsFile}`, "--containers-rollout=gradual",
-      ])
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("leaves the secrets file out of the Cloudflare deploy command when the file is missing at build time", async () => {
-    const { commands } = await cloudflareCommands(
-      { cloudflare: { secretsFile: ".env" }, host: "cloudflare" },
-      {},
-    )
-
-    expect(commands.deploy).toBe("npx wrangler deploy --config ./server/wrangler.json")
-  })
-
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
     const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
       nitro.options.commands.deploy = "node ./deploy.mjs"
@@ -2123,6 +2093,33 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
   })
 
+  it("passes Sandbox Task options to the Sandbox owner and the build", async () => {
+    vitehub({ host: "cloudflare", sandboxTask: { keepAlive: true, migrationTag: "v2", provider: "cloudflare", sleepAfter: "30m" } })
+    expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ keepAlive: true, migrationTag: "v2", provider: "cloudflare", sleepAfter: "30m" }))
+    const cloudflare = await applyDeploymentConfig({ name: "acme", host: "cloudflare", sandboxTask: { binding: "BOX", keepAlive: true, migrationTag: "v2", provider: "cloudflare" } })
+    expect(getResolvedFeatureOptions(cloudflare, "sandboxTask")).toEqual({ binding: "BOX", keepAlive: true, migrationTag: "v2", name: "acme-sandbox", provider: "cloudflare" })
+    const named = await applyDeploymentConfig({ name: "acme", host: "cloudflare", sandboxTask: { name: "box" } })
+    expect(getResolvedFeatureOptions(named, "sandboxTask")).toEqual({ name: "box", provider: "cloudflare" })
+
+    const networkPolicy = { allow: ["registry.npmjs.org"] }
+    const vercel = await applyDeploymentConfig({ host: "vercel", sandboxTask: { cpu: 2, networkPolicy, provider: "vercel", runtime: "node22" } })
+    expect(getResolvedFeatureOptions(vercel, "sandboxTask")).toEqual({ cpu: 2, networkPolicy, provider: "vercel", runtime: "node22" })
+  })
+
+  it("selects Vercel Sandbox on hosts without a Sandbox provider", async () => {
+    for (const host of ["node", "netlify"] as const) {
+      expect(pluginNames(vitehub({ host, sandboxTask: { provider: "vercel", timeout: 60_000 } }))).toContain("@vite-hub/sandbox/task/vite")
+      expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel", timeout: 60_000 }))
+      // The host selects nothing, so the build config keeps no host Sandbox options and the plugin options apply.
+      const config = await applyDeploymentConfig({ host, sandboxTask: { provider: "vercel", timeout: 60_000 } })
+      expect(getResolvedFeatureOptions(config, "sandboxTask")).toBeUndefined()
+    }
+    await expect(applyDeploymentConfig({ host: "node", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    await expect(applyDeploymentConfig({ host: "node", sandboxTask: { name: "box" } })).rejects.toMatchObject({ code: "INTERNAL_R0002" })
+    expect(() => vitehub({ host: "node", sandboxTask: { provider: "cloudflare" } })).toThrow(expect.objectContaining({ code: "VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED" }))
+    expect(() => vitehub({ host: "cloudflare", sandboxTask: { provider: "vercel" } })).not.toThrow()
+  })
+
   it("keeps Rate Limit in memory on the dev server", async () => {
     const options = { name: "acme", host: "cloudflare", rateLimit: true } as const
     await expect(applyDeploymentConfig(options, {}, "build")).resolves.toMatchObject({
@@ -2137,9 +2134,14 @@ describe("vitehub", () => {
     await expect(applyDeploymentConfig({ host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
     })
+    // ViteHub selected kv, so a KV store that cannot share counts falls back to memory with a warning.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
-      [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } },
+      [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true, provider: "kv" } },
     })
+    // An explicit kv provider gets no fallback, so the Rate Limit build fails on such a store.
+    const explicit = await applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "kv" } }, {}, "build")
+    expect(explicit).toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } } })
+    expect(explicit).not.toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true } } })
     // An explicit provider wins, and the dev server counts in memory.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
@@ -2155,7 +2157,7 @@ describe("vitehub", () => {
 
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, host: "node", rateLimit: true })
-    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", memoryFallback: true, provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

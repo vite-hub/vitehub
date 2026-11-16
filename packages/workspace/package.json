@@ -185,7 +185,7 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@vite-hub/shell": {

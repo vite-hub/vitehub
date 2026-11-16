@@ -36,28 +36,34 @@ function isSafeInteger(value: unknown): value is number {
 
 function parseMessage(data: unknown): CDPMessage {
   const parsed: unknown = JSON.parse(String(data))
+  // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
   if (!isRecord(parsed)) throw new TypeError("CDP message must be an object")
 
   if (Object.hasOwn(parsed, "id")) {
     if (!isSafeInteger(parsed.id) || Object.hasOwn(parsed, "method")) {
+      // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
       throw new TypeError("CDP response id must be a safe integer")
     }
     const hasError = Object.hasOwn(parsed, "error")
     const hasResult = Object.hasOwn(parsed, "result")
+    // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
     if (hasError === hasResult) throw new TypeError("CDP response must include exactly one result or error")
     if (hasResult && !isRecord(parsed.result)) {
+      // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
       throw new TypeError("CDP response result must be an object")
     }
     let error: { message: string } | undefined
     if (hasError) {
       const candidate = parsed.error
       if (!isRecord(candidate) || !isString(candidate.message)) {
+        // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
         throw new TypeError("CDP response error must include a message")
       }
       error = { message: candidate.message }
     }
     const sessionId = parsed.sessionId
     if (sessionId !== undefined && !isString(sessionId)) {
+      // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
       throw new TypeError("CDP response sessionId must be a string")
     }
     const response: Extract<CDPMessage, { kind: "response" }> = {
@@ -70,12 +76,15 @@ function parseMessage(data: unknown): CDPMessage {
     return response
   }
 
+  // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
   if (!isString(parsed.method) || !parsed.method) throw new TypeError("CDP event method must be a non-empty string")
   if (Object.hasOwn(parsed, "params") && !isRecord(parsed.params)) {
+    // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
     throw new TypeError("CDP event parameters must be an object")
   }
   const sessionId = parsed.sessionId
   if (sessionId !== undefined && !isString(sessionId)) {
+    // Internal invariant: protocol check of a message from the browser. The socket handler catches it and rejects the pending calls with a coded provider error.
     throw new TypeError("CDP event sessionId must be a string")
   }
   const event: Extract<CDPMessage, { kind: "event" }> = {

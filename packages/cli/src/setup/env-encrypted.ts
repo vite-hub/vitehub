@@ -1,3 +1,5 @@
+/// <reference path="../dotenvx-primitives.d.ts" />
+
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { basename } from "node:path"

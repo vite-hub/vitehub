@@ -77,7 +77,7 @@ export function netlifyEnv(context: HostEnvContext): HostEnv {
 
   return {
     async listSecretNames() {
-      const result = await context.run(netlify[0], [...netlify.slice(1), "env:list", "--context", deployContext, "--json", "--site", siteId], { cwd: context.root, env: context.env })
+      const result = await context.run(netlify[0], [...netlify.slice(1), "env:list", "--context", deployContext, "--scope", "functions", "--json", "--site", siteId], { cwd: context.root, env: context.env })
       if (result.exitCode !== 0) throw hostListFailed("netlify env:list", result, context.secrets)
       const value = lastJsonObject(result.stdout)
       if (!value) throw hostListFailed("netlify env:list printed no JSON", result, context.secrets)
@@ -85,12 +85,16 @@ export function netlifyEnv(context: HostEnvContext): HostEnv {
     },
     async setSecret(name, value, { secret }) {
       const { path, query, request } = await api()
-      const exists = await request(`${path}/${encodeURIComponent(name)}`, { query }).then(() => true, (error: unknown) => {
-        if (error instanceof ProvisionRequestError && error.status === 404) return false
+      const existing = await request(`${path}/${encodeURIComponent(name)}`, { query }).catch((error: unknown) => {
+        if (error instanceof ProvisionRequestError && error.status === 404) return undefined
         throw error
       })
+      // PATCH cannot add a scope or promote a readable variable to a secret. Refuse before writing.
+      if (existing !== undefined && (!isRecord(existing) || !Array.isArray(existing.scopes) || !existing.scopes.includes("functions") || (secret && existing.is_secret !== true))) {
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "netlify", name, reason: "The existing variable must include Functions scope and, for a secret declaration, secret storage. Update its settings in Netlify before pushing." }), setupExitCodes.conflict)
+      }
       // PATCH sets the value of one context and keeps the others. A new variable gets only this context.
-      if (exists) await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
+      if (existing !== undefined) await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
       else await request(path, { body: [{ is_secret: secret, key: name, scopes: ["functions"], values: [{ context: deployContext, value }] }], method: "POST", query })
     },
   }

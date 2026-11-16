@@ -72,7 +72,7 @@ function netlifyApi(hosts: FakeHosts): { fetch: typeof fetch, requests: { method
     const key = /\/env\/(\w+)$/u.exec(path)?.[1]
     if (method === "GET" && key) {
       const found = Object.values(state.netlify).some(values => key in values)
-      return found ? json({ key }) : json({ message: "Not Found" }, 404)
+      return found ? json({ key, scopes: ["functions"], is_secret: true }) : json({ message: "Not Found" }, 404)
     }
     const write = (name: string, context: string, value: string) => {
       state.netlify![context] = { ...state.netlify![context], [name]: value }
@@ -271,6 +271,38 @@ describe("vitehub env push", () => {
       ["deploy", "env", "load", "/dev/stdin", "--replace", "--json", "--non-interactive", "--org", "acme", "--app", "my-app"],
       ["deploy", "env", "load", "/dev/stdin", "--replace", "--non-secrets", "SENTRY_DSN", "--json", "--non-interactive", "--org", "acme", "--app", "my-app"],
     ])
+  })
+
+  it.each([false, true])("refuses a Deno secret without a secret-classified name (existing: %s)", async (existing) => {
+    const root = await linkedProject(["deno"], {
+      ...manifest("deno", [{ names: ["DATABASE_URL"], required: true, secret: true, hasDefault: false }]),
+    })
+    const hosts = await fakeHosts({ ...hostEnv.deno, DATABASE_URL: canary })
+    await seed(hosts, { denoApp: true, secrets: existing ? { DATABASE_URL: "previous-secret" } : {} })
+    const result = await envCommand<PushJson>(["push", "--yes"], root, hosts.env)
+    expect(result.exitCode).not.toBe(0)
+    expect(result.json.error?.code).toBe("SETUP_ENV_VALUE_UNSUPPORTED")
+    expect((await hosts.calls()).some(call => call.argv[2] === "load")).toBe(false)
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
+  })
+
+  it("lists only Netlify Functions variables and refuses a Builds-only update before writing", async () => {
+    const root = await linkedProject(["netlify"], local)
+    const hosts = await fakeHosts(hostEnv.netlify)
+    await seed(hosts, { netlify: { production: { VITEHUB_SECRET: "build-only" } }, netlifyScopes: { VITEHUB_SECRET: ["builds"] } })
+    const diff = await envCommand<DiffJson>(["diff"], root, hosts.env)
+    expect(diff.exitCode).toBe(1)
+    expect((await hosts.calls()).find(call => call.argv[0] === "env:list")?.argv).toContain("functions")
+    const requests: string[] = []
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      requests.push(init?.method ?? "GET")
+      return Response.json({ key: "VITEHUB_SECRET", scopes: ["builds"], is_secret: true })
+    }
+    const push = await envCommand<PushJson>(["push", "--yes", "--only", "VITEHUB_SECRET"], root, hosts.env, { fetch })
+    expect(push.exitCode).not.toBe(0)
+    expect(push.json.error?.code).toBe("SETUP_ENV_VALUE_UNSUPPORTED")
+    expect(requests).toEqual(["GET"])
+    expectNoLeak(await hosts.calls(), push.stdout + push.stderr, [canary])
   })
 
   it("sends Netlify values in an API body for the production context, never in argv", async () => {

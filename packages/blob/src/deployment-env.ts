@@ -12,7 +12,11 @@ function entry(names: readonly string[], required: boolean, secret = true): Depl
 }
 
 // The names that the drivers read when the config left a credential to the env. They match `config.ts` and the drivers.
-const r2CredentialNames = { accessKeyId: ["R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"], secretAccessKey: ["R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"] } as const
+const r2CredentialNames = {
+  accountId: ["R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"],
+  accessKeyId: ["R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"],
+  secretAccessKey: ["R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"],
+} as const
 const minioCredentialNames = {
   accessKeyId: ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"],
   secretAccessKey: ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"],
@@ -29,7 +33,10 @@ function storeEntries(store: ResolvedBlobStoreConfig, host: DeploymentEnvContext
     case "cloudflare-r2": {
       // The binding does not use the HTTP credentials. The driver reads them for signed URLs, or without a binding.
       const required = host !== "cloudflare"
-      return (["accessKeyId", "secretAccessKey"] as const).map(option => entry(secretEnv[option] ? [secretEnv[option]] : r2CredentialNames[option], required))
+      return [
+        ...(!store.accountId || isMaskedBlobRuntimeValue(store.accountId) ? [entry(r2CredentialNames.accountId, required)] : []),
+        ...(["accessKeyId", "secretAccessKey"] as const).map(option => entry(secretEnv[option] ? [secretEnv[option]] : r2CredentialNames[option], required)),
+      ]
     }
     case "minio":
       return (["accessKeyId", "secretAccessKey"] as const).flatMap(option => secretEnv[option]

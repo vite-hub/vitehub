@@ -1,31 +1,17 @@
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { assertConsoleRequest } from "./request.ts"
 import { consoleHttpError } from "./http-error.ts"
 import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
-import { getConsoleEnv, getConsoleEnvStatus } from "./env.ts"
-import type { ConsoleEnvResponse } from "./env.ts"
+import { getConsoleEnv } from "./env.ts"
+import type { ServerEnvDescription } from "@vite-hub/env"
 import type { ConsoleRequestEvent } from "./request.ts"
 
-function consoleEnvError(statusCode: number, statusMessage: string) {
-  return consoleHttpError(statusCode, viteHubErrorDiagnostics.VITE_HUB_C0001({ message: statusMessage }))
-}
-
-/** Returns declaration metadata. `?status=1` adds status from `inspectServerEnv()`, which may call providers. */
-async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse> {
+/** Returns declaration metadata. The `env.inspect` operation of Env returns the status of each value. */
+async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ServerEnvDescription> {
   assertConsoleRequest(event)
-  if (!getConsoleSections().includes("env")) throw consoleEnvError(404, "Env section not found.")
-  if (consoleRequestURL(event).searchParams.get("status") !== "1") return getConsoleEnv()
-  let result: ConsoleEnvResponse | undefined
-  try {
-    result = await getConsoleEnvStatus(event)
-  }
-  catch {
-    // Keep runtime and provider failure text out of the response.
-    throw consoleEnvError(503, "Env status is unavailable.")
-  }
-  if (!result) throw consoleEnvError(503, "Env status is unavailable.")
-  return result
+  if (!getConsoleSections().includes("env")) throw consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_C0001({ message: "Env section not found." }))
+  return getConsoleEnv()
 }
 
 const guardedHandler: ConsoleAccessRoute<typeof consoleEnvHandler> = withConsoleAccess(consoleEnvHandler, { section: "env" })

@@ -141,8 +141,8 @@ changes. To switch hosts:
 4. Run `pnpm build`, then `pnpm vitehub inspect output` to list the
    host files.
 5. On Cloudflare or Vercel, preview the resources with
-   `pnpm vitehub provision run --provider cloudflare --dry-run`, or with
-   `--provider vercel`. Read [Provisioning](/docs/development/provisioning).
+   `pnpm vitehub provision run --host cloudflare --dry-run`, or with
+   `--host vercel`. Read [Provisioning](/docs/development/provisioning).
 6. Move existing data with the provider's own tools. After the switch, new
    data goes to the new provider.
 
