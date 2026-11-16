@@ -62,10 +62,10 @@ function skipToContent(): void {
 
 <style>
 .vitehub-console__skip-link {
-  background: var(--ui-bg);
+  background: var(--background);
   border-radius: 0.375rem;
   box-shadow: var(--vh-shadow-floating);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 500;
   inset-inline-start: 0.5rem;

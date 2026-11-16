@@ -1515,7 +1515,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__sessions[data-slot="root"] {
   background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
 }
 
 .vitehub-console__sessions [data-slot="header"] {
@@ -1593,13 +1593,13 @@ onBeforeUnmount(() => {
 
 /* Agent rows are a list of rows, like the section rows of the frame: they change at once, without a transition. */
 .vitehub-console__agent-row:hover {
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-highlighted);
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .vitehub-console__agent-row[aria-current="true"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-console__agent-dot {
@@ -1612,12 +1612,12 @@ onBeforeUnmount(() => {
 }
 
 [aria-current="true"] > .vitehub-console__agent-dot {
-  background: var(--ui-primary);
+  background: var(--primary);
   opacity: 1;
 }
 
 .vitehub-console__agent-more {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
@@ -1646,7 +1646,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__session-navbar {
-  background: var(--ui-bg) !important;
+  background: var(--background) !important;
   height: 2.75rem !important;
   min-height: 2.75rem !important;
   overflow: visible !important;
@@ -1661,7 +1661,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__session-navbar::after {
-  background: linear-gradient(to bottom, var(--ui-bg), transparent);
+  background: linear-gradient(to bottom, var(--background), transparent);
   content: "";
   height: 0.75rem;
   inset: 100% 0 auto;

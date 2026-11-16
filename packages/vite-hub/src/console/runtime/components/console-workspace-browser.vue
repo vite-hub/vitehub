@@ -392,7 +392,7 @@ onBeforeUnmount(() => {
 
 .workspace-browser__refs,
 .workspace-browser__tree {
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
@@ -441,11 +441,11 @@ onBeforeUnmount(() => {
 
 .workspace-browser__refs button:hover,
 .workspace-browser__refs button[aria-current="true"] {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .workspace-browser__ref-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   overflow: hidden;
@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
 
 .workspace-browser__note,
 .workspace-browser__hint {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   line-height: 1.5;
   margin: 0;

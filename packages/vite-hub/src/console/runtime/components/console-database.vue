@@ -603,7 +603,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .schema-scroll {
   background-image: radial-gradient(
-    color-mix(in oklab, var(--ui-border) 72%, transparent) 0.65px,
+    color-mix(in oklab, var(--border) 72%, transparent) 0.65px,
     transparent 0.65px
   );
   background-size: 16px 16px;

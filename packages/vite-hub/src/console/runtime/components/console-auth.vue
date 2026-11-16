@@ -641,11 +641,11 @@ onBeforeUnmount(() => {
   padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 .auth-table td {
   padding: 0.625rem 0.75rem;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
 }
 </style>

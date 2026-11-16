@@ -344,7 +344,7 @@ const headline = computed(() => {
   }));
 });
 /** Neutral steps from the text color, so the share bar reads by rank and never looks like a status color. */
-const shareColors = [100, 72, 52, 36, 24, 16].map(percent => `color-mix(in oklab, var(--ui-text-highlighted) ${percent}%, var(--ui-bg))`);
+const shareColors = [100, 72, 52, 36, 24, 16].map(percent => `color-mix(in oklab, var(--foreground) ${percent}%, var(--background))`);
 const modelSegments = computed(() => breakdownModels.value
   .map((model, index) => ({ color: shareColors[Math.min(index, shareColors.length - 1)]!, key: model.model, label: model.model, value: consoleUsageMetricValue(model, metric.value) }))
   .filter(segment => segment.value > 0));
@@ -870,7 +870,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 .usage-toggles button {
   border-block-end: 1px solid transparent;
   position: relative;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   padding-block: 0.25rem;
   transition: color 150ms ease, border-color 150ms ease;
@@ -884,12 +884,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-toggles button:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-toggles button:is([aria-pressed="true"], [aria-current="page"]) {
-  border-block-end-color: var(--ui-text-highlighted);
-  color: var(--ui-text-highlighted);
+  border-block-end-color: var(--foreground);
+  color: var(--foreground);
 }
 
 .usage-toggles--small button {
@@ -897,7 +897,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-toggles__divider {
-  background: var(--ui-border);
+  background: var(--border);
   height: 1rem;
   width: 1px;
 }
@@ -916,7 +916,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-headline__label {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
@@ -932,11 +932,11 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-headline__item:hover .usage-headline__value,
 .usage-headline__item[aria-pressed="true"] .usage-headline__value {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-headline__item[aria-pressed="true"] .usage-headline__label {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-headline__note {
@@ -979,7 +979,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked h2 {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.8125rem;
   font-weight: 500;
 }
@@ -992,8 +992,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-ranked li {
   align-items: center;
-  border-block-start: 1px solid var(--ui-border);
-  color: var(--ui-text-muted);
+  border-block-start: 1px solid var(--border);
+  color: var(--muted-foreground);
   column-gap: 1rem;
   display: grid;
   font-size: 0.8125rem;
@@ -1028,7 +1028,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked__name > :is(button, a, span:not(.usage-ranked__bar)) {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1046,7 +1046,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked__bar {
-  background: var(--ui-text-highlighted);
+  background: var(--foreground);
   pointer-events: none;
   border-radius: 9999px;
   height: 2px;
@@ -1054,7 +1054,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-filters {
-  border-inline-start: 1px solid var(--ui-border);
+  border-inline-start: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1065,7 +1065,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters h2 {
   align-items: baseline;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   display: flex;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -1088,7 +1088,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters li button {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.8125rem;
   gap: 0.5rem;
@@ -1100,7 +1100,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters li button:hover,
 .usage-filters li button[aria-pressed="true"] {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-filters__check {
@@ -1112,8 +1112,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 [aria-pressed="true"] > .usage-filters__check {
-  background: var(--ui-text-highlighted);
-  border-color: var(--ui-text-highlighted);
+  background: var(--foreground);
+  border-color: var(--foreground);
 }
 
 .usage-filters__name {
@@ -1132,14 +1132,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters__clear {
   align-self: start;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   text-decoration: underline;
   text-underline-offset: 4px;
 }
 
 .usage-filters__note {
-  border-block-start: 1px solid var(--ui-border);
+  border-block-start: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   font-size: 0.6875rem;
   line-height: 1.5;
@@ -1159,7 +1159,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
   }
 
   .usage-filters {
-    border-block-start: 1px solid var(--ui-border);
+    border-block-start: 1px solid var(--border);
     border-inline-start: 0;
   }
 }

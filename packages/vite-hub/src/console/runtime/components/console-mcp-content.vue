@@ -90,7 +90,7 @@ function bytes(base64: string): string {
         <template v-if="block.type === 'text'">
           <pre :class="pretty(string(block.text)).json ? 'vitehub-mcp-code' : 'vitehub-mcp-text'">{{ pretty(string(block.text)).text }}</pre>
         </template>
-        <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-(--ui-border)">
+        <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-(--border)">
         <audio v-else-if="block.type === 'audio' && mediaSource(block)" :src="mediaSource(block)" controls class="w-full" />
         <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-lg border border-default px-3 py-2">
           <Icon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
@@ -137,8 +137,8 @@ function bytes(base64: string): string {
 /* Results are read, copied, and compared, so they keep their line breaks and wrap long lines instead of scrolling. */
 .vitehub-mcp-text,
 .vitehub-mcp-code {
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.6;
@@ -150,7 +150,7 @@ function bytes(base64: string): string {
 }
 
 .vitehub-mcp-text {
-  background: color-mix(in oklab, var(--ui-bg-elevated) 50%, transparent);
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
   font-family: var(--font-sans);
   font-size: 0.8125rem;
 }

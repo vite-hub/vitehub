@@ -148,9 +148,9 @@ const meta = computed(() => {
 <style>
 .vitehub-media-field__thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ui-text-highlighted) 6%, transparent);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 6%, transparent);
   display: inline-flex;
   flex-shrink: 0;
   height: 2.5rem;

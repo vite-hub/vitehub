@@ -148,7 +148,7 @@ const label = computed(() => `Switch app. Current: ${props.app.name}${props.app.
 
 button.vitehub-app-tile:hover,
 .vitehub-app-tile[aria-expanded="true"] {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-app-tile .vitehub-app-tile__logo {
@@ -165,7 +165,7 @@ button.vitehub-app-tile:hover,
 }
 
 .vitehub-app-tile__name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.8125rem;
   font-weight: 500;
   overflow: hidden;

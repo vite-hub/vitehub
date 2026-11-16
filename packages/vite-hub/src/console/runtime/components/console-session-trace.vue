@@ -601,7 +601,7 @@ const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, nu
 
     <template #resize-handle>
       <span
-        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented)"
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--border) transition-colors group-hover:bg-(--ui-border-accented)"
       />
     </template>
 
