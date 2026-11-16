@@ -1,7 +1,8 @@
 import { useDatabase } from "vite-hub/database"
 
 import { consoleEnvValues, envNamePattern, envStagePattern, envValuesOffMessage, maxEnvValueLength, readConsoleEnvConfig, rotateConsoleEnvValues } from "../../src/env-values.ts"
-import { consoleJson, consoleProblem, projectIdOf, projectNotFound } from "./console.ts"
+import { consoleErrorDiagnostics } from "../../src/error-diagnostics.ts"
+import { consoleDiagnosticProblem, consoleJson, consoleProblem, projectIdOf, projectNotFound } from "./console.ts"
 
 import type { EnvActivity, EnvActor } from "vite-hub/env/bridge"
 import type { DatabaseEnvStore, EnvDatabase } from "vite-hub/env/database"
@@ -23,9 +24,17 @@ function actorOf(caller: ConsoleTeamCaller): { actor: EnvActor, target?: EnvActo
   return { actor: { id: caller.user.id, kind: "user" } }
 }
 
-async function record(store: DatabaseEnvStore, caller: ConsoleTeamCaller, event: Pick<EnvActivity, "action" | "key" | "outcome"> & { revision?: string, operation: string }): Promise<void> {
+type ActivityInput = Pick<EnvActivity, "action" | "key" | "outcome"> & { revision?: string, operation: string, operationId?: string }
+
+/** Append one activity row. Rows of one operation, such as `started` and then `succeeded`, share `operationId`. */
+async function record(store: DatabaseEnvStore, caller: ConsoleTeamCaller, event: ActivityInput): Promise<void> {
   const id = crypto.randomUUID()
-  await store.access.append({ ...actorOf(caller), ...event, id, operationId: id, timestamp: new Date().toISOString() })
+  await store.access.append({ ...actorOf(caller), ...event, id, operationId: event.operationId ?? id, timestamp: new Date().toISOString() })
+}
+
+/** The store throws `SEAL_INVALID` when no key of the keyring opens a value. */
+function isSealInvalid(error: unknown): boolean {
+  return error instanceof Object && Reflect.get(error, "code") === "SEAL_INVALID"
 }
 
 let rotation: Promise<void> | undefined
@@ -97,15 +106,29 @@ export async function consoleEnvRoute(request: Request, caller: ConsoleTeamCalle
       return consoleProblem(400, "CONSOLE_ENV_INVALID_INPUT", "Send { \"names\": [\"API_TOKEN\"] }, or {} for every value of the stage.")
     }
     const wanted: string[] = names ?? (await store.list()).map(item => item.key)
-    const revealed: Record<string, string> = {}
+    // Each value gets a `started` row before the read, so a value never leaves without a row that says who took it.
+    // The outcome row comes before the answer: `succeeded` when the value leaves, else `failed`. One value that the
+    // keyring cannot open fails the whole reveal, so no value leaves.
+    const reveals: { event: ActivityInput, value?: string }[] = []
+    const finish = (outcome: "failed" | "succeeded") => Promise.all(reveals.map(({ event, value }) => record(store, caller, { ...event, outcome: value === undefined ? "failed" : outcome })))
     for (const key of wanted) {
       const meta = await store.secrets.inspect(key)
       if (!meta) continue
-      // The record comes before the read, so a value never leaves without a row that says who took it.
-      await record(store, caller, { action: "resolve", key, operation: "console.reveal", outcome: "succeeded", revision: meta.revision })
-      const found = await store.secrets.read(key)
-      if (found) revealed[key] = found.value
+      const reveal: { event: ActivityInput, value?: string } = { event: { action: "resolve", key, operation: "console.reveal", operationId: crypto.randomUUID(), outcome: "started", revision: meta.revision } }
+      await record(store, caller, reveal.event)
+      reveals.push(reveal)
+      try {
+        reveal.value = (await store.secrets.read(key))?.value
+      }
+      catch (error) {
+        await finish("failed")
+        if (isSealInvalid(error)) return consoleDiagnosticProblem(500, consoleErrorDiagnostics.CONSOLE_ENV_KEY_MISSING({ name: key, stage }))
+        throw error
+      }
     }
+    await finish("succeeded")
+    const revealed: Record<string, string> = {}
+    for (const { event, value } of reveals) if (value !== undefined) revealed[event.key] = value
     return consoleJson({ stage, values: revealed })
   }
 

@@ -53,7 +53,7 @@ The values use `createDatabaseEnvStore()` from `@vite-hub/env/database` in the C
 
 - Members see the names and when each one changed.
 - Owners and admins set, replace, delete, and reveal values. A key that names projects does this only on those projects.
-- Each write, delete, and reveal goes in the env activity first, with `operation` `console.set`, `console.delete`, or `console.reveal`. The actor is the person of a session, or `api-key:<key id>` with the person in `target`. The activity never holds a value.
+- Each write, delete, and reveal goes in the env activity first, with `operation` `console.set`, `console.delete`, or `console.reveal`. The actor is the person of a session, or `api-key:<key id>` with the person in `target`. A reveal writes a `started` row before it reads a value, then `succeeded` or `failed` with the same `operationId` before it answers. The activity never holds a value.
 - `vitehub env pull --from console` reveals every value of a stage and writes `.env.<stage>`.
 
 ### Rotate the env key
@@ -65,7 +65,7 @@ The values use `createDatabaseEnvStore()` from `@vite-hub/env/database` in the C
 3. Open the **Env values** page, or call any env route. The first env request of each Console process seals every stored value of every app and stage with the new key, and the host log gets one line: `[vitehub] Env values: sealed <n> values again with the current key, ...`. The values and their revisions stay the same. If it fails, the log says so, reads still work with both keys, and the next request tries again.
 4. When the log line is there, set `VITEHUB_CONSOLE_ENV_KEY=<new key>`, remove `VITEHUB_CONSOLE_ENV_KEYS`, and deploy. Delete the old key.
 
-Do not remove the old key before step 3 is done: a value that only the old key opens can no longer be read.
+Do not remove the old key before step 3 is done: a value that only the old key opens can no longer be read. A reveal of such a value answers `500` with `CONSOLE_ENV_KEY_MISSING`, returns no value, and logs the reveal as `failed`. Put the old key back in `VITEHUB_CONSOLE_ENV_KEYS` to read it again.
 
 ## ViteHub MCP
 
@@ -197,7 +197,7 @@ VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=tru
 corepack pnpm --dir packages/console run test
 ```
 
-CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Then it checks env values on the database of that host. It writes a test owner, a member, and their API keys into the database, and starts the build three times: with values off, as console.vitehub.dev runs, with values on, and with values on and another key. With values on, an owner sets, lists, reveals, and deletes a value over HTTP, a member gets `403`, the activity and the database hold no plain value, and another key opens no value. Run them for one host after you build the page:
+CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Then it checks env values on the database of that host. It writes a test owner, a member, and their API keys into the database, and starts the build three times: with values off, as console.vitehub.dev runs, with values on, and with values on and another key. With values on, an owner sets, lists, reveals, and deletes a value over HTTP, a member gets `403`, the activity and the database hold no plain value, and another key opens no value: the reveal answers `CONSOLE_ENV_KEY_MISSING` and the activity logs it as failed. Run them for one host after you build the page:
 
 ```sh
 cd packages/console

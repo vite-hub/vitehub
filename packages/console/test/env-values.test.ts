@@ -71,6 +71,19 @@ function call(token: string | undefined, method: string, path: string, body?: un
   return (/\/env\/?$/.test(path) ? envIndex : envRoute).fetch(request)
 }
 
+interface ActivityEvent {
+  action: string
+  outcome: string
+  operation: string
+  operationId: string
+  actor: { id: string, kind: string }
+  target?: { id: string }
+}
+
+async function activity(token: string, projectId: string, stage: string, name: string): Promise<ActivityEvent[]> {
+  return (await (await call(token, "GET", `/api/projects/${projectId}/env/${stage}/${name}/activity`)).json() as { events: ActivityEvent[] }).events
+}
+
 describe("Console env values", () => {
   it("stores no values by default and says so on every route", async () => {
     const { app, key } = await setup()
@@ -135,12 +148,15 @@ describe("Console env values", () => {
     state.sessionTeam = "t-ada"
     await call(undefined, "DELETE", `/api/projects/${app.id}/env/production/API_TOKEN`)
 
-    const events = (await (await call(created.key, "GET", `/api/projects/${app.id}/env/production/API_TOKEN/activity`)).json() as { events: { action: string, actor: { id: string, kind: string }, target?: { id: string }, operation: string }[] }).events
-    expect(events.map(event => [event.action, event.operation, event.actor.kind, event.actor.id, event.target?.id])).toEqual([
-      ["remove", "console.delete", "user", "u-ada", undefined],
-      ["resolve", "console.reveal", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
-      ["replace", "console.set", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
+    const events = await activity(created.key, app.id, "production", "API_TOKEN")
+    expect(events.map(event => [event.action, event.outcome, event.operation, event.actor.kind, event.actor.id, event.target?.id])).toEqual([
+      ["remove", "succeeded", "console.delete", "user", "u-ada", undefined],
+      // The reveal writes `started` before it reads the value, and `succeeded` before the value leaves.
+      ["resolve", "succeeded", "console.reveal", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
+      ["resolve", "started", "console.reveal", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
+      ["replace", "succeeded", "console.set", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
     ])
+    expect(events[1]!.operationId).toBe(events[2]!.operationId)
     expect(JSON.stringify((await client.execute("select * from vitehub_env_activity")).rows)).not.toContain(canary)
   })
 
@@ -211,7 +227,49 @@ describe("Console env values", () => {
     expect(await (await call(owner, "POST", `/api/projects/${other.id}/env/staging/reveal`, {})).json()).toEqual({ stage: "staging", values: { DATABASE_URL: "libsql://db" } })
     // The old key alone no longer opens them.
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", envKey)
-    await expect(call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).rejects.toThrow("No configured encryption key")
+    expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).json()).toMatchObject({ code: "CONSOLE_ENV_KEY_MISSING" })
+  })
+
+  it("answers CONSOLE_ENV_KEY_MISSING when the keyring cannot open a value, and logs the reveal as failed", async () => {
+    const { app, key } = await setup()
+    const owner = (await key("u-ada")).key
+    await call(owner, "PUT", `/api/projects/${app.id}/env/production/API_TOKEN`, { value: canary })
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", "f".repeat(64))
+    // A value that the current key sealed, which the reveal of every value reads before API_TOKEN fails.
+    await call(owner, "PUT", `/api/projects/${app.id}/env/production/ANOTHER`, { value: "another-value-1b2c" })
+
+    for (const body of [{ names: ["API_TOKEN"] }, {}]) {
+      const response = await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, body)
+      const text = await response.text()
+      expect(response.status).toBe(500)
+      expect(JSON.parse(text)).toMatchObject({
+        code: "CONSOLE_ENV_KEY_MISSING",
+        docs: "https://vitehub.dev/docs/development/diagnostics/console_env_key_missing",
+        fix: expect.stringContaining("VITEHUB_CONSOLE_ENV_KEYS"),
+        message: expect.stringContaining("API_TOKEN"),
+        ok: false,
+        status: 500,
+      })
+      // No value leaves when one of them cannot be opened.
+      expect(text).not.toContain(canary)
+      expect(text).not.toContain("another-value-1b2c")
+    }
+
+    const events = await activity(owner, app.id, "production", "API_TOKEN")
+    expect(events.map(event => [event.action, event.outcome])).toEqual([
+      ["resolve", "failed"],
+      ["resolve", "started"],
+      ["resolve", "failed"],
+      ["resolve", "started"],
+      ["replace", "succeeded"],
+    ])
+    expect(events[0]!.operationId).toBe(events[1]!.operationId)
+    // ANOTHER opened, but its value did not leave, so its reveal did not succeed either.
+    expect((await activity(owner, app.id, "production", "ANOTHER")).map(event => [event.action, event.outcome])).toEqual([
+      ["resolve", "failed"],
+      ["resolve", "started"],
+      ["replace", "succeeded"],
+    ])
   })
 
   it("refuses bad stages and names", async () => {

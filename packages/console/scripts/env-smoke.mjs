@@ -132,13 +132,15 @@ export const envOnChecks = [
     const activity = await call(base, ctx.ownerKey, "GET", env(ctx, "production", "SMOKE_TOKEN", "activity"))
     check(activity.response.status === 200, `GET activity answered ${activity.response.status}: ${activity.text.slice(0, 300)}`)
     const events = json(activity.text, "GET activity").events ?? []
-    const actions = events.map(event => event.action).sort()
-    check(JSON.stringify(actions) === JSON.stringify(["replace", "resolve"]), `the activity of SMOKE_TOKEN has ${JSON.stringify(actions)}`)
+    // Newest first: the reveal writes `started` before the read and `succeeded` before the value leaves.
+    const rows = events.map(event => `${event.action}:${event.outcome}`)
+    check(JSON.stringify(rows) === JSON.stringify(["resolve:succeeded", "resolve:started", "replace:succeeded"]), `the activity of SMOKE_TOKEN has ${JSON.stringify(rows)}`)
+    check(events[0].operationId === events[1].operationId, "the started and succeeded rows of the reveal have different operation ids")
     check(events.every(event => event.actor?.id?.startsWith("api-key:") && event.target?.kind === "user"), `the activity names ${JSON.stringify(events.map(event => event.actor))}`)
     check(!activity.text.includes(ctx.canary), "GET activity holds the value")
-    const rows = await sql(`SELECT payload FROM vitehub_env_activity WHERE namespace = '${ctx.projectId}:production'`)
-    check(rows.length >= 2, `vitehub_env_activity has ${rows.length} rows`)
-    check(!JSON.stringify(rows).includes(ctx.canary), "vitehub_env_activity holds the value")
+    const stored = await sql(`SELECT payload FROM vitehub_env_activity WHERE namespace = '${ctx.projectId}:production'`)
+    check(stored.length === 3, `vitehub_env_activity has ${stored.length} rows, not 3`)
+    check(!JSON.stringify(stored).includes(ctx.canary), "vitehub_env_activity holds the value")
   }],
   ["deletes a value as an owner", async (base, ctx) => {
     const removed = await call(base, ctx.ownerKey, "DELETE", env(ctx, "production", "SMOKE_TOKEN"))
@@ -158,11 +160,19 @@ export const envOnChecks = [
 
 /** With values on and only another key: the names still list, and no value opens. */
 export const envOtherKeyChecks = [
-  ["lists the names, and does not open a value that another key sealed", async (base, ctx) => {
+  ["lists the names, and answers CONSOLE_ENV_KEY_MISSING for a value that another key sealed", async (base, ctx) => {
     const listed = await call(base, ctx.ownerKey, "GET", env(ctx, "preview"))
     check(json(listed.text, "GET preview").variables?.some(item => item.name === "SMOKE_KEPT"), `GET preview lists ${listed.text.slice(0, 300)}`)
     const revealed = await call(base, ctx.ownerKey, "POST", env(ctx, "preview", "reveal"), { names: ["SMOKE_KEPT"] })
-    check(revealed.response.status !== 200, `POST reveal with another key answered 200: ${revealed.text.slice(0, 300)}`)
+    problem(revealed, 500, "CONSOLE_ENV_KEY_MISSING", "POST reveal with another key")
+    check(json(revealed.text, "POST reveal").fix?.includes("VITEHUB_CONSOLE_ENV_KEYS"), `POST reveal with another key has no fix that names VITEHUB_CONSOLE_ENV_KEYS: ${revealed.text.slice(0, 300)}`)
     check(!revealed.text.includes(ctx.kept), "POST reveal with another key answered the value")
+  }],
+  ["logs the reveal that no key opened as failed", async (base, ctx) => {
+    const activity = await call(base, ctx.ownerKey, "GET", env(ctx, "preview", "SMOKE_KEPT", "activity"))
+    const events = json(activity.text, "GET activity").events ?? []
+    const rows = events.map(event => `${event.action}:${event.outcome}`)
+    check(JSON.stringify(rows) === JSON.stringify(["resolve:failed", "resolve:started", "replace:succeeded"]), `the activity of SMOKE_KEPT has ${JSON.stringify(rows)}`)
+    check(events[0].operationId === events[1].operationId, "the started and failed rows of the reveal have different operation ids")
   }],
 ]
