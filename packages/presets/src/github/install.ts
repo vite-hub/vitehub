@@ -21,7 +21,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** The install step that failed. The Babysitter waits for `capacity` and reports the other kinds. */
 export type GitHubWorkspaceInstallKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
 /** A `PRESETS_WORKSPACE_INSTALL_FAILED` error, with whether the Babysitter may retry it and the step that failed. */
-export type GitHubWorkspaceInstallError = ReturnType<typeof presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED> & { retryable: boolean; kind: GitHubWorkspaceInstallKind };
+export type GitHubWorkspaceInstallError = Error & { readonly code: string; retryable: boolean; kind: GitHubWorkspaceInstallKind };
 
 export function gitHubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallKind = "command"): GitHubWorkspaceInstallError {
   const error = presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED({ message: cause instanceof Error ? cause.message : String(cause), cause });
