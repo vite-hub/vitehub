@@ -1529,7 +1529,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     await checkMainRepairs(repositories, track);
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
-      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap);
+      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {
+        void noteForgeQuota(error, "snapshot-detect");
+        // An event, not an error: the next minute retries the repository.
+        schedulerEvent("babysitter.snapshot.detect.failed", { repository, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) });
+      });
     } catch (error) {
       await noteForgeQuota(error, "snapshot-detect");
       schedulerError("babysitter.snapshot.detect.failed", error);
