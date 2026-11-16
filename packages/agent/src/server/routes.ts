@@ -9293,18 +9293,18 @@ async function channelTaskTarget(
     && (triggerName === undefined || trigger.id === `${channel}.${triggerName}`)
     && trigger.tasks !== undefined && Object.hasOwn(trigger.tasks, task))
   if (declaring.length !== 1) {
-    throw agentDiagnostics.AGENT_R1025({ message: declaring.length
-      ? `[vitehub] More than one trigger of Channel "${channel}" declares task "${task}" (${declaring.map(trigger => trigger.id).join(", ")}). Pass the trigger option.`
-      : `[vitehub] No trigger of Channel "${channel}" declares task "${task}"${triggerName === undefined ? "" : ` as trigger "${triggerName}"`}.` })
+    throw declaring.length
+      ? agentDiagnostics.AGENT_CHANNEL_TASK_TRIGGER_AMBIGUOUS({ channel, task, triggers: declaring.map(trigger => trigger.id).join(", ") })
+      : agentDiagnostics.AGENT_CHANNEL_TASK_UNDECLARED({ channel, task, ...(triggerName === undefined ? {} : { trigger: triggerName }) })
   }
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   const trigger = declaring[0] as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>
   const registrations = (await agentWebhookRegistrations(agent, context)).filter(match => match.registration.channelId === channel)
   const match = registrations.find(candidate => candidate.trigger.id === trigger.id) ?? registrations[0]
-  if (!match) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for task "${task}".` })
+  if (!match) throw agentDiagnostics.AGENT_CHANNEL_WEBHOOK_MISSING({ channel, target: "task", name: task })
   const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
   if (!webhookState || !hasAgentWebhookQueue(webhookState.state)) {
-    throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot queue tasks. Use durable SQLite or libSQL Agent State.` })
+    throw agentDiagnostics.AGENT_CHANNEL_STATE_QUEUE_UNSUPPORTED({ channel, action: "queue tasks" })
   }
   return { registration: match.registration, trigger, webhookState: { keyPrefix: webhookState.keyPrefix, state: webhookState.state } }
 }
@@ -9397,13 +9397,13 @@ function createChannelTaskQueue(
         && Object.hasOwn(triggers[`${channel}.${channelHandlerTriggerName}`]!.tasks ?? {}, triggerName)
       const triggerId = `${channel}.${handlerEvent ? channelHandlerTriggerName : triggerName}`
       const trigger = triggers[triggerId]
-      if (!trigger) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no trigger or \`on\` handler "${triggerName}".` })
+      if (!trigger) throw agentDiagnostics.AGENT_CHANNEL_TRIGGER_UNKNOWN({ channel, trigger: triggerName })
       const registrations = (await agentWebhookRegistrations(agent, context)).filter(match => match.registration.channelId === channel)
       const match = registrations.find(candidate => candidate.trigger.id === triggerId) ?? registrations[0]
-      if (!match) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for trigger "${triggerName}".` })
+      if (!match) throw agentDiagnostics.AGENT_CHANNEL_WEBHOOK_MISSING({ channel, target: "trigger", name: triggerName })
       const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
       if (!webhookState || !hasAgentWebhookQueue(webhookState.state)) {
-        throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot queue triggers. Use durable SQLite or libSQL Agent State.` })
+        throw agentDiagnostics.AGENT_CHANNEL_STATE_QUEUE_UNSUPPORTED({ channel, action: "queue triggers" })
       }
       const queueState = { keyPrefix: webhookState.keyPrefix, state: webhookState.state }
       // The trigger gets the same State and queue as on its webhook route, so its dispatch(), pull(), and
@@ -9427,7 +9427,7 @@ function createChannelTaskQueue(
     cancel: (channel, task, options) => withContext(async (context) => {
       const { trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
       if (!webhookState.state.cancelWebhookDeliveries) {
-        throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot cancel queued tasks. Use durable SQLite or libSQL Agent State.` })
+        throw agentDiagnostics.AGENT_CHANNEL_STATE_QUEUE_UNSUPPORTED({ channel, action: "cancel queued tasks" })
       }
       const cancelled = await webhookState.state.cancelWebhookDeliveries(webhookState.keyPrefix, channelTaskDebounceKey(trigger.id, task, options.key))
       await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix, cancelled).catch(() => undefined)
@@ -9456,7 +9456,7 @@ function createQueuedChannelDispatch(
     const triggerName = options?.trigger
     const definition = agentChannelOptions(agent)[channelId]
     if (typeof triggerName !== "string" || !definition?.triggers || !Object.hasOwn(definition.triggers, triggerName)) {
-      throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channelId}" has no trigger "${String(triggerName)}" to dispatch to.` })
+      throw agentDiagnostics.AGENT_DISPATCH_TRIGGER_UNKNOWN({ channel: channelId, trigger: String(triggerName) })
     }
     if (!Array.isArray(items)) throw agentDiagnostics.AGENT_DISPATCH_ITEMS_INVALID({ channelId })
     const triggerId = `${channelId}.${triggerName}`
