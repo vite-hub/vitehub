@@ -18,6 +18,8 @@ vi.mock("../src/console/runtime/client/request", () => ({
 }))
 
 import Rail from "../src/console/runtime/components/console-rail.vue"
+import Sidebar from "../src/console/runtime/components/console-sidebar.vue"
+import { consoleSidebarOpen, setConsoleSidebarOpen } from "../src/console/runtime/client/sidebar"
 
 const renderer = createRenderer({
   createComment: () => ({}), createElement: () => ({}), createText: () => ({}),
@@ -68,7 +70,7 @@ describe("Console Go to chord focus", () => {
     }
     const body = document.activeElement
     try {
-      expect(Object.keys(shortcuts.value).sort()).toEqual(["[", "g-a", "g-k", "g-o"])
+      expect(Object.keys(shortcuts.value).sort()).toEqual(["g-a", "g-k", "g-o"])
       focus(editor)
       key("g")
       focus(body)
@@ -101,4 +103,23 @@ describe("Console Go to chord focus", () => {
     }
     finally { app.unmount() }
   })
+})
+
+it("registers the sidebar toggle in the shared shell for app and team pages", () => {
+  vi.stubGlobal("document", new EventTarget())
+  vi.stubGlobal("requestAnimationFrame", vi.fn())
+  setConsoleSidebarOpen(false)
+  const app = renderer.createApp({ ...Sidebar, render: () => null }, { homeHref: "/", homeLabel: "Apps", search: false })
+  app.provide(ssrContextKey, {})
+  app.mount({})
+  try {
+    expect(mocks.shortcuts).toHaveBeenCalledTimes(1)
+    const shortcuts = mocks.shortcuts.mock.calls[0]![0] as Record<string, () => void>
+    expect(Object.keys(shortcuts)).toEqual(["["])
+    shortcuts["["]!()
+    expect(consoleSidebarOpen.value).toBe(true)
+    shortcuts["["]!()
+    expect(consoleSidebarOpen.value).toBe(false)
+  }
+  finally { app.unmount(); setConsoleSidebarOpen(false) }
 })

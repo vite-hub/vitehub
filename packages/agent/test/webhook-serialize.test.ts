@@ -57,7 +57,7 @@ describe("webhook.serialize", () => {
       // SAFETY: The types reject this combination. The test checks the runtime guard for untyped callers.
       webhook: { deliveryId: "ticket-42", serialize: "ticket:42", ...ownership } as never,
     })
-    await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).rejects.toThrow(TypeError)
+    await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).rejects.toMatchObject({ code: "AGENT_TRIGGER_SERIALIZE_CONFLICT" })
     await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).rejects.toThrow(
       'Trigger "tickets.opened" webhook.serialize replaces concurrencyKey and concurrencyLimit.',
     )
@@ -68,6 +68,6 @@ describe("webhook.serialize", () => {
       input: { prompt: "triage" },
       webhook: { deliveryId: "ticket-42", serialize: " " },
     })
-    await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).rejects.toThrow(TypeError)
+    await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).rejects.toMatchObject({ code: "AGENT_TRIGGER_SERIALIZE_INVALID" })
   })
 })
