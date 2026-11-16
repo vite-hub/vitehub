@@ -118,7 +118,7 @@
 }
 
 .vh-invocation-list__item:hover {
-  background: var(--ui-bg-elevated, color-mix(in oklab, var(--vh-text) 6%, transparent));
+  background: var(--muted, color-mix(in oklab, var(--vh-text) 6%, transparent));
 }
 
 .vh-invocation-list__item[aria-current="true"] {

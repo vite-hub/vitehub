@@ -21,10 +21,10 @@ watch(() => props.app.icon, () => { failed.value = false; });
 /* The frame takes its size from the caller. The favicon fills 60% of it, as Vercel and Executor show logos. */
 .vitehub-app-logo {
   align-items: center;
-  background: var(--ui-bg);
-  border: 1px solid var(--ui-border);
+  background: var(--background);
+  border: 1px solid var(--border);
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   font-size: 0.6875rem;

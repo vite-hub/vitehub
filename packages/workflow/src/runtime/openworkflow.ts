@@ -2,6 +2,7 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -457,13 +458,15 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
 
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
   const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
+  const status = normalizeOpenWorkflowStatus(run.status)
   return {
+    ...(status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
     ...(run.finishedAt ? { completedAt: run.finishedAt } : {}),
     createdAt: run.createdAt,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}),
     // The id that the caller passed is the run id. OpenWorkflow keeps it as the idempotency key.
     id: run.idempotencyKey || run.id,
-    metadata: run.error || {
+    metadata: {
       namespaceId: run.namespaceId,
       version: run.version,
       workflowName: run.workflowName,
@@ -471,7 +474,7 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
     payload: run.input,
     provider: "openworkflow",
     result,
-    status: normalizeOpenWorkflowStatus(run.status),
+    status,
   }
 }
 
@@ -548,10 +551,10 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
     const serialized = serializeOpenWorkflowRun<TResult>(handle.workflowRun, name)
     return {
       ...serialized,
-      metadata: serialized.status === "failed"
-        ? serialized.metadata
-        : { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
-      payload,
+      metadata: { ...(options.id ? { idempotencyKey: options.id } : {}), workflow: name },
+      // A start with the id of an existing run returns that run, so report the payload that it stored.
+      // SAFETY: OpenWorkflow stores the payload of this Workflow Definition as the run input.
+      payload: handle.workflowRun.input as TPayload,
     }
   })
 }
