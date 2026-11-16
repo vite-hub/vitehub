@@ -660,7 +660,8 @@ jobs:
 
   # Every Console runs packages/console: console.vitehub.dev on Cloudflare with D1, and self-hosted ones on Node with
   # SQLite (the Dockerfile) or on Vercel with libSQL. Each host builds from this commit and runs the same smoke checks
-  # against its running build (packages/console/scripts/host-smoke.mjs). The Cloudflare build also passes Wrangler's
+  # against its running build (packages/console/scripts/host-smoke.mjs), with env values off, as console.vitehub.dev
+  # runs, and then on, on the database of that host (scripts/env-smoke.mjs). The Cloudflare build also passes Wrangler's
   # deploy check, and on pushes to main it is the build that console-deploy deploys.
   console:
     name: hosted console (${{ matrix.host }})
@@ -695,7 +696,7 @@ jobs:
       - name: Verify Worker configuration
         if: ${{ matrix.host == 'cloudflare' }}
         run: ./node_modules/.bin/wrangler deploy --dry-run --config packages/console/.output/server/wrangler.json --name vitehub-console
-      - name: Smoke-test the running Console
+      - name: Smoke-test the running Console and its env values
         working-directory: packages/console
         run: node scripts/host-smoke.mjs "$VITEHUB_HOST"
       # The page goes along, so console-deploy reads the marker from it.

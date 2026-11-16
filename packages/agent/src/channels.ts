@@ -13,7 +13,7 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, isForgeResponseError, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { invariant } from "@vite-hub/internal/invariant"
 import type { ForgeKind } from "@vite-hub/forge"
@@ -1798,7 +1798,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   catch (error) {
     const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
     throw error
   }
 }
@@ -1931,7 +1931,7 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   catch (error) {
     const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
+    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
     throw error
   }
 }

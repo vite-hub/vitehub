@@ -114,6 +114,8 @@ describe("papercuts capability", () => {
 
     await expect(tool.execute?.({ message: " " })).rejects.toThrow("requires a non-empty message")
     await expect(tool.execute?.({ message: "x".repeat(1_001) })).rejects.toThrow("at most 1000 characters")
+    await expect(tool.execute?.({ message: " " })).rejects.toMatchObject({ code: "AGENT_PAPERCUT_MESSAGE_MISSING", fix: expect.stringContaining("report_papercut") })
+    await expect(tool.execute?.({ message: "x".repeat(1_001) })).rejects.toMatchObject({ code: "AGENT_PAPERCUT_MESSAGE_TOO_LONG", fix: expect.stringContaining("1000 characters") })
     await expect(Reflect.apply(tool.execute, tool, [{ message: 42 }])).rejects.toThrow("requires a non-empty message")
     expect(report).not.toHaveBeenCalled()
   })

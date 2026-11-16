@@ -8,6 +8,7 @@ import { consoleBytes } from "../client/format";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { useConsoleWordWrap } from "./console-wrap";
 import "./console-session.css";
 
@@ -304,7 +305,7 @@ onBeforeUnmount(() => {
         <span class="session-inspector__repository">{{ name }}</span>
         <template v-if="selectedPath">
           <template v-for="(segment, index) in selectedPath.split('/')" :key="`${segment}-${index}`">
-            <UIcon name="i-lucide-chevron-right" />
+            <Icon name="i-lucide-chevron-right" />
             <span :data-current="index === selectedPath.split('/').length - 1">{{ segment }}</span>
           </template>
         </template>
@@ -340,7 +341,7 @@ onBeforeUnmount(() => {
         <ConsoleState v-if="error && !descriptor" :error="error" title="Couldn't open this Workspace" :retry="load" />
         <ConsoleState v-else-if="fileError" :error="fileError" title="Couldn't open this file" :retry="() => selectedPath && loadFile(selectedPath)" />
         <div v-else-if="fileLoading" class="session-inspector__state">
-          <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
+          <Icon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
         </div>
         <ConsoleFileDiff
           v-else-if="selectedPath && file && showDiff"

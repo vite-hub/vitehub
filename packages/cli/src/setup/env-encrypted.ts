@@ -8,7 +8,7 @@ import { parseEnv } from "node:util"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "./envelope.ts"
+import { setupFailure, setupExitCodes } from "./envelope.ts"
 
 /** dotenvx marks an encrypted value with this prefix. */
 const prefix = "encrypted:"
@@ -57,7 +57,7 @@ export async function decryptEnvValues(root: string, items: readonly EncryptedEn
     const names = group.map(item => item.name).join(", ")
     const candidates = (env[keyName] || keysFile[keyName] || "").split(",").map(key => key.trim()).filter(Boolean)
     if (!candidates.length) {
-      throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_PRIVATE_KEY_MISSING({ file, key: keyName, names }), setupExitCodes.inputNeeded, { missing: [{ field: keyName }] })
+      throw setupFailure(cliErrorDiagnostics.SETUP_ENV_PRIVATE_KEY_MISSING({ file, key: keyName, names }), setupExitCodes.inputNeeded, { missing: [{ field: keyName }] })
     }
     for (const key of candidates) keys.add(key)
     for (const item of group) {
@@ -72,7 +72,7 @@ export async function decryptEnvValues(root: string, items: readonly EncryptedEn
           errors.push(typeof code === "string" ? code : "DECRYPTION_FAILED")
         }
       }
-      if (!values.has(item.name)) throw new SetupFailure(cliErrorDiagnostics.SETUP_ENV_DECRYPT_FAILED({ file, key: keyName, name: item.name, reason: errors.at(-1) }), setupExitCodes.error)
+      if (!values.has(item.name)) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_DECRYPT_FAILED({ file, key: keyName, name: item.name, reason: errors.at(-1) }), setupExitCodes.error)
     }
   }
   return { keys: [...keys], values }
