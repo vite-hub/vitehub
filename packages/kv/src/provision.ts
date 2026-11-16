@@ -2,7 +2,7 @@ import {
   createCloudflareProvisionClient,
   isShellSafeProvisionValue,
   listCloudflarePages,
-  ProvisionRequestError,
+  isProvisionRequestError,
   resolveCloudflareProvisionConfig,
 } from "@vite-hub/internal/provision"
 
@@ -64,7 +64,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
   }
   catch (error) {
     // Another run created the namespace after this plan listed it.
-    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
+    if (!isProvisionRequestError(error) || error.kind !== "conflict") throw error
     const id = (await listNamespaceIds(request)).get(title)
     if (!id) throw error
     return id
