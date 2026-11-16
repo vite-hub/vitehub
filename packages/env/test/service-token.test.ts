@@ -1,4 +1,4 @@
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { checkServiceToken, requireServiceToken } from "../src/service-token.ts"

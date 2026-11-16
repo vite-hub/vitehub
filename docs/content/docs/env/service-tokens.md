@@ -9,12 +9,13 @@ icon: i-lucide-key-round
 A service token is a shared secret that a machine sends to your app, such as a CI runner that posts results or a script that starts a sync. The caller sends `Authorization: Bearer <token>`. Your route checks it against a server variable. No user, session, or Auth setup is necessary.
 
 ```ts [server/api/runs.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { requireServiceToken } from 'vite-hub/env'
 
 export default defineEventHandler(async (event) => {
   requireServiceToken(event, 'INGEST_TOKEN')
   const run = await readBody<{ task: string, score: number }>(event)
+  if (!run) throw new HTTPError({ status: 400, message: 'Send the run as JSON.' })
   return { saved: run.task }
 })
 ```

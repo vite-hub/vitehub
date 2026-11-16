@@ -1,7 +1,7 @@
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { defineErrors } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
-import { HTTPError } from "h3"
+import { HTTPError } from "nitro/h3"
 
 import { runtimeEnv } from "./internal/runtime-env.ts"
 
