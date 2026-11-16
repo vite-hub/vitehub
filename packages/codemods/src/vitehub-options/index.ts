@@ -34,7 +34,7 @@ const renamedTypes: Record<string, string> = {
   SandboxTaskPublicOptions: "SandboxTaskOptions",
   ScheduleVitePluginOptions: "ScheduleOptions",
   ViteHubAgentOptions: "AgentOptions",
-  ViteHubCloudflareOptions: "CloudflareOptions",
+  ViteHubCloudflareOptions: "nothing: `vitehub deploy` uploads the Worker secrets",
   ViteHubConfig: "nothing: set the host in vitehub({ host })",
   ViteHubConnectionsOptions: "ConnectionsOptions",
   WorkflowModuleOptions: "WorkflowOptions",

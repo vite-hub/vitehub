@@ -57,3 +57,19 @@ it("gives each operation failure its code, fix, and HTTP status", async () => {
   })
   await expect(runKVOperation("get", { key: "a" }, [])).rejects.toMatchObject({ code: "KV_DISABLED", status: 409 })
 })
+
+for (const operation of ["setIfAbsent", "deleteIfEquals"] as const) {
+  it.each(["nested bigint", "circular object", "bigint array"])(`returns KV_INVALID_VALUE from ${operation} for %s`, async (kind) => {
+    const circular: { self?: unknown } = {}
+    circular.self = circular
+    const value = kind === "nested bigint" ? { nested: 1n } : kind === "bigint array" ? [1n] : circular
+    const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+    await storage.setItem("ticket", "original")
+    const [error] = await kvResult(operation, "default", () => operation === "setIfAbsent"
+      ? storage.setIfAbsentItem!("ticket", value)
+      : storage.deleteIfEqualsItem!("ticket", value), ["KV_INVALID_VALUE"])
+    expect(error).toMatchObject({ code: "KV_INVALID_VALUE", fix: expect.any(String) })
+    expect(await storage.getItem("ticket")).toBe("original")
+    await storage.dispose()
+  })
+}

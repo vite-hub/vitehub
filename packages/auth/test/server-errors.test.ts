@@ -9,6 +9,7 @@ import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAut
 
 import type { AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -34,7 +35,7 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockReset()
     protectedAction.mockClear()
     providerMocks.betterAuth.mockReturnValue({
-      api: { getSession: providerMocks.getSession },
+      api: { getSession: returnHeaders(providerMocks.getSession) },
       handler: providerMocks.handler,
     })
   })
@@ -163,11 +164,11 @@ describe("server authentication provider boundaries", () => {
     })],
     ["session.user", (cause: Error) => ({
       api: {
-        getSession: () => Object.defineProperty({ session: {} }, "user", {
+        getSession: returnHeaders(() => Object.defineProperty({ session: {} }, "user", {
           get() {
             throw cause
           },
-        }),
+        })),
       },
     })],
   ] as const)("normalizes a throwing %s provider getter with its exact cause", async (_property, createAuth) => {

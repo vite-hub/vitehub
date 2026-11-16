@@ -47,12 +47,22 @@ function serializeValue(value: unknown, operation: "deleteIfEquals" | "setIfAbse
   // set() removes a key for `undefined`; a conditional write cannot mean that.
   if (value === undefined) throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "missing" })
   if (isPrimitive(value)) return String(value)
-  if (Array.isArray(value)) return JSON.stringify(value)
+  if (Array.isArray(value)) return serializeJSONValue(value, operation)
   if (value && typeof value === "object") {
     const prototype: unknown = Object.getPrototypeOf(value)
-    if (prototype === null || prototype === Object.prototype) return JSON.stringify(value)
+    if (prototype === null || prototype === Object.prototype) return serializeJSONValue(value, operation)
     const toJSON: unknown = Reflect.get(value, "toJSON")
     if (typeof toJSON === "function") return serializeValue(toJSON.call(value), operation)
+  }
+  throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
+}
+
+function serializeJSONValue(value: unknown, operation: "deleteIfEquals" | "setIfAbsent"): string {
+  try {
+    const serialized = JSON.stringify(value)
+    if (serialized !== undefined) return serialized
+  } catch {
+    throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
   }
   throw kvErrorDiagnostics.KV_INVALID_VALUE({ operation, problem: "unserializable" })
 }

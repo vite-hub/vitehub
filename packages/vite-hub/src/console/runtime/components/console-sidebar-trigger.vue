@@ -25,7 +25,7 @@ import { consoleSidebarOpen, toggleConsoleSidebar } from "../client/sidebar";
 }
 
 .vitehub-sidebar-trigger__rule {
-  background: var(--ui-border);
+  background: var(--border);
   flex: none;
   height: 1rem;
   margin-inline: 0.125rem 0.25rem;

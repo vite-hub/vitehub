@@ -17,7 +17,7 @@ Each provider lists the API origins that may get its credential. For any other o
 
 An origin is `https://host` or `https://host:port`. Origins must match exactly, so list each host. `http` works only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider function yet. For another service, use an [OAuth provider object](#oauth-provider-objects), or `apiKey()` for API keys and personal access tokens. `apiKey()` never refreshes the key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, use an [OAuth provider object](#oauth-provider-objects), a provider that [registers its client](#register-the-client-automatically) from its MCP endpoint, or `apiKey()` for API keys and personal access tokens. `apiKey()` never refreshes the key.
 
 ## OAuth provider objects
 
@@ -45,6 +45,39 @@ export default defineConnection({
 | `identityScopes` | None | Scopes added to each authorization request, so the provider names the account. |
 
 Without `account`, a provider that requests `openid` reads the account from the ID token: `sub` is the id, and a string `email` labels it. ViteHub skips the signature check, because the token comes straight from the token endpoint over TLS, as OpenID Connect allows for this flow. A missing or bad ID token gives no account. A reconnect with no account or a different account sets the Connection to `reauth_required`.
+
+## Register the client automatically
+
+A provider with an MCP endpoint needs only `id` and `mcp`. ViteHub finds the rest, as MCP clients do:
+
+```ts [server/connections/helpdesk.ts]
+import { defineConnection } from 'vite-hub/connections'
+
+export default defineConnection({
+  provider: {
+    id: 'helpdesk',
+    mcp: 'https://helpdesk.example.com/mcp',
+    clientName: 'Support Agent',
+  },
+  scopes: ['openid', 'offline_access'],
+})
+```
+
+1. ViteHub reads the protected resource metadata of `mcp` (RFC 9728). It names the authorization server. Without the metadata, the origin of `mcp` is the authorization server.
+2. It reads the server metadata (RFC 8414 or OpenID Connect discovery) for the authorization, token, revocation, and registration endpoints.
+3. On the first **Connect**, it registers a public client with PKCE and no secret (RFC 7591) for the app's callback URL. The client is sealed in the Connections store, so every grant at that server and every process uses it.
+4. Each authorization request names `mcp` as the `resource` (RFC 8707), unless `authorizationParams.resource` is set.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `clientName` | The app host, such as `agents.example.com` | The name that the provider shows on its consent page. |
+| `authorizationEndpoint`, `tokenEndpoint`, `revocationEndpoint` | From the server metadata | Set one to use it instead of the metadata. |
+| `clientId` | A registered client | Set it to use a client that you registered yourself. |
+
+- A [keyed Connection](#keyed-connections) gets one client per authorization server, so each tenant registers on its first Connect.
+- A new callback URL, such as another `publicUrl` or the loopback port of `vitehub connections connect`, registers another client.
+- When the token endpoint rejects the client with `invalid_client`, ViteHub forgets it and sets the Connection to `reauth_required`. The next Connect registers a new client.
+- A server without a `registration_endpoint` fails the Connect with `CONNECTIONS_INVALID_DEFINITION`. Register a client at the provider and set `clientId`.
 
 ## API key Connections
 
@@ -194,13 +227,7 @@ import { defineConnection } from 'vite-hub/connections'
 export default defineConnection({
   instances: ['acme', 'globex'],
   definition: tenant => ({
-    provider: {
-      id: 'portal',
-      authorizationEndpoint: `https://${tenant}.example.com/oauth/authorize`,
-      tokenEndpoint: `https://${tenant}.example.com/oauth/token`,
-      clientId: 'portal-client-id',
-      mcp: `https://${tenant}.example.com/mcp`,
-    },
+    provider: { id: 'portal', mcp: `https://${tenant}.example.com/mcp` },
     scopes: ['openid', 'offline_access'],
   }),
 })
