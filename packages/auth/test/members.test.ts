@@ -96,7 +96,7 @@ describe("VITEHUB_MEMBERS", () => {
     vi.stubEnv("VITEHUB_MEMBERS", "github:1")
     const { db, auth } = createMembersAuth({ plugins: [admin()] })
     const context = await auth().$context
-    const user = await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true, role: isAdmin ? "admin" : "user" })
+    const user = await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true, role: isAdmin ? "admin" : "user" }, { method: "admin" })
     await context.internalAdapter.createAccount({ userId: user.id, providerId: "github", accountId: "2" })
     expect(await context.internalAdapter.findUserById(user.id)).not.toBeNull()
     expect(db.account).toHaveLength(1)
@@ -107,7 +107,7 @@ describe("VITEHUB_MEMBERS", () => {
     let link = ""
     const { db, auth } = createMembersAuth({ plugins: [magicLink({ sendMagicLink: async ({ url }) => { link = url } })] })
     const context = await auth().$context
-    await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true })
+    await context.internalAdapter.createUser({ email: "existing@example.com", name: "Existing", emailVerified: true }, { method: "admin" })
     for (const email of ["stranger@example.com", "existing@example.com"]) {
       const start = await auth().handler(new Request(`${origin}/api/auth/sign-in/magic-link`, {
         method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ email }),
