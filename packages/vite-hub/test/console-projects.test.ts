@@ -332,9 +332,11 @@ describe("account Console", () => {
     expect(transport.projectUrl("/_vitehub/rpc")).toBe("/p/p-1/_vitehub/rpc")
   })
 
-  it("shows the variable to set while the project has no public key for the link, or another one", async () => {
+  it("shows the variable to set while the project has no public key for the link, or another one, or no Console yet", async () => {
     for (const answer of [
       json(500, { code: "CONSOLE_KEY_NOT_CONFIGURED", message: "not set", ok: false, status: 500 }),
+      // An app without `console: true` answers the Console route with its 404 page.
+      operationRpcFetch(async () => new Response("<!doctype html><title>404</title>", { headers: { "content-type": "text/html" }, status: 404 })),
       json(401, { code: "CONSOLE_KEY_UNKNOWN", message: "unknown", ok: false, status: 401 }),
       json(401, { code: "CONSOLE_SIGNATURE_INVALID", message: "refused", ok: false, status: 401 }),
     ]) {
@@ -343,6 +345,12 @@ describe("account Console", () => {
       expect(state.gate.value).toEqual({ kind: "setup", project: linked })
       vi.resetModules()
     }
+  })
+
+  it("keeps the problem page when the app's server fails with a page that is not JSON", async () => {
+    const { module, state } = await account(operationRpcFetch(async () => new Response("<!doctype html><title>502 Bad Gateway</title>", { headers: { "content-type": "text/html" }, status: 502 })))
+    await module.openConsoleProject()
+    expect(state.gate.value).toMatchObject({ kind: "problem" })
   })
 
   it("starts with the empty state when the team has no project", async () => {
@@ -369,7 +377,18 @@ describe("account Console", () => {
     expect(state.navigate).toHaveBeenLastCalledWith("/")
   })
 
-  describe.each(["home", "team", "settings"] as const)("while %s is selected", (page) => {
+  it("opens the account page that the path names, such as /team-settings", async () => {
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(session)))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", search: "", showPath: () => {} }
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings" })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "team-settings" })
+    await module.startConsoleAccount({ ...boot, pathname: "/team-settings-old" })
+    expect(module.useConsoleProjects().gate.value).not.toEqual(expect.objectContaining({ kind: "home" }))
+  })
+
+  describe.each(["home", "team", "team-settings", "settings"] as const)("while %s is selected", (page) => {
     it.each([200, 401])("ignores a late %s app response", async (status) => {
       const pending = pendingResponse()
       const { module, state } = await account(() => pending.promise)

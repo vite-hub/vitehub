@@ -93,6 +93,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md), not in CI) |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 

@@ -210,7 +210,7 @@ function positiveInteger(value: string, flag: string): number {
 
 function duration(value: string, flag: string): number {
   const result = parseRetentionDuration(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_DURATION_INVALID({ flag })
   return result
 }
 
@@ -218,7 +218,7 @@ function size(value: string, flag: string): RetentionSizeLimit {
   // A bare integer is a number of bytes, as in the maxSize option.
   const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
   const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_SIZE_INVALID({ flag })
   return result
 }
 
@@ -672,11 +672,10 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_NOT_FILE()
   }
   if (!existsSync(database.path)) {
-    const hint = parsed.database === undefined ? " Pass --database with the journal file, or --url with the app URL." : ""
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.${hint}` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, ...(parsed.database === undefined ? { hint: "Pass --database with the journal file, or --url with the app URL." } : {}) })
   }
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
   return {
@@ -686,7 +685,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
     close: file.close,
     detail: async (id) => {
       const detail = file.get(id)
-      if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
+      if (!detail) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location: database.label })
       return parseInvocationDetail(detail)
     },
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
@@ -905,7 +904,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
       location = new URL(configured)
     }
     catch {
-      throw agentDiagnostics.AGENT_R0931({ message: "The Agent Invocation journal database URL is invalid." })
+      throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_URL_INVALID()
     }
     for (const value of [location.username, location.password]) {
       if (value) secrets.push(value, safeDecode(value))
@@ -932,7 +931,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
 async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>, retention: AgentRetentionPolicy = {}): Promise<T> {
   const database = journalDatabase(parsed, context)
   if (database.path !== undefined && !existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal URL.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal URL." })
   }
   const [{ createClient }, { createLibsqlAgentInvocationStore }] = await Promise.all([
     import("@libsql/client"),
@@ -950,7 +949,7 @@ async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocations
     const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, ...retention, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     return await use(store)
   }
@@ -968,7 +967,7 @@ function redactedJournalError(error: unknown, database: JournalDatabase): unknow
   let message = error.message.split(database.url).join(database.label)
   for (const secret of database.secrets) message = message.split(secret).join("[redacted]")
   if (message === error.message) return error
-  return agentDiagnostics.AGENT_R0931({ message })
+  return agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_FAILED({ message })
 }
 
 async function deleteInvocation(parsed: ParsedArgs, context: AgentInvocationsCliContext, id: string): Promise<number> {
@@ -989,7 +988,7 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   const olderThanMs = parsed.olderThanMs ?? defaultPruneAgeMs
   const cutoff = new Date(Date.now() - olderThanMs)
   if (Number.isNaN(cutoff.getTime())) {
-    throw agentDiagnostics.AGENT_R0930({ message: "--older-than must produce a cutoff within JavaScript's Date range." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID()
   }
   const updatedBefore = cutoff.toISOString()
   const result = await withJournalStore(parsed, context, async store => await store.prune!({ ...(parsed.dryRun ? { dryRun: true } : {}), updatedBefore }))
@@ -1152,13 +1151,13 @@ const defaultCompactBusyTimeoutMs = 5_000
 async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, options: AgentInvocationsCliOptions): Promise<number> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: `compact rebuilds a local SQLite file. ${database.label} is a remote libSQL database, which manages its own storage. Pass --database with a local file path.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({ remote: database.label })
   }
   if (basename(database.path) === ":memory:" || /[?&]mode=memory(?:&|$)/i.test(database.url)) {
-    throw agentDiagnostics.AGENT_R0931({ message: "compact rebuilds a local SQLite file. An in-memory database has no file to compact. Pass --database with a local file path." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({})
   }
   if (!existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal file.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal file." })
   }
   const { createClient } = await import("@libsql/client")
   const client = createClient({ url: database.url })
@@ -1167,7 +1166,7 @@ async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsC
     const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     result = await compactJournalFile({
       busyTimeoutMs: options.compactBusyTimeoutMs ?? defaultCompactBusyTimeoutMs,

@@ -23,9 +23,9 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Keep the form flat: one field for each text, number, true or false, or choice. Move nested data to its own form, or join it into one text field.",
     },
     /** The store could not read or write submissions. */
-    FORMS_R0001: dynamicError,
+    FORMS_R0001: { ...dynamicError, fix: "Apply the Forms tables with `vitehub database generate` and `vitehub database migrate`. `error.cause` holds the Database error." },
     /** No submission has that id. */
-    FORMS_R0002: dynamicError,
+    FORMS_R0002: { ...dynamicError, fix: "Pass the id of a form submission that the inbox lists." },
     // Named errors. Keep these codes in alphabetical order.
     FORMS_AUTOFORM_SCHEMA_INVALID: {
       why: "[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).",

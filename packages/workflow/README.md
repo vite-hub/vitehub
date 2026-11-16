@@ -182,7 +182,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, results, and failures when the provider supplies them. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
 To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`. Inspection queries the binding because existing instance ids can follow different rules.
 
@@ -202,6 +202,24 @@ The `result` of a completed run is the value that the handler returned, stored a
 Inline runs buffer a returned `Response` body before completion. Each inspection and duplicate start returns a fresh `Response`, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
 
 Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
+
+## Start a run later
+
+Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+
+```ts fragment
+await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+```
+
+| Provider | How the delay works | Status during the delay |
+| --- | --- | --- |
+| OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
+| Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
+| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
+
+For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
 
 ## Make a Vercel workflow durable
 
