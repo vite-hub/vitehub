@@ -27,6 +27,7 @@
   ],
   "type": "module",
   "sideEffects": [
+    "./dist/comment-marks.css",
     "./dist/styles.css",
     "./dist/theme.css"
   ],
@@ -73,6 +74,7 @@
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json",
+    "./comment-marks.css": "./dist/comment-marks.css",
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css"
   },
