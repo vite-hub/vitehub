@@ -1,0 +1,15 @@
+{
+  "rawErrors": {
+    "packages/kv/src/runtime/cloudflare-kv.ts": 2,
+    "packages/kv/src/runtime/cursor-history.ts": 1,
+    "packages/kv/src/runtime/deno-kv.ts": 2,
+    "packages/kv/src/runtime/hosted-storage.ts": 2,
+    "packages/kv/src/runtime/inspect-value.ts": 1,
+    "packages/kv/src/runtime/operations.ts": 1,
+    "packages/kv/src/runtime/preview.ts": 2,
+    "packages/kv/src/runtime/redis-driver.ts": 1,
+    "packages/kv/src/runtime/upstash-driver.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}
