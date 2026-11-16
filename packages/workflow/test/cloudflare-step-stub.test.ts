@@ -1,4 +1,3 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -65,6 +64,6 @@ describe("Cloudflare Workflow step stub", () => {
     })
 
     expect(calls).toEqual(["do", "sleep"])
-    expect(isSerializedResponse(result) && await deserializeResponse(result).text()).toBe("hello ada")
+    expect(result).toBe("hello ada")
   })
 })

@@ -1,4 +1,5 @@
 import { isViteHubLoopbackPeer } from "@vite-hub/internal/dev-peer"
+import { invariant } from "@vite-hub/internal/invariant"
 import { getStandardContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 
@@ -103,7 +104,6 @@ export async function checkConnectionsAccess(
  */
 export function connectionsRuntimeFor(access: ConnectionsAccess): () => ConnectionsRuntime {
   const runtime = grants.get(access)
-  // Internal invariant: owner routes pass the access of the request that they checked.
-  if (!runtime) throw new TypeError("[vitehub] Connections management requires the access of a checked request.")
+  invariant(runtime, "the Connections owner routes pass the access of the request that they checked")
   return runtime
 }

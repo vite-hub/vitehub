@@ -68,6 +68,7 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "email.driver": { values: ["resend"] },
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
+  "sandboxTask.provider": { values: ["vercel"] },
   "workflow.provider": { values: ["openworkflow"] },
 }
 
@@ -90,8 +91,6 @@ function hostSupport(id: FeatureId, host: ViteHubHost, env: NodeJS.ProcessEnv): 
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
 }
 
-/** Features whose key accepts only a boolean. */
-const booleanFeatures: readonly FeatureId[] = ["sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 
@@ -173,7 +172,6 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     const id = head ?? (parsed.features.length === 1 ? parsed.features[0] : undefined)
     const keys = head ? path.slice(1) : path
     if (!id || !keys.length || keys.some(key => !key)) throw invalid(`--option ${JSON.stringify(option)} must start with one of the features, such as \`${parsed.features[0] ?? "email"}.driver=resend\`.`)
-    if (booleanFeatures.includes(id)) throw invalid(`${id} has no options. Its key accepts only true or false.`)
     setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1)))
   }
   return parsed

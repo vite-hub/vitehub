@@ -10,11 +10,13 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { cloneRecord as record } from "@vite-hub/internal/object"
 
+import { realtimeDeploymentEnv } from "./deployment-env.ts"
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
 import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -56,7 +58,11 @@ export interface RealtimeVitePluginOptions extends RealtimeOptions {
   contribute?: (context: RealtimeContributionContext) => Promise<RealtimeContribution | undefined> | RealtimeContribution | undefined
 }
 
-export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata }
+export type RealtimeVitePlugin = Plugin & {
+  /** The variables that Realtime reads on the deployed host. See `realtimeDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
+  vitehub: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata
+}
 
 export interface RealtimeInspectionOptions {
   /** Resolved room authority. Defaults to `auto`. */
@@ -209,6 +215,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
+    api: {
+      // Without a room authority the build fails or Realtime is unavailable, so the server reads nothing.
+      deploymentEnv: context => hasRoomAuthority ? realtimeDeploymentEnv({ authority: options.authority ?? "auto", postgresDatabase }, context) : [],
+    },
     vitehub: {
       // Without a room authority the build fails or Realtime is unavailable, so there is no state to report.
       durability: () => hasRoomAuthority

@@ -1,4 +1,5 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { invariantError } from "./invariant.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "./inspect.ts"
 
@@ -65,6 +66,25 @@ export interface ViteHubConsoleOperationColumn {
   switch?: { operation: string, input: Readonly<Record<string, string>> }
 }
 
+/**
+ * A button on each row that calls `operation` with the Console user, then loads the list again. `input` maps each input
+ * key to a dot path of the item, as a `switch` column does.
+ */
+export interface ViteHubConsoleOperationAction {
+  label: string
+  operation: string
+  input: Readonly<Record<string, string>>
+  /**
+   * The result is `{ url }`, such as a one-time link or a provider sign-in: the Console opens it in a new tab, and loads
+   * the list again when the person comes back. The URL must be `https:`, or `http:` on a loopback host.
+   */
+  tab?: true
+  /** Show the button only on rows where each dot path holds one of the listed values. */
+  when?: Readonly<Record<string, readonly string[]>>
+  /** Ask this question before the call. `{path}` takes a value from the item. */
+  confirm?: string
+}
+
 /** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
 export interface ViteHubConsoleOperationFilter {
   id: string
@@ -78,6 +98,8 @@ export interface ViteHubConsoleOperationFilter {
  * array of objects with an `id`. A failure of the operation, with its `fix`, shows where the list would be.
  */
 export interface ViteHubConsoleOperationView {
+  /** Buttons on each row. A user who may only read the section does not see them. */
+  actions?: readonly ViteHubConsoleOperationAction[]
   columns: readonly ViteHubConsoleOperationColumn[]
   /**
    * Opens the item of a row in a side panel. `comment-thread` shows an item of `comments.list` as a comment thread
@@ -933,10 +955,10 @@ export function isViteHubConsoleDocumentEditorSection<TOptions>(
 function checkedServerExport(section: { id: string }, value: ViteHubConsoleServerExport, role: string): ViteHubConsoleServerExport {
   const { export: name, module } = value
   if (!isRuntimeModule(module)) {
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
+    throw invariantError(`Console section ${JSON.stringify(section.id)} ${role} module ${JSON.stringify(module)} must be a @vite-hub package path or an absolute file path.`)
   }
   if (!runtimeExportPattern.test(name)) {
-    throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)
+    throw invariantError(`Console section ${JSON.stringify(section.id)} ${role} export ${JSON.stringify(name)} must be an identifier.`)
   }
   return { export: name, module }
 }
@@ -963,8 +985,11 @@ const operationNamePattern = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 
 /** A checked copy of an operation view that only holds JSON. */
 export function describeOperationView(view: ViteHubConsoleOperationView, section = ""): ViteHubConsoleOperationView {
-  if (String(view.operation) !== view.operation || !operationNamePattern.test(view.operation)) {
-    throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
+  // The list and each row action call an operation by name.
+  for (const operation of [view.operation, ...(view.actions ?? []).map(action => action.operation)]) {
+    if (String(operation) !== operation || !operationNamePattern.test(operation)) {
+      throw invariantError(`A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(operation)}.`)
+    }
   }
   for (const column of view.columns) {
     if ((column.format === "switch") !== (column.switch !== undefined) || (column.switch && !operationNamePattern.test(column.switch.operation))) {
@@ -978,7 +1003,7 @@ export function describeOperationView(view: ViteHubConsoleOperationView, section
 /** Returns the serializable part of a contribution. */
 export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleSectionContribution<TOptions>): ViteHubConsoleSectionDescriptor {
   if (!isViteHubConsoleSectionId(section.id)) {
-    throw new TypeError(`[vitehub] Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
+    throw invariantError(`Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }), kind: "record-table", notice: section.view.notice }
@@ -995,17 +1020,17 @@ const sectionPageViewKinds: ReadonlySet<string> = new Set<ViteHubConsoleSectionP
 function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsoleSectionPage[] {
   const name = JSON.stringify(section.id)
   if (section.view.kind !== "document-editor") {
-    throw new TypeError(`[vitehub] Console section ${name} declares pages, but only document editor sections render pages.`)
+    throw invariantError(`Console section ${name} declares pages, but only document editor sections render pages.`)
   }
   const ids = new Set<string>()
   const pages = (section.pages ?? []).map((page) => {
     if (!isViteHubConsoleSectionId(page.id)) {
-      throw new TypeError(`[vitehub] Console section ${name} page id ${JSON.stringify(page.id)} must be a lowercase route segment.`)
+      throw invariantError(`Console section ${name} page id ${JSON.stringify(page.id)} must be a lowercase route segment.`)
     }
-    if (ids.has(page.id)) throw new TypeError(`[vitehub] Console section ${name} declares the page ${JSON.stringify(page.id)} twice.`)
+    if (ids.has(page.id)) throw invariantError(`Console section ${name} declares the page ${JSON.stringify(page.id)} twice.`)
     ids.add(page.id)
     if (!sectionPageViewKinds.has(page.view.kind)) {
-      throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} has an unknown view ${JSON.stringify(page.view.kind)}.`)
+      throw invariantError(`Console section ${name} page ${JSON.stringify(page.id)} has an unknown view ${JSON.stringify(page.view.kind)}.`)
     }
     const described: ViteHubConsoleSectionPage = { icon: page.icon, id: page.id, label: page.label, view: { kind: page.view.kind } }
     if (page.index) described.index = true
@@ -1013,13 +1038,13 @@ function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsole
     if (group) described.group = group
     if (page.requires?.length) {
       if (!page.requires.every(isViteHubConsoleSectionId)) {
-        throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} requires section ids.`)
+        throw invariantError(`Console section ${name} page ${JSON.stringify(page.id)} requires section ids.`)
       }
       described.requires = [...page.requires]
     }
     return described
   })
-  if (pages.filter(page => page.index).length > 1) throw new TypeError(`[vitehub] Console section ${name} has more than one index page.`)
+  if (pages.filter(page => page.index).length > 1) throw invariantError(`Console section ${name} has more than one index page.`)
   return pages
 }
 

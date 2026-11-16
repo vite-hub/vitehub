@@ -520,7 +520,7 @@ A store that connects on first use, such as one that loads its database client a
 
 ## Inspect and maintain from the CLI
 
-When an app exposes the standard journal route, inspect it from the terminal:
+Inspect the [default journal](#use-the-default-journal) of the project from the terminal:
 
 ```sh
 vitehub agent invocations list --status running
@@ -528,7 +528,7 @@ vitehub agent invocations show INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-Without `--url`, the CLI reads `http://localhost:5173/api/invocations`. Use `VITEHUB_AGENT_INVOCATIONS_URL` for another endpoint, and `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
+Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
 See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
@@ -605,11 +605,11 @@ vitehub agent invocations compact --database /data/agent-invocations.sqlite --js
 
 `compact` measures the file, WAL, page count, free pages, and `auto_vacuum` mode, then runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`. It prints the size before and after, reclaimed bytes, and the new mode. `--dry-run` prints the measurements, projected size, and free space check without changes, and exits 1 when compact would refuse. Prune first, so the rebuilt file holds only what you keep.
 
-- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_R0931`.
+- Only a local SQLite file works. A remote libSQL URL or in-memory database fails with `AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED`.
 - `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses when a volume lacks 1.1 times the live data per file, plus the current WAL, counting both files on a shared volume. Set `SQLITE_TMPDIR` to put the copy elsewhere.
 - `VACUUM` holds the write lock until done, so server writes wait. Stop the server or run it when quiet. If another process holds the lock over 5 seconds, compact fails without changes.
 
-`list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or Console, for example inside a running container:
+`--database` reads another SQLite journal file in the same way, for example inside a running container:
 
 ```sh
 vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
@@ -621,6 +621,8 @@ It opens the file read-only with `node:sqlite` and never migrates or writes it, 
 ## Host recovery limits
 
 A Workflow is a durable runner that can retry steps after a crash. Journals also keep failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct Invocation IDs. Durable Channel deliveries keep their run ID across preparation attempts.
+
+An Agent turn is one Workflow run without steps. When the process stops while the Driver runs, the provider retries the run, but ViteHub does not start the Driver a second time. The journal claim of the stopped attempt stays, and an expired claim does not prove that the Driver stopped, so a second Driver could repeat its work. The retry fails with `Could not persist the Invocation running state.`, and the Workflow run and the journal record show `failed`. To try again, start a new turn.
 
 Cloudflare and OpenWorkflow create the journal after durable recovery dispatch, and reconcile failures after the generated Agent module loads but before the handler starts. If that module cannot load, the store is unavailable: use Workflow inspection.
 

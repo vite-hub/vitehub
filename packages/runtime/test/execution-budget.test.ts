@@ -136,7 +136,7 @@ describe("ExecutionBudget", () => {
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1])("rejects invalid tool input bytes %s without charging or cancelling", (inputBytes) => {
     const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 1 })
     try {
-      expect(() => budget.recordToolCall(inputBytes)).toThrow(RangeError)
+      expect(() => budget.recordToolCall(inputBytes)).toThrowError(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID" }))
       expect(budget.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
       expect(budget.signal.aborted).toBe(false)
 
@@ -191,7 +191,7 @@ describe("ExecutionBudget", () => {
 
   it("does not cancel public consume for an invalid amount", () => {
     const budget = createExecutionBudget({ maxInputBytes: 1 })
-    expect(() => budget.consume("inputBytes", -1)).toThrow(RangeError)
+    expect(() => budget.consume("inputBytes", -1)).toThrowError(expect.objectContaining({ code: "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID" }))
     expect(budget.signal.aborted).toBe(false)
     expect(budget.snapshot().usage.inputBytes).toBe(0)
   })

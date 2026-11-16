@@ -1,3 +1,5 @@
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
 /** The origin of the hosted Console. */
 export const hostedConsoleOrigin = "https://console.vitehub.dev"
 
@@ -54,15 +56,14 @@ export function normalizeConsoleProjectUrl(projectUrl: string): string | undefin
  * Console path, such as `/agents/bot/invocations/abc`. The hosted Console switches to the project when this browser
  * linked it, or asks the person to link it first. The URL holds no secret.
  *
- * Throws a `TypeError` when `projectUrl` is not `https:` (or `http:` on a loopback host), or `path` is not a Console path.
+ * Throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` when `projectUrl` is not `https:` (or `http:` on a loopback host), and
+ * `RUNTIME_CONSOLE_PATH_INVALID` when `path` is not a Console path.
  */
 export function hostedConsoleUrl(projectUrl: string, path: string, consoleOrigin: string = hostedConsoleOrigin): string {
   const project = normalizeConsoleProjectUrl(projectUrl)
-  // Internal invariant: hostedConsoleUrl() documents this TypeError, and its tests check the class.
-  if (!project) throw new TypeError(`${projectUrl} is not a project URL. Use the https:// origin of the app, with its base path if it has one.`)
+  if (!project) throw runtimeErrorDiagnostics.RUNTIME_CONSOLE_PROJECT_URL_INVALID({ value: projectUrl })
   const consolePath = normalizeConsolePath(path)
-  // Internal invariant: hostedConsoleUrl() documents this TypeError, and its tests check the class.
-  if (!consolePath) throw new TypeError(`${path} is not a Console path. Use a path that starts with one /, such as /agents/<agent>.`)
+  if (!consolePath) throw runtimeErrorDiagnostics.RUNTIME_CONSOLE_PATH_INVALID({ value: path })
   const url = new URL("/open", consoleOrigin)
   url.search = new URLSearchParams({ project, path: consolePath }).toString()
   return url.href

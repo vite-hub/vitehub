@@ -4,7 +4,8 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { assertNoSymlinks, conflictMarkerPatterns, folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, WorkspaceCheckoutError, workspaceLockFile } from "./checkout.ts"
+import { assertNoSymlinks, checkoutFailure, conflictMarkerPatterns, folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -181,7 +182,7 @@ async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
     for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
       if (ignoredName(entry.name)) continue
       const path = join(folder, entry.name)
-      if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(rootDir, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")
+      if (entry.isSymbolicLink()) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_SYMLINK({ path: relative(rootDir, path) })
       if (entry.isDirectory()) await walk(path)
       else if (entry.isFile()) await digest(relative(rootDir, path).split(sep).join("/"))
     }
@@ -241,7 +242,7 @@ export interface WorkspaceHooksOptions {
 
 /** Writes an error of a hook as the checkout commands write it, and fails the hook. */
 function fail(context: WorkspaceCheckoutCliContext, error: unknown): number {
-  const failure = error instanceof WorkspaceCheckoutError ? error : new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_FAILED", error instanceof Error ? error.message : String(error))
+  const failure = checkoutFailure(error)
   context.stderr.write(`${failure.code}: ${failure.message}\n${failure.fix ? `${failure.fix}\n` : ""}`)
   return 1
 }

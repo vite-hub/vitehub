@@ -2,8 +2,9 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAuth, withAuthorization } from "../src/internal/server.ts"
+import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -30,7 +31,7 @@ describe("Auth request instances", () => {
     resetAuth()
     provider.betterAuth.mockReset().mockImplementation(() => ({
       $context: Promise.resolve({}),
-      api: { getSession: provider.getSession },
+      api: { getSession: returnHeaders(provider.getSession) },
       handler: provider.handler,
     }))
     provider.getSession.mockReset().mockResolvedValue(session)
@@ -49,6 +50,19 @@ describe("Auth request instances", () => {
     expect(await guard(requestEvent(request("https://app.example/two")))).toBe("ok")
     expect((await handleAuthRequest(definition, request("https://app.example/api/auth/ok"))).status).toBe(200)
     expect(provider.betterAuth).toHaveBeenCalledOnce()
+  })
+
+  it("gives authorize the request event, or the Request of a direct call", async () => {
+    const definition = defineAuth({ appName: "ViteHub" })
+    const events: unknown[] = []
+    const authorize = ({ event }: { event: unknown }) => events.push(event) > 0
+    const event = requestEvent(request("https://app.example/photo"))
+    const direct = request("https://app.example/photo")
+    expect(await withAuthorization(authorize, () => "ok", definition)(event)).toBe("ok")
+    expect(await withAuthorization(authorize, () => "ok", definition)(direct)).toBe("ok")
+    provider.getSession.mockResolvedValueOnce(null)
+    expect(await withAnonymousAuthorization(authorize, () => "ok", definition)(event)).toBe("ok")
+    expect(events).toEqual([event, direct, event])
   })
 
   it("reuses the instance of a callback that returns plain values", async () => {
@@ -136,7 +150,7 @@ describe("Auth request instances", () => {
     provider.betterAuth.mockImplementationOnce(() => {
       const $context = Promise.reject(new Error("setup failed"))
       $context.catch(() => {})
-      return { $context, api: { getSession: provider.getSession }, handler: provider.handler }
+      return { $context, api: { getSession: returnHeaders(provider.getSession) }, handler: provider.handler }
     })
     const guard = withAuth(() => "ok", defineAuth({ appName: "ViteHub" }))
     await guard(request("https://app.example/one"))

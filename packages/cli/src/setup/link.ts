@@ -105,7 +105,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function invalidResponse(host: string): Error {
-  return cliErrorDiagnostics.CLI_R0001({ message: `[vitehub] The ${host} API returned an unexpected response.` })
+  return cliErrorDiagnostics.CLI_HOST_RESPONSE_INVALID({ host })
 }
 
 /** The same normalization as the deployment identity of `vitehub({ name })`. */

@@ -183,8 +183,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       deadlineController.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
       deadlineController.signal.throwIfAborted()
     }
-    // Internal invariant: ViteHub charges measured bytes and counts, which are finite and not negative.
-    if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
+    if (!Number.isFinite(amount) || amount < 0) throw runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID({ counter })
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
     if (limit !== undefined && next > limit) {
