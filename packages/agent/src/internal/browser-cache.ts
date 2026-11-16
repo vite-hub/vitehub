@@ -1,12 +1,13 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import { dirname, isAbsolute, join, relative } from "node:path"
 
 /** Refuse caches another OS user can replace before running their executables. */
 export async function assertTrustedBrowserCache(root: string, options: { contents?: boolean } = {}): Promise<void> {
   const uid = process.getuid?.()
-  if (uid === undefined) throw new Error("[vitehub] Managed browser cache ownership cannot be verified on this host.")
+  if (uid === undefined) throw agentDiagnostics.AGENT_BROWSER_CACHE_UNTRUSTED({ path: undefined })
   const reject = (path: string): never => {
-    throw new Error(`[vitehub] Managed browser cache requires trusted ownership and permissions: ${path}`)
+    throw agentDiagnostics.AGENT_BROWSER_CACHE_UNTRUSTED({ path })
   }
   // A root-owned sticky directory such as /tmp cannot replace our owned child.
   for (let path = dirname(root);; path = dirname(path)) {
