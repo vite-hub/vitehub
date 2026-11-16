@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: Test server routes with Vitest or node --test, with local storage, captured emails, Queue jobs, Workflow runs, signed-in users, and Schedule and Agent Channel helpers, without a provider account.
+description: Test server routes with Vitest or node --test against local storage, captured emails, Queue jobs, and signed-in users, with no mocks.
 navigation.order: 34
 navigation.group: Proof and recovery
 icon: i-lucide-flask-conical

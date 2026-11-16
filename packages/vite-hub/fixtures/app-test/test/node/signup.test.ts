@@ -5,11 +5,11 @@ import { useDatabase } from "vite-hub/database"
 import { kv } from "vite-hub/kv"
 import { setupViteHubTest } from "vite-hub/test"
 
-import me from "../server/api/me.get.ts"
-import signup from "../server/api/signup.post.ts"
-import resetSignups from "../server/schedules/reset-signups.ts"
+import me from "../../server/api/me.get.ts"
+import signup from "../../server/api/signup.post.ts"
+import resetSignups from "../../server/schedules/reset-signups.ts"
 
-// The same app test as test/signup.test.ts, with `node --import vite-hub/test/register --test` in place of Vitest.
+// The same app test as ../signup.test.ts, with `node --import vite-hub/test/register --test` in place of Vitest.
 const hub = setupViteHubTest()
 const app = new H3().post("/api/signup", signup).get("/api/me", me)
 

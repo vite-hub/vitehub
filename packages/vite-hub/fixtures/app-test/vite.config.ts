@@ -19,5 +19,5 @@ export default defineConfig({
     schedule: true,
     workflow: true,
   })],
-  test: { environment: "node", include: ["test/**/*.test.ts"] },
+  test: { environment: "node", include: ["test/*.test.ts"] },
 })

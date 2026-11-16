@@ -586,10 +586,11 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 `signIn()` from `@vite-hub/auth/test` writes a user and a session to the Auth database and returns headers with the session cookie. Pass them to a `Request`, and `requireAuth()` accepts it. Auth creates the user when no user has this email, and other fields, such as `role`, go to the new user. It sends no email and calls no provider.
 
 ```ts
+import { requireAuth } from "@vite-hub/auth/server";
 import { signIn } from "@vite-hub/auth/test";
 
-const { headers, user } = await signIn({ email: "ada@example.com", role: "admin" });
-const response = await app.fetch(new Request("http://localhost/api/me", { headers }));
+const { headers } = await signIn({ email: "ada@example.com", role: "admin" });
+const { user } = await requireAuth(new Request("http://localhost/api/me", { headers }));
 ```
 
 Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a test, the default memory database of a Definition without `database` is emptied by `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.

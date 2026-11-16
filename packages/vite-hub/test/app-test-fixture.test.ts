@@ -23,7 +23,7 @@ it("runs an app's route test against the vite-hub/test backends", async () => {
 
 // The same app test under Node's own runner: `vite-hub/test/register` gives Node the modules that `vitehub()` generates.
 it("runs an app's route test with node --test", async () => {
-  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "vite-hub/test/register", "--test", "node-test/signup.test.ts"], {
+  const { stdout } = await promisify(execFile)(process.execPath, ["--import", "vite-hub/test/register", "--test", "test/node/signup.test.ts"], {
     cwd: fixture,
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST") && name !== "NODE_ENV")), NO_COLOR: "1" },
   })

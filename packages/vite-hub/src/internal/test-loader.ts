@@ -2,6 +2,8 @@ import { existsSync } from "node:fs"
 import { isAbsolute } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
 import type { LoadHook, ResolveHook } from "node:module"
 
 /**
@@ -22,7 +24,7 @@ export function initialize(data: { server: string }): void {
 async function ask<T>(path: string, query: Record<string, string | undefined> = {}): Promise<T> {
   const params = new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== undefined))
   const response = await fetch(`${server}/${path}?${params}`)
-  if (!response.ok) throw new Error(`[vitehub] The Vite server of vite-hub/test failed:\n${await response.text()}`)
+  if (!response.ok) throw viteHubErrorDiagnostics.VITE_HUB_TEST_SERVER_FAILED({ error: await response.text() })
   return await response.json() as T
 }
 
@@ -68,6 +70,6 @@ export const load: LoadHook = async (url, context, nextLoad) => {
   if (!url.startsWith(virtualScheme)) return await nextLoad(url, context)
   const id = decodeURIComponent(url.slice(virtualScheme.length))
   const source = await ask<string | null>("load", { id })
-  if (source === null) throw new Error(`[vitehub] Vite resolved "${id}", but no plugin loads it.`)
+  if (source === null) throw viteHubErrorDiagnostics.VITE_HUB_TEST_MODULE_NOT_LOADED({ id })
   return { format: "module", shortCircuit: true, source }
 }

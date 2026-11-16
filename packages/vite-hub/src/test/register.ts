@@ -6,6 +6,8 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { isMainThread, Worker } from "node:worker_threads"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
 /**
  * `node --import vite-hub/test/register --test` gives app tests the modules that `vitehub()` generates, as Vitest does.
  * One Vite server of the app answers the module hooks. `node --test` runs each test file in its own process, and only
@@ -46,7 +48,7 @@ async function sharedServer(root: string, runner: number): Promise<string> {
       await sleep(50)
     }
   }
-  throw new Error(`[vitehub] The Vite server of vite-hub/test did not start in 60 seconds. Delete ${directory} and run the tests again.`)
+  throw viteHubErrorDiagnostics.VITE_HUB_TEST_SERVER_TIMEOUT({ directory })
 }
 
 // Worker threads, such as the Vite server's own workers, keep Node's plain module loading.
