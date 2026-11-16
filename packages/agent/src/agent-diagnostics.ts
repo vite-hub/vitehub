@@ -413,12 +413,18 @@ const agentTypeDiagnosticCodes = new Set([
   // Named codes that replace TypeErrors keep their input-error status.
   "AGENT_CAPABILITY_EXTEND_ID_CHANGED",
   "AGENT_CAPABILITY_ID_MISSING",
+  "AGENT_CHANNEL_TASK_HANDLED",
   "AGENT_CONFIGURED_OPTIONS_INVALID",
   "AGENT_CONFIGURE_RESULT_INVALID",
   "AGENT_CONFIG_KEY_INVALID",
   "AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING",
   "AGENT_CUSTOM_INSTRUCTIONS_REFERENCE_INVALID",
   "AGENT_CUSTOM_INSTRUCTIONS_SLOT_MISSING",
+  "AGENT_DISPATCH_DRY_RUN_WITH_QUEUE",
+  "AGENT_DISPATCH_ITEMS_INVALID",
+  "AGENT_DISPATCH_ITEM_KEY_MISSING",
+  "AGENT_DISPATCH_ITEM_ORDER_INVALID",
+  "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
   "AGENT_DRAIN_MS_INVALID",
   "AGENT_EXTENDS_INVALID",
   "AGENT_INSTRUCTIONS_EXTEND_INVALID",
@@ -430,7 +436,16 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_PRESET_OPTIONS_WITHOUT_CONFIGURE",
   "AGENT_PRESET_OPTION_UNSUPPORTED",
   "AGENT_PRESET_UNKNOWN",
+  "AGENT_QUEUED_INPUT_NOT_JSON",
+  "AGENT_TASK_AGENT_NAME_MISSING",
+  "AGENT_TRIGGER_PREPARE_INVALID",
+  "AGENT_TRIGGER_SERIALIZE_CONFLICT",
+  "AGENT_TRIGGER_SERIALIZE_INVALID",
+  "AGENT_TRIGGER_TASKS_INVALID",
+  "AGENT_TRIGGER_TASK_INVALID",
+  "AGENT_TRIGGER_TASK_UNKNOWN",
   "AGENT_UI_STREAM_MISSING",
+  "AGENT_WEBHOOK_STATE_SCOPE_INVALID",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -3520,6 +3535,18 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ channelId }: { channelId: string }) => `Agent channel ${channelId} does not support activity.`,
       fix: "Pass the id of a Channel that has an `activity` adapter to `publishAgentActivity({ channelId })`.",
     },
+    AGENT_CHANNEL_TASK_HANDLED: {
+      why: ({ task }: { task: string }) => `[vitehub] Channel task "${task}" did not resolve to an invocation.`,
+      fix: "Make the queued Channel task that the message names start an Agent or a `run` function, and not answer with a `Response`.",
+    },
+    AGENT_CHAT_RECOVERY_INDEX_CONFLICT: {
+      why: ({ step }: { step: "acquire" | "commit" | "owner" }) => step === "acquire"
+        ? "Could not acquire the interrupted chat index lock."
+        : step === "commit"
+          ? "Lost the interrupted chat index lock before committing."
+          : "Interrupted chat recovery no longer owns this record.",
+      fix: "Nothing to change when it happens once: another server instance recovers the same chat. If it repeats, check that the Agent State can take and keep locks.",
+    },
     AGENT_CONFIGURED_OPTIONS_INVALID: {
       why: "[vitehub] A configured Agent requires only options defaults and a configure callback.",
       fix: "Pass only `options` (an object), `configure` (a function), and an optional `configKey` to `defineAgent({ options, configure })`.",
@@ -3531,6 +3558,37 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CONFIG_KEY_INVALID: {
       why: "[vitehub] Agent configKey must be a non-reserved configuration key.",
       fix: "Set `configKey` in `defineAgent({ options, configure, configKey })` to a camelCase name that is not an Agent option, such as `\"babysitter\"`.",
+    },
+    AGENT_CONSOLE_DELIVERY_INCOMPLETE: {
+      why: "Console delivery requires both url and token.",
+      fix: "Pass both `url` and `token` to `createAgentConsoleDelivery({ url, token })`, or pass neither to turn Console delivery off.",
+    },
+    AGENT_CONSOLE_DELIVERY_URL_INVALID: {
+      why: "Console delivery requires an HTTP(S) URL without embedded credentials.",
+      fix: "Pass an `http:` or `https:` URL without a user name or password as `createAgentConsoleDelivery({ url })`, and pass the secret as `token`.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_ARGUMENTS_INVALID: {
+      why: ({ problem, value }: { problem: "argument" | "format" | "media" | "missing" | "option" | "value", value?: string }) => ({
+        argument: `Unexpected argument ${value}.`,
+        format: "--format must be markdown or json.",
+        media: "--media needs --output <directory>, since attachments are files.",
+        missing: "An agent, a channel, and a thread are required.",
+        option: `Unknown option ${value}.`,
+        value: `${value} requires a value.`,
+      })[problem],
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
+      why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
+      why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
+      fix: "Pass a directory that does not exist to `--output`, or delete the directory that the message names.",
+    },
+    AGENT_CONVERSATIONS_EXPORT_PATH_UNSAFE: {
+      why: ({ path }: { path: string }) => `The server named a file outside the output directory: ${path}.`,
+      fix: "Pass `--url` the origin of your own ViteHub app, and use the same `@vite-hub/agent` version in the app and in the CLI. The CLI writes no file outside `--output`.",
     },
     AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING: {
       why: "[vitehub] context.customInstructions must be a string.",
@@ -3544,6 +3602,30 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.",
       fix: "Add a `{{{ context.customInstructions }}}` line outside code blocks to the Agent instructions, or do not pass `context.customInstructions`.",
     },
+    AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
+      fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
+    },
+    AGENT_DISPATCH_ITEMS_INVALID: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" dispatch needs an array of items.`,
+      fix: "Pass an array of items to `dispatch(items, { trigger })`.",
+    },
+    AGENT_DISPATCH_ITEM_KEY_MISSING: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`,
+      fix: "Give each item of `dispatch(items, { trigger })` a non-empty `key`, such as the provider's event ID.",
+    },
+    AGENT_DISPATCH_ITEM_ORDER_INVALID: {
+      why: ({ channelId, key }: { channelId: string, key: string }) => `[vitehub] Channel "${channelId}" dispatch item "${key}" needs order { key, version } with a non-empty key and a finite number version.`,
+      fix: "Set `order` of each dispatched item to `{ key, version }` with a non-empty key and a finite number, or omit `order`.",
+    },
+    AGENT_DISPATCH_ITEM_REJECTED: {
+      why: ({ triggerId, key, status }: { triggerId: string, key: string, status: number }) => `[vitehub] Channel trigger "${triggerId}" rejected item "${key}" with HTTP ${status}.`,
+      fix: "Check the trigger that the message names: it answered the item with an HTTP error. Make it admit the item, or leave the item out of `dispatch()`.",
+    },
+    AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`,
+      fix: "Return `webhook.deliveryId` and `webhook.concurrencyLimit` or `webhook.serialize` from the trigger, without `busy: \"steer\"` or `rehydrate`, when you dispatch with `queue: true`.",
+    },
     AGENT_DRAIN_MS_INVALID: {
       why: "[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.",
       fix: "Set `vitehub({ agent: { shutdown: { drainMs } } })` to a number of milliseconds, 0 or more, such as `45_000`.",
@@ -3551,6 +3633,18 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_HOST_ROUTE_DUPLICATE: {
+      why: ({ route }: { route: string }) => `Agent host route already registered: ${route}`,
+      fix: "Pass a `route` to `agentHostRoutes({ health, workspace })` that no other Nitro handler uses.",
+    },
+    AGENT_HOST_ROUTE_EXPORT_NAME_INVALID: {
+      why: "Agent host route exportName must be a JavaScript identifier.",
+      fix: "Set `exportName` in `agentHostRoutes({ health, workspace })` to the name of an export of the entry file, such as `\"inspectHealth\"`.",
+    },
+    AGENT_HOST_ROUTE_PATH_INVALID: {
+      why: "Agent host routes require an absolute path without query, hash, or wildcard; Workspace routes require an :id parameter.",
+      fix: "Set `route` in `agentHostRoutes()` to a path that starts with `/` and has no `?`, `#`, or `*`. A Workspace route also needs an `:id` segment.",
     },
     AGENT_INLINE_INVOCATION_WORKFLOW: {
       why: ({ capabilities }: { capabilities: boolean }) => capabilities
@@ -3577,6 +3671,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATION_CLAIM_UNAVAILABLE: {
       why: "Could not acquire the Invocation execution claim.",
       fix: "Check that the Invocations store of the Agent is reachable and can write, then retry the Invocation.",
+    },
+    AGENT_INVOCATION_ID_AMBIGUOUS: {
+      why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
+      fix: "Cancel the Invocation through the Agent that owns it, with `invocations.cancel(id)` of that Agent.",
     },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,
@@ -3614,6 +3712,26 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`,
       fix: "Import the preset Agent Definition and pass it to `defineAgent({ extends })` instead of its name.",
     },
+    AGENT_PROCESS_HOST_DRAIN_ROUTE_INVALID: {
+      why: "Process host drainRoute must be an absolute route without query, hash, or wildcard.",
+      fix: "Set `processAgentHost({ drainRoute })` to a path that starts with `/` and has no `?`, `#`, or `*`, such as `\"/api/drain\"`.",
+    },
+    AGENT_PROCESS_HOST_EXPORT_NAME_INVALID: {
+      why: "Process host exportName must be a JavaScript identifier.",
+      fix: "Set `processAgentHost({ exportName })` to the name of an export of the entry file, or omit it to use the default export.",
+    },
+    AGENT_PROCESS_HOST_ROUTE_DUPLICATE: {
+      why: ({ route }: { route: string }) => `Process host route already registered: ${route}`,
+      fix: "Pass a `drainRoute` to `processAgentHost()` that no other Nitro handler uses.",
+    },
+    AGENT_QUEUED_INPUT_NOT_JSON: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Queued invocation through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`,
+      fix: "Pass only JSON values, without functions, class instances, or `undefined` in arrays, in the input and run metadata of a queued trigger invocation.",
+    },
+    AGENT_QUEUED_TASK_AGENT_CHANGED: {
+      why: ({ task, triggerId }: { task: string, triggerId: string }) => `[vitehub] Queued task "${task}" of trigger "${triggerId}" no longer runs the Agent it was accepted for.`,
+      fix: "Keep the Agent of a trigger task the same while queued deliveries wait, or let them finish before you deploy the change.",
+    },
     AGENT_REPLAY_TASK_OTHER_AGENT: {
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
@@ -3626,9 +3744,55 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ label, prefix, value }: { label: string, prefix: string, value: string }) => `[vitehub] ${label} ${JSON.stringify(value)} is outside the prefix ${JSON.stringify(prefix)} that this Capability allows.`,
       fix: "Use a key or pathname that starts with the Capability prefix. To give the Agent more of the store, change the prefix option of the Capability.",
     },
+    AGENT_TASK_AGENT_NAME_MISSING: {
+      why: ({ task, triggerId }: { task?: string, triggerId?: string }) => task
+        ? `[vitehub] Task "${task}" of trigger "${triggerId}" needs an Agent with a stable non-empty name. The webhook queue stores the name with the delivery.`
+        : "[vitehub] A task Agent needs a stable non-empty name.",
+      fix: "Point the task `agent` at an Agent Definition with a non-empty `name`, such as `defineAgent({ name: \"reviewer\" })` or an Agent file in `server/agents/`.",
+    },
+    AGENT_TRIGGER_PREPARE_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" prepare must be a function.`,
+      fix: "Set `prepare` of the trigger to a function, or remove it.",
+    },
+    AGENT_TRIGGER_SERIALIZE_CONFLICT: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" webhook.serialize replaces concurrencyKey and concurrencyLimit. Set only one of them.`,
+      fix: "Return either `webhook.serialize` or `webhook.concurrencyKey` with `webhook.concurrencyLimit` from the trigger, not both.",
+    },
+    AGENT_TRIGGER_SERIALIZE_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" webhook.serialize must be a non-empty string.`,
+      fix: "Set `webhook.serialize` in the trigger result to a non-empty key, such as the conversation ID, or omit it.",
+    },
+    AGENT_TRIGGER_TASKS_INVALID: {
+      why: ({ triggerId }: { triggerId: string }) => `[vitehub] Trigger "${triggerId}" tasks must be an object of named tasks.`,
+      fix: "Set `tasks` of the trigger to an object whose keys are task names, such as `{ review: { agent } }`.",
+    },
+    AGENT_TRIGGER_TASK_INVALID: {
+      why: ({ task, triggerId, problem }: { task: string, triggerId: string, problem: "failed must be a function." | "must be an object." | "must declare exactly one of agent or run." | "prepare must be a function." | "run must be a function." }) => `[vitehub] Task "${task}" of trigger "${triggerId}" ${problem}`,
+      fix: "Declare each task in the trigger `tasks` as an object with exactly one of `agent` or `run`, and give `run`, `prepare`, and `failed` function values.",
+    },
+    AGENT_TRIGGER_TASK_UNKNOWN: {
+      why: ({ task, triggerId }: { task: string, triggerId: string }) => `[vitehub] Task "${task}" is not declared by trigger "${triggerId}".`,
+      fix: "Select a task that the trigger declares in `tasks`, or add the task to `tasks`. Keep a removed task while queued deliveries still name it.",
+    },
     AGENT_UI_STREAM_MISSING: {
       why: "[vitehub] The Agent did not return a UI message stream.",
       fix: "Return a `ReadableStream`, an async iterable, or a `Response` from the Driver `run()` when you request the `ui-message-stream` output.",
+    },
+    AGENT_WEBHOOK_FENCE_UNAVAILABLE: {
+      why: ({ deliveryId }: { deliveryId: string }) => `[vitehub] Webhook delivery "${deliveryId}" could not acquire its concurrency fence.`,
+      fix: "The webhook queue retries the delivery by itself. If it repeats, check that the Agent State can take locks.",
+    },
+    AGENT_WEBHOOK_HANDLED_RETRY: {
+      why: ({ phase, status, reason }: { phase: "delivery" | "rehydration", status: number, reason: string | undefined }) => `[vitehub] Handled webhook ${phase} returned HTTP ${status}${reason ? ` (${reason})` : ""}.`,
+      fix: "The webhook queue retries the delivery. Check the trigger handler that answered with 5xx, and answer with 2xx or 4xx to stop the retries.",
+    },
+    AGENT_WEBHOOK_REHYDRATION_CHANGED: {
+      why: ({ kind, resolved, expected }: { kind: "Agent" | "task", resolved: string, expected: string }) => `[vitehub] Persisted webhook delivery resolved ${kind} "${resolved}" instead of "${expected}".`,
+      fix: "Keep the task and Agent that a trigger selects for a delivery the same while queued deliveries wait, or let them finish before you deploy the change.",
+    },
+    AGENT_WEBHOOK_STATE_SCOPE_INVALID: {
+      why: ({ id }: { id: string }) => `[vitehub] Webhook registration "${id}" stateScope must be a non-empty string.`,
+      fix: "Set `stateScope` of the webhook registration to a non-empty string, or omit it.",
     },
     AGENT_WORKFLOW_REPLAY_UNSAFE: {
       why: ({ reason }: { reason: "The acknowledged Workflow run is unavailable" | "Workflow dispatch acknowledgement is unknown" | "Workflow dispatch identity changed" }) => `${reason}; replay cannot safely submit this Invocation again.`,
