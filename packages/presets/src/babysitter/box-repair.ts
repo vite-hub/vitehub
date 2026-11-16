@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFil
 import { dirname, isAbsolute, join, posix, relative } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxSession } from "@vite-hub/sandbox";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 const exec = promisify(execFile);
 const inside = (root: string, path: string) => {
@@ -11,12 +12,12 @@ const inside = (root: string, path: string) => {
 };
 const repairPaths = (paths: readonly string[]) => {
   if (paths.some(path => !path || isAbsolute(path) || path.split(/[\\/]/).some(part => part === ".." || part === ".git") || path === "." || path.includes("\0"))) {
-    throw new Error("Repair paths must name files inside the assigned checkout.");
+    throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_PATH_INVALID();
   }
 };
 async function sandboxCommand(session: SandboxSession, command: string, args: string[], signal: AbortSignal) {
   const result = await session.exec(command, args, { signal });
-  if (!result.ok) throw new Error(`Cannot synchronize repair Sandbox files: ${result.stderr}`);
+  if (!result.ok) throw presetsErrorDiagnostics.PRESETS_SANDBOX_SYNC_FAILED({ stderr: result.stderr });
   return result.stdout;
 }
 async function sandboxParent(session: SandboxSession, path: string, signal: AbortSignal) {
@@ -25,7 +26,7 @@ async function sandboxParent(session: SandboxSession, path: string, signal: Abor
     if (!part || part === ".") continue;
     const entry = (await session.files.list(parent, { signal })).find(entry => posix.basename(entry.path) === part);
     if (!entry) return false;
-    if (entry.type !== "directory") throw new Error("Repair Sandbox parent must be a regular directory.");
+    if (entry.type !== "directory") throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_PARENT_INVALID();
     parent = posix.join(parent, part);
   }
   return true;
@@ -40,20 +41,20 @@ export async function importSandboxRepairFiles(session: SandboxSession, checkout
     const destination = join(root, path);
     let parent = dirname(destination);
     while (!await lstat(parent).catch(() => undefined)) parent = dirname(parent);
-    if (!inside(root, await realpath(parent))) throw new Error("Repair destination parent must stay inside the checkout.");
+    if (!inside(root, await realpath(parent))) throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_DESTINATION_OUTSIDE();
     const remote = posix.join(session.cwd, path);
     const entry = await sandboxParent(session, path, signal)
       ? (await session.files.list(posix.dirname(remote), { signal })).find(entry => posix.basename(entry.path) === posix.basename(remote))
       : undefined;
-    if (entry?.type === "directory") throw new Error("Repair paths must name individual files.");
+    if (entry?.type === "directory") throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_PATH_DIRECTORY();
     const contents = entry?.type === "file" ? await session.files.read(remote, { signal }) : undefined;
-    if (entry?.type === "file" && !contents) throw new Error("The repair Sandbox file disappeared during transfer.");
+    if (entry?.type === "file" && !contents) throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_FILE_MISSING();
     const link = entry?.type === "symlink"
       ? (await sandboxCommand(session, "sh", ["-c", 'readlink "$1"', "sh", remote], signal)).replace(/\n$/, "") : undefined;
     const mode = entry?.type === "file"
       ? await sandboxCommand(session, "sh", ["-c", 'if test -x "$1"; then printf 755; else printf 644; fi', "sh", remote], signal) : undefined;
     await mkdir(dirname(destination), { recursive: true });
-    if (!inside(root, await realpath(dirname(destination)))) throw new Error("Repair destination parent changed during transfer.");
+    if (!inside(root, await realpath(dirname(destination)))) throw presetsErrorDiagnostics.PRESETS_SANDBOX_REPAIR_DESTINATION_CHANGED();
     await rm(destination, { force: true });
     if (link !== undefined) await symlink(link, destination);
     else if (contents) { await writeFile(destination, contents); await chmod(destination, mode === "755" ? 0o755 : 0o644); }
