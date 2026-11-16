@@ -1,5 +1,6 @@
 import { createWorkflowError } from "../errors.ts"
 
+import { generatedNativeEntryKey, workflowStartAtKey } from "./delay.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 
@@ -311,6 +312,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   payload?: TPayload,
   observeSettlement?: (promise: PromiseLike<unknown>) => void,
   onDispatch?: () => void,
+  startAt?: number,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
@@ -319,11 +321,17 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
-  const context: WorkflowProviderContext<TPayload> = {
+  // Workflow DevKit `start()` has no delay. The native entry that ViteHub generates for a folder Workflow calls
+  // `sleep()` until the start time first. A native entry that the developer wrote cannot do that.
+  if (startAt !== undefined && Reflect.get(native, generatedNativeEntryKey) !== true) {
+    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "vercel" } })
+  }
+  const context: WorkflowProviderContext<TPayload> & { [workflowStartAtKey]?: number } = {
     name,
     // SAFETY: The optional payload belongs to this Workflow definition's payload contract.
     payload: payload as TPayload,
     provider: "vercel",
+    ...(startAt === undefined ? {} : { [workflowStartAtKey]: startAt }),
   }
   const runtime = await getVercelWorkflowRuntime()
   onDispatch?.()

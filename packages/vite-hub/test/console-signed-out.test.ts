@@ -42,7 +42,6 @@ const stubs: Record<string, Component> = {
     setup: (props, { attrs, slots }) => () => h("div", attrs, [h("h2", props.title), slots.description?.() ?? props.description, slots.body?.()]),
   }),
   UDashboardPanel: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) }),
-  UDashboardSearchButton: slot,
   UDropdownMenu: defineComponent({
     props: { items: Array },
     setup: (props, { slots }) => () => h("div", [slots.default?.(), ...(props.items ?? []).flat().map((item) => {
@@ -63,7 +62,8 @@ function mount(component: Component, props: Record<string, unknown>) {
   // The tests supply only the Nuxt UI components that the signed-out pages render.
   app.config.warnHandler = () => {}
   app.mount(root)
-  const buttons = () => [...root.querySelectorAll("button")].map(button => button.getAttribute("data-button") ?? button.getAttribute("aria-label"))
+  // A sidebar row is named by its label text, which stays in the row while the sidebar is collapsed.
+  const buttons = () => [...root.querySelectorAll("button")].map(button => button.getAttribute("data-button") ?? button.getAttribute("aria-label") ?? button.querySelector(".vitehub-sidebar__label")?.textContent ?? null)
   const click = (label: string) => root.querySelector(`[data-button="${label}"]`)?.dispatchEvent(new view.MouseEvent("click"))
   return { app, buttons, click, root }
 }

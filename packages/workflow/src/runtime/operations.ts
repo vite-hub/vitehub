@@ -18,6 +18,7 @@ export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult
 const maxRememberedRuns = 1024
 
 /** A failure of a Workflow operation, with the status and code that every surface reports. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 export class WorkflowOperationError extends Error {
   readonly code: string
   readonly fix?: string
@@ -90,8 +91,8 @@ function isErrorLike(value: unknown): value is Error {
   return value instanceof Error || (isRecord(value) && typeof value.message === "string")
 }
 
-// Inline runs store the handler result as a serialized `Response`. Read its body
-// so that the CLI shows the value that the Workflow returned.
+// A handler can return a `Response`. Read its body so that the CLI shows the
+// value that the Workflow returned.
 async function readResult(result: unknown): Promise<unknown> {
   if (!isResponse(result)) return result
   const text = await result.clone().text()

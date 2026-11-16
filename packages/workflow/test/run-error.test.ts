@@ -57,6 +57,8 @@ it("reports the error of an errored Cloudflare instance", async () => {
 
 it("reports the error of a failed OpenWorkflow run", async () => {
   const backend = {
+    db: { prepare: () => ({ get: () => undefined }) },
+    listStepAttempts: async () => ({ data: [], pagination: { next: null } }),
     getWorkflowRun: async () => ({
       error: { message: "step failed", name: "RangeError", stack: "RangeError: step failed\n    at x" },
       id: "ow-1",

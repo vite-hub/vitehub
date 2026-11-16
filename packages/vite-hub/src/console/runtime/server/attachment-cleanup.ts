@@ -1,6 +1,9 @@
 import * as v from "valibot"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
+import { invariant } from "@vite-hub/internal/invariant"
 import type { BlobStorage } from "@vite-hub/blob"
+
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consolePrefix = `${vitehubOwnedPrefix}console/`
 export const consoleAttachmentPrefix = `${consolePrefix}attachments/`
@@ -12,6 +15,7 @@ export const legacyConsoleAttachmentPrefix = "vitehub-console-attachments/"
 const cleanupPrefix = consoleAttachmentCleanupPrefix
 const idSchema = v.pipe(v.string(), v.uuid())
 
+// Internal invariant: caught in this module, which moves the record to quarantine.
 class CorruptCleanupRecord extends Error {
   constructor(readonly body: string) {
     super("Invalid attachment cleanup batch record")
@@ -131,12 +135,14 @@ export async function isConsoleAttachmentPendingCleanup(storage: Pick<BlobStorag
         if (blob.pathname.startsWith(`${cleanupPrefix}batch/`) && (await cleanupIds(storage, blob.pathname, cleanupPrefix))?.includes(id)) return true
       }
       if (!result.hasMore) break
-      if (!result.cursor || result.cursor === cursor) throw new Error("Attachment cleanup listing did not advance")
+      // A Blob driver that returns the same cursor twice would loop forever.
+      invariant(result.cursor && result.cursor !== cursor, "a Blob listing with more pages returns a new cursor")
       cursor = result.cursor
     } while (cursor)
     const [quarantineError, quarantine] = await storage.list({ prefix: quarantinePrefixes[index], limit: 1 })
     if (quarantineError) throw quarantineError
-    if (quarantine.blobs.length) throw new Error("Attachment cleanup ownership is quarantined")
+    // Cleanup fails closed while a quarantined record exists.
+    if (quarantine.blobs.length) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_ATTACHMENT_CLEANUP_QUARANTINED()
   }
   return false
 }
