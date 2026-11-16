@@ -777,21 +777,46 @@ export function onSignOut(listener: () => unknown): () => void {
   }
 }
 
+/** `value` when it is an object, else an empty one, to spread fetch options that a caller may leave out. */
+function record(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? { ...value } : {}
+}
+
 async function signOut(client: AuthClientLike, store: SessionStore, options: { redirectTo?: string, disableRedirect?: boolean } = {}, fetchOptions: unknown[] = []): Promise<unknown> {
-  const { redirectTo, ...betterAuthOptions } = options
+  const { redirectTo, fetchOptions: argumentFetchOptions, ...betterAuthOptions } = options as typeof options & { fetchOptions?: unknown }
   // A provider sign-out, such as OpenID Connect logout, answers with the provider's sign-out page. Better Auth would
-  // load it inside its own `signOut()`, before the listeners below run, so it only returns the page here.
+  // load it inside its own `signOut()`, before the listeners below run, so it only returns the page here. Better Auth
+  // merges both forms of fetch options and puts their `body` over the arguments, so `disableRedirect` goes last, in the
+  // merged options. A success hook of the caller runs after the listeners, so it cannot open a page before them.
+  const callerFetchOptions: Record<string, unknown> = { ...record(fetchOptions[0]), ...record(argumentFetchOptions) }
+  const callerSuccess = callerFetchOptions.onSuccess
+  let succeeded: { context: unknown } | undefined
+  const merged = {
+    ...callerFetchOptions,
+    body: { ...record(callerFetchOptions.body), disableRedirect: true },
+    onSuccess(context: unknown) {
+      succeeded = { context }
+    },
+  }
   // SAFETY: every Better Auth client has `signOut()`, which answers with a promise.
-  const result = await (client.signOut as (...args: unknown[]) => Promise<unknown>)({ ...betterAuthOptions, disableRedirect: true }, ...fetchOptions)
+  const result = await (client.signOut as (...args: unknown[]) => Promise<unknown>)({ ...betterAuthOptions, disableRedirect: true, fetchOptions: merged })
   // Better Auth returns `{ data, error }`, and only the data with `fetchOptions.throw`, which throws on an error.
   const answer = typeof result === "object" && result !== null && "data" in result && "error" in result ? result : { data: result, error: null }
   if (answer.error) return result
-  if (!("window" in globalThis)) return result
+  if (!("window" in globalThis)) {
+    if (typeof callerSuccess === "function" && succeeded) await callerSuccess(succeeded.context)
+    return result
+  }
   // Better Auth reads the session again after a sign-out, and the page shows the user until it answers. Its session
   // atom starts that read from `null`, so the read cannot show the user again. Every component shares the store, so
   // they all show the sign-out at once.
   store.clear(await loadAuthClient(client as VueAuthClient<{}>))
-  await Promise.all([...signOutListeners].map(listener => listener()))
+  // A listener that fails does not stop the sign-out, nor the other listeners: the session already ended on the server.
+  const settled = await Promise.allSettled([...signOutListeners].map(async listener => listener()))
+  for (const failure of settled) {
+    if (failure.status === "rejected") console.error("[vitehub] An onSignOut() listener failed.", failure.reason)
+  }
+  if (typeof callerSuccess === "function" && succeeded) await callerSuccess(succeeded.context)
   // The package types have no DOM, so `location` comes from `globalThis`.
   const location = (globalThis as { location?: { assign(url: string): void } }).location
   const data: unknown = answer.data
