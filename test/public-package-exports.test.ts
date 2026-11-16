@@ -134,7 +134,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("ui")
     const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
     for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
-      expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      // The ui-sdk drag handle loads on first render, not when MarkdownEditor is imported.
+      if (peer === "@tiptap/extension-drag-handle" || peer === "@tiptap/extension-drag-handle-vue-3") {
+        expect(contract?.optionalRuntimePeers).not.toContain(peer)
+      } else {
+        expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      }
       expect(contract?.optionalDeclarationPeers, `${peer} is needed to typecheck the editor`).toContain(peer)
     }
   })

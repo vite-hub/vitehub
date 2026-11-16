@@ -10,13 +10,13 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
-| `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
-| `@vite-hub/docs/navigation` | Only the navigation helpers, which the root also exports. |
-| `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
-| `@vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
+| `vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
+| `vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
+| `@vite-hub/docs/navigation` | Only the navigation helpers. `vite-hub/docs` exports them too. |
+| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
+| `vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
 
-Apps with `vite-hub` can import `vite-hub/docs` and `vite-hub/docs/assistant`, which re-export `@vite-hub/docs` and `@vite-hub/docs/assistant`.
+Each `vite-hub/docs/*` path re-exports the same path of `@vite-hub/docs`. A site without `vite-hub` imports `@vite-hub/docs/*`, as [Use without ViteHub](/docs/docs-site#use-without-vitehub) shows.
 
 ## Module options
 
@@ -132,7 +132,7 @@ The module writes its output to the Nuxt build folder:
 To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
-import { createDocsManifest } from '@vite-hub/docs/server'
+import { createDocsManifest } from 'vite-hub/docs/server'
 
 const manifest = await createDocsManifest({ dir: 'content', base: '/docs' })
 for (const section of manifest.sections) {

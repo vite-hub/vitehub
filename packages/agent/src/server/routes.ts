@@ -75,7 +75,7 @@ import {
 } from "../internal/channel-state.ts"
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
-import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
+import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
@@ -87,7 +87,7 @@ import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/cha
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
-import { loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
+import { loadConfiguredAgentWorkflowCapabilities, loadInstalledAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityMask } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
@@ -125,6 +125,7 @@ import {
   bindAgentChannelDeliveryMessage,
   bindAgentChannelDeliveryPayload,
   detachAgentChannelDelivery,
+  isUntrackedChannelWebhook,
   openAgentChannelDelivery,
   readAgentChannelDeliveries,
   resumeAgentChannelDelivery,
@@ -132,6 +133,7 @@ import {
   resumeAgentChannelDeliveryPayload,
   setAgentChannelDeliveryWorkflowOwnershipResolver,
   setAgentChannelDeliveryWorkflowResolver,
+  untrackedAgentChannelDelivery,
   withAgentChannelDelivery,
 } from "../internal/channel-delivery.ts"
 
@@ -411,7 +413,7 @@ interface ChatTypingRefresh {
 }
 
 function createRouteError(statusCode: number, message: string): AgentHttpError {
-  return new AgentHttpError(statusCode, message)
+  return agentHttpError(statusCode, message)
 }
 
 function createRouteBodyError(message: string): Error & { status?: number; statusCode?: number } {
@@ -770,14 +772,17 @@ async function terminalChannelDeliveryResponse(
 
 /** The `reason` of a `retryLater()` or `rejected()` answer, when the body has one. */
 async function handledResponseReason(response: Response): Promise<string | undefined> {
+  if (!response.headers.get("content-type")?.includes("json")) return undefined
   const body: unknown = await response.clone().json().catch(() => undefined)
   return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
 }
 
 async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
   const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
+  // The reason of an answer such as `ignored(reason)` says why the delivery started no Invocation.
+  const reason = await handledResponseReason(response)
   if (!response.body) {
-    await recordChannelDeliveryEvidence(delivery, { type: terminalType })
+    await recordChannelDeliveryEvidence(delivery, { ...(reason ? { reason } : {}), type: terminalType })
     return response
   }
   const reader = response.body.getReader()
@@ -787,6 +792,7 @@ async function observeHandledChannelDeliveryResponse(response: Response, deliver
     finished = true
     await recordChannelDeliveryEvidence(delivery, {
       ...(error === undefined ? {} : { error: channelDeliveryError(error) }),
+      ...(reason ? { reason } : {}),
       type,
     })
   }
@@ -1418,13 +1424,7 @@ async function hasActiveWorkflowRuntime(
   if (!(await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities))) return false
   if (agent.runtime.discoveryDefault !== true && !requireAvailable) return true
   if (agent.runtime.discoveryDefault === true && !context.agentIdentity) return false
-  try {
-    return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
-  } catch (error) {
-    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return false
-    throw error
-  }
+  return Boolean((await loadInstalledAgentWorkflowRuntimeStateModule())?.getWorkflowRuntimeConfig())
 }
 
 function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: number, onLost: () => void): () => void {
@@ -1673,12 +1673,6 @@ async function deliverQueuedWebhookFailure(
   return true
 }
 
-/** The `reason` of a handled JSON answer such as `retryLater(reason)`. */
-async function handledWebhookResponseReason(response: Response): Promise<string | undefined> {
-  const body: unknown = await response.clone().json().catch(() => undefined)
-  return isRecord(body) && typeof body.reason === "string" ? body.reason : undefined
-}
-
 /**
  * The current trigger of a stored delivery, with the Channel State that the webhook route gave it. A queued dispatch
  * item uses the trigger that admitted it.
@@ -1835,6 +1829,7 @@ async function executeQueuedWebhookDelivery(
   let invocationRunId: string | undefined
   let invocationStarted = false
   let handledResponse: Response | undefined
+  let handledReason: string | undefined
   // The Agent of the delivery's task, or the Agent that owns the webhook route.
   let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
   // SAFETY: The queue persists this value from the asserted route contract.
@@ -1956,10 +1951,9 @@ async function executeQueuedWebhookDelivery(
       else {
         invocation = undefined
         handledResponse = resolved.response
+        handledReason = await Promise.race([handledResponseReason(handledResponse), executionTimeout])
         // `retryLater(reason)` and other 5xx answers retry the delivery. The error names the reason.
-        const retryReason = handledResponse.status >= 500
-          ? await Promise.race([handledResponseReason(handledResponse), executionTimeout])
-          : undefined
+        const retryReason = handledResponse.status >= 500 ? handledReason : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
@@ -1999,7 +1993,8 @@ async function executeQueuedWebhookDelivery(
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
-        const retryReason = handledResponse.status >= 500 ? await handledWebhookResponseReason(handledResponse) : undefined
+        handledReason = await handledResponseReason(handledResponse)
+        const retryReason = handledResponse.status >= 500 ? handledReason : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
@@ -2173,6 +2168,7 @@ async function executeQueuedWebhookDelivery(
     if (channelDelivery)
       await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "completed" : undefined, handledResponse && !handledResponse.ok ? "rejected" : "completed", {
         attempt: delivery.attempts + 1,
+        ...(handledReason ? { reason: handledReason } : {}),
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         ...(invocationStarted ? { runId: (delivery.invocation?.run as AgentRunMetadata | undefined)?.runId } : {}),
       })
@@ -9725,8 +9721,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const deliveryState =
         (trigger.id === "chat.message" ? undefined : workflowCustody ? undefined : webhookDeliveryState) ||
         (chatDeliveryState ? { keyPrefix: chatDeliveryState.titleKeyPrefix, state: chatDeliveryState.state } : undefined)
-      // Internal invariant: chatDeliveryState is set whenever webhookDeliveryState is not used, so deliveryState always resolves.
-      if (!deliveryState) throw new Error("[vitehub] Agent Channel delivery state did not resolve.")
+      if (!deliveryState) throw invariantError("chatDeliveryState is set whenever webhookDeliveryState is not used, so the Agent Channel delivery state resolves")
       const channelState = webhookDeliveryState || deliveryState
       if (registration.durableState && (!isDurableAgentState(deliveryState.state) || !isDurableAgentState(channelState.state))) {
         return createJsonErrorResponse(503, "This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
@@ -9738,13 +9733,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
-          const delivery = await openAgentChannelDelivery(deliveryState.state, {
+          const input = {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: registration.provider,
             scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
-          })
+          }
+          if (isUntrackedChannelWebhook(registration)) return untrackedAgentChannelDelivery(input)
+          const delivery = await openAgentChannelDelivery(deliveryState.state, input)
           if (messageIdentity) {
             await bindAgentChannelDeliveryMessage(
               deliveryState.state,
@@ -10324,7 +10321,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
     if (!match) throw agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: JSON.stringify(channel), problem: "unknown" })
-    if (agentChannelOptions(agent)[channel]?.history) throw agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ channel: JSON.stringify(channel), problem: "history" })
+    if (agentChannelOptions(agent)[channel]?.history) throw agentDiagnostics.AGENT_CHANNELS_NO_CONVERSATIONS({ channel: JSON.stringify(channel) })
     return match.registration
   }
   handler.conversation = async (request, input, handlerOptions = {}) => {

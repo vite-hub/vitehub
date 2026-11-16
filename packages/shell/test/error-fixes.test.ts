@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { parseShellCommand } from "../src/command/parse.ts"
 import { shellErrorDiagnostics } from "../src/error-diagnostics.ts"
@@ -6,7 +7,8 @@ import { cleanWorkspaceMutationPath, cleanWorkspaceShellPath } from "../src/work
 
 describe("Shell error fixes", () => {
   it("gives each Shell code a fix and its own docs page", () => {
-    for (const [code, create] of Object.entries(shellErrorDiagnostics)) {
+    for (const code of Object.keys(shellErrorDiagnostics) as InferDiagnosticCodes<typeof shellErrorDiagnostics>[]) {
+    const create = shellErrorDiagnostics[code]
       const error = create({ message: "m" })
       expect(error.fix, code).toMatch(/\S/)
       expect(error.docs, code).toBe(`https://vitehub.dev/docs/shell/diagnostics/${code.toLowerCase()}`)
