@@ -211,7 +211,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
     }
     catch (error) {
       const problem = error instanceof Error ? error.message : String(error)
-      const failure = isRuntimeDiagnostic(error) && error.code === "DATABASE_EXPORT_FAILED" ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
+      const failure = databaseErrorDiagnostics.DATABASE_EXPORT_FAILED.is(error) ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
       context.stderr.write(`${formatRuntimeDiagnosticError(failure)}\n`)
       return 1
     }
