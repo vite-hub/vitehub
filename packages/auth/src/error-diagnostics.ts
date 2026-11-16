@@ -11,7 +11,8 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
-    // Event and password errors. The event store, the events route, and the password verifier throw them.
+    // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
+    // throw them.
     AUTH_EVENT_QUERY_INVALID: {
       why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
@@ -25,6 +26,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_PASSWORD_HASH_INVALID: {
       why: "Invalid password hash",
       fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+    AUTH_SIGN_OUT_REDIRECT_INVALID: {
+      why: ({ redirectTo }: { redirectTo: string }) => `\`signOut()\` redirects only to a path of the app, not to ${JSON.stringify(redirectTo)}.`,
+      fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
     },
 
     // Published numbered errors.

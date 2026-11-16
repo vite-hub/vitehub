@@ -14,6 +14,7 @@ export {
   requireAbility,
   requireAuth,
   requireAuthorization,
+  signOut,
   useAuth,
   withAnonymousAuthorization,
   withAuth,
