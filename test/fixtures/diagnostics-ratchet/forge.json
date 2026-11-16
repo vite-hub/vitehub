@@ -1,0 +1,7 @@
+{
+  "rawErrors": {
+    "packages/forge/src/provider.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}

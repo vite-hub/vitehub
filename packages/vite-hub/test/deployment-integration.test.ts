@@ -515,6 +515,7 @@ describe("built-in host integration", () => {
         { path: "env.server.direct", names: ["DIRECT_URL"], required: false, secret: false, hasDefault: false },
         { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
       ])
+      expect(JSON.parse(text).envDir).toBe("..")
       expect(text).not.toContain(canary)
       expect(text).not.toContain("github/token")
     }
