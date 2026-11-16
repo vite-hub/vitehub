@@ -340,7 +340,7 @@ describe("vitehub hooks", () => {
 
       const pushed = await run("pre-push", rootDir, pushMain)
 
-      expect(pushed).toMatchObject({ code: 1, stderr: `WORKSPACE_CHECKOUT_SYMLINK: ${link} is a symbolic link. A checkout reads and writes only real files and folders.\nReplace the link with a real folder or file, then try again.\n` })
+      expect(pushed).toMatchObject({ code: 1, stderr: `WORKSPACE_CHECKOUT_SYMLINK: ${link} is a symbolic link. A checkout reads and writes only real files and folders.\nReplace the symbolic link with a real folder or file, then try again.\n` })
       expect(opened.filter(path => path.startsWith(join(rootDir, link)))).toEqual([])
       await rm(join(rootDir, link))
     }
@@ -352,7 +352,7 @@ describe("vitehub hooks", () => {
 
     const pushed = await run("pre-push", rootDir, pushMain)
 
-    expect(pushed).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK: content/leak in the checkout folder is a symbolic link.") })
+    expect(pushed).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK: content/leak is a symbolic link.") })
     expect(opened.filter(path => path.startsWith(join(rootDir, "content/leak")))).toEqual([])
   })
 

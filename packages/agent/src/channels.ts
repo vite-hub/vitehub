@@ -13,8 +13,9 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, isForgeResponseError, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { invariant } from "@vite-hub/internal/invariant"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
@@ -1797,7 +1798,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   catch (error) {
     const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
     throw error
   }
 }
@@ -1930,7 +1931,7 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   catch (error) {
     const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
+    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
     throw error
   }
 }
@@ -3462,7 +3463,7 @@ async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConf
 ): Promise<{ label: string, url: string } | undefined> {
   const agentName = context.agentName || context.agentIdentity?.name
   if (!options.publicUrl && !agentName) return
-  if (!agentName && services) throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge activity session links require an Agent identity." })
+  if (!agentName && services) throw agentDiagnostics.AGENT_FORGE_AGENT_IDENTITY_MISSING()
   if (!agentName) throw agentDiagnostics.AGENT_GITHUB_ACTIVITY_AGENT_MISSING()
   const { agentInvocationId } = await import("./invocations.ts")
   const id = await agentInvocationId(runId, agentName)
@@ -3593,7 +3594,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             },
           }))
           context.waitUntil(update.catch(error => console.error(services
-            ? agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge pull request activity initialization failed.", cause: error })
+            ? agentDiagnostics.AGENT_FORGE_ACTIVITY_FAILED({ cause: error })
             : agentDiagnostics.AGENT_R0367({ message: "[vitehub] GitHub pull request activity initialization failed.", cause: error }))))
           if (!options.reconcile) return ignored("activity_queued")
         }
@@ -3790,11 +3791,11 @@ const reservedChannelMessageMethodNames = new Set(["channel", "data", "kind"])
 function validateChannelMessageDefinition(kind: string, message: unknown): void {
   if (message === undefined) return
   if (!isRecord(message)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { message }) expects an object.` })
+    throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_INVALID({ kind, option: "message" })
   }
   if (message.methods === undefined) return
   if (!isRecord(message.methods)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { message: { methods } }) expects an object.` })
+    throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_INVALID({ kind, option: "message: { methods }" })
   }
   for (const [name, method] of Object.entries(message.methods)) {
     if (reservedChannelMessageMethodNames.has(name)) {
@@ -3802,13 +3803,13 @@ function validateChannelMessageDefinition(kind: string, message: unknown): void 
     }
     if (typeof method === "function") continue
     if (isRecord(method) && method.read === true && typeof method.handler === "function") continue
-    throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Channel "${kind}" message method "${name}" must be a function or { read: true, handler }.` })
+    throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_METHOD_INVALID({ kind, name })
   }
 }
 
 function validateChannelHistoryDefinition(kind: string, history: unknown, triggers: unknown): void {
   if (history === undefined) return
-  const invalid = (detail: string) => agentDiagnostics.AGENT_R0930({ message: `[vitehub] channelAdapter("${kind}", { history }) ${detail}` })
+  const invalid = (detail: string) => agentDiagnostics.AGENT_CHANNEL_HISTORY_INVALID({ kind, detail })
   if (!isRecord(history)) throw invalid("expects an object.")
   const collection = history.collection
   if (!isRecord(collection) || typeof collection.page !== "function" || typeof collection.parseQuery !== "function") {
@@ -4055,14 +4056,14 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
       : channelAdapter(adapter.kind, { messages: false, webhooks: false })
   if (Object.keys(handlers).length) {
     if (!isWebhookAdapter(adapter)) {
-      throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] The \`on\` handlers of a "${adapter.kind}" Channel need an adapter that receives webhooks, such as webhook() or stripe().` })
+      throw agentDiagnostics.AGENT_CHANNEL_ON_ADAPTER_UNSUPPORTED({ kind: adapter.kind })
     }
     if (Object.hasOwn(triggers, handlerTriggerName)) {
-      throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] "${handlerTriggerName}" is the trigger that runs the \`on\` handlers. Give the "${handlerTriggerName}" trigger another name.` })
+      throw agentDiagnostics.AGENT_CHANNEL_ON_TRIGGER_NAME_TAKEN({ name: handlerTriggerName })
     }
     const webhookTrigger = Object.entries(triggers).find(([, trigger]) => trigger.webhooks === undefined)
     if (webhookTrigger) {
-      throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] The \`on\` handlers of the "${adapter.kind}" Channel receive its webhook, so the trigger "${webhookTrigger[0]}" cannot. Set \`webhooks: []\` on it to run it only through dispatch, pull, or sendChannelTrigger().` })
+      throw agentDiagnostics.AGENT_CHANNEL_ON_WEBHOOK_TRIGGER({ kind: adapter.kind, trigger: webhookTrigger[0] })
     }
     triggers[handlerTriggerName] = channelHandlerTrigger<TRuntimeConfig>(adapter.webhook, handlers)
   }
@@ -4154,7 +4155,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 function forgeActivityTarget(value: unknown): GitHubActivityTarget {
   if (!isRecord(value) || typeof value.repository !== "string" || !/^[^\s/]+(?:\/[^\s/]+)+$/.test(value.repository)
     || typeof value.issue !== "number" || !Number.isSafeInteger(value.issue) || value.issue < 1) {
-    throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge Agent activity requires a target with repository and issue." })
+    throw agentDiagnostics.AGENT_FORGE_ACTIVITY_TARGET_INVALID()
   }
   return { repository: value.repository, issue: value.issue }
 }
@@ -4196,7 +4197,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
   }
   const secret = async (context: AgentCallbackContext<TRuntimeConfig>) => {
     const value = await setting("webhookSecret", context)
-    if (!value) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] ${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET.` })
+    if (!value) throw agentDiagnostics.AGENT_FORGE_WEBHOOK_SECRET_MISSING({ kind })
     return value
   }
   const activityDefinition = activity ? githubAgentActivity(undefined, "lifecycle", services) : undefined
@@ -4273,7 +4274,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
       secretToken: secret,
       signature: {
         async verify({ context, rawBody, request, secret: verifiedSecret }) {
-          if (!context) throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge webhook verification requires a runtime context." })
+          invariant(context, "the webhook route passes a runtime context to Forge signature verification")
           const provider = await services.provider(context)
           await forgeIngest(provider, { headers: request.headers, body: rawBody, secret: verifiedSecret })
           return true
@@ -4394,7 +4395,7 @@ async function gmailChannelSettings<TRuntimeConfig extends AgentRuntimeConfig>(c
 
 /** Validates the Channel options and returns the declared labels with lowercase colors. */
 function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): Record<string, GmailLabelSettings> {
-  const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
+  const invalid = (detail: string) => agentDiagnostics.AGENT_GMAIL_OPTIONS_INVALID({ detail })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
   }
@@ -4613,14 +4614,14 @@ export interface SyncGmailChannelResult {
 export async function syncGmailChannel(channel: AgentChannelDefinition, options: SyncGmailChannelOptions = {}): Promise<SyncGmailChannelResult> {
   const definition = getAgentChannelSyncDefinition(channel)
   if (channel.kind !== "gmail" || definition?.provider !== "gmail") {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] syncGmailChannel() expects a Channel from gmail()." })
+    throw agentDiagnostics.AGENT_GMAIL_CHANNEL_EXPECTED({ method: "syncGmailChannel" })
   }
   const runtime = options.runtime ?? (() => {
     const created = createRuntimeContext({ runtime: "unknown" })
     return { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
   })()
   const provider = await definition.resolve(createExecutionContext(runtime), channel)
-  if (!provider) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] The Gmail Channel has no synchronization provider." })
+  invariant(provider, "the sync definition of gmail() always resolves a provider")
   const plan = await provider.plan({ fetch: globalThis.fetch, force: false })
   const action = plan.action === "none" ? "none" : "update"
   if (!options.apply || action === "none") return { action, applied: false, changes: plan.changes || [] }
@@ -4640,14 +4641,14 @@ export interface PollGmailChannelOptions {
  */
 export async function pollGmailChannel(channel: AgentChannelDefinition, options: PollGmailChannelOptions = {}): Promise<void> {
   if (channel.kind !== "gmail" || getAgentChannelSyncDefinition(channel)?.provider !== "gmail") {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() expects a Channel from gmail()." })
+    throw agentDiagnostics.AGENT_GMAIL_CHANNEL_EXPECTED({ method: "pollGmailChannel" })
   }
   // Standalone Schedule functions do not load the webhook route or its startup plugin.
   // The generated registry loads the same handlers and durable State configuration on demand.
   if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadAgentHost()
   const host = channelsConsoleHost()
   if (!host) {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects." })
+    throw agentDiagnostics.AGENT_GMAIL_POLL_HOST_MISSING()
   }
   let polled = 0
   const failures: unknown[] = []
@@ -4663,7 +4664,7 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
   }
   if (failures.length === 1) throw failures[0]
   if (failures.length) throw new AggregateError(failures, "[vitehub] Gmail Channel polling failed for multiple Agents.")
-  if (!polled) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() found no Agent that uses this Channel." })
+  if (!polled) throw agentDiagnostics.AGENT_GMAIL_AGENT_MISSING()
 }
 
 export interface GmailChannelStatusOptions {
@@ -4680,7 +4681,7 @@ export interface GmailChannelStatusOptions {
  */
 export async function gmailChannelStatus(channel: AgentChannelDefinition, options: GmailChannelStatusOptions = {}): Promise<AgentChannelStatus | undefined> {
   if (channel.kind !== "gmail" || getAgentChannelSyncDefinition(channel)?.provider !== "gmail") {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] gmailChannelStatus() expects a Channel from gmail()." })
+    throw agentDiagnostics.AGENT_GMAIL_CHANNEL_EXPECTED({ method: "gmailChannelStatus" })
   }
   // Server routes outside the Agent webhook routes do not load the registry, so load it on demand, as pollGmailChannel() does.
   if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadAgentHost()
@@ -4693,7 +4694,7 @@ export async function gmailChannelStatus(channel: AgentChannelDefinition, option
     return id && host.handlers[name] ? [{ handler: host.handlers[name], id, name }] : []
   })
   if (matches.length > 1) {
-    throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${matches.map(match => match.name).join(", ")}. Pass the \`agent\` option.` })
+    throw agentDiagnostics.AGENT_GMAIL_AGENT_AMBIGUOUS({ agents: matches.map(match => match.name).join(", ") })
   }
   const [match] = matches
   if (!match) return undefined
@@ -4713,7 +4714,7 @@ export interface GmailClientOptions {
 export async function gmailClient(channel: AgentChannelDefinition, options: GmailClientOptions = {}): Promise<GmailClient> {
   const resolveClient = (channel as { [gmailClientKey]?: (context: AgentCallbackContext) => Promise<GmailClient> })[gmailClientKey]
   if (channel.kind !== "gmail" || !resolveClient) {
-    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] gmailClient() expects a Channel from gmail()." })
+    throw agentDiagnostics.AGENT_GMAIL_CHANNEL_EXPECTED({ method: "gmailClient" })
   }
   const runtime = options.runtime ?? (() => {
     const created = createRuntimeContext({ runtime: "unknown" })
