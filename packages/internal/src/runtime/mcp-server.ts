@@ -12,11 +12,19 @@ export const mcpProtocolVersions: readonly string[] = ["2025-11-25", "2025-06-18
 /** One block of a tool result, such as `{ type: "text", text }`. */
 export type McpContentBlock = { type: "text", text: string } | { type: string, [key: string]: unknown }
 
+/**
+ * Metadata for the client, not the model, such as `ui` of MCP Apps or the `openai/` keys of the OpenAI Apps SDK. The
+ * server sends it as it is.
+ */
+export type McpMeta = Record<string, unknown>
+
 /** The result of `tools/call`. */
 export interface McpToolResult {
   content: McpContentBlock[]
   structuredContent?: Record<string, unknown>
   isError: boolean
+  /** Data for the client and its UI that the model does not read. */
+  _meta?: McpMeta
 }
 
 /** The MCP tool annotations that clients read before a call. */
@@ -45,6 +53,8 @@ export interface McpTool {
   maxRequestBytes?: number
   /** The OAuth scopes that a call needs. A caller without them does not see the tool. */
   scopes?: readonly string[]
+  /** What `tools/list` shows in the `_meta` of the tool, such as `{ ui: { resourceUri } }` of MCP Apps. */
+  _meta?: McpMeta
   handler(input: Record<string, unknown>): Promise<McpToolResult>
 }
 
@@ -98,7 +108,7 @@ export interface McpPrompt {
 }
 
 /** The contents of one resource in `resources/read`: text, or base64 bytes in `blob`. */
-export type McpResourceContents = { uri: string, mimeType?: string, text: string } | { uri: string, mimeType?: string, blob: string }
+export type McpResourceContents = { uri: string, mimeType?: string, text: string, _meta?: McpMeta } | { uri: string, mimeType?: string, blob: string, _meta?: McpMeta }
 
 /** A resource as `resources/list` shows it. */
 export interface McpListedResource {
@@ -108,6 +118,7 @@ export interface McpListedResource {
   description?: string
   mimeType?: string
   size?: number
+  _meta?: McpMeta
 }
 
 /**
@@ -119,6 +130,8 @@ export interface McpResource {
   title?: string
   description?: string
   mimeType?: string
+  /** What `resources/list` and `resources/templates/list` show in the `_meta` of the resource. */
+  _meta?: McpMeta
   /** The URI of one resource. */
   uri?: string
   /** An RFC 6570 URI template. `{name}` matches one path segment, and `{+name}` also matches `/`. */
@@ -356,6 +369,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
             ...(resource.title ? { title: resource.title } : {}),
             ...(resource.description ? { description: resource.description } : {}),
             ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+            ...(resource._meta ? { _meta: resource._meta } : {}),
           }]
         }
         return await resource.list?.() ?? []
@@ -371,6 +385,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
         ...(resource.title ? { title: resource.title } : {}),
         ...(resource.description ? { description: resource.description } : {}),
         ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+        ...(resource._meta ? { _meta: resource._meta } : {}),
       })),
     })
   }
@@ -408,6 +423,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
           description: tool.description,
           inputSchema: tool.inputSchema,
           ...(tool.annotations ? { annotations: tool.annotations } : {}),
+          ...(tool._meta ? { _meta: tool._meta } : {}),
         })),
       })
     case "tools/call": {

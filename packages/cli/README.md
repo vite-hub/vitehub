@@ -86,6 +86,29 @@ pnpm vitehub deploy --host vercel
 
 The first linked host is the default. `vitehub link --host <host> --default` changes it. `vitehub deploy --host <host>` builds with `VITEHUB_HOST=<host>`, and that host wins over `host` in `vitehub()`. With several targets and no default, deploy needs `--host`. Resources such as D1, KV, R2, and libSQL are separate on each host. See [Link a project to its host](https://vitehub.dev/docs/development/cli#link-a-project-to-its-host).
 
+On Cloudflare and Vercel, `vitehub deploy` first runs the provision plan of the host with the same credentials, including a `wrangler login`. It lists the resources it creates, asks first unless you pass `--yes`, and records their ids in `.vitehub/provision.json` before the build, so a second deploy creates nothing. `--no-provision` skips it. See [Create the host resources](https://vitehub.dev/docs/development/cli#create-the-host-resources).
+
+## Check and push host env
+
+`vitehub env diff` and `vitehub env push` read the env names that the last build wrote to `deployment.json` and the variables of the linked host target. They run before the CLI loads the project config, and they run the host CLI with your login.
+
+```sh
+pnpm vitehub env diff                     # missing required, missing optional, extra
+pnpm vitehub env push --yes               # values from the shell, then .env.production
+pnpm vitehub env diff --host vercel --stage preview
+```
+
+`env diff` compares names only, because hosts do not return values. It exits with 1 when a required name is missing. `env push` reads each value from the shell, then from `.env`, `.env.local`, `.env.<stage>`, and `.env.<stage>.local`, as Vite does. It refuses a secret from a file that git tracks, sends each value on stdin or in an API body, prints names only, and never deletes a host variable. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+
+`vitehub deploy` runs the same check after provisioning and the build, before migrations, env writes, or publishing code. `vitehub deploy` reads stage `production`, and `vitehub deploy --preview` reads stage `preview`. A required name that is on neither the host nor a local value stops the deploy. Deploy sets the names that the host lacks from their local values, and `--push-env` also replaces the names that the host has. Cloudflare gets the values with the new version through `wrangler deploy --secrets-file`. With `--yes`, deploy generates a missing `VITEHUB_SECRET`. See [Check Env before a deploy](https://vitehub.dev/docs/development/cli#check-env-before-a-deploy).
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host, for a deploy that your own workflow runs. It does not set up CI deploy. The repository comes from `--repo owner/name` or the git remote `origin`, `--environment <name>` targets a GitHub deployment environment, and the token comes from `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`, or the GitHub App of `@vite-hub/forge`. Each value is sealed with the repository public key before it leaves the CLI.
+
+```sh
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --environment production --yes
+```
+
 ## Run the CLI from code
 
 Use `runViteHubCli()` when another command runner needs ViteHub's config discovery and exit code without starting the binary entry point.
@@ -118,9 +141,11 @@ CLI-owned argument and execution defects use stable `CLI_R####` Nostics codes. C
 - Root and namespace help is human-readable text, not a structured output contract. Use `inspect ... --json` for machine-readable output.
 - Help loads and executes the local Vite or Nuxt config. A missing dependency or config error can stop help before it prints.
 - Command effects come from the package that contributes the command. Review command-specific help before applying Database migrations, Channel registration changes, or Provider provisioning.
-- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass a provider explicitly. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
+- `provision run` creates missing resources but does not delete or replace existing resources. Start with `--dry-run` and pass `--host cloudflare` or `--host vercel`. It reads the credentials as `vitehub deploy` does: environment variables first, then a `wrangler login`. The old `--provider` flag exits with a `fix:` line. When a step cannot check its resources, `provision run` applies nothing and exits with code 1. The `--json` result has `checked`.
 - `provision status` shows recorded ids from `.vitehub/provision.json` and pending plan actions. It marks a recorded id as `not declared` when no current Definition uses it, for example after a rename, and prints a `fix:` line that says how to delete the resource on the host. It never applies actions, deletes resources, or edits `.vitehub/provision.json`. Add `--json` to `provision run` or `provision status` for one JSON document on stdout.
 
 Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config. After a rename, status defers deletion guidance if a current declaration's resource cannot be verified against config, including when the new key already has a stale id. Verify D1 and KV ids against provider resource names and bindings before deleting anything. `provision run` refreshes R2 and Queue identities for comparison with config. R2 resource identities include jurisdiction; older entries with only a bucket name require checking the jurisdiction manually and receive no deletion guidance while an R2 Store remains declared.
 
 Read the [CLI guide](https://vitehub.dev/docs/development/cli) for every public command, examples, and troubleshooting.
+
+Cloudflare deploys always re-supply the stage’s local values, including existing Worker secrets, to prevent inheritance from a preview upload. Every existing secret needs a local stage value; otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`. This includes a previously generated `VITEHUB_SECRET`; supply a locally managed value for subsequent deploys.

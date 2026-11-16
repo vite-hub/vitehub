@@ -53,6 +53,7 @@ export function toMcpToolResult(value: unknown): McpToolResult {
       content: value.content,
       ...(isRecord(value.structuredContent) ? { structuredContent: value.structuredContent } : {}),
       isError: value.isError === true,
+      ...(isRecord(value._meta) ? { _meta: value._meta } : {}),
     }
   }
   return { content: [{ type: "text", text: JSON.stringify(value ?? null) }], ...(isRecord(value) ? { structuredContent: value } : {}), isError: false }
@@ -86,6 +87,7 @@ function listedTool(name: string, definition: McpToolDefinition): Omit<McpTool, 
     description: definition.description,
     inputSchema: { ...(definition.input ? standardJsonSchema(definition.input, "input") : undefined), type: "object" },
     ...(definition.annotations ? { annotations: definition.annotations } : {}),
+    ...(definition._meta ? { _meta: definition._meta } : {}),
   }
 }
 
@@ -225,9 +227,9 @@ function base64(bytes: Uint8Array): string {
 
 function toMcpResourceContents(uri: string, definition: McpResourceDefinition, value: McpResourceValue): McpResourceContents[] | undefined {
   if (value === undefined || value === null) return undefined
-  const mimeType = definition.mimeType ? { mimeType: definition.mimeType } : {}
-  if (typeof value === "string") return [{ uri, ...mimeType, text: value }]
-  if (value instanceof Uint8Array) return [{ uri, ...mimeType, blob: base64(value) }]
+  const fields = { ...(definition.mimeType ? { mimeType: definition.mimeType } : {}), ...(definition._meta ? { _meta: definition._meta } : {}) }
+  if (typeof value === "string") return [{ uri, ...fields, text: value }]
+  if (value instanceof Uint8Array) return [{ uri, ...fields, blob: base64(value) }]
   return value.contents
 }
 
@@ -237,6 +239,7 @@ function toMcpResource(name: string, definition: McpResourceDefinition, scope: M
     ...(definition.title ? { title: definition.title } : {}),
     ...(definition.description ? { description: definition.description } : {}),
     ...(definition.mimeType ? { mimeType: definition.mimeType } : {}),
+    ...(definition._meta ? { _meta: definition._meta } : {}),
   }
   const list = definition.list
   return {

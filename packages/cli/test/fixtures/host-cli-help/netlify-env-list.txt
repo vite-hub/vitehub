@@ -1,0 +1,31 @@
+Lists resolved environment variables for project (includes netlify.toml)
+
+USAGE
+  $ netlify env:list [options]
+
+OPTIONS
+  -c, --context <context>     Specify a deploy context for environment
+                              variables (”production”, ”deploy-preview”,
+                              ”branch-deploy”, ”dev”) or `branch:your-branch`
+                              where `your-branch` is the name of a branch
+                              (default: all contexts) (default: "dev")
+  --filter <app>              For monorepos, specify the name of the
+                              application to run the command in
+  -h, --help                  display help for command
+  --json                      Output environment variables as JSON
+  --plain                     Output environment variables as plaintext
+  --debug                     Print debugging information
+  --auth <token>              Netlify auth token - can be used to run this
+                              command without logging in
+  -s, --scope <scope>         Specify a scope (choices: "builds", "functions",
+                              "post-processing", "runtime", "any", default:
+                              "any")
+  --site <name-or-id>         A project name or ID to target
+
+EXAMPLES
+  $ netlify env:list # list variables with values in the dev context and with any scope
+  $ netlify env:list --context production
+  $ netlify env:list --context branch:feat/make-it-pop # list variables with values in the feat/make-it-pop branch context or branch-deploy context
+  $ netlify env:list --scope functions
+  $ netlify env:list --plain
+

@@ -14,6 +14,7 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import {
   authDate,
   authFieldValue,
@@ -140,7 +141,7 @@ async function refresh() {
     }
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
-      throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
+      throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTH_PLUGIN_MISSING();
     const query = { offset: offset.value, limit, search: search.value.trim(), filter: filter.value };
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {
@@ -639,11 +640,11 @@ onBeforeUnmount(() => {
   padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 .auth-table td {
   padding: 0.625rem 0.75rem;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
 }
 </style>

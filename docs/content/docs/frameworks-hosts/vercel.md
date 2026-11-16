@@ -184,8 +184,8 @@ export default defineConfig({
 Provision shows a dry-run plan before it applies actions. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` gives the team scope when the token needs it.
 
 ```bash [Terminal]
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --host vercel
 ```
 
 ## Generated output
