@@ -1644,6 +1644,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           search: searchFields,
           sort: options.sort ? { direction: options.sort.direction, field: fieldPath(options.sort.field) } : undefined,
         }),
+        route: false,
         transform: ({ body: _body, ...summary }: IndexedDocument): ContentDocumentSummary => summary,
       })
       const page = await listed.page({ cursor: options.cursor, limit: options.limit, query, signal: options.signal })
@@ -2035,6 +2036,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           return await list({ cursor, limit, search, signal, filter })
         },
       },
+      route: false,
     })
 
     const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
