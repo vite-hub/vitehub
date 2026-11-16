@@ -6,6 +6,7 @@ import { useConsoleMediaPicker } from "../client/media";
 
 import type { PropType } from "vue";
 import type { ConsoleDocumentComponent } from "../definitions";
+import Icon from "./console-icon.vue";
 
 /**
  * A Comark component in the body editor, such as `::alert{type="info"}`. Block components show their tag and props in
@@ -67,7 +68,7 @@ function update(name: string, type: string, raw: unknown): void {
         :disabled="!editable"
         :aria-label="`Edit ${definition.label} props`"
       >
-        <UIcon name="i-lucide-settings-2" class="size-3" aria-hidden="true" />
+        <Icon name="i-lucide-settings-2" class="size-3" aria-hidden="true" />
       </button>
       <template #content>
         <div class="grid w-64 gap-3 p-3">
@@ -99,7 +100,7 @@ function update(name: string, type: string, raw: unknown): void {
   </NodeViewWrapper>
   <NodeViewWrapper v-else class="vitehub-comark-block my-3 rounded-lg ring-1 ring-default" :data-component="definition.name">
     <div contenteditable="false" class="flex min-h-8 select-none items-center gap-2 border-b border-default px-3 text-xs text-muted">
-      <UIcon name="i-lucide-component" class="size-3.5 shrink-0" aria-hidden="true" />
+      <Icon name="i-lucide-component" class="size-3.5 shrink-0" aria-hidden="true" />
       <span class="font-mono text-highlighted">::{{ definition.name }}</span>
       <UPopover v-if="entries.length" :content="{ align: 'start' }">
         <UButton

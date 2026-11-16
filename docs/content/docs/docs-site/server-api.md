@@ -10,13 +10,13 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
-| `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
-| `@vite-hub/docs/navigation` | Only the navigation helpers, which the root also exports. |
-| `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
-| `@vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
+| `vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
+| `vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
+| `@vite-hub/docs/navigation` | Only the navigation helpers. `vite-hub/docs` exports them too. |
+| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
+| `vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
 
-Apps with `vite-hub` can import `vite-hub/docs` and `vite-hub/docs/assistant`, which re-export `@vite-hub/docs` and `@vite-hub/docs/assistant`.
+Each `vite-hub/docs/*` path re-exports the same path of `@vite-hub/docs`. A site without `vite-hub` imports `@vite-hub/docs/*`, as [Use without ViteHub](/docs/docs-site#use-without-vitehub) shows.
 
 ## Module options
 
@@ -50,6 +50,7 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `markdownPages` | `boolean` | `true` | A Markdown copy of each app page that is not a docs page, converted from its HTML, at its URL plus `.md` and for `Accept: text/markdown`. See [Agent resources](/docs/docs-site/configure#agent-resources). |
 | `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`: `{ comarkUi, examples, plugins }`. The page route, search, and Console drafts parse with it. See [Configure the parser](/docs/docs-site/configure#configure-the-parser). |
 
 The module also configures the modules it installs: `llms` from `site`, and `agentDiscovery` with the page routes and MCP server card. Your own `llms` and `agentDiscovery` options win.
@@ -131,7 +132,7 @@ The module writes its output to the Nuxt build folder:
 To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
-import { createDocsManifest } from '@vite-hub/docs/server'
+import { createDocsManifest } from 'vite-hub/docs/server'
 
 const manifest = await createDocsManifest({ dir: 'content', base: '/docs' })
 for (const section of manifest.sections) {

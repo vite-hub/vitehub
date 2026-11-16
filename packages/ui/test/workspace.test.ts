@@ -311,6 +311,7 @@ describe("WorkspacePreview", () => {
     wrapper.unmount();
 
     const next = mount(WorkspacePreview, { props: { url: "https://abc.webcontainer.io" } });
+    await nextTick();
     expect(next.get("[aria-label='Phone']").attributes("aria-pressed")).toBe("true");
     await next.setProps({ device: "tablet" });
     expect(next.get(".vh-device-frame__page").attributes("style")).toContain("width: 768px");

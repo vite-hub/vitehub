@@ -190,6 +190,11 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@shikijs/langs",
       "@shikijs/themes",
       "vega-loader",
+      // `test/browser/kit-parts.browser.mjs` aliases these to the copies of Nuxt UI and `@vite-hub/kit`, which the
+      // two sides of the check must share.
+      "@iconify/vue",
+      "@fontsource-variable/geist",
+      "@fontsource-variable/geist-mono",
     ],
   },
   "vite-hub": {
@@ -305,6 +310,8 @@ const config: KnipConfiguration = {
     },
     // A type contract that `tsc` checks. Nothing imports it.
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
+    // `icons.html` loads `icons.ts`, the icon parity page that `packages/vite-hub/test/console-icon.browser.mjs` opens.
+    "playground/console": { entry: ["icons.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
       entry: appEntries("playground/content"),

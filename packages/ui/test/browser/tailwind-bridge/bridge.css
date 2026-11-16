@@ -1,0 +1,5 @@
+/* An app without Nuxt UI: Tailwind, the kit tokens, and the kit Tailwind bridge. */
+@import "tailwindcss";
+@import "../../../../kit/src/styles/tokens.css";
+@import "../../../../kit/src/styles/tailwind.css";
+@source inline("CLASSES");
