@@ -91,25 +91,32 @@ diff --git a/dist/foundation/focus/tabbable.js b/dist/foundation/focus/tabbable.
 index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..79846d5c872cb76b64ac4d69aabe213e4bd14793 100644
 --- a/dist/foundation/focus/tabbable.js
 +++ b/dist/foundation/focus/tabbable.js
-@@ -46,6 +46,26 @@ function radioGroup(el) {
+@@ -46,6 +46,33 @@ function radioGroup(el) {
  function tabbables(root) {
    return Array.from(root.querySelectorAll(candidates)).filter(isTabbable);
  }
 +function composedTabbables(root) {
 +  const stops = [];
 +  const visit = (scope) => {
-+    const walker = root.ownerDocument.createTreeWalker(
-+      scope,
-+      NodeFilter.SHOW_ELEMENT
-+    );
-+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-+      const el = node;
-+      if (el.matches(candidates) && isTabbable(el)) {
-+        stops.push(el);
++    for (const el of scope.children) {
++      visitElement(el);
++    }
++  };
++  const visitElement = (el) => {
++    if (el.matches(candidates) && isTabbable(el)) {
++      stops.push(el);
++    }
++    if (el.shadowRoot) {
++      visit(el.shadowRoot);
++    } else if (el.localName === "slot") {
++      const assigned = el.assignedNodes({ flatten: true });
++      if (assigned.length) {
++        assigned.filter(node => node.nodeType === 1).forEach(visitElement);
++      } else {
++        visit(el);
 +      }
-+      if (el.shadowRoot) {
-+        visit(el.shadowRoot);
-+      }
++    } else {
++      visit(el);
 +    }
 +  };
 +  visit(root);

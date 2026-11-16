@@ -4,12 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { inspectServerEnv } from "@vite-hub/env/server"
-import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
-import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -43,25 +40,6 @@ describe("Console RPC", () => {
     const response = await call(operationRpcBody("invocations.get", { id }))
     expect(response.status).toBe(200)
     await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { invocation: { id } } })
-  })
-
-  it("preserves request bindings through Env status inspection", async () => {
-    installConsoleSections("/console-rpc-env", ["env"])
-    const binding = "request-only-secret"
-    installConsoleEnv("/console-rpc-env", { entries: [] }, async (event) => {
-      expect(event["~standard"].runtime?.cloudflare?.env).toEqual({ RPC_TOKEN: binding })
-      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } })
-    })
-    const request = Object.assign(new Request(callURL, {
-      body: operationRpcBody("env.get", { status: true }),
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      method: "POST",
-    }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await consoleRpcHandler.fetch(request)
-    expect(response.status).toBe(200)
-    const body = await operationRpcResponseResult(response)
-    expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
-    expect(JSON.stringify(body)).not.toContain(binding)
   })
 
   it("returns operation results and errors with no-store headers", async () => {

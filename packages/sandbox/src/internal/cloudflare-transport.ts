@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 const retryDelays = [1_000, 2_000, 5_000, 10_000, 15_000]
 const notStartedMessage = /container is starting|currently provisioning|retry in a moment|not listening in the tcp address|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
@@ -38,7 +39,7 @@ export async function withCloudflareRequest<T>(operation: string, options: Cloud
       await waitForRetry(retryDelays[attempt], signal)
     }
   }
-  throw sandboxErrorDiagnostics.SANDBOX_R0089({ message: `[vitehub] Cloudflare Sandbox ${operation} retries exhausted.` })
+  throw invariantError("the last Cloudflare Sandbox attempt returns or throws SANDBOX_R0088, so the retry loop never ends")
 }
 
 function shouldRetry(idempotent: boolean, host: HostRetryFlags, message: string) {
