@@ -123,6 +123,20 @@ const local = {
 }
 
 describe("vitehub env --to github", () => {
+  it("loads GitHub secrets from the build's envDir", async () => {
+    const { env, root } = await project({
+      ...local,
+      "config/.env.production": `VITEHUB_SECRET=${canary}-config\n`,
+      ".output/deployment.json": JSON.stringify({ env: envEntries, envDir: "../config", host: "cloudflare", identity: { name: "my-app", source: "package" } }),
+    })
+    const github = fakeGitHub()
+    const result = await runSetup<PushJson>(["env", "push", "--to", "github", "--yes", "--json"], root, { ...env, GITHUB_TOKEN: token }, { fetch: github.fetch })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(result.json.pushed).toEqual([{ name: "VITEHUB_SECRET", replaced: false, secret: true, source: "config/.env.production" }])
+    expect(github.stored[""]?.get("VITEHUB_SECRET")).toBe(`${canary}-config`)
+  })
+
   it("compares GitHub names without case while keeping reported declarations intact", () => {
     const entries = [
       { names: ["deployToken"], required: true, secret: true, hasDefault: false },

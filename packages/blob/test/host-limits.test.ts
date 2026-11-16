@@ -54,7 +54,7 @@ describe("Cloudflare R2 object keys", () => {
       name: "BLOB_PATHNAME_TOO_LONG",
       why: "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.",
     })
-    expect(error?.cause).toHaveProperty("message", "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.")
+    expect(error?.fix).toContain("shorter pathname")
     expect(puts).toEqual([])
     // Two bytes per character in UTF-8, so 513 characters are 1026 bytes.
     expect((await storage.put("é".repeat(513), "x"))[0]?.code).toBe("BLOB_PATHNAME_TOO_LONG")
