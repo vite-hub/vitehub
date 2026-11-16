@@ -16,7 +16,7 @@ function block(css: string, selector: string): Map<string, string> {
 const modes = [
   { mode: "light", kit: block(kit, ":root"), theme: block(theme, ":root") },
   { mode: "dark", kit: block(kit, ':is(.dark, [data-theme="dark"])'), theme: block(theme, ":root.dark") },
-  { mode: "system dark", kit: block(kit, ":root:not(.light, [data-theme])"), theme: block(theme, ":root:not(.light):not(.dark)") },
+  { mode: "system dark", kit: block(kit, ":root:not(.light, .dark, [data-theme])"), theme: block(theme, ":root:not(.light):not(.dark)") },
 ];
 
 // theme.css names a few kit tokens with its `--vh-` prefix, and reads `--ui-border`, which is `var(--border)`.
