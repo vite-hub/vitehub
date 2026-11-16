@@ -8,7 +8,7 @@ const defaults: Array<[string, string]> = [["X-Frame-Options", "SAMEORIGIN"]]
 
 describe("native Node security", () => {
   it("enforces the cap through the Node adapter without a listening socket", async () => {
-    const handler = toFetchHandler(async (req, res) => {
+    const handler = toFetchHandler(async (req: IncomingMessage, res: ServerResponse) => {
       let size = 0
       for await (const chunk of req) size += chunk.length
       res.setHeader("X-Frame-Options", "DENY")
@@ -37,7 +37,7 @@ describe("native Node security", () => {
   })
 
   it("adds defaults to a native response when only headers are configured", async () => {
-    const handler = toFetchHandler((_req, res) => { res.end("ok") })
+    const handler = toFetchHandler((_req: IncomingMessage, res: ServerResponse) => { res.end("ok") })
     const app = { fetch: (request: Request) => handler(request) }
     installSecurity(app, { headers: defaults })
     const req = new IncomingMessage(new Socket())
@@ -51,7 +51,7 @@ describe("native Node security", () => {
   })
 
   it("limits chunked bodies and preserves native route headers over real HTTP", async () => {
-    const handler = toFetchHandler(async (req, res) => {
+    const handler = toFetchHandler(async (req: IncomingMessage, res: ServerResponse) => {
       let size = 0
       for await (const chunk of req) size += chunk.length
       if (req.url === "/own") res.setHeader("X-Frame-Options", "DENY")
