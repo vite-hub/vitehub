@@ -1,6 +1,6 @@
 ---
 title: Device browser API
-description: Open the device, name its account, inspect stored copies, useStoredData() and useStoredFetch() with options and status values, the Nuxt module, and rules for tabs and server rendering.
+description: Open the device, name its account, read with useStoredData() and useStoredFetch(), set up Nuxt, and the rules for tabs and server rendering.
 navigation.title: Browser API
 navigation.order: 4
 icon: i-lucide-code
