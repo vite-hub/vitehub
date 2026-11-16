@@ -498,6 +498,16 @@ Coding agents read the same pages without HTML. These routes need no setup:
 | `/sitemap.md` | Every page, for agents. `/sitemap.xml` is the same list for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Each Agent Skill in the app's `skills/` folder. |
+| `/<page>.md` | Any other page of the app, such as `/index.md` for the home page, converted from its HTML. The page URL returns it too for `Accept: text/markdown`. |
+
+An app page that is not a docs page gets a Markdown copy too. Content renders the page inside the server for the same request, with its cookies, and converts the `<main>` part of the HTML. Navigation, footers, buttons, forms, scripts, and hidden elements stay out. A page that sends `X-Robots-Tag: noindex`, a redirect, and an error get no copy. A copy keeps the robots meta tag of its page as `X-Robots-Tag`. Each HTML page with a copy sends `Link: </about.md>; rel="alternate"; type="text/markdown"`. Turn it off with `markdownPages: false`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: { markdownPages: false },
+})
+```
 
 Each page header has **Copy page**, **View as Markdown**, **Open in ChatGPT**, **Open in Claude**, and links that add the MCP server to Cursor or VS Code. `mcp: { name, guide }` sets the server name and a page on connecting other tools. `mcp: false` turns the server off.
 
