@@ -61,11 +61,23 @@ async function exec(command, args, env) {
 
 /** Stop a server that `run()` started, and wait until its port is free, so the next start answers on it. */
 async function halt(child) {
-  if (child.exitCode === null) {
-    const exited = new Promise(done => child.on("exit", done))
-    process.kill(-child.pid, "SIGTERM")
-    await Promise.race([exited, new Promise(done => setTimeout(done, 15_000))])
-    if (child.exitCode === null) process.kill(-child.pid, "SIGKILL")
+  const exited = child.exitCode === null && child.signalCode === null ? new Promise(done => child.once("exit", done)) : undefined
+  // The group can be gone before Node reports the exit.
+  const signal = (name) => {
+    try {
+      process.kill(-child.pid, name)
+    }
+    catch (error) {
+      if (error.code !== "ESRCH") throw error
+    }
+  }
+  if (exited) {
+    signal("SIGTERM")
+    const timeout = Symbol("timeout")
+    if (await Promise.race([exited, new Promise(done => setTimeout(done, 15_000, timeout))]) === timeout) {
+      signal("SIGKILL")
+      await exited
+    }
   }
   for (let tries = 0; tries < 60; tries++) {
     try {
