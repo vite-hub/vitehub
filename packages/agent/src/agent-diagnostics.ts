@@ -28,9 +28,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0907",
   "AGENT_R0906",
   // Instruction composition retains the input-error status of Markdown Template failures.
-  "MARKDOWN_TEMPLATE_R0008",
-  "MARKDOWN_TEMPLATE_R0009",
-  "MARKDOWN_TEMPLATE_R0010",
   "MARKDOWN_TEMPLATE_R0014",
   "MARKDOWN_TEMPLATE_R0018",
   "MARKDOWN_TEMPLATE_R0020",

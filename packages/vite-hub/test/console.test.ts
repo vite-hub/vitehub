@@ -218,6 +218,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       expect(config.nitro.publicAssets).toEqual([
@@ -361,6 +362,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         `${mount}/_vitehub/rpc`,
         `${mount}/_vitehub`,
+        `${mount}/_vitehub/**`,
         `${mount}/_vitehub/page/session`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
@@ -394,6 +396,7 @@ describe("Agent invocation console", () => {
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/portal/_vitehub/rpc",
         "/portal/_vitehub",
+        "/portal/_vitehub/**",
         "/portal/_vitehub/page/session",
       ])
       // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
@@ -452,7 +455,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
       expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
-      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc", "/portal/_vitehub"] : ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/page/session"])
+      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"] : ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**", "/portal/_vitehub/page/session"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -464,7 +467,7 @@ describe("Agent invocation console", () => {
     addConsoleRpcHandler(config, "/runtime", "/early/")
     addConsoleRpcHandler(config, "/runtime", "/portal/")
 
-    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/rpc", "/portal/_vitehub"])
+    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"])
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -490,6 +493,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -552,7 +556,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/page/session"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/**", "/_vitehub/page/session"])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -733,6 +737,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -779,6 +784,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -824,6 +830,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -903,6 +910,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ])
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
@@ -1137,6 +1145,7 @@ describe("Agent invocation console", () => {
         expect.objectContaining({ route: "/_vitehub/rpc", meta: { vitehubAuthAccess: "handler" } }),
         // The way in from a page: it sends the browser to the Console, which signs it in with Site access.
         expect.objectContaining({ route: "/_vitehub", meta: { vitehubAuthAccess: "handler" } }),
+        expect.objectContaining({ route: "/_vitehub/**", meta: { vitehubAuthAccess: "handler" } }),
         // The page tools session of the Console link. It reads no Console data.
         { handler: expect.stringMatching(/server\/page-session\.js$/), route: "/_vitehub/page/session" },
       ])

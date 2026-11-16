@@ -144,6 +144,23 @@ export default defineEventHandler(async (event) => {
 
 The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry, so a leak of the database does not leak values. `db` is a SQLite, libSQL, or D1 Drizzle database; KV cannot take a use atomically. A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
 
+## Protect a machine route
+
+`requireServiceToken(event, name)` from `vite-hub/env` checks that a request carries `Authorization: Bearer <token>` with a token from the server variable `name`. Use it for routes that scripts, CI runners, and webhooks call. It needs no Auth setup.
+
+```ts
+// server/api/runs.post.ts
+import { defineEventHandler } from "h3";
+import { requireServiceToken } from "vite-hub/env";
+
+export default defineEventHandler((event) => {
+  requireServiceToken(event, "INGEST_TOKEN");
+  return { ok: true };
+});
+```
+
+It compares in constant time. A wrong or missing token throws a `401` HTTP error with `ENV_SERVICE_TOKEN_INVALID`. When the variable has no token, every request fails with `503` and `ENV_SERVICE_TOKEN_UNSET`. The variable holds one token, or a comma-separated list while you rotate. `checkServiceToken(event, name)` returns the same result as `[error, undefined]`. See [Service tokens](https://vitehub.dev/docs/env/service-tokens).
+
 ## Typed server values
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
