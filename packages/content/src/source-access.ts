@@ -46,7 +46,7 @@ export type ContentSourceAccess =
   | {
     allowed: false
     reason: ContentSourceDenyReason
-    /** `CONTENT_R0031`, for your logs, such as with `formatDiagnostic()` from `nostics`. Do not send its message: answer a plain 404. */
+    /** `CONTENT_R0031`, for your logs, such as with `createConsoleReporter()` from `nostics`, which also prints its `cause`. Do not send its message: answer a plain 404. */
     error: Diagnostic<unknown>
   }
 

@@ -131,6 +131,18 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ feature }: { feature: string }) => `${feature} needs @vite-hub/forge, and the app did not install it.`,
       fix: "Install Forge in your app with `pnpm add @vite-hub/forge`, then build again.",
     },
+    INTERNAL_MCP_ARGUMENTS_INVALID: {
+      why: ({ detail }: { detail: string }) => detail,
+      fix: "Pass the prompt or resource the arguments that `prompts/list` or `resources/templates/list` describes for it.",
+    },
+    INTERNAL_MCP_METHOD_FAILED: {
+      why: ({ name }: { name: string }) => `${name} failed on the server.`,
+      fix: "Read the server log for the error of the MCP prompt or resource that the message names, and fix its handler.",
+    },
+    INTERNAL_MCP_RESOURCE_NOT_FOUND: {
+      why: ({ uri }: { uri: string }) => `Resource not found: ${uri}. Call resources/list or resources/templates/list for the resources of this server.`,
+      fix: "Call `resources/list` or `resources/templates/list`, and read a URI that one of them returns.",
+    },
     INTERNAL_PRESET_OPTION_UNKNOWN: {
       why: ({ key, label }: { key: string, label: string }) => `[vitehub] Unknown ${label} option "${key}".`,
       fix: "Remove the option that the message names from the preset options, or correct its spelling to an option that the preset declares.",

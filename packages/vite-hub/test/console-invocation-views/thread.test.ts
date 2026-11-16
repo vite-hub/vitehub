@@ -2,17 +2,20 @@
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { h, nextTick } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import {
   clipboard, delivery, delta, event, input, invocation, message, messageAuthors, messageBodies, openWork,
   runSummary, threadRows, timestamp, tool, workText, workTitle,
 } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const show = (value: AgentInvocationView, props: Record<string, unknown> = {}) => mount(AgentInvocation, { props: { invocation: value, ...props } });
 const messageCount = (value: AgentInvocationView) => runSummary(mount(AgentInvocationInspector, { props: { invocation: value } })).Messages;
 const steer = (content: string) => delta("user", content, { "input.mode": "steer", "message.id": "steer" });
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation session thread", () => {
   describe("session", () => {

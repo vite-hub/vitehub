@@ -79,3 +79,24 @@ it("turns a GitHub token error into AGENT_R0350 with the Forge error as its caus
     cause: { code: "FORGE_REQUEST_FAILED" },
   })
 })
+
+// Installation routing is lower priority than explicit Channel and webhook settings.
+it.each(["explicit", "webhook"])("ignores invalid unused Server Env routing for %s installation", async (source) => {
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "7")
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "")
+  vi.stubEnv("VITEHUB_GITHUB_APP_INSTALLATIONS", "invalid json")
+  const channel = github({ app: { appId: "4242", privateKey, fetch: fake.fetch, installationId: 9 } })
+  const callback = source === "explicit" ? context() : {
+    ...context(),
+    effect: { payload: { github: { owner: "acme", repo: "web", issueNumber: 1, commentId: 2, pullRequestUrl: "https://github.com/acme/web/pull/1", installationId: 12 } } },
+    input: {},
+  }
+  await expect(readForgeAccess(channel)!(callback, { repository: "acme/web" })).resolves.toMatchObject({ token: source === "explicit" ? "ghs_9_1" : "ghs_12_1" })
+})
+
+it("still validates Server Env routing when it selects the installation", async () => {
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "7")
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "")
+  const channel = github({ app: { appId: "4242", privateKey, fetch: fake.fetch } })
+  await expect(readForgeAccess(channel)!(context(), { repository: "acme/web" })).rejects.toMatchObject({ code: "FORGE_INVALID_ENV" })
+})
