@@ -45,6 +45,25 @@ export default defineConfig({
 })
 ```
 :::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      redirects: {
+        host: 'example.com',
+        https: true,
+        trailingSlash: 'remove',
+      },
+    }),
+  ],
+})
+```
+:::
 ::
 
 With this config, `http://www.example.com/pricing/?plan=pro` gets one redirect to `https://example.com/pricing?plan=pro`.
@@ -64,6 +83,8 @@ These requests keep their host and scheme:
 
 Add your own preview hosts with `previewHosts`. `*.` matches every subdomain.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -76,6 +97,48 @@ export default defineNuxtConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      redirects: {
+        host: 'example.com',
+        https: true,
+        previewHosts: ['staging.example.com', '*.preview.example.com'],
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      redirects: {
+        host: 'example.com',
+        https: true,
+        previewHosts: ['staging.example.com', '*.preview.example.com'],
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 ## Behind a proxy
 
@@ -97,13 +160,58 @@ On Cloudflare, `run_worker_first` makes each page and file request a Worker requ
 
 `redirects` does not move single pages. Use Nitro `routeRules` for that:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
   routeRules: {
     '/getting-started': { redirect: { to: '/guide/installation', status: 301 } },
     '/blog/**': { redirect: { to: '/posts/**', status: 301 } },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  nitro: {
+    routeRules: {
+      '/getting-started': { redirect: { to: '/guide/installation', status: 301 } },
+      '/blog/**': { redirect: { to: '/posts/**', status: 301 } },
+    },
+  },
+  plugins: [
+    vitehub(),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  nitro: {
+    routeRules: {
+      '/getting-started': { redirect: { to: '/guide/installation', status: 301 } },
+      '/blog/**': { redirect: { to: '/posts/**', status: 301 } },
+    },
+  },
+  plugins: [
+    vitehub(),
+  ],
+})
+```
+:::
+::
 
 Do not prerender a moved path. A prerendered redirect is a page that refreshes, not a real redirect.
