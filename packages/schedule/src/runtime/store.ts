@@ -28,6 +28,7 @@ type StoredScheduleRunAttemptRecord = Omit<ScheduleRunAttemptRecord, "completedA
 const maxLegacyHistoryRecords = 1000
 
 /** Raised when the metadata index cannot provide a complete history safely. */
+// Internal invariant: this class already carries the code SCHEDULE_HISTORY_INCOMPLETE and its record counts.
 export class ScheduleHistoryIncompleteError extends Error {
   readonly code = "SCHEDULE_HISTORY_INCOMPLETE"
 

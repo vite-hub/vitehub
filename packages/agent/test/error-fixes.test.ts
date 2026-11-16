@@ -17,9 +17,9 @@ const fixedCodes = [
   "AGENT_B0022",
   "AGENT_B0023",
   "AGENT_B0024",
+  "AGENT_CHANNEL_DEFINITION_NOT_FOUND",
   "AGENT_CHANNEL_HOST_NAME_TAKEN",
   "AGENT_CHANNEL_IMPORT_CYCLE",
-  "AGENT_CHANNEL_NOT_FOUND",
   "AGENT_CHANNEL_WEBHOOK_PATH_TAKEN",
   "AGENT_ROUTE_NOT_STATIC",
   "AGENT_WEBHOOK_ALIAS_TARGET_INVALID",
@@ -85,4 +85,11 @@ it("names the Node host when a process host Agent builds for Vercel", async () =
     code: "AGENT_B0022",
     fix: expect.stringContaining("vitehub({ host: \"node\" })"),
   }))
+})
+
+it("keeps missing build definitions distinct from missing runtime Channels", () => {
+  expect(agentDiagnostics.AGENT_CHANNEL_DEFINITION_NOT_FOUND({ agent: "support", channel: "github", channels: [] }).message)
+    .toBe('[vitehub] Agent support lists the Channel "github", but server/channels has no Channel with that name. Channels: none.')
+  expect(agentDiagnostics.AGENT_CHANNEL_NOT_FOUND({ channel: "github" }).message)
+    .toBe('[vitehub] Agent has no Channel "github".')
 })

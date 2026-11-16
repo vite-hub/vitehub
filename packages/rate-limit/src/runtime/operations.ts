@@ -1,15 +1,9 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
 import { peekRateLimit, resetRateLimit } from "../counters.ts"
+import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "../counters.ts"
-
-/** A failure with the fields that every surface reports. */
-export class RateLimitOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string) {
-    super(redactInspectionText(message))
-  }
-}
 
 /** Removes credentials from the echoed key and from driver error text before the result leaves the runtime. */
 function redact<T extends RateLimitPeekInspection | RateLimitResetInspection>(result: T): T {
@@ -25,7 +19,9 @@ async function guarded<T extends RateLimitPeekInspection | RateLimitResetInspect
     return redact(await run())
   }
   catch (error) {
-    throw new RateLimitOperationError(error instanceof Error ? error.message : "The Rate Limit operation failed.", 500, "RATE_LIMIT_OPERATION_FAILED")
+    const failure = rateLimitErrorDiagnostics.RATE_LIMIT_OPERATION_FAILED({ cause: error })
+    // The CLI and the Console show `statusMessage`: the driver error, without credentials.
+    throw Object.assign(failure, { status: 500, statusMessage: redactInspectionText(error instanceof Error ? error.message : failure.message) })
   }
 }
 

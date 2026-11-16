@@ -18,6 +18,7 @@ import type { CollectedWorkspaceContribution } from "./contributions.ts"
 
 import type { DefinitionCatalogSource } from "@vite-hub/internal/definition-catalog"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+import { missingDefinitionExportCheck } from "./registry-source.injected.ts"
 
 export interface DiscoveredWorkspaceDefinition {
   /** Plugin that contributed the definition. Only set for contributed definitions. */
@@ -252,8 +253,7 @@ function createContributedWorkspaceRegistryEntry(definition: DiscoveredWorkspace
     `  [${JSON.stringify(definition.name)}]: ${eager ? "" : "async "}() => {`,
     `    const mod = ${eager ? "" : "await "}${importExpression}`,
     `    const definition = ${workspaceDefinitionExpression(definition)}`,
-    // Internal invariant: this line runs in the generated registry module, which does not import the Workspace catalog.
-    `    if (!definition) throw new TypeError(${JSON.stringify(missingExport)})`,
+    missingDefinitionExportCheck(missingExport),
     override ? `    return { default: { ...definition, store: ${JSON.stringify(override.store)} } }` : "    return { default: definition }",
     "  },",
   ].join("\n")
