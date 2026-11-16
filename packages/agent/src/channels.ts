@@ -85,6 +85,7 @@ import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
+import { untrackedChannelWebhook } from "./internal/channel-delivery.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
@@ -103,7 +104,9 @@ import {
   gmailMessageSchema,
   gmailMailboxAddress,
   gmailMailboxHistoryId,
+  gmailMailboxProfile,
   gmailSettings,
+  isGmailNotificationCovered,
   modifyGmailMessage,
   readGmailChannelStatus,
   normalizeGmailLabelSettings,
@@ -4416,6 +4419,12 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
   return labels
 }
 
+/**
+ * The time a push spends on its sync before it saves a checkpoint and answers 503, so Pub/Sub sends it again and the next
+ * push continues. It stays well below Pub/Sub's default 10 second ack deadline, after which Pub/Sub disconnects.
+ */
+const gmailPushSyncBudgetMs = 5_000
+
 // Enumerable, so copies of the Channel keep it.
 const gmailClientKey = Symbol("vitehub.gmail.client")
 
@@ -4428,6 +4437,22 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   const labels = gmailOptionLabels(options)
   const bodyLimit = options.bodyLimit ?? gmailDefaultBodyLimit
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
+  // The last cursor that a sync in this process saw, so a push that it already covers sends no State request.
+  const cursors = new Map<string, string>()
+  /**
+   * The address of the credentials' mailbox, and its history ID when this call read the profile.
+   * A custom `client` can rotate credentials, so with `client`, each call reads it.
+   */
+  const mailboxProfile = async (settings: GmailSettings, client: GmailClient): Promise<{ address: string, historyId?: string }> => {
+    const cached = !options.client && verifiedMailbox
+      && verifiedMailbox.clientId === settings.clientId && verifiedMailbox.clientSecret === settings.clientSecret
+      && verifiedMailbox.refreshToken === settings.refreshToken
+      ? verifiedMailbox.address : undefined
+    if (cached) return { address: cached }
+    const profile = await gmailMailboxProfile(client)
+    if (!options.client) verifiedMailbox = { address: profile.emailAddress, clientId: settings.clientId, clientSecret: settings.clientSecret, refreshToken: settings.refreshToken }
+    return { address: profile.emailAddress, historyId: profile.historyId }
+  }
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
   const modify = async (context: AgentCallbackContext<TRuntimeConfig>, id: string, input: GmailModifyInput) =>
@@ -4492,29 +4517,40 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           if (cachedMailbox && notifiedMailbox !== cachedMailbox.trim().toLowerCase()) {
             return Response.json({ accepted: false, reason: "Gmail notification belongs to another mailbox." }, { status: 400 })
           }
-          // Acknowledge Pub/Sub first. The stored history cursor lets a later notification retry failed work.
-          context.waitUntil((async () => {
-            const mailbox = cachedMailbox ?? await gmailMailboxAddress(client)
-            if (!options.client) {
-              verifiedMailbox = { address: mailbox, clientId: settings.clientId, clientSecret: settings.clientSecret, refreshToken: settings.refreshToken }
+          // A notification that a sync of this mailbox already covered needs no work, so it skips the profile read.
+          if (isGmailNotificationCovered(cursors, state, notifiedMailbox, push.historyId)) return new Response(null, { status: 204 })
+          // The sync runs before the answer. Pub/Sub sends a notification again, with backoff, until a sync covers it:
+          // after a failure, after the time budget, and while another sync holds the mailbox (it also reads once more).
+          try {
+            const mailbox = (cachedMailbox ?? (await mailboxProfile(settings, client)).address).trim().toLowerCase()
+            if (notifiedMailbox !== mailbox) {
+              return Response.json({ accepted: false, reason: "Gmail notification belongs to another mailbox." }, { status: 400 })
             }
-            if (notifiedMailbox !== mailbox.trim().toLowerCase()) throw new Error("Gmail notification belongs to another mailbox.")
-            await syncGmailMailbox({
+            const result = await syncGmailMailbox({
               bodyLimit,
               client,
+              cursors,
+              deadlineMs: gmailPushSyncBudgetMs,
               dispatch: dispatchReceived(context),
+              mailbox,
               ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
               state,
               ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
             })
-          })().catch((error: unknown) => {
+            if (!result.finished) {
+              return Response.json({ accepted: false, reason: "The Gmail sync continues when Pub/Sub sends the notification again." }, { status: 503 })
+            }
+          }
+          catch (error) {
             console.error(JSON.stringify({
               error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
               event: "sync.failed",
               scope: "vitehub.channel.gmail",
             }))
-          }))
+            // `channels status` shows the error. The answer does not, because it can contain mailbox data.
+            return Response.json({ accepted: false, reason: "The Gmail sync failed. Pub/Sub sends the notification again." }, { status: 503 })
+          }
           return new Response(null, { status: 204 })
         },
       }),
@@ -4524,12 +4560,16 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         async invoke(context) {
           const settings = await gmailChannelSettings(context)
           const client = options.client ?? gmailClientFromSettings(settings, options.fetch)
+          const profile = await mailboxProfile(settings, client)
           await syncGmailMailbox({
             bodyLimit,
             client,
+            cursors,
             dispatch: dispatchReceived(context),
+            mailbox: profile.address.trim().toLowerCase(),
             ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
-            notificationHistoryId: async () => await gmailMailboxHistoryId(client),
+            // The first poll starts the cursor at the current history ID, like the first push.
+            notificationHistoryId: async () => profile.historyId ?? await gmailMailboxHistoryId(client),
             state: context.channelState,
             throwOnDispatchFailure: true,
             ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -4554,7 +4594,10 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         webhooks: [],
       }),
     },
-    webhooks: {
+    // Pub/Sub sends one push for each mailbox change, also for label changes. The cursor and the sync status record the
+    // work, so the route stores no copy of the request and no delivery record.
+    webhooks: untrackedChannelWebhook<AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>>({
+      ackTimeoutMs: false,
       durableState: true,
       signature: {
         async verify({ context, rawBody, request }) {
@@ -4567,7 +4610,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           return true
         },
       },
-    },
+    }),
   })
   Object.defineProperty(channel, gmailClientKey, { enumerable: true, value: resolveClient })
   const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {

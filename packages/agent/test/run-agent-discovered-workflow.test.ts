@@ -88,3 +88,26 @@ it.each(["constructor", "toString", "__proto__"])("starts an inline Workflow nam
   await expect(startAgentInvocation(agent, runtime(), { prompt: "ping" })).resolves.toMatchObject({ id: "hello-run" })
   expect(started).toEqual([{ inline: true, name }])
 })
+
+it.each(["@vite-hub/workflow", "@vite-hub/workflow/runtime/state"])("runs a discovered Agent inline when the app does not install %s", async (specifier) => {
+  // The message that Node gives when an optional peer is absent from the deployed app.
+  const missing = () => Promise.reject(Object.assign(new Error(`Cannot find package '${specifier}' imported from /app/.output/server/_libs/agent.mjs`), { code: "ERR_MODULE_NOT_FOUND" }))
+  setAgentWorkflowRuntimeLoaders({ state: missing, workflow: missing })
+  const run = vi.fn(() => "inline")
+  const agent = defineAgent({ driver: { run } })
+  markDiscoveredAgentName(agent, "hello")
+
+  await expect(startAgentInvocation(agent, { ...runtime(), agentIdentity: { name: "hello" } }, { prompt: "ping" })).resolves.toBeDefined()
+  await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+})
+
+it("still fails a discovered Agent when a dependency of @vite-hub/workflow is missing", async () => {
+  const broken = () => Promise.reject(Object.assign(new Error("Cannot find package 'openworkflow' imported from /app/node_modules/@vite-hub/workflow/dist/index.js"), { code: "ERR_MODULE_NOT_FOUND" }))
+  setAgentWorkflowRuntimeLoaders({ state: broken, workflow: broken })
+  const run = vi.fn(() => "inline")
+  const agent = defineAgent({ driver: { run } })
+  markDiscoveredAgentName(agent, "hello")
+
+  await expect(startAgentInvocation(agent, { ...runtime(), agentIdentity: { name: "hello" } }, { prompt: "ping" })).rejects.toMatchObject({ code: "ERR_MODULE_NOT_FOUND" })
+  expect(run).not.toHaveBeenCalled()
+})

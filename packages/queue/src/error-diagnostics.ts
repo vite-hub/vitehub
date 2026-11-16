@@ -24,6 +24,50 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
+    // Provider cause errors. They are the `cause` of `QUEUE_PROVIDER_FAILED`, as the provider error is in production.
+    QUEUE_LOCAL_LIMIT_EXCEEDED: {
+      why: ({ limit, max, min, provider, value }: { limit: "batch-bytes" | "batch-empty" | "batch-jobs" | "delay" | "delay-max" | "payload" | "retention", max?: number, min?: number, provider: string, value: number | string }) => ({
+        "batch-bytes": `${provider} accepts up to ${max} bytes in one \`sendBatch()\`, got ${value} bytes of JSON.`,
+        "batch-empty": "Vercel requires at least one job in a `sendBatch()`.",
+        "batch-jobs": `${provider} accepts up to ${max} jobs in one \`sendBatch()\`, got ${value}.`,
+        "delay": `\`delaySeconds\` must be a number of seconds from 0, got ${value}.`,
+        "delay-max": `${provider} accepts \`delaySeconds\` up to ${max}, got ${value}.`,
+        "payload": `${provider} accepts a payload of up to ${max} bytes, got ${value} bytes of JSON.`,
+        "retention": `${provider} accepts \`retentionSeconds\` from ${min} to ${max}, got ${value}.`,
+      })[limit],
+      fix: "Change the job as the message says: `delaySeconds`, `retentionSeconds`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
+    },
+    QUEUE_VERCEL_BATCH_REJECTED: {
+      why: ({ failed, total }: { failed: number, total: number }) => `@vercel/queue did not accept ${failed} of ${total} batch messages.`,
+      fix: "Read `results` on this error for the result of each job. Send the failed jobs again with the same `idempotencyKey`, so that Vercel does not enqueue an accepted job two times.",
+    },
+    QUEUE_VERCEL_SEND_BATCH_UNAVAILABLE: {
+      why: "The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.",
+      fix: "Install `@vercel/queue` 0.10 or later, for example with `pnpm add @vercel/queue@latest`. Or pass a `client` that has `sendBatch()`.",
+    },
+
+    // Operation errors. The `queue.*` operations of the CLI, the Console, and Agents throw them. The Queue operations give each code an HTTP status.
+    QUEUE_DEFINITION_NAME_INVALID: {
+      why: "The queue name is not a valid Queue Definition name.",
+      fix: "Pass the name of a Queue Definition. `vitehub queue list` shows them.",
+    },
+    QUEUE_JOBS_UNAVAILABLE: {
+      why: ({ driver }: { driver: string }) => `The ${driver} queue driver does not let the app read its jobs. Only the local and postgres drivers store jobs that ViteHub can list.`,
+      fix: "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local or postgres driver. Read hosted jobs in the Cloudflare or Vercel dashboard.",
+    },
+    QUEUE_JOB_DUPLICATE: {
+      why: "A newer pending or running job has the idempotency key of this dead job, so the dead job cannot run again.",
+      fix: "Wait for the newer job to end, or remove the dead job with `vitehub queue jobs clear --state dead`.",
+    },
+    QUEUE_JOB_NOT_FOUND: {
+      why: "No stored job has this message ID. The local and postgres drivers delete a job when its handler succeeds.",
+      fix: "Run `vitehub queue jobs list` for the IDs of the pending, running, and dead jobs.",
+    },
+    QUEUE_JOB_RUNNING: {
+      why: "The job is running now.",
+      fix: "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.",
+    },
+
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
     QUEUE_BINDING_NOT_FOUND: {
       why: ({ binding }: { binding?: string }) => binding

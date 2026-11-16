@@ -63,12 +63,10 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
-// Internal invariant: queueProviderResult() returns it as QUEUE_PROVIDER_FAILED with this error as the cause.
-class VercelQueueBatchFailedError extends Error {
-  constructor(readonly results: readonly VercelQueueBatchSendResult[]) {
-    super(`@vercel/queue did not accept ${results.filter(result => result.status === "failed").length} of ${results.length} batch messages.`)
-    this.name = "VercelQueueBatchFailedError"
-  }
+/** The cause of `QUEUE_PROVIDER_FAILED` when Vercel rejects jobs of a batch. `results` has each job's result in input order. */
+function batchRejected(results: readonly VercelQueueBatchSendResult[]) {
+  const failed = results.filter(result => result.status === "failed").length
+  return Object.assign(queueErrorDiagnostics.QUEUE_VERCEL_BATCH_REJECTED({ failed, total: results.length }), { results })
 }
 
 function parseVercelBatchResults(value: unknown, length: number): Result<QueueSendResult[], "QUEUE_PROVIDER_INVALID_RESPONSE"> {
@@ -183,10 +181,9 @@ export async function createVercelQueueClient(provider: VercelQueueDriverOptions
         retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
       }))
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
-        // Internal invariant: queueProviderResult() returns it as QUEUE_PROVIDER_FAILED with this error as the cause.
-        if (typeof client.sendBatch !== "function") throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
+        if (typeof client.sendBatch !== "function") throw queueErrorDiagnostics.QUEUE_VERCEL_SEND_BATCH_UNAVAILABLE()
         const results = await client.sendBatch!(topic, messages)
-        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
+        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw batchRejected(results)
         return results
       })
       if (error) return [error, undefined]

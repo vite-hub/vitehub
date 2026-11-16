@@ -108,7 +108,7 @@ describe("queue operations", () => {
     setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
     setQueueRuntimeRegistry(registry)
 
-    await expect(run("queue.send", { payload: {}, queue: "../welcome" })).rejects.toMatchObject({ code: "QUEUE_INVALID_NAME", status: 400 })
+    await expect(run("queue.send", { payload: {}, queue: "../welcome" })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NAME_INVALID", status: 400 })
   })
 })
 

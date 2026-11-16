@@ -73,7 +73,7 @@ function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDr
     throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".` })
   }
   if (cacheDriverHosts[cache.driver] !== host) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverHosts[cache.driver]} host, but the host is ${host}.` })
+    throw viteHubErrorDiagnostics.CACHE_DRIVER_WRONG_HOST({ driver: cache.driver, host, required: cacheDriverHosts[cache.driver] })
   }
   return cache.driver
 }
@@ -82,7 +82,7 @@ function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDr
 export function resolveCacheStorage(cache: true | CacheOptions, host: ViteHubHost, kvCacheDriver?: string): ResolvedCacheStorage {
   // KV runs on every host, so this driver needs `kv` instead of a host.
   if (isPlainObject(cache) && cache.driver === "kv") {
-    if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
+    if (!kvCacheDriver) throw viteHubErrorDiagnostics.CACHE_KV_DISABLED()
     // A base that normalizes to empty would leave the cache keys unprefixed, so clearing the cache would clear the whole store.
     const base = trimmed(cache.base)
     const mount: KVCacheMount = { base: base && /[^:/\\]/.test(base.split("?")[0]!) ? base : "nitro-cache", driver: kvCacheDriver }
@@ -135,15 +135,15 @@ export function applyCacheStorage(nitro: Record<string, unknown>, cache: Resolve
   const existing = existingIndex === -1 ? undefined : namespaces[existingIndex]
   if (isPlainObject(existing)) {
     if (namespace.id && existing.id && existing.id !== namespace.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" already uses namespace "${existing.id}", but cache.namespaceId requests "${namespace.id}".` })
+      throw viteHubErrorDiagnostics.CACHE_NAMESPACE_ID_CONFLICT({ binding: namespace.binding, existing: String(existing.id), requested: namespace.id })
     }
     if (namespace.id && !existing.id) namespaces[existingIndex] = { ...existing, id: namespace.id }
     if (!namespace.id && !existing.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" needs a namespace ID. Set cache.namespaceId or configure an existing namespace with an ID.` })
+      throw viteHubErrorDiagnostics.CACHE_NAMESPACE_ID_MISSING({ binding: namespace.binding })
     }
   } else {
     if (!namespace.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" needs a namespace ID. Set cache.namespaceId or configure an existing namespace with an ID.` })
+      throw viteHubErrorDiagnostics.CACHE_NAMESPACE_ID_MISSING({ binding: namespace.binding })
     }
     namespaces.push(namespace)
   }

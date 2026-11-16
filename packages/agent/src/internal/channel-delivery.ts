@@ -431,6 +431,31 @@ export async function openAgentChannelDelivery(
   return opened
 }
 
+const untrackedWebhook = Symbol("vitehub.channel.webhook.untracked")
+
+/**
+ * Marks a webhook registration whose deliveries the route does not record, such as Gmail push notifications.
+ * They carry no message, and the Channel records the status of the work they start.
+ */
+export function untrackedChannelWebhook<T extends object>(registration: T): T {
+  return Object.assign(registration, { [untrackedWebhook]: true })
+}
+
+export function isUntrackedChannelWebhook(registration: object): boolean {
+  return untrackedWebhook in registration
+}
+
+/** The delivery of an untracked webhook. It writes no State. */
+export function untrackedAgentChannelDelivery(input: Omit<AgentChannelDelivery, "id" | "receivedAt">): AgentChannelDeliveryTracker {
+  const delivery: AgentChannelDelivery = { ...input, id: token(), receivedAt: new Date().toISOString() }
+  return {
+    claimed: false,
+    delivery,
+    duplicate: false,
+    event: async eventInput => ({ ...eventInput, at: new Date().toISOString(), deliveryId: delivery.id, id: token() }),
+  }
+}
+
 export async function resumeAgentChannelDelivery(state: StateAdapter, deliveryId: string): Promise<AgentChannelDeliveryTracker | undefined> {
   const stored = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
   return stored ? tracker(state, stored, false) : undefined

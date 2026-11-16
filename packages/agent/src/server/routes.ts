@@ -87,7 +87,7 @@ import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/cha
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
-import { loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
+import { loadConfiguredAgentWorkflowCapabilities, loadInstalledAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityMask } from "../internal/workflow-portability.ts"
 import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
@@ -125,6 +125,7 @@ import {
   bindAgentChannelDeliveryMessage,
   bindAgentChannelDeliveryPayload,
   detachAgentChannelDelivery,
+  isUntrackedChannelWebhook,
   openAgentChannelDelivery,
   readAgentChannelDeliveries,
   resumeAgentChannelDelivery,
@@ -132,6 +133,7 @@ import {
   resumeAgentChannelDeliveryPayload,
   setAgentChannelDeliveryWorkflowOwnershipResolver,
   setAgentChannelDeliveryWorkflowResolver,
+  untrackedAgentChannelDelivery,
   withAgentChannelDelivery,
 } from "../internal/channel-delivery.ts"
 
@@ -1418,13 +1420,7 @@ async function hasActiveWorkflowRuntime(
   if (!(await hasOnlyPortableAgentWorkflowCapabilities(context.capabilities))) return false
   if (agent.runtime.discoveryDefault !== true && !requireAvailable) return true
   if (agent.runtime.discoveryDefault === true && !context.agentIdentity) return false
-  try {
-    return Boolean((await loadAgentWorkflowRuntimeStateModule()).getWorkflowRuntimeConfig())
-  } catch (error) {
-    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    if ((error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND") return false
-    throw error
-  }
+  return Boolean((await loadInstalledAgentWorkflowRuntimeStateModule())?.getWorkflowRuntimeConfig())
 }
 
 function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: number, onLost: () => void): () => void {
@@ -9738,13 +9734,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
-          const delivery = await openAgentChannelDelivery(deliveryState.state, {
+          const input = {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: registration.provider,
             scope: deliveryState.keyPrefix || `channel:${context.agentIdentity?.name || "agent"}:${chatRegistrationOrigin(registration)}`,
             sourceId: await webhookDeliverySourceId(request, registration.provider, webhookPayload),
-          })
+          }
+          if (isUntrackedChannelWebhook(registration)) return untrackedAgentChannelDelivery(input)
+          const delivery = await openAgentChannelDelivery(deliveryState.state, input)
           if (messageIdentity) {
             await bindAgentChannelDeliveryMessage(
               deliveryState.state,

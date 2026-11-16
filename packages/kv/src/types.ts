@@ -182,6 +182,7 @@ export type KVErrorCode =
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_OPTION"
   | "KV_INVALID_TTL"
+  | "KV_INVALID_VALUE"
   | "KV_INVALID_WAIT"
   | "KV_KEY_TOO_LONG"
   | "KV_OPERATION_FAILED"
@@ -281,7 +282,7 @@ export interface KVStorage {
    * `{ b: 2, a: 1 }` are different values. Use it to free a token that only its owner may free.
    * The drivers in {@link KVDriversWith}`<"deleteIfEquals">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
-  deleteIfEquals<T = unknown>(key: string, expected: T): Promise<Result<boolean, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  deleteIfEquals<T = unknown>(key: string, expected: T): Promise<Result<boolean, "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   /**
    * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
    * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
@@ -336,7 +337,7 @@ export interface KVStorage {
    * The drivers in {@link KVDriversWith}`<"setIfAbsent">` support it. Cloudflare KV is eventually consistent and returns
    * `KV_UNSUPPORTED_OPERATION`.
    */
-  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   /** Selects a named KV store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: KVStoreName, options?: { mode?: "write" }): KVStorage
   store(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
