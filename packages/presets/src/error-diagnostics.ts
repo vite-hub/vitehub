@@ -241,6 +241,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Provide a pull request title or body.",
       fix: "Pass title, body, or both to updatePullRequest.",
     },
+    PRESETS_REPAIR_BASE_REVERTED: {
+      why: ({ files }: { files: string }) => `The merge result undoes changes that already landed on the base since this PR branched:\n${files}`,
+      fix: "Read the base commits for each listed file (git log -p HEAD..MERGE_HEAD -- <file>) and apply this PR's change on top of the base version. When this PR deliberately replaces that base change, pass the file in commitRepair baseOverrides with a one-sentence reason.",
+    },
     PRESETS_REPAIR_CONFLICTS_UNRESOLVED: {
       why: ({ files }: { files: string }) => `Resolve the remaining merge conflicts and call commitRepair with their file paths: ${files}`,
       fix: "Remove the conflict markers from each file that the message lists, then call commitRepair again with those file paths.",

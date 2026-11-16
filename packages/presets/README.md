@@ -123,7 +123,7 @@ symlink resolution. Trusted GitHub release archives use the HTTPS archive path.
 Workers call `commitRepair` with a message and explicit repair paths, then
 `pushRepair`. The host commits because the provider sandbox protects Git metadata. For a
 conflicting PR, the host first prepares a merge against the exact base commit.
-Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing.
+Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing. `commitRepair` rejects a base merge whose result undoes changes the base made since the PR branched: lines the base added that the result lacks, or lines the base removed that it brings back. Lockfiles are exempt because the host regenerates them. When the PR deliberately replaces such a change, the worker passes the file in `baseOverrides` with a reason, and the merge commit message lists it.
 Unattended Codex runs preauthorize only the assigned host tools. Capability checks
 still run on the host, and the native shell keeps its edit sandbox.
 

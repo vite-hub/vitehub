@@ -265,12 +265,66 @@ it("prepares and commits a conflicting exact-base merge through host tools", asy
   const expectedHead = await git(root, "rev-parse", "HEAD");
   await prepareGitHubRepairBase(root, { expectedHead, base });
   expect(await readFile(join(root, "file.txt"), "utf8")).toContain("<<<<<<<");
-  await writeFile(join(root, "file.txt"), "combined edit\n");
+  await writeFile(join(root, "file.txt"), "base edit\nPR edit\n");
   const head = await commitGitHubPullRequestWorkspace(root, { message: "merge base and resolve conflict", paths: ["file.txt"] }, { expectedHead });
   expect(await git(root, "rev-parse", `${head}^1`)).toBe(expectedHead);
   expect(await git(root, "rev-parse", `${head}^2`)).toBe(base);
   expect(await git(root, "show", `${head}:base-only.txt`)).toBe("base addition");
   expect(await git(root, "status", "--porcelain")).toBe("");
+});
+
+async function conflictingMerge(origin: string, base: string, pr: string) {
+  const { root } = await fixture();
+  const commit = async (content: string, message: string) => {
+    await writeFile(join(root, "file.txt"), content);
+    await git(root, "add", ".");
+    await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message);
+    return await git(root, "rev-parse", "HEAD");
+  };
+  await commit(origin, "origin");
+  await git(root, "checkout", "-b", "main");
+  const baseHead = await commit(base, "base change");
+  await git(root, "checkout", "repair");
+  const expectedHead = await commit(pr, "PR change");
+  await prepareGitHubRepairBase(root, { expectedHead, base: baseHead });
+  return { root, expectedHead };
+}
+
+it("rejects a base merge that keeps the PR's stale copy of a file", async () => {
+  const { root, expectedHead } = await conflictingMerge("export const start = 1\n", "export const start = 1\nexport const landed = 2\n", "export const start = 1\nexport const added = 3\n");
+  await writeFile(join(root, "file.txt"), "export const start = 1\nexport const added = 3\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead }))
+    .rejects.toMatchObject({ code: "PRESETS_REPAIR_BASE_REVERTED", message: expect.stringContaining('file.txt: drops 1 base line(s) such as "export const landed = 2"') });
+
+  await writeFile(join(root, "file.txt"), "export const start = 1\nexport const landed = 2\nexport const added = 3\n");
+  const head = await commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead });
+  expect(await git(root, "show", `${head}:file.txt`)).toBe("export const start = 1\nexport const landed = 2\nexport const added = 3");
+  expect(await git(root, "log", "-1", "--format=%B", head)).toBe("merge base");
+});
+
+it("rejects a base merge that brings back lines the base removed", async () => {
+  const { root, expectedHead } = await conflictingMerge("callLegacyHelper()\nconst value = 1\n", "const value = 2\n", "callLegacyHelper()\nconst value = 3\n");
+  await writeFile(join(root, "file.txt"), "callLegacyHelper()\nconst value = 3\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead }))
+    .rejects.toMatchObject({ code: "PRESETS_REPAIR_BASE_REVERTED", message: expect.stringContaining('restores 1 line(s) the base removed, such as "callLegacyHelper()"') });
+});
+
+it("accepts a base line that the resolution rewrote to the PR's conventions", async () => {
+  const { root, expectedHead } = await conflictingMerge(
+    "function start() {}\n",
+    "function start() {}\nif (!found) throw new Error(`The account has no database named ${name}.`)\n",
+    "function start() {}\nif (!ready) throw fail(`The database is not ready.`)\n",
+  );
+  await writeFile(join(root, "file.txt"), "function start() {}\nif (!found) throw fail(`The account has no database named ${name}.`)\nif (!ready) throw fail(`The database is not ready.`)\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead })).resolves.toMatch(/^[a-f\d]{40}$/);
+});
+
+it("commits a base override with its reason in the merge commit", async () => {
+  const { root, expectedHead } = await conflictingMerge("export const start = 1\n", "export const start = 1\nexport const landed = 2\n", "export const start = 1\nexport const added = 3\n");
+  await writeFile(join(root, "file.txt"), "export const start = 1\nexport const added = 3\n");
+  const baseOverrides = [{ path: "file.txt", reason: "This PR replaces landed with added." }];
+  const head = await commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"], baseOverrides }, { expectedHead });
+  expect(await git(root, "log", "-1", "--format=%B", head)).toBe("merge base\n\nKeeps this PR's version over base changes:\n- file.txt: This PR replaces landed with added.");
 });
 
 it.each([false, true])("rejects dependency inputs changed between validation and staging, deletedAfterStaging=%s", async deletedAfterStaging => {
