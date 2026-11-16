@@ -43,10 +43,13 @@ export function createFakeDisk() {
           await held
           return snapshot
         },
-        async reset(next) {
+        async reset(next, expected) {
           await fail()
+          const found = meta && { ...meta }
+          if (found?.generation !== expected) return found
           entries.clear()
           meta = { ...next }
+          return found
         },
         async write(expected, { puts, deletes, maxBytes, now }) {
           await fail()

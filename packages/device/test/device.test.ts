@@ -436,6 +436,53 @@ describe("tabs", () => {
     expect(opening.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
   })
 
+  it("keeps the copies of another account that a tab of a new version finds on the disk after it read an old one", async () => {
+    const disk = createFakeDisk()
+    const old = openPage(disk, createFakeBrowser())
+    await old.open({ version: "1" })
+    await old.setAccount("ada")
+    answer(old, "projects", ["ada"])
+    await old.settled()
+    // A tab of version 2 reads the copies of `ada` in version 1, and misses the messages of the other tab.
+    const opening = openPage(disk, createFakeBrowser(), { openTimeout: 5000 })
+    const release = disk.holdNextRead()
+    const opened = opening.open({ version: "2" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const grace = openPage(disk, createFakeBrowser())
+    await grace.open({ version: "2" })
+    await grace.setAccount("grace")
+    answer(grace, "projects", ["grace"])
+    await grace.settled()
+    release()
+    await opened
+    await opening.settled()
+    expect(disk.meta).toMatchObject({ account: "grace", version: "2" })
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+    expect(opening.inspect()).toMatchObject({ account: "grace", persisted: false, entries: [] })
+  })
+
+  it("brings the disk to the account that the page named before it opened, also when another tab changed the disk meanwhile", async () => {
+    const disk = createFakeDisk()
+    await pageWithProjects(disk)
+    const page = openPage(disk, createFakeBrowser(), { openTimeout: 5000 })
+    void page.setAccount("grace")
+    const release = disk.holdNextRead()
+    const opened = page.open()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // Another tab, which this one does not hear, clears the copies of `ada` and gives the disk a new generation.
+    const other = openPage(disk, createFakeBrowser())
+    await other.open()
+    await other.clear()
+    release()
+    await opened
+    await page.settled()
+    expect(disk.meta).toMatchObject({ account: "grace" })
+    expect(page.inspect()).toMatchObject({ account: "grace", persisted: true })
+    answer(page, "projects", ["grace"])
+    await page.settled()
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
+  })
+
   it("keeps the shared disk under its size cap when several tabs write", async () => {
     let time = 1
     const disk = createFakeDisk()

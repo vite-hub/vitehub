@@ -80,11 +80,19 @@ function indexedDBStorage(database: IDBDatabase): DeviceStorage {
       await done(transaction)
       return { meta: meta.result as DeviceMeta | undefined, entries: entries.result as StoredEntry[] }
     },
-    async reset(meta) {
+    async reset(meta, expected) {
       const transaction = database.transaction(["meta", "entries"], "readwrite")
-      transaction.objectStore("entries").clear()
-      transaction.objectStore("meta").put(meta, metaKey)
+      const metas = transaction.objectStore("meta")
+      const current = metas.get(metaKey)
+      let found: DeviceMeta | undefined
+      current.onsuccess = () => {
+        found = current.result as DeviceMeta | undefined
+        if (found?.generation !== expected) return
+        transaction.objectStore("entries").clear()
+        metas.put(meta, metaKey)
+      }
       await done(transaction)
+      return found
     },
     async write(meta, { puts, deletes, maxBytes, now }) {
       const transaction = database.transaction(["meta", "entries"], "readwrite")

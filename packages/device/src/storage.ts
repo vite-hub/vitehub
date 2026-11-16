@@ -37,8 +37,12 @@ export interface DeviceChange {
 /** Where the device keeps its copies across reloads. The browser uses IndexedDB, and the tests use a fake. */
 export interface DeviceStorage {
   read: () => Promise<{ meta: DeviceMeta | undefined, entries: StoredEntry[] }>
-  /** Deletes every copy and stores `meta`. */
-  reset: (meta: DeviceMeta) => Promise<void>
+  /**
+   * Deletes every copy and stores `meta` in one transaction when the disk still has the generation `expected`
+   * (`undefined` for a disk without meta). Returns the meta that the disk had: the reset applied when it has the
+   * generation `expected`, and changed nothing otherwise.
+   */
+  reset: (meta: DeviceMeta, expected: string | undefined) => Promise<DeviceMeta | undefined>
   /**
    * Applies `change` in one transaction when the disk still has `meta`. Returns the meta that the disk had: the change
    * applied when it has the generation of `meta`, and changed nothing otherwise.
