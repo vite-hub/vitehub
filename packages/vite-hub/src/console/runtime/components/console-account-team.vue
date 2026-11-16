@@ -2,11 +2,11 @@
 import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
-import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember, renameConsoleTeam } from "../client/account";
+import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
 import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 
-/** The Members page of an `account` Console: the people, the pending invitations, and the team name. */
+/** The Members page of an `account` Console: the people and the pending invitations. Team settings has the team name. */
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -19,8 +19,6 @@ const email = ref("");
 const role = ref<"member" | "admin">("member");
 const inviting = ref(false);
 const inviteProblem = ref<string>();
-const name = ref(team.value?.name ?? "");
-const renaming = ref(false);
 const removing = ref<ConsoleTeamMember>();
 const removeBusy = ref(false);
 const removeProblem = ref<string>();
@@ -110,20 +108,6 @@ async function copy(link: string): Promise<void> {
   const copied = await navigator.clipboard.writeText(link).then(() => true, () => false);
   toast.show({ title: copied ? "Invite link copied" : "The browser blocked the clipboard. Allow it and try again." });
 }
-
-async function rename(): Promise<void> {
-  if (renaming.value || name.value.trim() === team.value?.name) return;
-  renaming.value = true;
-  try {
-    await renameConsoleTeam(name.value);
-    // The page loads again where it is, so the new name in the field and the sidebar confirms the change.
-    window.location.reload();
-  }
-  catch (error) {
-    toast.show({ title: error instanceof Error ? error.message : "Try again." });
-    renaming.value = false;
-  }
-}
 </script>
 
 <template>
@@ -189,14 +173,6 @@ async function rename(): Promise<void> {
           </UTooltip>
         </li>
       </ul>
-    </section>
-
-    <section v-if="manage" class="grid gap-3" aria-labelledby="vitehub-team-name">
-      <h2 id="vitehub-team-name" class="text-sm font-semibold text-highlighted">Team name</h2>
-      <form class="flex flex-wrap gap-2" @submit.prevent="rename">
-        <UInput v-model="name" aria-labelledby="vitehub-team-name" required class="min-w-0 flex-1 basis-56" />
-        <UButton type="submit" color="neutral" variant="outline" label="Save" class="justify-center max-sm:w-full" :loading="renaming" :disabled="name.trim() === team?.name" />
-      </form>
     </section>
 
     <UModal

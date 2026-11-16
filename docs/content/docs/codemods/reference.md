@@ -53,13 +53,13 @@ console.log(formatMigrationReport(migration))
 | Export | Description |
 | --- | --- |
 | `runMigration({ cwd?, dryRun? })` | Detects and runs every codemod that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
-| `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CodemodError` when it cannot migrate. |
+| `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CODEMODS_BLOCKED`, or `CODEMODS_UNKNOWN` for an unknown name, when it cannot migrate. |
 | `detectCodemods(cwd)` | The codemods that apply to the app, each with the reason. |
 | `formatReport(run)`, `formatMigrationReport(migration)` | The text report that the CLI prints. |
 | `formatDiff({ edits })` | The edits as unified diffs. |
 | `codemods`, `findCodemod(name)` | Every codemod, and one by name. |
 | `runCli(argv)` | Runs the CLI with the arguments after the binary name, and resolves with the exit code. |
-| `CodemodError` | The error of a codemod that cannot migrate the app. |
+| `isCodemodError(error)` | Whether the error is a codemod that cannot migrate the app. |
 
 A `result` has a one-line `summary`, the planned `edits` (`path`, `before`, `after`), the `followUps` (`message`, and `file` and `line` where they apply), `notes`, and `nextSteps`.
 

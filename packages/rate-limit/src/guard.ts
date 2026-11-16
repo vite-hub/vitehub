@@ -2,7 +2,7 @@ import { toResultError } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"

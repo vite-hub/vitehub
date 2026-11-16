@@ -88,7 +88,7 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 | --- | --- | --- |
 | `id` | `string` | Static provider id for the workflow. |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
-| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
+| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps). |
 
 The handler gets `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, an optional run `id`, the provider `step` when there is one, and a `steps` runner. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 

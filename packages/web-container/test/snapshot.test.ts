@@ -40,7 +40,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("snapshots", () => {
   it.each([0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])("rejects an invalid part size of %s", (partBytes) => {
-    expect(() => packSnapshot(new Uint8Array([1]), { partBytes })).toThrow(RangeError)
+    expect(() => packSnapshot(new Uint8Array([1]), { partBytes })).toThrow(expect.objectContaining({ code: "WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID" }))
   })
 
   it("rejects Windows before changing the dependency tree", async () => {

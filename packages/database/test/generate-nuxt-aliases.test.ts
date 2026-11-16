@@ -82,6 +82,16 @@ describe("database generate with Nuxt aliases", () => {
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `posts`", "CREATE TABLE `users`"])
   }, 60_000)
 
+  // A fresh install runs `nuxt prepare` in `postinstall`, and ViteHub generates before Nuxt writes `.nuxt/tsconfig.json`.
+  it("writes the aliases when the app tsconfig extends a .nuxt file that does not exist yet", async () => {
+    const { alias, appDir } = await createNuxtApp()
+    await writeModule(join(appDir, "tsconfig.json"), [JSON.stringify({ extends: "./.nuxt/tsconfig.json" })])
+    const config = resolveDBViteConfig(undefined, appDir)!
+    await writeGeneratedDatabaseArtifacts(config, { alias })
+    const generated = JSON.parse(await readFile(join(dirname(config.generatedDrizzleConfigFile), "tsconfig.json"), "utf8")) as { compilerOptions: { paths: Record<string, string[]> } }
+    expect(generated.compilerOptions.paths["~~/*"]).toEqual([`${appDir}/*`])
+  }, 60_000)
+
   it("creates the tables that a Definition imports through Nuxt aliases", async () => {
     const { alias, appDir } = await createNuxtApp()
     const config = resolveDBViteConfig(undefined, appDir)!
