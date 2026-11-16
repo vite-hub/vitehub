@@ -375,6 +375,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-workers.d.ts`, "utf8")).toContain(
+      'declare module "cloudflare:workers"',
+    );
     const consolePage = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-app.vue`,
       "utf8",

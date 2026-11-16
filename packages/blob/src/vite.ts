@@ -219,10 +219,12 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
     `import { ${setters.filter(Boolean).join(", ")} } from ${JSON.stringify(runtimeStateModule)}`,
     "",
-    cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
+    // `as const` keeps literals such as `driver: "cloudflare-r2"`, so the file typechecks in the app's tsconfig.
+    cloudflare ? `const blobConfig = ${JSON.stringify(blob)} as const` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    // `Cloudflare.Env` has no index signature, so the generated middleware casts it the same way.
+    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)" : undefined,
     imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
     imageModule === "photon"
