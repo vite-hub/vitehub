@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -44,7 +45,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
 
 export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
   const normalized = normalizeUIMessageStreamResponse(response)
-  if (!normalized) throw new TypeError("Expected a readable UI message stream Response")
+  invariant(normalized, "callers pass a Response that isUIMessageStreamResponse() accepted, and a Response status is 200 to 599")
   const streamBody = hostReadableStream(normalized.body)
   const decoder = new TextDecoder()
   let buffer = ""
