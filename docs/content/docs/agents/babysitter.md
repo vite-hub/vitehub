@@ -436,7 +436,7 @@ SIGTERM, such as `systemctl restart`, does not wait for running passes. It stops
 
 ## How it works
 
-1. Signed webhooks update a durable pull request inbox in Agent State. A one-minute GraphQL listing per repository finds changes without a webhook, so a lost delivery recovers in about a minute. With more than 40 repositories, the listing runs every 1.5 seconds per repository instead, to stay within the GraphQL rate limit.
+1. Signed webhooks update a durable pull request inbox in Agent State. GitHub does not retry a delivery that failed or took more than 10 seconds, so every 5 minutes the host asks GitHub to send each failed App delivery again, at most 3 times per event. A one-minute GraphQL listing per repository also finds changes without a webhook. The host reads PRs whose checks stopped running or that closed first, up to 10 per pass, then 3 PRs whose checks still run. With more than 40 repositories, the listing runs every 1.5 seconds per repository instead, to stay within the GraphQL rate limit.
 2. When a pull request needs work, the host clones its head and starts one repair pass.
 3. After a repair push, the pass ends within 3 minutes and the pull request waits on the pushed head.
 4. Known check results, pending checks, and its own push events keep it waiting. New feedback, a new failing check, a conflict, or an unresolved review thread wake it.

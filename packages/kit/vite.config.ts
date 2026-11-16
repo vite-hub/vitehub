@@ -25,6 +25,7 @@ export default defineConfig({
           ["default.css", family],
           ["default.scoped.css", scopeStyles(family)],
           ["tokens.css", readStyle("tokens.css")],
+          ["tailwind.css", readStyle("tailwind.css")],
         ]) {
           this.emitFile({ type: "asset", fileName: `styles/${name}`, source });
         }
@@ -40,6 +41,7 @@ export default defineConfig({
       customExports: (exports) => ({
         ...packDefaults.exports.customExports(exports),
         "./styles/default.css": "./dist/styles/default.css",
+        "./styles/tailwind.css": "./dist/styles/tailwind.css",
         "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
         "./styles/tokens.css": "./dist/styles/tokens.css",
       }),
