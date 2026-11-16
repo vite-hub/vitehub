@@ -19,17 +19,28 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
   if (pathname.startsWith("/invite/")) return "invite"
   const cookies = request.headers.get("cookie") ?? ""
   if (!sessionCookie.test(cookies)) return "sign-in"
-  if (/^\/(?:home|team|settings)\/?$/.test(pathname)) return "shell"
+  if (/^\/(?:home|team|team-settings|settings)\/?$/.test(pathname)) return "shell"
   if (pathname === "/") return appView.test(cookies) ? "app" : "shell"
   // Other paths, such as /logs, are pages of an open app.
   return "app"
 }
 
-/** The page with the first paint of the request's view. A page of the sidebar also marks its row. */
+/**
+ * The boot read of the page: the account, its teams, and the projects of its team (server/api/account.get.ts). The page
+ * code fetches it without headers, so the browser reuses the answer of the preload in the HTML.
+ */
+export const consoleAccountPath = "/api/account"
+
+/**
+ * The page with the first paint of the request's view. A page of the sidebar also marks its row. With a session cookie,
+ * the HTML starts the boot read, so the account loads while the page code downloads.
+ */
 export function renderConsolePage(html: string, request: Request): string {
   const boot = consolePageBoot(request)
-  const page = boot === "shell" ? /^\/(home|team|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
-  return html.replace('data-vitehub-boot="app" data-vitehub-page=""', `data-vitehub-boot="${boot}" data-vitehub-page="${page}"`)
+  const page = boot === "shell" ? /^\/(home|team|team-settings|settings)\/?$/.exec(new URL(request.url).pathname)?.[1] ?? "" : ""
+  const marked = html.replace('data-vitehub-boot="app" data-vitehub-page=""', `data-vitehub-boot="${boot}" data-vitehub-page="${page}"`)
+  if (boot !== "app" && boot !== "shell") return marked
+  return marked.replace("<head>", `<head>\n    <link rel="preload" href="${consoleAccountPath}" as="fetch" crossorigin>`)
 }
 
 /**
