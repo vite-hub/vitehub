@@ -87,6 +87,9 @@ Available namespaces:
 | `vitehub deploy` | Available | ViteHub CLI | Create the missing host resources, build the app for the default host target, or the one of `--host`, and run the host deploy that the build wrote, with your local login. Pushes the checkout folders of `vitehub.lock`. Loads the project config only after the deploy question, to read the Provision Steps. |
 | `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. `--host` picks a target. Does not load the project config. |
 | `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
+| `vitehub login` | Available | ViteHub CLI | Sign in to a ViteHub Console with the device flow and save an API key for this machine. `--console` names a self-hosted Console. Does not load the project config. |
+| `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
+| `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
@@ -647,6 +650,43 @@ Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked
 
 The app is deployed, but the Workspace push failed. `checkouts.error` has the code, message, and fix of the push. Fix the cause and run `vitehub push`. Do not deploy again. The command exits with `1`.
 
+## Sign in to a Console
+
+`vitehub login` signs the CLI in to a ViteHub Console with the device flow of RFC 8628. It needs no project.
+
+```bash [Terminal]
+vitehub login                                         # console.vitehub.dev
+vitehub login --console https://console.example.com   # a self-hosted Console
+```
+
+```txt [Output]
+Open https://console.vitehub.dev/device and enter the code WDJB-MJHT
+Or open https://console.vitehub.dev/device?user_code=WDJBMJHT
+Waiting for approval...
+Signed in to https://console.vitehub.dev as Ada (ada@example.com) in team Acme.
+The API key expires on 13 Feb 2027. Saved in /home/ada/.config/vitehub/credentials.json.
+```
+
+1. The CLI asks the Console for a code and prints it with the `/device` address.
+2. In the browser, you sign in, check the machine name and the code, choose a team, and click **Approve** or **Deny**.
+3. The CLI gets an API key for that team, valid for 90 days. The Console keeps only a SHA-256 hash of the key, and the CLI never prints it.
+
+The CLI saves the key in `$XDG_CONFIG_HOME/vitehub/credentials.json`, else `~/.config/vitehub/credentials.json`, with mode `600`, one entry for each Console origin. `--console` and `VITEHUB_CONSOLE_URL` name the Console. Plain `http://` works only for `localhost`.
+
+- `vitehub whoami` shows the person, the team, the role, and the projects of the key.
+- `vitehub logout` revokes the key on the Console and removes it from the file.
+- In CI, set `VITEHUB_CONSOLE_TOKEN` to an API key from **Account settings** > **API keys** in the Console. It wins over the saved key.
+
+A key acts as you in one team. A key made in the Console can name some projects of the team: it then opens only those and cannot link or unlink projects. Revoke a key in **Account settings** > **API keys**.
+
+### `CLI_CONSOLE_LOGIN_FAILED`
+
+The device flow did not finish: the Console did not answer, the person denied the code, or the code expired after 15 minutes. Run `vitehub login` again.
+
+### `CLI_CONSOLE_SIGNED_OUT`
+
+The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
+
 ## List deployments
 
 `vitehub deployments` reads the deployments of the linked project from the host each time. ViteHub keeps no local deploy log. It needs a host link in `.vitehub/link.json` (from `vitehub link` or a first `vitehub deploy`) and the credentials that `vitehub link` reads.
@@ -790,8 +830,8 @@ Both load the Vite config in the stage mode, with `.env.<stage>` files, and proc
 `vitehub env diff` and `vitehub env push` compare and set the variables that the deployed app reads. They read the names of the last build in `deployment.json` and the target of the host in `.vitehub/link.json`, and they run the host CLI with your login. Neither loads the project config.
 
 ```bash [Terminal]
-pnpm vitehub env diff [--host <host>] [--stage <name>] [--json]
-pnpm vitehub env push [--host <host>] [--stage <name>] [--only <NAME>]... [--yes] [--json]
+pnpm vitehub env diff [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--json]
+pnpm vitehub env push [--host <host>] [--to github [--repo <owner/name>] [--environment <name>]] [--stage <name>] [--only <NAME>]... [--yes] [--json]
 ```
 
 - `--host`: the link target to use. Without it, the default target.
@@ -814,6 +854,23 @@ A secret from an env file must come from a file that git ignores and does not tr
 | Netlify | `netlify env:list --context <context>` | The environment variables API with `NETLIFY_AUTH_TOKEN`, because `netlify env:set` takes the value in argv | `production`, and `preview` as `deploy-preview` |
 | Deno | `deno deploy env list` | `deno deploy env load /dev/stdin --replace`, for every context. Deno infers secrecy from the name. Secret declarations with names outside its supported secret suffixes, such as `DATABASE_URL`, are refused before writing; set those in the Deno dashboard. A plain declaration gets `--non-secrets`. | `production` only |
 
+### GitHub Actions secrets
+
+`--to github` writes the same names to the Actions secrets of a GitHub repository instead of the host. Use it when your own GitHub workflow runs the deploy. It does not create a workflow or set up CI deploy: `vitehub deploy` runs on your machine by default.
+
+```bash [Terminal]
+pnpm vitehub env diff --to github
+pnpm vitehub env push --to github --yes
+pnpm vitehub env push --to github --repo acme/web --environment production --yes
+```
+
+- `--repo`: the repository as `owner/name`. Without it, the GitHub repository of the git remote `origin`.
+- `--environment`: write the secrets of this GitHub deployment environment instead of the repository secrets. The environment must exist.
+- `--host`: the build that lists the names. Without it, the default link target.
+- `--stage`: only picks the `.env.<stage>` file. Any stage name works.
+
+The token comes from `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`, then an installation token of the GitHub App that `@vite-hub/forge` reads when `VITEHUB_GITHUB_APP_ID` is set. It needs write access to the repository secrets. The CLI encrypts each value with the repository public key (a libsodium sealed box) before the request, so the value is not in argv, in output, or in plain text on the wire. GitHub reserves names that start with `GITHUB_`, so an entry such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN` uses `VITEHUB_GITHUB_TOKEN` there.
+
 ### `SETUP_ENV_FILE_NOT_IGNORED`
 
 A secret value comes from an env file that git does not track and does not ignore, so the next commit can add it. Nothing was pushed. Add `.env*` to `.gitignore`. The command exits with `3`.
@@ -833,6 +890,14 @@ A secret value comes from an env file in a git repository, but `git ls-files` or
 ### `SETUP_ENV_STAGE_UNSUPPORTED`
 
 The stage is not `production` or `preview`, or the host has no preview environment. The command exits with `3`.
+
+### `SETUP_GITHUB_REPOSITORY_REQUIRED`
+
+`--to github` found no `--repo` and no github.com remote named `origin`. The command exits with `2`.
+
+### `SETUP_GITHUB_REQUEST_FAILED`
+
+The GitHub API refused a request, for example because the token cannot write secrets or the environment does not exist. The command exits with `1`.
 
 ### `SETUP_ENV_VALUE_UNSUPPORTED`
 

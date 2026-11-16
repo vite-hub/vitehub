@@ -11,6 +11,7 @@ import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
@@ -171,6 +172,12 @@ function cloudflareRunResult(metadata: unknown): unknown {
   return isSerializedResponse(output) ? deserializeResponse(output) : output
 }
 
+/** The `error` member of a Cloudflare `status()` record. */
+function ownStatusError(metadata: unknown): unknown {
+  if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "error")) return undefined
+  return Reflect.get(metadata, "error")
+}
+
 /** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
 function isCloudflareInstanceNotFound(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false
@@ -224,6 +231,7 @@ async function readCloudflareRun(binding: CloudflareWorkflowBinding, id: string)
   return {
     instance,
     run: {
+      ...(status === "failed" ? { error: toWorkflowRunError(ownStatusError(metadata)) } : {}),
       id,
       metadata,
       provider: "cloudflare",
@@ -255,7 +263,7 @@ async function cancelCloudflareRun(binding: CloudflareWorkflowBinding, id: strin
 }
 
 function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  return {
+  const adapter: WorkflowRuntimeAdapter = {
     async cancel({ event, id, name }) {
       const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       // Without a binding, `vite dev` runs the Workflow inline, and an inline run cannot be cancelled.
@@ -266,17 +274,23 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
       if (binding) return (await readCloudflareRun(binding, id)).run
       return await inlineAdapter(config).get({ event, id, name })
     },
-    async run(context) {
+    async run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>> {
       const { definition, event, id, name, payload, startAt } = context
       // Check in `vite dev` too, where the run can be inline, so the id fails before deployment.
       if (!isCloudflareInstanceId(id)) throw workflowErrorDiagnostics.WORKFLOW_CLOUDFLARE_RUN_ID_INVALID({ id })
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
         resolveDispatchObserver(event)?.()
+        // `createBatch` skips an id that already has an instance and returns no instance for it.
+        let created = false
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
-          async () => normalizeCloudflareWorkflowStart((await binding.createBatch([{ id, params: toCloudflareStartParams(payload, startAt) }]))[0] || await binding.get(id), id),
+          async () => {
+            const [instance] = await binding.createBatch([{ id, params: toCloudflareStartParams(payload, startAt) }])
+            created = instance !== undefined
+            return normalizeCloudflareWorkflowStart(instance || await binding.get(id), id)
+          },
           {
             acknowledgement: (error, status) => status === undefined
               ? isCloudflareRejection(error) ? "rejected" : "unknown"
@@ -292,6 +306,9 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
             throw retryError
           }
         })
+        // Cloudflare does not return the payload of an existing instance, so report its state without a payload.
+        // SAFETY: The existing instance belongs to this Workflow Definition, so it has its payload and result types.
+        if (!created) return await adapter.get({ event, id, name }) as WorkflowRun<TPayload, TResult>
         return {
           id: instance.id,
           payload,
@@ -304,6 +321,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     },
     resume: () => unsupportedOperation("cloudflare", "signals"),
   }
+  return adapter
 }
 
 const warnedInlineOpenWorkflowNames = new Set<string>()
@@ -364,8 +382,8 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           }
         }
         return {
+          ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          metadata: run.error,
           provider: config.provider,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
@@ -381,8 +399,9 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
       const existing = getWorkflowRunState(name, id)
       if (existing) {
         return {
+          ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: existing.error ?? (config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined),
+          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
           provider: config.provider,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,

@@ -6,7 +6,7 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRecord, optionalString } from "./deploy/host.ts"
-import { SetupFailure, setupExitCodes } from "./envelope.ts"
+import { setupFailure, setupExitCodes } from "./envelope.ts"
 
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -18,11 +18,11 @@ export async function build(project: SetupProject, host: DeployHost, context: Vi
   const command = `${project.packageManager} run build`
   const manifest: unknown = existsSync(join(project.root, "package.json")) ? JSON.parse(await readFile(join(project.root, "package.json"), "utf8")) : undefined
   if (!isRecord(manifest) || !isRecord(manifest.scripts) || typeof manifest.scripts.build !== "string") {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command }), setupExitCodes.error)
   }
   const env = { ...context.env, VITEHUB_HOST: host, VITEHUB_HOST_SOURCE: "cli" }
   const result = await context.spawn(project.packageManager, ["run", "build"], { cwd: project.root, env, stdout: "stderr" })
-  if (result.exitCode !== 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+  if (result.exitCode !== 0) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
 }
 
 export interface BuildOutput {
@@ -69,10 +69,10 @@ export async function readBuildOutput(root: string, host: DeployHost): Promise<B
     manifest = JSON.parse(await readFile(file, "utf8"))
   }
   catch {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
   }
   const built = isRecord(manifest) ? optionalString(manifest.host) : undefined
-  if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
+  if (built !== host) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
   const env = isRecord(manifest) && Array.isArray(manifest.env) ? manifest.env.flatMap(readEnvEntry) : []
   const recordedEnvDir = isRecord(manifest) ? manifest.envDir : undefined

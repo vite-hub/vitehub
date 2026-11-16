@@ -668,6 +668,7 @@ describe("Agent Invocation Stream Channel replay", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const label = vi.fn()
     const history = defineCollection(async () => [{ id: "m1" }], {
+      route: false,
       cursor: (message: { id: string }) => message.id,
       cursorSchema: v.string(),
       querySchema: v.object({ folder: v.optional(v.string()) }),

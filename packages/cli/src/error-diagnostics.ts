@@ -9,6 +9,14 @@ const dynamicError = {
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
+    CLI_CONSOLE_LOGIN_FAILED: {
+      fix: "Run `vitehub login` again, and approve the code in the browser within 15 minutes. Pass --console <url> for a self-hosted Console.",
+      why: ({ console, message }: { console?: unknown, message?: unknown }) => `Sign-in to ${String(console)} did not finish. ${String(message)}`,
+    },
+    CLI_CONSOLE_SIGNED_OUT: {
+      fix: "Run `vitehub login`, or set VITEHUB_CONSOLE_TOKEN to an API key from Account settings in the Console.",
+      why: ({ console }: { console?: unknown }) => `There is no valid API key for ${String(console)}. The key is missing, expired, or revoked.`,
+    },
     /** A host API answered with a shape that the CLI cannot read. */
     CLI_HOST_RESPONSE_INVALID: {
       fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
@@ -260,6 +268,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_ENV_VALUE_UNSUPPORTED: {
       fix: ({ host }: { host?: unknown, name?: unknown, reason?: unknown }) => `Set this value in the ${String(host)} dashboard.`,
       why: ({ host, name, reason }: { host?: unknown, name?: unknown, reason?: unknown }) => `The value of ${String(name)} cannot go to ${String(host)} without a terminal prompt or argv. ${String(reason)}`,
+    },
+    SETUP_GITHUB_REPOSITORY_REQUIRED: {
+      fix: "Pass --repo owner/name, or add a GitHub remote named origin.",
+      why: ({ remote }: { remote?: unknown }) => remote ? `The git remote origin (${String(remote)}) is not a github.com repository.` : "This folder has no git remote named origin.",
+    },
+    SETUP_GITHUB_REQUEST_FAILED: {
+      fix: "Check that the token can write the Actions secrets of the repository, and that the repository and environment exist.",
+      why: ({ operation, reason }: { operation?: unknown, reason?: unknown }) => `GitHub refused \`${String(operation)}\`: ${String(reason)}`,
     },
   },
 })
