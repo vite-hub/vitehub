@@ -191,7 +191,7 @@ A direct Wrangler command with `--containers-rollout=none` skips ViteHub's deplo
 - The file is JSON, because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values.
 - Wrangler keeps the secrets that the file does not name.
 
-See [Deploy from your machine](/docs/development/cli#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
+See [Deploy from your machine](/docs/cli/deploy#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
 
 ### Rate Limiting bindings
 
