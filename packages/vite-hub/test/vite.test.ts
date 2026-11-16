@@ -1503,10 +1503,12 @@ describe("vitehub", () => {
     await callHook(plugin.config, [config, { command: "build", mode: "production" }])
     expect(config.nitro).toMatchObject({ preset: nitroPreset })
     if (preset === "cloudflare") {
-      expect(config.nitro).toMatchObject({ wasm: { lazy: true } })
+      // workerd refuses to start a Worker whose entry exports a shared value, such as a number.
+      expect(config.nitro).toMatchObject({ wasm: { lazy: true }, rollupConfig: { preserveEntrySignatures: "strict" } })
     }
     else {
       expect(config.nitro).not.toHaveProperty("wasm")
+      expect(config.nitro).not.toHaveProperty("rollupConfig.preserveEntrySignatures")
     }
     if (preset === "deno") {
       expect(config.nitro).toMatchObject({

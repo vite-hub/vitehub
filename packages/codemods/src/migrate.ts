@@ -8,7 +8,7 @@ import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { readNuxtConfig } from "./shared/nuxt-config.ts"
-import { CodemodError } from "./types.ts"
+import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
 
@@ -77,7 +77,7 @@ async function readOptional(path: string): Promise<string | undefined> {
 export async function runMigration(options: RunMigrationOptions = {}): Promise<Migration> {
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  if (!existsSync(cwd)) throw new CodemodError(`Cannot find the directory ${cwd}.`)
+  if (!existsSync(cwd)) throw codemodError(`Cannot find the directory ${cwd}.`)
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd)
   const steps: MigrationStep[] = []
@@ -114,7 +114,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
         steps.push({ codemod, detection, result })
       }
       catch (error) {
-        if (!(error instanceof CodemodError)) throw error
+        if (!isCodemodError(error)) throw error
         steps.push({ codemod, detection, error: unscratch(error.message) })
       }
     }

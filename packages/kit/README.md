@@ -18,8 +18,8 @@ Import each part from its own entry. There is no root entry.
 | --- | --- |
 | `@vite-hub/kit/tags-input` | `TagsInput` and its parts. See [Components we add](#components-we-add). |
 | `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
-| `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light and dark |
-| `@vite-hub/kit/styles/default.css` | The `default` style family: plain CSS for every ui-sdk part and every kit part |
+| `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light, dark, and system dark. The values are those of `@vite-hub/ui/theme.css`. |
+| `@vite-hub/kit/styles/default.css` | The `default` style family: ui-sdk's `web.css` on the tokens above, and the rules for the kit parts. Only for apps without Nuxt UI. |
 
 ## Migrate from `@vite-hub/kit/<name>`
 
@@ -126,21 +126,29 @@ What to use in ViteHub UI for each Reka UI 2.11 component.
 
 ## Styles
 
-The parts have no styles until you load a style family. A family is one CSS file that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. It reads only the variables of `tokens.css`, which use the names of shadcn/ui.
+The parts have no styles until you load a style family. A family is CSS that styles each part by its `data-slot` and its state attributes, such as `data-open` and `data-checked`. The `default` family is ui-sdk's own stylesheet, `@ui-sdk/core/web.css`, with the variables of `tokens.css` mapped onto its `--ui-*` variables and the ViteHub look: 6px controls, 12px menus and dialogs, 14px text, and a 2px focus ring. The variables use the names of shadcn/ui.
 
 ```css
-/* The app's global stylesheet. ui-sdk's own layer comes first, so the family wins over it. */
-@layer ui-sdk;
+/* The app's global stylesheet. */
 @import "@vite-hub/kit/styles/tokens.css";
 @import "@vite-hub/kit/styles/default.css";
 ```
 
-- **No Tailwind needed.** The family is plain CSS in the `components` cascade layer, so utility classes and your own CSS win over it. With Tailwind, keep these lines above `@import "tailwindcss"`.
-- **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`.
+`default.css` has three parts:
+
+1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.5.patch`, which we send to ui-sdk.
+2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
+3. The rules for the kit's `TagsInput`, the text field focus, and the dialog close button, in web.css's `ui-sdk` cascade layer.
+
+**Load it only in apps without Nuxt UI.** web.css and Nuxt UI restyle each other: web.css has global rules on plain `a`, `kbd`, and `button`, 8 `data-slot` names are the same in both, and the alias sheet sets `--ui-border`, `--ui-primary`, and `--ui-radius`, which Nuxt UI also owns. `--ui-radius` is the whole radius in web.css but the base step in Nuxt UI. With Nuxt UI, use `@vite-hub/ui/theme.css` and Nuxt UI's components. See [Installation](https://vitehub.dev/docs/ui/installation).
+
+- **No Tailwind needed.** web.css is plain CSS in the `ui-sdk` cascade layer, so utility classes and your own CSS win over it. With Tailwind, put the `ui-sdk` layer after `base`, or Preflight resets the parts: `@layer theme, base, ui-sdk, components, utilities;` above the imports.
+- **Dark mode** applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`. Before the app sets one, the page follows the system, unless `<html>` has `.light` or a `data-theme`.
+- **One token set.** `tokens.css` has the values of `@vite-hub/ui/theme.css`, the tokens of the Console and the docs: a near black page in dark mode (`oklch(0.145 0 0)`), and popovers at 92% over a 12px blur. `test/tokens.test.ts` fails when the two files disagree. Change a value in both files.
 - **Any shadcn theme works.** Paste its `:root` and `.dark` blocks after `tokens.css`. `--radius` is the base step: controls are 1.5 times it, cards 2 times, and menus and dialogs 3 times.
+- **Focus** is a 2px ring in `--ring`, 2px outside the part. A text field turns its own frame blue instead.
 - Hide text but keep it for screen readers with `<span data-slot="visually-hidden">`.
-- **Variants** are attributes: `data-variant="solid"` for the main action, `data-variant="ghost"` for toolbar and row actions, and `data-variant="destructive"`.
-- **Motion:** dialogs, toasts, and panels fade in through `data-starting-style` and `data-ending-style`. Menus, selects, popovers, and tooltips appear at once. Under `prefers-reduced-motion`, only the fades stay.
+- **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (14px here), after the import.
 
 ## Nuxt
 

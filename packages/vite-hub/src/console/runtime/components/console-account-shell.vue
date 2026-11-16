@@ -276,7 +276,7 @@ async function retry(): Promise<void> {
 }
 
 .vitehub-account-shell__dot[data-status="checking"] {
-  box-shadow: inset 0 0 0 1px var(--ui-text-muted);
+  box-shadow: inset 0 0 0 1px var(--muted-foreground);
 }
 
 .vitehub-account-shell__dot[data-status="connected"] {

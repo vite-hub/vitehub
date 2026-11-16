@@ -9,25 +9,82 @@ const dynamicError = {
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
-    WORKFLOW_C0001: dynamicError,
-    WORKFLOW_C0002: dynamicError,
-    WORKFLOW_C0003: dynamicError,
-    WORKFLOW_C0004: dynamicError,
-    WORKFLOW_C0005: dynamicError,
-    WORKFLOW_C0006: dynamicError,
-    WORKFLOW_C0007: dynamicError,
-    WORKFLOW_C0008: dynamicError,
-    WORKFLOW_C0009: dynamicError,
-    WORKFLOW_C0010: dynamicError,
-    WORKFLOW_C0011: dynamicError,
-    WORKFLOW_C0012: dynamicError,
-    WORKFLOW_C0013: dynamicError,
-    WORKFLOW_C0014: dynamicError,
-    WORKFLOW_C0015: dynamicError,
-    WORKFLOW_C0016: dynamicError,
-    WORKFLOW_C0017: dynamicError,
-    WORKFLOW_C0018: dynamicError,
-    WORKFLOW_C0019: dynamicError,
+    WORKFLOW_C0001: {
+      ...dynamicError,
+      fix: "Set the `workflow` option that the message names to a non-empty string, or remove it.",
+    },
+    WORKFLOW_C0002: {
+      ...dynamicError,
+      fix: "Set the `workflow` option that the message names to a string, or to an env declaration such as `{ kind: \"env-variable\", source: { kind: \"env\", name: \"OPENWORKFLOW_POSTGRES_URL\" } }`.",
+    },
+    WORKFLOW_C0003: {
+      ...dynamicError,
+      fix: "Set the `runMigrations` option that the message names to `true` or `false`, or remove it.",
+    },
+    WORKFLOW_C0004: {
+      ...dynamicError,
+      fix: "Set `workflow.worker.concurrency` to an integer of 1 or more, or remove it.",
+    },
+    WORKFLOW_C0005: {
+      ...dynamicError,
+      fix: "Set `workflow.postgres` to an object, such as `{ url: \"postgres://...\" }`, or remove it.",
+    },
+    WORKFLOW_C0006: {
+      ...dynamicError,
+      fix: "Set `workflow.sqlite` to an object, such as `{ path: \".vitehub/data/workflow.sqlite\" }`, or remove it.",
+    },
+    WORKFLOW_C0007: {
+      ...dynamicError,
+      fix: "Set `workflow.worker` to an object, such as `{ concurrency: 4 }`, or remove it.",
+    },
+    WORKFLOW_C0008: {
+      ...dynamicError,
+      fix: "On Netlify, set `workflow: { provider: \"openworkflow\" }` with `workflow.sqlite.path` or `workflow.postgres.url`, or set `workflow: false`.",
+    },
+    WORKFLOW_C0009: {
+      ...dynamicError,
+      fix: "Set `workflow.provider` to `\"cloudflare\"`, `\"openworkflow\"`, or `\"vercel\"`, or remove it to let ViteHub select the provider of the host.",
+    },
+    WORKFLOW_C0010: {
+      ...dynamicError,
+      fix: "Rename one of the two step files that the message names, so that each step file of the Workflow folder gives a different step name.",
+    },
+    WORKFLOW_C0011: {
+      ...dynamicError,
+      fix: "Rename the step file that the message names so that it has letters after its number prefix, such as `01.create-user.ts`.",
+    },
+    WORKFLOW_C0012: {
+      ...dynamicError,
+      fix: "Set only one of `workflow.postgres.url` and `workflow.sqlite.path`, and remove the other.",
+    },
+    WORKFLOW_C0013: {
+      ...dynamicError,
+      fix: "Set `workflow` to an object, such as `{ provider: \"openworkflow\" }`, or remove it.",
+    },
+    WORKFLOW_C0014: {
+      ...dynamicError,
+      fix: "Pass a function as the second argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", async (payload, { steps }) => { ... })`.",
+    },
+    WORKFLOW_C0015: {
+      ...dynamicError,
+      fix: "Pass the options of `defineWorkflow()` as an object, such as `{ native: durableOnboard }`, or remove the third argument.",
+    },
+    WORKFLOW_C0016: {
+      ...dynamicError,
+      fix: "Set `native` in the `defineWorkflow()` options to a function, or remove it.",
+    },
+    WORKFLOW_C0017: {
+      ...dynamicError,
+      fix: "Remove `workflow.database`, and set `workflow.sqlite.path` or `workflow.postgres.url`.",
+    },
+    WORKFLOW_C0018: {
+      ...dynamicError,
+      fix: "Pass the Workflow name as the first argument of `defineWorkflow()`, such as `defineWorkflow(\"onboard-user\", handler)`.",
+    },
+    WORKFLOW_C0019: {
+      ...dynamicError,
+      fix: "Pass the name that the message gives to `defineWorkflow()`, or rename the Workflow file or folder to the name that the definition uses.",
+    },
     WORKFLOW_C0020: {
       ...dynamicError,
       fix: "Set `workflow: { provider: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
@@ -173,8 +230,12 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Install `@vite-hub/agent`, or turn the Agent on with `vitehub({ agent: true })`.",
     },
     WORKFLOW_ROOT_STEP_SLEEP: {
-      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.step.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
-      fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.step.sleep()` between the steps.",
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.sleep()` between the steps.",
+    },
+    WORKFLOW_SLEEP_DURATION_INVALID: {
+      why: ({ name, value }: { name: string, value: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep(${value})\`. A sleep takes a duration such as \`'30 seconds'\` or \`'1 day'\`, a number of milliseconds that is 0 or more, or a valid \`Date\`.`,
+      fix: "Write the duration as a number, one space, and a unit: second, minute, hour, day, week, month, or year, with or without a final `s`. For example `context.sleep('2 hours')`, `context.sleep(5_000)`, or `context.sleep(new Date(payload.remindAt))`.",
     },
     WORKFLOW_START_DELAY_INVALID: {
       why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a number of milliseconds of 0 or more, a duration such as \`"30 minutes"\` or \`"3 days"\`, or a valid \`Date\`.`,
