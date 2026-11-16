@@ -41,6 +41,12 @@ The check uses installed Playwright Chromium, the real Console components, and i
 
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
+`icons.html` draws every icon name of the Console sources with Nuxt UI's `UIcon` and with the Console `Icon` (`console-icon.vue`). `packages/vite-hub/test/console-icon.browser.mjs` uses the same server and checks that both give the same SVG and the same box:
+
+```bash
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-icon.browser.mjs
+```
+
 To prove that a change does not move pixels, such as a token rename, capture every Console route on the base and on your branch, and compare the captures:
 
 ```bash

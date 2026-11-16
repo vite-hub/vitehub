@@ -69,6 +69,7 @@ import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
 import ConsoleConfirm from "./console-confirm.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -2300,13 +2301,13 @@ const menuItems = computed(() => [[
           </template>
         </UAlert>
         <div v-if="translationNote" class="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status">
-          <UIcon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+          <Icon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0 flex-1 text-default">{{ translationNote }}</span>
           <UButton v-if="sourceLocale" size="xs" variant="outline" :label="`Open ${consoleLocaleName(sourceLocale)}`" :to="localeRoute(sourceLocale)" />
           <UButton v-if="stale && canWrite && sourceClient" size="xs" variant="outline" label="Mark as up to date" @click="openMarkCurrent()" />
         </div>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
-          <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
+          <Icon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
           Read-only. You can read drafts of this collection but not change them.
         </p>
 
@@ -2395,7 +2396,7 @@ const menuItems = computed(() => [[
 
         <section v-else class="mb-4 grid gap-3" aria-label="Stored file">
           <div class="flex items-center gap-2 text-xs text-muted">
-            <UIcon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
             <span class="font-mono text-highlighted">{{ base?.path }}</span>
             <span class="ms-auto">{{ liveActive ? "Read-only during a live session. Edit in Rich." : dataDirty ? "Fields are saving…" : "Fields are read-only here. Edit them in Rich." }}</span>
           </div>
@@ -2424,7 +2425,7 @@ const menuItems = computed(() => [[
           @outline="outline = $event"
         />
         <div v-else-if="hasBody && liveRoom" v-show="mode === 'rich'" class="flex min-h-[40vh] items-start gap-2 text-[13px] text-muted" role="status">
-          <UIcon name="i-lucide-loader-circle" class="mt-0.5 size-4 animate-spin" aria-hidden="true" />
+          <Icon name="i-lucide-loader-circle" class="mt-0.5 size-4 animate-spin" aria-hidden="true" />
           Joining the live session…
         </div>
         <ConsoleMarkdownEditor
@@ -2793,7 +2794,7 @@ const menuItems = computed(() => [[
           </p>
           <p class="text-xs text-muted">Compared with the saved draft.</p>
         </div>
-        <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
+        <div v-if="previewLoading" class="flex justify-center py-8"><Icon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
         <p v-else-if="!preview.document" class="text-xs text-muted">The {{ noun.toLowerCase() }} does not exist in this version.</p>
         <ConsoleDocumentDiff v-else :before="preview.current?.text ?? null" :after="preview.document.text" :format="collection.format" :name="fileName" />
       </div>
