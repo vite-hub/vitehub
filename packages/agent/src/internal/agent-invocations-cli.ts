@@ -1256,7 +1256,7 @@ export async function runAgentInvocationsCli(
     parsed = parse(args, context.env)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     usage(context)
     return 1
   }
@@ -1328,7 +1328,7 @@ export async function runAgentInvocationsCli(
     }
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
   finally {
