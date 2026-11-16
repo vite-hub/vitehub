@@ -5,6 +5,7 @@ export interface FormIssue {
 }
 
 /** Why a submission failed: the HTTP status, the server message, and, for a 400, the problem of each field. */
+// Internal invariant: browser class with the HTTP status and field issues of a failed submission. The page shows them.
 export class FormSubmitError extends Error {
   override readonly name = "FormSubmitError"
   readonly status: number

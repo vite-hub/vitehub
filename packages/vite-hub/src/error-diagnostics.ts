@@ -377,5 +377,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] --timeout must be a positive number of milliseconds.",
       fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
     },
+    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+      ...dynamicError,
+      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
   },
 })

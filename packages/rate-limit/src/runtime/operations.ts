@@ -5,6 +5,7 @@ import { peekRateLimit, resetRateLimit } from "../counters.ts"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "../counters.ts"
 
 /** A failure with the fields that every surface reports. */
+// Internal invariant: this class already carries a code and a status for every surface.
 export class RateLimitOperationError extends Error {
   constructor(message: string, readonly status: number, readonly code: string) {
     super(redactInspectionText(message))

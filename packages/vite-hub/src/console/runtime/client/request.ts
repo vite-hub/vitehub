@@ -133,7 +133,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
-  "env": { booleans: { status: "1" }, operation: "env.get" },
+  "env": { operation: "env.get" },
   "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
