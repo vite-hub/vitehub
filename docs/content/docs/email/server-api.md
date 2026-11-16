@@ -115,7 +115,7 @@ Your trial is active.
 ::
 ```
 
-```ts [server/welcome.ts] fragment
+```ts [server/welcome.ts]
 import { email } from 'vite-hub/email'
 
 export async function sendWelcome(name: string, to: string) {

@@ -94,7 +94,7 @@ if (error) throw error
 
 Place reusable Markdown under `server/emails`:
 
-```md
+```md [server/emails/welcome.md]
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.

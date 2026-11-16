@@ -860,6 +860,8 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
+      // Generated template types augment the facade module that the app imports.
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
@@ -1112,6 +1114,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
@@ -1126,6 +1129,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })

@@ -12,7 +12,7 @@ icon: i-lucide-mail
 ::
 
 ::code-tree{feature="email"}
-```ts [server/api/welcome.post.ts] fragment
+```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
 import { email } from 'vite-hub/email'
 

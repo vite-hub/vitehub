@@ -38,7 +38,6 @@ export async function send(message: EmailMessage) {
 | `EMAIL_TIMEOUT` | `TIMEOUT` | The outcome is not certain. Check the provider logs before you retry. |
 | `EMAIL_NETWORK` | `NETWORK` | The outcome is not certain. Check the provider logs before you retry. |
 | `EMAIL_PROVIDER_FAILED` | `PROVIDER`, `UNSUPPORTED`, `CANCELLED`, an invalid message id, or any other failure | Read `cause` and the provider logs. |
-| `EMAIL_TEMPLATE_RENDER_FAILED` | None. The template did not render, so no driver ran. | Correct `data`. Do not retry it unchanged. |
 
 Configuration errors throw instead, because the config must change before a send can work:
 
@@ -46,7 +45,6 @@ Configuration errors throw instead, because the config must change before a send
 | --- | --- |
 | `EMAIL_NOT_CONFIGURED` | No provider is configured, or the driver reports `NOT_CONFIGURED`, for example a missing API key. |
 | `EMAIL_INVALID_DRIVER` | `createEmail()` receives a value that is not a driver. |
-| `EMAIL_TEMPLATE_NOT_FOUND` | `email.send({ template })` names a template that is not under `server/emails`. |
 
 Email does not retry. A timeout or lost response can happen after the provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency rules in Queue, Workflow, or a driver that knows enough to decide.
 
@@ -58,9 +56,7 @@ ViteHub or the driver rejected the message, for example for an empty address, a 
 
 ViteHub also rejects fields that no driver sends, such as `react`, `mjml`, `preheader`, or `personalizations`. Render the body yourself and pass it as `html` or `text`. A `createEmail()` client also rejects `template`. Only `email.send()` renders templates.
 
-### EMAIL_TEMPLATE_RENDER_FAILED
-
-The template of `email.send({ template, data })` did not render with `data`. `cause` is the error of the renderer and names the binding, for example a missing `{{ data.user.name }}`. Pass a string, number, or boolean for each `{{ data.* }}` binding, and a string for each `:insert` binding. TypeScript catches this when `data` is not typed as `any` or `unknown`.
+A template send can also return [`EMAIL_TEMPLATE_RENDER_FAILED`](/docs/email/diagnostics/email_template_render_failed), and an unknown template name throws [`EMAIL_TEMPLATE_NOT_FOUND`](/docs/email/diagnostics/email_template_not_found).
 
 ### EMAIL_AUTHENTICATION
 
