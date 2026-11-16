@@ -530,6 +530,7 @@ function readColumns(scoped: Scoped, input: SyncRow, key: SyncKey | undefined): 
     if (name in scope.values && !allows(scope.values[name], value)) return [{ error: syncErrors.SYNC_OUT_OF_SCOPE({ column: name }) }, undefined]
     try {
       values[name] = decode(table, name, value)
+      if (values[name] instanceof Date && !Number.isFinite(values[name].getTime())) return [invalid(`Invalid date for column ${name}.`), undefined]
     }
     catch {
       return [invalid(`\`${name}\` has a value that the column cannot store.`), undefined]

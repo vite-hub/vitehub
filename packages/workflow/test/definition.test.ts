@@ -78,6 +78,7 @@ describe("workflow definitions", () => {
     await mkdir(join(rootDir, "server", "workflows", "import-products"), { recursive: true })
     await writeFile(join(rootDir, "server", "workflows", "import-products", "02.load.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "server", "workflows", "import-products", "01.extract.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "workflows", "import-products", "01.extract.test.ts"), "export {}\n", "utf8")
 
     expect(discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [join(rootDir, "server")] })).toEqual([
       expect.objectContaining({

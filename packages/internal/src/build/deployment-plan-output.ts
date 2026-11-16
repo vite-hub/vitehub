@@ -5,7 +5,24 @@ import type { DeploymentPlan } from "../deployment.ts"
 import type { ViteHubProviderOutputEntry } from "../inspect.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
+/**
+ * One Server Env declaration that the deployed app reads from host variables, as `deployment.json` lists it.
+ * It holds names only, so `vitehub deploy` can check the host without booting Vite. It never holds a value.
+ */
+export interface DeploymentEnvEntry {
+  /** The declaration path, such as `env.server.github.token`, when it is safe to show. */
+  path?: string
+  /** The host variable names, in read order. The first name that is set supplies the value. */
+  names: readonly string[]
+  required: boolean
+  secret: boolean
+  /** A default supplies the value when no name is set. */
+  hasDefault: boolean
+}
+
 interface FinalizeDeploymentPlanOutputOptions {
+  /** The Server Env names to record. Omit it when the app has no Env plugin. */
+  env?: readonly DeploymentEnvEntry[]
   identity?: {
     name: string
     source: string
@@ -51,7 +68,7 @@ function resolvePlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: st
 export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: string): ViteHubProviderOutputEntry[] {
   const output = resolvePlanOutput(plan, rootDir, outputDir)
   const entries: ViteHubProviderOutputEntry[] = [
-    { description: "Deployment manifest with host, runtime, output, and services", owner: "vite-hub", path: resolve(output.root, "deployment.json") },
+    { description: "Deployment manifest with host, runtime, output, services, and Server Env names", owner: "vite-hub", path: resolve(output.root, "deployment.json") },
   ]
   if (plan.host === "cloudflare") {
     entries.push({ description: "Generated Cloudflare Worker config", owner: "vite-hub", path: resolve(output.root, "server/wrangler.json") })
@@ -69,6 +86,17 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
     entries.push({ description: "Netlify function and static config output", owner: "vite-hub", path: resolve(output.root, "v1") })
   }
   return entries
+}
+
+// Copy the known fields only, so a caller cannot put a value into the manifest by accident.
+function deploymentEnvEntry(entry: DeploymentEnvEntry): DeploymentEnvEntry {
+  return {
+    ...(entry.path === undefined ? {} : { path: entry.path }),
+    names: [...entry.names],
+    required: entry.required,
+    secret: entry.secret,
+    hasDefault: entry.hasDefault,
+  }
 }
 
 export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPlanOutputOptions): Promise<void> {
@@ -92,6 +120,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
     },
     runtime: options.plan.runtime,
     services: options.services ?? options.plan.services,
+    ...(options.env ? { env: options.env.map(deploymentEnvEntry) } : {}),
   }
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })

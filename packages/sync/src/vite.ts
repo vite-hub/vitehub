@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+import { loadConfigFromFile } from "vite"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
@@ -140,7 +141,7 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
  * `<base>api/_vitehub/sync/<name>`, its change log goes to the `vitehub_sync_*` tables of the Database, and
  * `useSync("<name>")` gets the row type.
  */
-export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {
+export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => Promise<unknown[]>, operations: OperationContributions } } {
   const imports: SyncImports = { ...defaultImports, ...options.imports }
   let projectRoot: string | undefined
   let serverDirs: readonly string[] | undefined
@@ -152,16 +153,25 @@ export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { dat
       operations: () => usesSync({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
         ? [{ export: "syncOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).syncOperations, module: imports.operations }]
         : [],
-      databases(context) {
+      async databases(context) {
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         if (options.database === false || !usesSync({ projectRoot: root, ...(serverDirs ? { serverDirs } : {}) })) return []
-        return [{
+        const targets = new Set<string | undefined>()
+        for (const definition of discoverSync(root, serverDirs)) {
+          const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, definition.file, root)
+          const options: unknown = Reflect.get(Object(loaded?.config), "options")
+          const database: unknown = Reflect.get(Object(options), "database")
+          if (database !== undefined && typeof database !== "string") throw new TypeError("Sync database must be a Database name.")
+          targets.add(database)
+        }
+        return [...targets].map(database => ({
+          ...(database === undefined ? {} : { database }),
           definition: { export: "syncSchema", module: imports.database },
           dialect: "sqlite",
           tables: syncTableNames,
           name: "sync",
           reason: "Keeps the change log of `server/sync/`.",
-        }]
+        }))
       },
     },
     config: {

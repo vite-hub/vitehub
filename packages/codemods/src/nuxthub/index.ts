@@ -6,6 +6,7 @@ import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.t
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
 import { findRedisKVSource } from "./kv-env.ts"
 import { rewriteSources } from "./sources.ts"
+import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
 import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from "./wrangler.ts"
 
@@ -13,8 +14,11 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 import type { Dialect, HubDatabaseOptions } from "./config.ts"
 import type { SchemaMove } from "./database.ts"
 
-/** The lowest Drizzle ORM and Kit that `@vite-hub/database` accepts. */
-const drizzleMinimum = "1.0.0-rc.5"
+/**
+ * The Drizzle ORM and Kit versions that `@vite-hub/database` accepts. Not `^1.0.0-rc.5`: Drizzle publishes snapshot
+ * builds such as `1.0.0-rc.5-ab785fc`, which that range allows and which sort above the release.
+ */
+const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
 
 /** The command that runs a package binary, from the install command. */
 function runner(installCommand: string): string {
@@ -59,7 +63,7 @@ function dataFollowUps(run: string, input: { database?: DatabasePlan, d1: boolea
   return followUps
 }
 
-async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
+async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
   const plan = readHub(config, await findRedisKVSource(cwd, config.fileName, config.code))
   const { features } = plan
@@ -77,7 +81,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
     add: features.database ? ["vite-hub", "@vite-hub/database"] : ["vite-hub"],
-    atLeast: features.database ? { "drizzle-orm": drizzleMinimum, "drizzle-kit": drizzleMinimum } : undefined,
+    within: features.database ? { "drizzle-orm": drizzleRange, "drizzle-kit": drizzleRange } : undefined,
   })
   const run = runner(packageResult.installCommand)
 
@@ -101,7 +105,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,

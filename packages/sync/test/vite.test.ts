@@ -65,7 +65,7 @@ describe("hubSync", () => {
     const nitro: unknown = Reflect.get(config, "nitro")
     expect(Reflect.get(Object(nitro), "handlers")).toEqual(expect.arrayContaining([{ handler: join(root, ".vitehub/nitro/sync/handler.mjs"), lazy: false, route: "/api/_vitehub/sync/**" }]))
     expect(readFileSync(join(root, ".vitehub/types/sync.d.ts"), "utf8")).toContain("interface ViteHubSyncMap")
-    expect(plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncColumns: "vitehub_sync_columns", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
+    expect(await plugin.vitehub.databases({ projectRoot: root })).toEqual([expect.objectContaining({ dialect: "sqlite", name: "sync", tables: { syncChanges: "vitehub_sync_changes", syncColumns: "vitehub_sync_columns", syncMutations: "vitehub_sync_mutations", syncState: "vitehub_sync_state" } })])
   })
 
   it("does nothing without server/sync/, and removes old output", async () => {
@@ -74,11 +74,23 @@ describe("hubSync", () => {
     expect(Reflect.get(config, "nitro")).toBeUndefined()
     expect(existsSync(join(root, ".vitehub/nitro/sync"))).toBe(false)
     expect(existsSync(join(root, ".vitehub/types/sync.d.ts"))).toBe(false)
-    expect(plugin.vitehub.databases({ projectRoot: root })).toEqual([])
+    expect(await plugin.vitehub.databases({ projectRoot: root })).toEqual([])
   })
 
   it("fails the build when the Database is off", async () => {
     const root = app({ "server/sync/todos.ts": "export default {}\n" })
     await expect(configure(root, { database: false })).rejects.toMatchObject({ code: "SYNC_NO_DATABASE" })
   })
+})
+
+it("contributes SQLite tables to every selected named Database", async () => {
+  const root = app({
+    "server/sync/a.ts": 'export default { options: { database: "other" } }',
+    "server/sync/b.ts": 'export default { options: { database: "second" } }',
+  })
+  const contributions = await hubSync().vitehub.databases({ projectRoot: root })
+  expect(contributions).toEqual([
+    expect.objectContaining({ database: "other", dialect: "sqlite" }),
+    expect.objectContaining({ database: "second", dialect: "sqlite" }),
+  ])
 })
