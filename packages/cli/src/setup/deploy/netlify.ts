@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
-import { createNetlifyApiClient, ProvisionRequestError } from "@vite-hub/internal/provision"
+import { createNetlifyApiClient, isProvisionRequestError } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
@@ -86,7 +86,7 @@ export function netlifyEnv(context: HostEnvContext): HostEnv {
     async setSecret(name, value, { secret }) {
       const { path, query, request } = await api()
       const existing = await request(`${path}/${encodeURIComponent(name)}`, { query }).catch((error: unknown) => {
-        if (error instanceof ProvisionRequestError && error.status === 404) return undefined
+        if (isProvisionRequestError(error) && error.status === 404) return undefined
         throw error
       })
       // PATCH cannot add a scope or promote a readable variable to a secret. Refuse before writing.

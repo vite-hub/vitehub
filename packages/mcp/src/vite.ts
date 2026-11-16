@@ -117,7 +117,7 @@ function packageName(projectRoot: string): string | undefined {
 }
 
 interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> {
-  auth: boolean
+  auth: boolean | "optional"
   authMcp: string
   name: string
   only?: "public"
@@ -152,6 +152,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     ...files.resources.length ? [field("resources", "resource")] : [],
     ...files.hooks ? ["  hooks,"] : [],
     ...options.auth ? ["  verify: request => verifyMcpRequest(request),"] : [],
+    ...options.auth === "optional" ? ["  optional: true,"] : [],
     "})",
     "",
   ].join("\n")
@@ -187,9 +188,9 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   if (publicRoute === route) {
     throw mcpErrorDiagnostics.MCP_B0001({ message: `[vitehub] mcp.publicRoute must differ from mcp.route. Both are ${JSON.stringify(route)}.` })
   }
-  const auth = options.auth !== false
-  if (publicRoute && !auth) {
-    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth. With mcp: { auth: false }, every tool on ${JSON.stringify(route)} is public already.` })
+  const auth = options.auth ?? true
+  if (publicRoute && auth !== true) {
+    throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth: true. With mcp: { auth: ${JSON.stringify(auth)} }, the tools with public: true are public on ${JSON.stringify(route)} already.` })
   }
   const imports = { authMcp: options.imports?.authMcp ?? "@vite-hub/auth/mcp", runtime: options.imports?.runtime ?? "@vite-hub/mcp/runtime" }
   let projectRoot = process.cwd()
@@ -211,7 +212,7 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   }
   const fields = (kind: "prompts" | "resources" | "tools") => [
     { label: "Route", value: `${base}${route}` },
-    { label: "Auth", value: auth ? "OAuth (mcpOAuth)" : "public" },
+    { label: "Auth", value: auth === "optional" ? "OAuth (mcpOAuth), optional" : auth ? "OAuth (mcpOAuth)" : "public" },
     ...publicRoute ? [{ label: "Public route", value: `${base}${publicRoute} (${kind} with public: true)` }] : [],
   ]
   const inspector = (kind: "prompts" | "resources") => ({

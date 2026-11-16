@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { sendBatchToPostHog } from "evlog/posthog"
 import { PostHog } from "posthog-node"
@@ -14,8 +15,8 @@ export interface PostHogExporterOptions {
 export function posthog(options: PostHogExporterOptions): ObservabilityExporter {
   const host = options.host || "https://us.i.posthog.com"
   const endpoint = new URL("/batch/", host)
-  if (!["https:", "http:"].includes(endpoint.protocol)) throw new TypeError("[vitehub] PostHog requires an HTTP(S) host.")
-  if (!options.apiKey?.trim()) throw new TypeError("[vitehub] PostHog requires an API key.")
+  if (!["https:", "http:"].includes(endpoint.protocol)) throw agentDiagnostics.AGENT_POSTHOG_HOST_INVALID()
+  if (!options.apiKey?.trim()) throw agentDiagnostics.AGENT_POSTHOG_API_KEY_MISSING()
 
   function distinctId(properties: Record<string, unknown>): string {
     for (const value of [options.service, properties.service, properties.agent_name]) {
@@ -51,7 +52,7 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
         }
       }
       catch { /* The caller receives a failure without credential-bearing response content. */ }
-      if (!retryable || attempt === 2) throw new Error("[vitehub] PostHog did not acknowledge event delivery.")
+      if (!retryable || attempt === 2) throw agentDiagnostics.AGENT_POSTHOG_DELIVERY_UNACKNOWLEDGED()
       await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)))
     }
   }

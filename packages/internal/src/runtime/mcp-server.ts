@@ -35,6 +35,12 @@ export interface McpToolAnnotations {
   openWorldHint?: boolean
 }
 
+/**
+ * How a tool may be called, as the OpenAI Apps SDK and SEP-1488 read it: `noauth` without a token, `oauth2` with an
+ * access token that has the `scopes`.
+ */
+export type McpSecurityScheme = { type: "noauth" } | { type: "oauth2", scopes?: readonly string[] }
+
 /** A tool as `tools/list` shows it, with the handler that `tools/call` runs. It has the shape of an okmcp `defineTool()`. */
 export interface McpTool {
   name: string
@@ -55,6 +61,8 @@ export interface McpTool {
   scopes?: readonly string[]
   /** What `tools/list` shows in the `_meta` of the tool, such as `{ ui: { resourceUri } }` of MCP Apps. */
   _meta?: McpMeta
+  /** How the tool may be called. `tools/list` shows them on the tool. */
+  securitySchemes?: readonly McpSecurityScheme[]
   handler(input: Record<string, unknown>): Promise<McpToolResult>
 }
 
@@ -424,6 +432,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
           inputSchema: tool.inputSchema,
           ...(tool.annotations ? { annotations: tool.annotations } : {}),
           ...(tool._meta ? { _meta: tool._meta } : {}),
+          ...(tool.securitySchemes ? { securitySchemes: tool.securitySchemes } : {}),
         })),
       })
     case "tools/call": {

@@ -637,7 +637,7 @@ it("rejects local sources in nested workspace manifests", async () => {
 it("requires dependency conflicts to be resolved before refreshing the merged graph", async () => {
   const root = await fixture();
   await writeFile(join(root, "pnpm-lock.yaml"), "<<<<<<< HEAD\nlockfileVersion: '9.0'\n=======\nlockfileVersion: '9.0'\n>>>>>>> main\n");
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/Resolve dependency conflicts/);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ message: expect.stringMatching(/Resolve dependency conflicts/), cause: { code: "PRESETS_GITHUB_DEPENDENCY_CONFLICT" } });
   await expect(readFile(join(root, ".git", "args.txt"))).rejects.toThrow();
   await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
   await installGitHubPullRequestWorkspace(root);

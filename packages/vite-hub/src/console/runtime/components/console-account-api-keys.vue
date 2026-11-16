@@ -6,6 +6,7 @@ import { createConsoleApiKey, listConsoleApiKeys, revokeConsoleApiKey } from "..
 import { consoleProjectDisplayName, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSettingsCard from "./console-settings-card.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The API keys of the signed-in person, in Account settings. A key acts as the person in one team, on every project of
@@ -113,7 +114,7 @@ function detail(key: ConsoleApiKey): string {
       </template>
       <li v-if="keys && !keys.length" class="vitehub-account-list__row text-sm text-muted">No API keys yet.</li>
       <li v-for="key in keys ?? []" :key="key.id" class="vitehub-account-list__row">
-        <UIcon name="i-lucide-key-square" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+        <Icon name="i-lucide-key-square" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
         <span class="grid min-w-0 flex-1">
           <span class="flex min-w-0 items-baseline gap-2">
             <span class="truncate text-sm font-medium text-highlighted">{{ key.name }}</span>
