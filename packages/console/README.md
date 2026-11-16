@@ -63,6 +63,7 @@ The account tools act on the team that the person opened last in the Console, el
 - `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
+- `run_operation` runs any operation that `list_operations` names. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
 
 ## Configure

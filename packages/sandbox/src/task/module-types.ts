@@ -1,4 +1,4 @@
-import type { VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
+import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
 import type { SandboxTaskSizeOptions } from './size'
 
@@ -18,6 +18,7 @@ export interface VercelSandboxTaskProviderOptions extends SandboxTaskSizeOptions
   timeout?: number
   ports?: number[]
   source?: VercelSandboxSource
+  /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Vercel also takes `subnets`. */
   networkPolicy?: VercelSandboxNetworkPolicy
   token?: string
   teamId?: string
@@ -36,6 +37,8 @@ export interface CloudflareSandboxTaskDefinitionProviderOptions extends SandboxT
   sleepAfter?: CloudflareSandboxTaskOptions['sleepAfter']
   keepAlive?: CloudflareSandboxTaskOptions['keepAlive']
   normalizeId?: CloudflareSandboxTaskOptions['normalizeId']
+  /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Applies when the Container starts. */
+  networkPolicy?: SandboxNetworkPolicy
 }
 
 export type SandboxTaskDefinitionProviderOptions

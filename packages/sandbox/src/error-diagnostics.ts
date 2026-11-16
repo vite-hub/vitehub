@@ -160,6 +160,10 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `[vitehub] Invalid Cloudflare sleepAfter ${value}. Use seconds or a value such as "30s", "5m" or "1h".`,
       fix: "Set `sleepAfter` of the Cloudflare Sandbox to a number of seconds or a string such as `\"30s\"`, `\"5m\"`, or `\"1h\"`.",
     },
+    SANDBOX_NETWORK_POLICY_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] Invalid Sandbox networkPolicy. ${problem}`,
+      fix: "Set `networkPolicy` to \"allow-all\", \"deny-all\", or `{ allow: [\"api.example.com\", \"*.example.com\"] }` with at most 64 hostnames. Only Vercel supports `subnets`. With a custom Cloudflare `getSandbox`, apply the network policy in your own Durable Object and omit `networkPolicy`.",
+    },
     SANDBOX_SSH_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.",
       fix: "Pass `close({ drainTimeoutMs })` a whole number of milliseconds from 0 to 2147483647, or omit it to close at once.",

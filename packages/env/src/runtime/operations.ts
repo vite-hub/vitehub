@@ -1,9 +1,12 @@
 // The package import resolves to the Server Env module that the Env plugin generates for the app.
 import { inspectServerEnv } from "#vitehub/env/server"
 
+import { detectHost } from "@vite-hub/runtime"
+
 import { isBlockingServerEnvEntry, runWithCloudflareEnv } from "../server.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
+import type { ViteHubHost } from "@vite-hub/runtime"
 import type { ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "../types.ts"
 
 /** One Server Env declaration as the running app sees it. It never holds a value, a preview, or a length. */
@@ -31,6 +34,8 @@ export interface EnvInspectResult {
   entries: EnvInspectEntry[]
   /** No entry is blocking. */
   ok: boolean
+  /** The host that the app runs on, such as `cloudflare`, so a fix can name `vitehub env push --host <host>`. */
+  host?: ViteHubHost
 }
 
 function entryOf(entry: ServerEnvInspectionEntry): EnvInspectEntry {
@@ -53,5 +58,6 @@ export async function inspectEnvOperation(context: Pick<OperationContext, "env">
   // Without bindings in the call, Server Env reads the active bindings of the request.
   const inspection = await (context.env ? runWithCloudflareEnv(context.env, () => inspectServerEnv()) : inspectServerEnv())
   const entries = inspection.entries.map(entryOf)
-  return { entries, ok: !entries.some(entry => entry.blocking) }
+  const host = detectHost()
+  return { entries, ok: !entries.some(entry => entry.blocking), ...(host ? { host } : {}) }
 }

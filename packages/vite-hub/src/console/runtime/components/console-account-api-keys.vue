@@ -5,6 +5,7 @@ import type { ConsoleApiKey } from "../client/account";
 import { createConsoleApiKey, listConsoleApiKeys, revokeConsoleApiKey } from "../client/account";
 import { consoleProjectDisplayName, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import ConsoleSettingsCard from "./console-settings-card.vue";
 
 /**
  * The API keys of the signed-in person, in Account settings. A key acts as the person in one team, on every project of
@@ -99,12 +100,7 @@ function detail(key: ConsoleApiKey): string {
 </script>
 
 <template>
-  <section class="grid gap-3" aria-labelledby="vitehub-settings-api-keys">
-    <div class="flex items-center justify-between gap-2">
-      <h2 id="vitehub-settings-api-keys" class="text-sm font-semibold text-highlighted">API keys</h2>
-      <UButton v-if="team" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Create a key" @click="creating = true" />
-    </div>
-    <p class="text-xs text-muted">A key acts as you in one team, for the CLI and for CI. <code class="font-mono">vitehub login</code> makes one for you.</p>
+  <ConsoleSettingsCard title="API keys" description="A key acts as you in one team, for the CLI and for CI." heading-id="vitehub-settings-api-keys">
     <ul class="vitehub-account-list">
       <template v-if="!keys && !loadProblem">
         <li class="vitehub-account-list__row" aria-hidden="true">
@@ -134,6 +130,10 @@ function detail(key: ConsoleApiKey): string {
       The API keys did not load.
       <UButton size="xs" color="neutral" variant="ghost" label="Retry" @click="load()" />
     </div>
+    <template #footer><code class="font-mono">vitehub login</code> makes one for you.</template>
+    <template v-if="team" #action>
+      <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" label="Create a key" @click="creating = true" />
+    </template>
 
     <UModal
       v-model:open="creating"
@@ -190,5 +190,5 @@ function detail(key: ConsoleApiKey): string {
         </div>
       </template>
     </UModal>
-  </section>
+  </ConsoleSettingsCard>
 </template>

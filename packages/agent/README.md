@@ -406,7 +406,7 @@ for the code format and an application catalog example.
 
 ## UI that an Agent sends
 
-An Agent can answer with UI: an approval card, a table, a plan, or a form, instead of text. It writes a [json-render](https://json-render.dev) spec, and `@vite-hub/agent/ui` is the contract for what it may send. In the C4 first-try evals, models wrote json-render correctly in 72 of 72 tries and A2UI in 57 of 72, so json-render is the wire format.
+An Agent can answer with UI: an approval card, a table, a plan, or a form, instead of text. It writes a [json-render](https://json-render.dev) spec, and `@vite-hub/agent/ui` is the contract for what it may send. In the C4 first-try evals, models wrote json-render correctly in 72 of 72 tries and A2UI in 57 of 72, so json-render is the wire format. The guide is [Agent UI](https://vitehub.dev/docs/agents/ui).
 
 The catalog holds layout and display components only: Stack, Text, Heading, KeyValue, Divider, Card, Button, Link, Image, Badge, Table, Tabs, and Form. A spec does not draw inputs. To ask for values, a `Form` names a form of `@vite-hub/forms`, and the form schema gives the fields, the same schema that the web form, the MCP elicitation, and the chat modal use.
 
@@ -509,6 +509,25 @@ export default defineConfig({
 ```
 
 `driver: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local or explicitly persistent Node deployments and hosted libSQL URLs work remotely. Cloudflare, Vercel, and Netlify production output rejects `file:` Agent state before it can write to an ephemeral filesystem.
+
+The drivers are `auto`, `sqlite`, `libsql`, `cloudflare`, and `memory`. Only `auto`, `sqlite`, and `libsql` read `url`, `authToken`, `journalMode`, and `tablePrefix`. Any other driver or key fails the build with `AGENT_B0005`.
+
+For hosted libSQL, declare the auth token with `env()`. ViteHub reads it at runtime and does not write it into the server bundle. `VITEHUB_AGENT_STATE_AUTH_TOKEN` wins when it is set.
+
+```ts
+import { hubAgent } from "@vite-hub/agent/vite"
+import { env } from "@vite-hub/env"
+
+hubAgent({
+  providers: {
+    state: {
+      driver: "libsql",
+      url: "libsql://agent-state.turso.io",
+      authToken: env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") }),
+    },
+  },
+})
+```
 
 Built-in persistent `file:` connections use SQLite WAL so queue commits can complete while another connection retains a read snapshot. WAL requires a local filesystem with shared-memory support. For NFS, EFS, or another network-backed volume, set `agent.providers.state.journalMode: "delete"` to use rollback journaling. The low-level `createLibsqlAgentState()` accepts the same `journalMode` option. Keep the database and its journal files on the same persistent volume. Supplied clients and remote connections keep their own connection policy. Agent State operations on the same local file share an in-process queue across adapters, including equivalent encoded or relative file URLs. Adapters with one supplied client share a queue by client identity. Owned in-memory clients serialize their own operations without blocking independent memory databases. Owned clients using `file::memory:?cache=shared` share one database queue, including equivalent encoded and mixed-case scheme URLs. This coordination does not replace SQLite locks across processes or coordinate SQL issued directly outside Agent State.
 
