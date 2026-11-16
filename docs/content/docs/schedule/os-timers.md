@@ -59,7 +59,7 @@ The function returns `[error, unit]`. It does not throw when the OS cannot run t
 
 | OS | User scope (default) | System scope |
 | --- | --- | --- |
-| Linux | systemd user timer and service in `~/.config/systemd/user/` | systemd timer and service in `/etc/systemd/system/` |
+| Linux | systemd user timer and service in the folder that your systemd user manager reads, `~/.config/systemd/user/` by default | systemd timer and service in `/etc/systemd/system/` |
 | macOS | LaunchAgent in `~/Library/LaunchAgents/<name>.plist` | LaunchDaemon in `/Library/LaunchDaemons/<name>.plist` |
 | Windows | Task Scheduler task `\<name>` that runs as you while you are signed in | Task Scheduler task `\<name>` that runs as SYSTEM |
 

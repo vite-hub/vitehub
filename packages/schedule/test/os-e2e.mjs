@@ -2,20 +2,24 @@
 // removes it again. CI runs it on Linux (systemd), macOS (launchd) and Windows (Task Scheduler) in both scopes:
 //
 //   node packages/schedule/test/os-e2e.mjs --scope user
+//   node packages/schedule/test/os-e2e.mjs --scope user --moved-home
 //   sudo -E env PATH="$PATH" node packages/schedule/test/os-e2e.mjs --scope system
+//
+// `--moved-home` runs with HOME under a symbolic link and an XDG_CONFIG_HOME that the systemd user manager does not
+// have. launchd prints the real path of a plist, and the user manager reads units from its own folder only.
 //
 // Build @vite-hub/schedule first. The script changes the machine: it always uninstalls the timer it made.
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parseArgs, promisify } from "node:util"
 
 import { installOsSchedule, osScheduleStatus, uninstallOsSchedule } from "../dist/os.js"
 
-const { values } = parseArgs({ options: { scope: { type: "string", default: "user" } }, strict: true })
+const { values } = parseArgs({ options: { "scope": { type: "string", default: "user" }, "moved-home": { type: "boolean", default: false } }, strict: true })
 const scope = values.scope
 assert.ok(scope === "user" || scope === "system", `--scope must be "user" or "system", got "${scope}"`)
 
@@ -29,6 +33,14 @@ const logDir = join(dir, "logs")
 // No spaces and no double quotes: the argument passes through systemd, launchd, and a PowerShell wrapper unchanged.
 const command = [process.execPath, "-e", "require('node:fs').appendFileSync(process.argv[1],process.env.VITEHUB_OS_E2E+'\\n')", marker]
 const target = { scope }
+
+if (values["moved-home"]) {
+  // On macOS the temporary folder is already under /var, a link to /private/var.
+  mkdirSync(join(dir, "real-home"))
+  symlinkSync(join(dir, "real-home"), join(dir, "home"), "dir")
+  process.env.HOME = join(dir, "home")
+  process.env.XDG_CONFIG_HOME = join(dir, "home", ".config")
+}
 
 function step(message) {
   console.log(`[os-e2e] ${message}`)
@@ -89,7 +101,7 @@ async function diagnose(unit) {
 let removed = false
 let unit
 try {
-  step(`platform ${process.platform}, scope ${scope}, name ${name}, temp dir ${dir}`)
+  step(`platform ${process.platform}, scope ${scope}, name ${name}, temp dir ${dir}, HOME ${process.env.HOME}`)
 
   step("install")
   unit = unwrap(await install({ VITEHUB_OS_E2E: "1" }), "first install")
