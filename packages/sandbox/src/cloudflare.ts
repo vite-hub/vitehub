@@ -20,6 +20,13 @@ import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 import { cloudflareSignalNumber, type CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
+import {
+  cloudflareInterceptedHttpsEnv,
+  normalizeCloudflareNetworkPolicy,
+  sandboxNetworkAuthority,
+  type NormalizedSandboxNetworkPolicy,
+  type SandboxNetworkPolicy,
+} from "./internal/network-policy.ts";
 
 export interface CloudflareSandboxOptions {
   cloudflare?: {
@@ -34,6 +41,11 @@ export interface CloudflareSandboxOptions {
   ) => CloudflareSandboxStub;
   hostname?: string;
   namespace: CloudflareDurableObjectNamespace;
+  /**
+   * Outbound network of the Container. Default `"allow-all"`. The policy applies when the Container starts.
+   * A Sandbox that runs with another policy restarts. Not available with a custom `getSandbox`.
+   */
+  networkPolicy?: SandboxNetworkPolicy;
   sandboxId?: string;
 }
 
@@ -106,29 +118,29 @@ const cloudflareExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
-// The built-in Durable Object starts every Container with `enableInternet: true`.
-const builtInCloudflareExecutionAuthority = {
-  ...cloudflareExecutionAuthority,
-  network: "unrestricted",
-} as const satisfies ExecutionAuthority;
-
 export function createCloudflareRuntime(options: CloudflareSandboxOptions): SandboxRuntime {
   if (!options?.namespace)
     throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: "[vitehub] The cloudflare Sandbox runtime requires a Durable Objects namespace." });
+  const networkPolicy = normalizeCloudflareNetworkPolicy(options.networkPolicy);
+  if (options.getSandbox && options.networkPolicy !== undefined)
+    throw sandboxErrorDiagnostics.SANDBOX_NETWORK_POLICY_INVALID({ problem: "A custom getSandbox starts the Container, so ViteHub cannot apply networkPolicy." });
+  // The built-in Durable Object starts the Container with this policy. A custom `getSandbox` decides the network itself.
+  const executionAuthority = options.getSandbox
+    ? cloudflareExecutionAuthority
+    : { ...cloudflareExecutionAuthority, network: sandboxNetworkAuthority(networkPolicy) };
+  // Allowed HTTPS hosts reach the command through Cloudflare's interception CA.
+  const commandEnv = typeof networkPolicy === "object" ? cloudflareInterceptedHttpsEnv : {};
   return markBuiltInSandboxRuntime({
     name: "cloudflare",
     async prepare(input) {
-      return remoteSandboxPlan(input, {
-        // A custom `getSandbox` decides the Container network itself.
-        executionAuthority: options.getSandbox ? cloudflareExecutionAuthority : builtInCloudflareExecutionAuthority,
-        runtime: "cloudflare",
-      });
+      return remoteSandboxPlan(input, { executionAuthority, runtime: "cloudflare" });
     },
     async open(input, openOptions) {
-      const env = await resolveRemoteEnvironment(input, {});
+      const env = { ...commandEnv, ...await resolveRemoteEnvironment(input, {}) };
       const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
-      const getSandbox = options.getSandbox ?? getCloudflareSandbox;
-      const stub = getSandbox(options.namespace, id, options.cloudflare);
+      const stub = options.getSandbox
+        ? options.getSandbox(options.namespace, id, options.cloudflare)
+        : getCloudflareSandbox(options.namespace, id, options.cloudflare, networkPolicy);
       const runtimeSession = createCloudflareSession(id, stub, env, options.hostname, !options.getSandbox);
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
@@ -148,12 +160,13 @@ function getCloudflareSandbox(
   namespace: CloudflareDurableObjectNamespace,
   id: string,
   options: CloudflareSandboxOptions["cloudflare"] = {},
+  networkPolicy: NormalizedSandboxNetworkPolicy = "allow-all",
 ): CloudflareSandboxStub {
   // SAFETY: the namespace binds the generated class, whose RPC methods implement CloudflareSandboxDurableObject.
   const target = namespace.get(namespace.idFromName(options.normalizeId ? id.toLowerCase() : id)) as CloudflareSandboxDurableObject;
   let configured: Promise<void> | undefined;
   const ready = async () => {
-    configured ??= target.configure({ keepAlive: options.keepAlive, sleepAfter: options.sleepAfter })
+    configured ??= target.configure({ keepAlive: options.keepAlive, networkPolicy, sleepAfter: options.sleepAfter })
       .catch((error: unknown) => {
         configured = undefined;
         throw error;
@@ -451,7 +464,7 @@ function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
           if (log.type === "stdout" || log.type === "stderr") forward(log.type, log.data ?? "");
           else if (log.type === "exit") return;
           else if (log.type === "error")
-            throw new Error(`[vitehub] Cloudflare process log stream failed: ${log.data ?? "unknown error"}`);
+            throw sandboxErrorDiagnostics.SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED({ detail: log.data ?? "unknown error" });
         }
         if (done) return;
       }

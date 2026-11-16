@@ -101,7 +101,7 @@ function lazyDefinition(name: string, load: ScheduleDefinitionRegistry[string]):
   let loading: Promise<CronScheduleDefinition> | undefined
   return () => loading ??= load().then((loaded) => {
     const definition = unwrapDefinition(loaded)
-    if (!definition) throw new TypeError(`Schedule "${name}" has no default export of defineSchedule() with a cron and a handler.`)
+    if (!definition) throw scheduleErrorDiagnostics.SCHEDULE_DEFINITION_EXPORT_INVALID({ name })
     return definition
   }).catch((error: unknown) => {
     loading = undefined

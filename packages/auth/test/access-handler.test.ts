@@ -5,6 +5,7 @@ import { Response as ForeignResponse } from "undici"
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -19,7 +20,7 @@ const session = { session: { id: "session" }, user: { id: "user" } }
 describe("Auth access handlers", () => {
   beforeEach(() => {
     provider.betterAuth.mockReset().mockReturnValue({
-      api: { getSession: provider.getSession },
+      api: { getSession: returnHeaders(provider.getSession) },
       handler: provider.handler,
     })
     provider.getSession.mockReset().mockResolvedValue(session)
@@ -40,8 +41,9 @@ describe("Auth access handlers", () => {
     const resolve = vi.fn(async () => ({ id: "token-user" }))
     setAuthAccessIdentityResolver("/portal/_vitehub/mcp", resolve)
     const request = new Request("https://app.example/portal/_vitehub/mcp", { method: "POST" })
-    expect((await handler(requestEvent(request)))?.status).toBe(403)
-    expect(first).toHaveBeenCalledWith({ request, session: {}, user: { id: "token-user" } })
+    const event = requestEvent(request)
+    expect((await handler(event))?.status).toBe(403)
+    expect(first).toHaveBeenCalledWith({ event, request, session: {}, user: { id: "token-user" } })
     expect(second).toHaveBeenCalledOnce()
     second.mockReturnValue(true)
     await expect(handler(request)).resolves.toBeUndefined()
@@ -126,10 +128,11 @@ describe("Auth access handlers", () => {
       authorize.mockClear()
       provider.getSession.mockClear()
       const request = new Request(`https://app.example${path}`, { method })
-      await expect(handler(adapter === "host" ? requestEvent(request) : request)).resolves.toBeUndefined()
+      const input = adapter === "host" ? requestEvent(request) : request
+      await expect(handler(input)).resolves.toBeUndefined()
       expect(authorize).toHaveBeenCalledTimes(matches ? 1 : 0)
       expect(provider.getSession).toHaveBeenCalledTimes(matches ? 1 : 0)
-      if (matches) expect(authorize).toHaveBeenCalledWith({ request, ...session })
+      if (matches) expect(authorize).toHaveBeenCalledWith({ event: input, request, ...session })
     }
   })
 
