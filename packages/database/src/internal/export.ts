@@ -301,7 +301,7 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
     const listed = await api(`/d1/database?name=${encodeURIComponent(target.databaseName!)}`)
     const match = (Array.isArray(listed) ? listed as Array<{ name?: string, uuid?: string }> : []).find(database => database.name === target.databaseName)
     // Internal invariant: caught by `vitehub database export`, which prints it as the problem of DATABASE_EXPORT_FAILED.
-    if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --provider cloudflare\` or set \`cloudflare.databaseId\`.`)
+    if (!match?.uuid) throw new Error(`The Cloudflare account has no D1 database named "${target.databaseName}". Run \`vitehub provision run --host cloudflare\` or set \`cloudflare.databaseId\`.`)
     databaseId = match.uuid
   }
   let bookmark: string | undefined

@@ -1,6 +1,7 @@
 import type { WorkflowDefinition, WorkflowDurationUnit, WorkflowExecutionContext, WorkflowProviderContext, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const defaultStepOptions = {
@@ -138,6 +139,30 @@ function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>
 
 /** The root step result that says the handler called `context.sleep()`. A replay reads it and fails the same way. */
 const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
+
+/**
+ * The step result that says the step threw a `NonRetryableError`. A provider that retries every error, such as
+ * OpenWorkflow, ends the step with it, so it does not run the step again. The caller throws the error outside the
+ * step, and a replay reads the stored result and throws the same error.
+ */
+export interface NonRetryableStepResult {
+  "~vitehubNonRetryableError": { code?: string, message: string, name: string }
+}
+
+export function toNonRetryableStepResult(error: unknown): NonRetryableStepResult | undefined {
+  if (!isNonRetryableError(error)) return undefined
+  const code: unknown = Reflect.get(error, "code")
+  return { "~vitehubNonRetryableError": { ...(typeof code === "string" ? { code } : {}), message: error.message, name: error.name } }
+}
+
+export function readNonRetryableStepResult(value: unknown): NonRetryableError | undefined {
+  if (typeof value !== "object" || value === null || !Object.hasOwn(value, "~vitehubNonRetryableError")) return undefined
+  // SAFETY: Only toNonRetryableStepResult writes this key.
+  const { code, message, name } = (value as NonRetryableStepResult)["~vitehubNonRetryableError"]
+  const error = new NonRetryableError(message)
+  error.name = name
+  return code === undefined ? error : Object.assign(error, { code })
+}
 
 /**
  * Runs the handler in its root step, or alone for a folder Workflow (`rootStep: false`). A sleep inside the root step

@@ -1,10 +1,14 @@
 import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { createWorkflowError } from "../errors.ts"
+
+import { fromCloudflareStartParams } from "./delay.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError } from "../errors.ts"
 
 export interface CloudflareWorkflowEvent {
   id?: string
@@ -14,26 +18,27 @@ export interface CloudflareWorkflowEvent {
 
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
-  createNonRetryableError?: (error: Error & { isRetryable: false }) => Error
+  createNonRetryableError?: (error: Error) => Error
   env: CloudflareWorkerEnv
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep
+  step?: WorkflowProviderStep & {
+    sleepUntil?: (name: string, timestamp: Date | number) => Promise<void>
+  }
 }
 
-// Check the fields that the generated NonRetryableError reads, so an Error from another realm also matches.
-function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  return typeof error === "object" && error !== null
-    && "isRetryable" in error && error.isRetryable === false
-    && "message" in error && typeof error.message === "string"
-}
+/** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */
+const cloudflareNonRetryableErrors = new WeakSet<object>()
 
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
 ): unknown {
-  return createNonRetryableError && isNonRetryableError(error) ? createNonRetryableError(error) : error
+  if (!createNonRetryableError || !isNonRetryableError(error) || cloudflareNonRetryableErrors.has(error)) return error
+  const translated = createNonRetryableError(error)
+  cloudflareNonRetryableErrors.add(translated)
+  return translated
 }
 
 function wrapCloudflareWorkflowStep(
@@ -74,11 +79,19 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       throw workflowErrorDiagnostics.WORKFLOW_R0015({ message: `Missing workflow definition: ${name}` })
     }
 
+    // A delayed start sleeps first. A sleeping instance does not count toward the concurrency limit. On replay, the
+    // finished sleep returns at once.
+    const { payload, startAt } = fromCloudflareStartParams(event?.payload)
+    if (startAt !== undefined) {
+      if (!step?.sleepUntil) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "cloudflare" } })
+      await step.sleepUntil("vitehub-delay", new Date(startAt))
+    }
+
     try {
       return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runSerializedWorkflowHandler({
         id: event?.instanceId || event?.id,
         name,
-        payload: event?.payload,
+        payload,
         provider: "cloudflare",
         step: providerStep,
       }, definition))

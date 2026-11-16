@@ -43,7 +43,7 @@ it.each([301, 302, 303, 307, 308, 304])("handles a runtime-owned token response 
   const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store, now: () => test.now.value })
   const connected = connect({ ...test, runtime })
   if (status === 304) await expect(connected).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
-  else await expect(connected).rejects.toThrow("The provider answered with a redirect.")
+  else await expect(connected).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", message: expect.stringContaining("The provider answered with a redirect") })
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("manual")
 })

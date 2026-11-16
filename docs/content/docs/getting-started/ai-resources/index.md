@@ -66,7 +66,7 @@ Use `llms-full.txt` for a broad audit, not routine work. One raw page usually gi
 | [ViteHub OpenAPI document](https://vitehub.dev/openapi.json) | Describes the resources `vitehub.dev` serves. |
 | [Skill index](https://vitehub.dev/.well-known/skills/index.json) | Lists the skills `vitehub.dev` publishes. The skills CLI reads it. |
 | [ViteHub Agent Skill](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md) | The entry file of the ViteHub skill. |
-| [ViteHub MCP server](https://vitehub.dev/mcp) | Streamable HTTP endpoint for MCP clients. |
+| [ViteHub MCP server](/docs/getting-started/ai-resources/mcp-server) | `https://vitehub.dev/mcp`, the Streamable HTTP endpoint for MCP clients. |
 | [ViteHub CLI on npm](https://www.npmjs.com/package/vite-hub) | The `vite-hub` package includes the official `vitehub` command. |
 
 The OpenAPI document describes `vitehub.dev`, not a hosted runtime API.
