@@ -11,7 +11,7 @@ import { promisify } from "node:util"
 import { invariant } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -196,7 +196,7 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
         const { id: appId, login } = await client.app().catch((error: unknown) => {
           const status = forgeErrorStatus(error)
           if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
-          if (error instanceof ForgeResponseError) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
+          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
           throw error
         })
         const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
@@ -336,7 +336,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
           const status = forgeErrorStatus(error)
           if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_FAILED({ status, cause: error })
-          if (error instanceof ForgeResponseError) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_MISSING({ cause: error })
+          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_MISSING({ cause: error })
           throw error
         }
       }
