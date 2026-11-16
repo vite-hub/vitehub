@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
 import { GitHubDependencyConflictError } from "../github/index.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { invariant } from "@vite-hub/internal/invariant";
 import * as v from "valibot";
 import { join, resolve } from "node:path";
 import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
@@ -993,8 +994,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       } catch (error) {
         if (!(error instanceof MergeBlockedError) || error.status === 409) throw error;
         if (mergeResultStatus(error) === "enqueued") {
-          // Internal invariant: the inbox claim gives this pass the merge token; only a lost claim changes it, and the scheduler retries.
-          if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
+          if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_DIRECT_MERGE_CLAIM_LOST();
           return await parkMerge("GitHub enqueued the pull request; waiting for its merge webhook.");
         }
         await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
@@ -2314,8 +2314,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   return await readGitHubDependencyStatus(providerDirectory ?? checkout);
                 },
                 refreshDependencies: async () => {
-                  // Internal invariant: the pass prepares the workspace before the agent can call a repair tool.
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -2330,8 +2329,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                 },
                 commitRepair: async (input) => {
-                  // Internal invariant: the pass prepares the workspace before the agent can call a repair tool.
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   // After a failed optional install there is nothing to verify against; hosted CI validates the dependency inputs.
@@ -2346,8 +2344,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   return head;
                 },
                 push: async () => {
-                  // Internal invariant: the pass prepares the workspace before the agent can call a repair tool.
-                  if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  invariant(providerDirectory, "the Babysitter pass prepares the repair workspace before the agent can call a repair tool");
                   await assertLease();
                   await assertRepairBase();
                   const renewLease = async () => {
@@ -2448,8 +2445,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 | ClaudeCodeDriver<unknown, BabysitterPassResult>;
               const activityEnabled = statusComment;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
-              // Internal invariant: createBabysitterRuntime() reads the base settings before it starts any pass.
-              if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
+              invariant(baseSettings, "createBabysitterRuntime() reads the base Agent settings before it starts a pass");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
               // the host forge access, but dropping the whole map loses other
@@ -2525,8 +2521,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
                 if (!workerSettings.sandbox) return;
                 const session = activeProviderSandbox(context);
-                // Internal invariant: the pass starts the repair Sandbox before this hook runs.
-                if (!session) throw new Error("The repair Sandbox is not prepared.");
+                invariant(session, "the Babysitter pass starts the repair Sandbox before this hook runs");
                 await assertLease();
                 if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
@@ -2555,8 +2550,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   const sandbox = activeProviderSandbox(context);
-                  // Internal invariant: the pass starts the repair Sandbox before the agent can call a repair tool.
-                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  invariant(sandbox, "the Babysitter pass starts the repair Sandbox before the agent can call a repair tool");
                   if (!sandbox.localWorkspace) {
                     await importSandboxCommit(sandbox.session, checkout, pullRequest.headRefOid, abortSignal);
                     if (paths) await importSandboxRepairFiles(sandbox.session, checkout, paths, abortSignal);
@@ -2568,8 +2562,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!workerSettings.sandbox || presetOptions.install === false) return;
                   await assertLease();
                   const sandbox = activeProviderSandbox(context);
-                  // Internal invariant: the pass starts the repair Sandbox before the agent can call a repair tool.
-                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  invariant(sandbox, "the Babysitter pass starts the repair Sandbox before the agent can call a repair tool");
                   if (!sandbox.localWorkspace) await publishSandboxDependencies(sandbox.session, checkout, abortSignal);
                   await assertLease();
                 },

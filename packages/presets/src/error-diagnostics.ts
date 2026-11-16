@@ -307,6 +307,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Conflict repair requires the exact live base branch commit.",
       fix: "Check that the base branch of the pull request still exists and that the GitHub App has Contents: read permission. The Babysitter retries the pull request on its next pass.",
     },
+    PRESETS_BABYSITTER_DIRECT_MERGE_CLAIM_LOST: {
+      why: "The direct merge claim of this pull request changed before the Babysitter could record that GitHub enqueued the merge.",
+      fix: "Let the Babysitter retry the pull request on its next pass. If this repeats, check that only one Babysitter runtime uses the inbox database.",
+    },
     PRESETS_BABYSITTER_DRIVER_UNSUPPORTED: {
       why: "Babysitter requires a Codex or Claude Code driver for its isolated Git checkout.",
       fix: "Set driver to \"codex\" or \"claude-code\" in the Babysitter options, and do not replace the driver of the Agent that extends babysitter.",
