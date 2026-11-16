@@ -1,7 +1,7 @@
 import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { findModuleEntry, literalValue, nitroPreset, staticOptionsObject, unwrapExpression } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
@@ -241,10 +241,10 @@ export function findViteHubOption(config: NuxtConfigFile, name: string): ObjectP
   const entry = findViteHubEntry(config)
   const inline = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
   const inlineOptions = inline ? staticOptionsObject(inline) : undefined
-  if (inline && !inlineOptions) throw new CodemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  if (inline && !inlineOptions) throw codemodError(`${config.fileName} sets inline vite-hub/nuxt options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
   const existing = findProperty(config.root, "vitehub")
   const rootOptions = existing ? staticOptionsObject(existing.value) : undefined
-  if (existing && !rootOptions) throw new CodemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
+  if (existing && !rootOptions) throw codemodError(`${config.fileName} sets vitehub options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
   return (inlineOptions ? findProperty(inlineOptions, name) : undefined)
     ?? (rootOptions ? findProperty(rootOptions, name) : undefined)
 }
@@ -287,10 +287,10 @@ function explicitModules(config: NuxtConfigFile) {
   const modules = objectPropertyArray(config.root, "modules")
   if (modules) return modules
   if (findProperty(config.root, "modules")) {
-    throw new CodemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
+    throw codemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
   }
   if (config.root.properties.some(property => property.type === "SpreadElement")) {
-    throw new CodemodError(`${config.fileName} has a root spread that may supply modules. Make modules an explicit array literal, then run the codemod again.`)
+    throw codemodError(`${config.fileName} has a root spread that may supply modules. Make modules an explicit array literal, then run the codemod again.`)
   }
   return undefined
 }
@@ -363,7 +363,7 @@ export function planHost(config: NuxtConfigFile, defaultHost?: DefaultHost): Hos
   }
   const preset = nitroPreset(config)
   if (preset.property && preset.value === undefined) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
+    throw codemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
   }
   if (preset.value) {
     const mapped = nitroPresetHosts[preset.value.trim().toLowerCase().replaceAll("_", "-")]
@@ -390,10 +390,10 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {
-    if (existingOptions.value.type !== "ObjectExpression") throw new CodemodError(`${config.fileName} sets vitehub to an expression. Make it an object literal, then run the codemod again.`)
+    if (existingOptions.value.type !== "ObjectExpression") throw codemodError(`${config.fileName} sets vitehub to an expression. Make it an object literal, then run the codemod again.`)
     const existing = existingOptions.value
     for (const option of input.options) {
-      if (findProperty(existing, option.key)) throw new CodemodError(`${config.fileName} already sets vitehub.${option.key}. Merge ${option.label} by hand.`)
+      if (findProperty(existing, option.key)) throw codemodError(`${config.fileName} already sets vitehub.${option.key}. Merge ${option.label} by hand.`)
     }
     const innerIndent = existing.properties.length ? editor.propertyIndent(existing) : `${baseIndent}${unit}`
     const entries = input.options.map(option => `${option.key}: ${option.value(innerIndent)}`)
