@@ -170,7 +170,7 @@ The host writes the Container, the Durable Object binding, the migration, and th
 - It builds on `node:24-bookworm-slim` with git, curl, jq, and zip.
 - It copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches your `@cloudflare/sandbox` version.
 
-A custom image must include bash and GNU coreutils (`timeout` on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image, and keep running, such as with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type (1/16 vCPU, 256 MiB) and allows 12 instances. Your own container entry with the same class name keeps its instance type.
+A custom image must include bash and GNU coreutils (`timeout` on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image, and keep running, such as with `CMD ["sleep", "infinity"]`. The generated container uses the `standard-1` instance type (1/2 vCPU, 4096 MiB) and allows 12 instances. Set `cpu`, `memory`, and `maxInstances` to change them, as [Size](/docs/sandbox/hosts#size) shows. Your own container entry with the same class name keeps its instance type.
 
 Each Sandbox Task run gets a new Sandbox, closed at the end, unless you set `sandboxId` to share one. Cloudflare stops an idle container after 10 minutes by default, which stops billing. The next request gets a fresh container with no earlier state. Change this with `sleepAfter` or `keepAlive` in the [Cloudflare options](/docs/sandbox/hosts#cloudflare-options).
 

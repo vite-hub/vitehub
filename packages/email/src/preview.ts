@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises"
 import { relative } from "node:path"
 
+import type { ResultError } from "@vite-hub/runtime"
+
+import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderEmailMarkdown } from "./markdown.ts"
 import { discoverEmailTemplates } from "./templates.ts"
 
@@ -12,15 +15,10 @@ export interface EmailPreview {
   text: string
 }
 
-/** A template that the roots do not hold. */
-export class EmailTemplateNotFoundError extends Error {
-  readonly code = "EMAIL_TEMPLATE_NOT_FOUND"
-  readonly status = 404
-  readonly fix = "Pass the path under server/emails without `.md`."
-
-  constructor(template: string, roots: readonly string[], rootDir: string, available: readonly string[]) {
-    super(`Email template ${JSON.stringify(template)} was not found in ${roots.map(root => relative(rootDir, root) || ".").join(", ")}. ${available.length ? `Templates: ${available.join(", ")}.` : "No templates were found."}`)
-  }
+/** The error for a template that the roots do not hold. The `email.preview` operation answers 404 for it. */
+export function emailTemplateNotFound(template: string, roots: readonly string[], rootDir: string, available: readonly string[]): ResultError<"EMAIL_TEMPLATE_NOT_FOUND"> & { status: number } {
+  const error = emailErrorDiagnostics.EMAIL_TEMPLATE_NOT_FOUND({ available: available.join(", "), roots: roots.map(root => relative(rootDir, root) || ".").join(", "), template })
+  return Object.assign(error, { status: 404 })
 }
 
 /**
@@ -30,7 +28,7 @@ export class EmailTemplateNotFoundError extends Error {
 export async function previewEmailTemplate(roots: readonly string[], rootDir: string, name: string, data: Record<string, unknown> = {}): Promise<EmailPreview> {
   const templates = await discoverEmailTemplates([...roots])
   const template = templates.find(entry => entry.name === name)
-  if (!template) throw new EmailTemplateNotFoundError(name, roots, rootDir, templates.map(entry => entry.name))
+  if (!template) throw emailTemplateNotFound(name, roots, rootDir, templates.map(entry => entry.name))
   const rendered = await renderEmailMarkdown(await readFile(template.file, "utf8"), { data })
   return { file: relative(rootDir, template.file), html: rendered.html, template: template.name, text: rendered.text }
 }

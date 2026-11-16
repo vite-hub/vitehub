@@ -111,8 +111,12 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect/node",
   "@vite-hub/docs/server",
   "@vite-hub/env/seal",
+  // Build tools and page scripts read a preview's repository and commit; apps call useForge() from vite-hub/forge.
+  "@vite-hub/forge/build",
+  "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
   // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
+  "@vite-hub/ui/comment-marks.css",
   "@vite-hub/ui/playground",
   "@vite-hub/ui/theme",
   "@vite-hub/ui/theme.css",
@@ -725,7 +729,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleRail).toContain("navigationFailed.value = true");
-    expect(consoleRail).toContain('<PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">');
+    expect(consoleRail).toContain('label="Retry loading primitives" icon="i-lucide-refresh-cw" @click="loadNavigation"');
     expect(consoleRail).toContain("open('vitehub-console')");
     expect(consoleRail).toContain("subscribeConsoleNavigation(props.sectionsBase");
     expect(consoleRail).toContain('import { defineShortcuts } from "@nuxt/ui/composables";');

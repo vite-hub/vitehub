@@ -3,6 +3,8 @@ export type { SetupAddArgs, SetupAddPlan, SetupAddPlanned, SetupChange, SetupOpt
 export { setupCatalog } from "./catalog.ts"
 export type { SetupCatalog } from "./catalog.ts"
 export { setupCommands } from "./commands.ts"
+export { consoleCredentialsFile, consoleOrigin, consoleTokenVariable, consoleUrlVariable, defaultConsoleUrl, loginCommand, logoutCommand, readConsoleCredential, whoamiCommand } from "./console-auth.ts"
+export type { ConsoleCredential } from "./console-auth.ts"
 export { deployCommand, readDeployArgs } from "./deploy.ts"
 export type { SetupDeployArgs, SetupDeployOutput } from "./deploy.ts"
 export { deploymentsCommand, readSetupLive, STATUS_HOST_TIMEOUT_MS } from "./deployments.ts"
