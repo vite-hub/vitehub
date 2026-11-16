@@ -530,7 +530,7 @@ describe("tabs", () => {
     expect(disk.entry("projects")?.json).toBe(JSON.stringify(["grace"]))
   })
 
-  it("brings the disk to the version of the page when another tab cleared the same account while it opened", async () => {
+  it("stops when another tab cleared the same account while it opened, and stores again after the page names its account", async () => {
     const disk = createFakeDisk()
     const old = openPage(disk, createFakeBrowser())
     await old.open({ version: "1" })
@@ -547,6 +547,10 @@ describe("tabs", () => {
     release()
     await opened
     await page.settled()
+    // One naming, one reset attempt: the disk stays as the other tab left it, in version 1.
+    expect(disk.meta).toMatchObject({ account: "ada", version: "1" })
+    expect(page.inspect()).toMatchObject({ account: "ada", persisted: false })
+    await page.setAccount("ada")
     expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
     expect(page.inspect()).toMatchObject({ account: "ada", persisted: true })
     answer(page, "projects", ["ada"])
