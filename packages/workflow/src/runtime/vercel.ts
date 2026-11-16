@@ -1,5 +1,6 @@
 import { createWorkflowError } from "../errors.ts"
 
+import { generatedNativeEntryKey, workflowStartAtKey } from "./delay.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
 import type { WorkflowDefinition, WorkflowDefinitionOptions, WorkflowProviderContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
@@ -63,6 +64,12 @@ async function loadVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
   return createVercelWorkflowRuntime(api as VercelWorkflowApiModule, runtime as VercelWorkflowRuntimeModule)
 }
 
+/**
+ * The largest step page that Vercel's step listing accepts. A larger page fails with HTTP 400. Workflow DevKit's own
+ * CLI uses the same bound (`packages/cli/src/lib/inspect/flag-bounds.ts` in vercel/workflow).
+ */
+const vercelStepPageLimit = 100
+
 function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: VercelWorkflowRuntimeModule): VercelWorkflowRuntime {
   const { getRun, resumeHook, start } = api
   const { getWorld } = runtime
@@ -75,7 +82,7 @@ function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: Verc
       let cursor: string | undefined
       do {
         const page = normalizeStepPage(await (await getWorld()).steps.list({
-          pagination: { cursor, limit: 1000, sortOrder: "asc" },
+          pagination: { cursor, limit: vercelStepPageLimit, sortOrder: "asc" },
           resolveData: "none",
           runId: id,
         }))
@@ -285,6 +292,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   payload?: TPayload,
   observeSettlement?: (promise: PromiseLike<unknown>) => void,
   onDispatch?: () => void,
+  startAt?: number,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
@@ -293,11 +301,17 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
-  const context: WorkflowProviderContext<TPayload> = {
+  // Workflow DevKit `start()` has no delay. The native entry that ViteHub generates for a folder Workflow calls
+  // `sleep()` until the start time first. A native entry that the developer wrote cannot do that.
+  if (startAt !== undefined && Reflect.get(native, generatedNativeEntryKey) !== true) {
+    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "vercel" } })
+  }
+  const context: WorkflowProviderContext<TPayload> & { [workflowStartAtKey]?: number } = {
     name,
     // SAFETY: The optional payload belongs to this Workflow definition's payload contract.
     payload: payload as TPayload,
     provider: "vercel",
+    ...(startAt === undefined ? {} : { [workflowStartAtKey]: startAt }),
   }
   const runtime = await getVercelWorkflowRuntime()
   onDispatch?.()

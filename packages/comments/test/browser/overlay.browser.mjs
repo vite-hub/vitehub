@@ -73,13 +73,35 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   t.after(() => server.close())
   const browser = await chromium.launch()
   t.after(() => browser.close())
-  const page = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+  const page = await browser.newPage({ viewport: { width: 1024, height: 720 }, ...(evidence ? { recordVideo: { dir: evidence, size: { width: 1024, height: 720 } } } : {}) })
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
   // Until the session answers, the pill shows a busy "Comments" button. The comment layer mounts with the listeners.
   await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
   const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
+
+  await t.test("document highlights follow CSS-only themes with a light system preference", async (t) => {
+    t.after(() => page.evaluate(() => document.documentElement.removeAttribute("style")))
+    await page.emulateMedia({ colorScheme: "light" })
+    await page.evaluate(() => document.documentElement.style.cssText = "color-scheme: dark; background: #171717; color: white")
+    const colors = () => page.evaluate(() => {
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
+      return ["vh-comment", "vh-comment-resolved", "vh-comment-active", "vh-comment-draft"].map(name => {
+        context.clearRect(0, 0, 1, 1)
+        context.fillStyle = getComputedStyle(document.querySelector("#first"), `::highlight(${name})`).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return [...context.getImageData(0, 0, 1, 1).data]
+      })
+    })
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").dataset.theme === "dark")
+    for (const [red, , , alpha] of await colors()) assert.ok(red > 200 && alpha > 0, "dark-page highlights use light ink")
+    await page.evaluate(() => document.documentElement.style.colorScheme = "light")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").dataset.theme === "light")
+    for (const [red, , , alpha] of await colors()) assert.ok(red < 100 && alpha > 0, "light-page highlights use dark ink")
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains("dark")), false)
+  })
 
   await t.test("a click on the site's own button reaches it", async () => {
     const target = await page.evaluate(() => {
@@ -584,6 +606,76 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     finally {
       await touch.close()
     }
+  })
+
+  await t.test("with comments hidden, a new comment shows for a moment, then pops out, and the others stay hidden", async () => {
+    await page.mouse.click(900, 650)
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Escape")
+    await page.mouse.move(5, 5)
+    const items = page.locator("vitehub-comments [data-slot='comment-layer-item']:not([data-draft])")
+    const areas = () => page.evaluate(() => document.querySelector("vitehub-comment-areas").shadowRoot.querySelectorAll("[data-slot='comment-mark-area']").length)
+    const all = await items.count()
+    assert.ok(all >= 3, `${all} pins before the eye`)
+    if (evidence) await page.screenshot({ path: `${evidence}/hidden-0-all.png` })
+    const eye = page.locator("vitehub-tool").getByRole("button", { name: "Hide comments" })
+    await eye.click()
+    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    await page.waitForFunction(() => document.querySelectorAll("vitehub-comments").length && !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']"), undefined, { timeout: 5000 })
+    assert.equal(await areas(), 0)
+    assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)
+    assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), "hidden")
+    if (evidence) await page.screenshot({ path: `${evidence}/hidden-1-eye.png` })
+
+    await page.keyboard.press("c")
+    await page.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+    const box = await page.locator("#second").boundingBox()
+    await page.mouse.click(box.x + box.width - 40, box.y + 8)
+    await composer.waitFor({ timeout: 5000 })
+    // Writing a comment does not bring the others back.
+    assert.equal(await items.count(), 0)
+    await composer.fill("Only this one shows")
+    await composer.press("Enter")
+    // The item is a zero-size anchor, so wait for its pin. From then on the page records each change of the pins, as
+    // the pop-out lasts 180ms and a screenshot can take longer.
+    await items.first().locator("[data-slot='comment-pin']").waitFor({ timeout: 5000 })
+    await page.evaluate(() => {
+      const root = document.querySelector("vitehub-comments").shadowRoot
+      const start = performance.now()
+      const log = window.pinLog = []
+      const record = () => {
+        const pins = [...root.querySelectorAll("[data-slot='comment-layer-item']:not([data-draft])")].filter(item => item.querySelector("[data-slot='comment-pin']"))
+        const entry = { at: performance.now() - start, count: pins.length, leaving: pins.some(item => item.dataset.leaving === "true"), animation: pins.map(item => getComputedStyle(item.querySelector("[data-slot='comment-pin']")).animationName).join(",") }
+        const last = log.at(-1)
+        if (!last || last.count !== entry.count || last.leaving !== entry.leaving) log.push(entry)
+      }
+      record()
+      new MutationObserver(record).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-leaving"] })
+    })
+    assert.equal(await items.count(), 1)
+    assert.match(await items.first().locator("[data-slot='comment-pin']").getAttribute("aria-label"), /Only this one shows/)
+    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    if (evidence) await page.screenshot({ path: `${evidence}/hidden-2-flash.png` })
+
+    await page.waitForFunction(() => window.pinLog.at(-1).count === 0, undefined, { timeout: 5000 })
+    const log = await page.evaluate(() => window.pinLog)
+    const leave = log.find(entry => entry.leaving)
+    assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
+    // Shown since the send, then 180ms of pop-out.
+    assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
+    assert.equal(leave.animation, "vh-comment-mark-leave")
+    const gone = log.at(-1).at - leave.at
+    assert.ok(gone >= 150 && gone < 500, `the pop-out took ${gone}ms`)
+    assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")
+    await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']:not([data-draft])"), undefined, { timeout: 2000 })
+    assert.equal(await areas(), 0)
+    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    if (evidence) await page.screenshot({ path: `${evidence}/hidden-4-after.png` })
+
+    await page.keyboard.press("Escape")
+    await eye.click()
+    await page.waitForFunction(count => document.querySelector("vitehub-comments").shadowRoot.querySelectorAll("[data-slot='comment-layer-item']").length === count, all + 1, { timeout: 5000 })
+    assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), null)
   })
 
   assert.deepEqual(errors, [])

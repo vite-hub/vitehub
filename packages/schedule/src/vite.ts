@@ -12,6 +12,7 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, createProv
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
+import { scheduleDeploymentEnv } from "./deployment-env.ts"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
@@ -20,6 +21,7 @@ import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDe
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleCronOverrides, ScheduleTimeZoneCrons, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
@@ -123,6 +125,8 @@ interface InternalScheduleVitePluginOptions extends ScheduleOptions {
 
 export interface ScheduleVitePlugin {
   name: string
+  /** The variables that Schedules read on the deployed host. See `scheduleDeploymentEnv()`. */
+  api?: { deploymentEnv: DeploymentEnvContribution }
   [hook: string]: unknown
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations?: readonly OperationContributionEntry[] }
 }
@@ -177,7 +181,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
     throw scheduleErrorDiagnostics.SCHEDULE_B0002({ message: "Schedule Process Runtime prefix must be a string." })
   }
   if (value.catchUpMs !== undefined && (typeof value.catchUpMs !== "number" || !Number.isFinite(value.catchUpMs) || value.catchUpMs < 0)) {
-    throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: "Schedule Process Runtime catchUpMs must be a non-negative number." })
+    throw scheduleErrorDiagnostics.SCHEDULE_RUNTIME_CATCH_UP_INVALID()
   }
   if (value.intervalMs !== undefined && (typeof value.intervalMs !== "number" || !Number.isFinite(value.intervalMs) || value.intervalMs <= 0 || value.intervalMs > 60_000)) {
     throw scheduleErrorDiagnostics.SCHEDULE_B0003({ message: "Schedule Process Runtime intervalMs must be a positive number no greater than 60000." })
@@ -1043,6 +1047,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       providerOutputEnvironment.nitro.setup(nitro)
     },
   }
+  inspectable.api = { deploymentEnv: context => scheduleDeploymentEnv(discoverRegistrySchedules().length, context) }
   inspectable.vitehub = {
     // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
     durability: () => options.runtime?.driver === "process"

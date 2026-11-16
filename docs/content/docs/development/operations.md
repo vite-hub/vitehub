@@ -220,7 +220,7 @@ The RPC checks the section with `console.authorize` before it runs the operation
 In `vite dev` without a `console` option, the app serves the RPC with the local policy, so every section is open. It answers only this machine, so the `vitehub` commands can call it without a signature. `console: false` turns this RPC off.
 
 ::warning
-A dev RPC without signed calls (`local` access, or `console: { auth: false }`) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth`, so it takes only signed calls.
+A dev RPC without signed calls (`local` access, `console: { auth: false }`, or `console: true` before a `VITEHUB_CONSOLE_KEY_<NAME>` is set) answers only loopback requests. The `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and so must the peer address, when the host exposes it. Other requests get `403` with `CONSOLE_LOOPBACK_ONLY`. To share the dev server with other people, remove `console.auth` and set a `VITEHUB_CONSOLE_KEY_<NAME>`, so it takes only signed calls.
 ::
 
 In `vite dev`, a call without a signed user runs as `context.user = { id: 'local', name: 'You' }`. The RPC builds the context in one place, so Comments and Content see the same user. A build never adds it: a production call from the CLI has `context.user` unset, and a call from the Console has the person that the Console signed.
@@ -233,7 +233,9 @@ Duplicate operation names fail every build, also without a `console` option. An 
 | --- | --- |
 | `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
 | [Blob](/docs/development/cli#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
+| [Env](/docs/env) (Env section) | `env.inspect` |
 | [KV](/docs/development/cli#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |
+| [Cache](/docs/development/cli#read-and-invalidate-the-cache) (`cache` option) | `cache.list`, `cache.get`, `cache.delete` |
 | [Email](/docs/development/cli#inspect-the-email-development-outbox) | `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, `email.preview` |
 | [Rate Limit](/docs/development/cli#read-and-reset-rate-limit-counters) | `rate-limit.peek`, `rate-limit.reset` |
 | Task plugin (`tasks` section) | `task.list`, `task.run` |
@@ -245,6 +247,7 @@ Duplicate operation names fail every build, also without a `console` option. An 
 
 - `blob.put`, `blob.delete`, `kv.set`, and `kv.delete` change data, and the Blob and KV sections of the Console run them. A role with `'blob'` or `'kv'` can write. Grant `'blob:read'` or `'kv:read'` for a read-only role (see [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections)).
 - `databases.browse` and `databases.tables` run as `vitehub database rows` and `vitehub database tables`.
+- `cache.list`, `cache.get`, and `cache.delete` exist only when the app sets `cache`. They run as `vitehub cache list`, `get`, and `delete`. `cache.delete` is destructive, so a role needs `'cache'`. `'cache:read'` lists and reads.
 - The task operations exist only when the app has tasks. The Console shows no `tasks` section, and `console.authorize` grants it by name.
 - Queue has no peek, because the provider-independent Queue contract cannot read a backlog.
 - The Workspace operations read a Workspace's kept history and run as `vitehub workspace history`, `refs`, and `show`.

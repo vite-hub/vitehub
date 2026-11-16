@@ -81,8 +81,10 @@ catalogs:
     "@electric-sql/pglite": ^0.5.15
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
+    "@types/pg": ^8.15.0
     drizzle-kit: 1.0.0-rc.5
     drizzle-orm: 1.0.0-rc.5
+    pg: ^8.16.0
     postgres: ^3.4.9
   esbuild-v27:
     esbuild: ^0.27.7
@@ -100,15 +102,15 @@ catalogs:
     "@lingui/message-utils": 6.12.0
     "@lingui/vue": 6.12.0
   markdown:
-    "@comark/html": 0.9.0
+    "@comark/html": ^0.9.0
     "@types/mdast": ^4.0.4
-    comark: 0.9.0
-  # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
+    comark: ^0.9.0
+  # Ranges, not pins: an app installs one copy of Comark and Comark UI that both it and ViteHub use.
   markdown-ui:
-    "@comark/html": 0.9.0
-    comark: 0.9.0
+    "@comark/html": ^0.9.0
+    comark: ^0.9.0
     comark-content: 0.5.1
-    comark-ui: ^0.10.0
+    comark-ui: ^0.12.0
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
   # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
   nitro-compat:
@@ -157,7 +159,7 @@ catalogs:
     zod: ^4.6.7
   sandbox:
     "@cloudflare/sandbox": ^1.0.3
-    "@vercel/sandbox": ^3.9.1
+    "@vercel/sandbox": ^3.9.1 || ^4.0.0
   shell:
     just-bash: ^3.6.0
     sh-syntax: 0.8.3
@@ -269,6 +271,9 @@ packageExtensions:
       "@nuxt/devtools-kit": ^3.4.2
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
+  # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
+  # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
+  "@ui-sdk/core@0.1.0-beta.2": patches/@ui-sdk__core@0.1.0-beta.2.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).

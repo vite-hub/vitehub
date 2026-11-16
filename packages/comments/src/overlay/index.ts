@@ -62,7 +62,6 @@ class CommentsOverlay extends HTMLElement {
       segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles), this.toolbar)
       this.toolbar.replaceChildren(busy)
     }
-    this.followTheme()
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
     const areaRoot = this.areas.shadowRoot ?? this.areas.attachShadow({ mode: "open" })
@@ -70,6 +69,7 @@ class CommentsOverlay extends HTMLElement {
     this.areas.setAttribute("data-comments-ui", "")
     document.documentElement.append(this.areas)
     this.cleanups.push(() => this.areas.remove())
+    this.followTheme()
 
     const [error, session] = await api.session(normalizeCommentPage(location.pathname))
     const allowed = this.active && !error && session.can.read
@@ -123,6 +123,11 @@ class CommentsOverlay extends HTMLElement {
       this.classList.toggle("dark", dark)
       this.areas.classList.toggle("dark", dark)
       this.dataset.theme = dark ? "dark" : "light"
+      // The page can select a scheme with CSS alone. Give document highlights the same default as the area host,
+      // while keeping the page's comment and theme token overrides. No host page attributes need to change.
+      const ink = getComputedStyle(this.areas).getPropertyValue("--vh-comment-default-ink").trim()
+      const text = `@layer components {\n${commentMarks}\n:root { --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, ${ink})); }\n}\n${documentStyles}`
+      if (this.documentStyle.textContent !== text) this.documentStyle.textContent = text
     }
     apply()
     const classes = new MutationObserver(apply)
