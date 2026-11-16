@@ -44,7 +44,24 @@ await state.disconnect()
 process.exit(0)
 `)
     const outfile = join(root, "worker.mjs")
-    await build({ entryPoints: [entry], outfile, bundle: true, platform: "node", format: "esm", packages: "external" })
+    await build({
+      entryPoints: [entry], outfile, bundle: true, platform: "node", format: "esm",
+      plugins: [{
+        name: "resolve-external-packages",
+        setup(build) {
+          // Resolve from each source owner before moving the bundle outside the workspace.
+          build.onResolve({ filter: /^[^./]/ }, async (args) => {
+            if (args.pluginData?.resolved) return
+            const resolved = await build.resolve(args.path, {
+              resolveDir: args.resolveDir,
+              kind: args.kind,
+              pluginData: { resolved: true },
+            })
+            return { ...resolved, external: true }
+          })
+        },
+      }],
+    })
     const execute = promisify(execFile)
     await execute(process.execPath, [outfile, "admit"])
     await execute(process.execPath, [outfile, "restore"])
