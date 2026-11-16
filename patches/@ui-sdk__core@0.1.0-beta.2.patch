@@ -1,3 +1,397 @@
+diff --git a/dist/components/calendar/calendar-api.js b/dist/components/calendar/calendar-api.js
+index 074dfeaa7fb6f10fbdd49da8ef9016b20f9256f6..3701b2b474fcf28f1971765f1b18bc6891c362d3 100644
+--- a/dist/components/calendar/calendar-api.js
++++ b/dist/components/calendar/calendar-api.js
+@@ -169,7 +169,7 @@ function buildSelectState(state, kind, locale) {
+       const month = `${year}-${String(value).padStart(2, "0")}`;
+       return {
+         value,
+-        label: months ? names[index] : format.format(Date.UTC(value, 0, 1)),
++        label: months ? names[index] : format.format((/* @__PURE__ */ new Date(0)).setUTCFullYear(value, 0, 1)),
+         disabled: months && (!!first && month < first || !!last && month > last)
+       };
+     }),
+diff --git a/dist/components/number-input/number-input-api.js b/dist/components/number-input/number-input-api.js
+index 7beec62bbba9d9a9a9c296d9fc140eb5d2640956..2aabb7dead2c65a07c3090961dc6652f821b2a98 100644
+--- a/dist/components/number-input/number-input-api.js
++++ b/dist/components/number-input/number-input-api.js
+@@ -20,6 +20,7 @@ import {
+   clamp,
+   decimalsOf,
+   maxOnGrid,
++  roundTo,
+   snapToStep,
+   stepValue
+ } from "../../foundation/number/steps.js";
+@@ -40,7 +41,7 @@ function settings(options) {
+     max: options.max ?? Infinity,
+     step,
+     largeStep: options.largeStep && options.largeStep > 0 ? options.largeStep : step * 10,
+-    smallStep: options.smallStep && options.smallStep > 0 ? options.smallStep : step / 10,
++    smallStep: options.smallStep && options.smallStep > 0 ? options.smallStep : roundTo(step / 10, decimalsOf(step) + 1),
+     format: options.format,
+     locale: options.locale,
+     wheel: !!options.wheel,
+diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
+index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a2216e2a19fa2c02bf163bfb6676ba0ea863bc61 100644
+--- a/dist/foundation/date/parse.js
++++ b/dist/foundation/date/parse.js
+@@ -68,7 +68,7 @@ function parseDate(text, locale, options = {}) {
+   const referenceYear = Number((options.referenceDate ?? "").slice(0, 4)) || (/* @__PURE__ */ new Date()).getFullYear();
+   let namedMonth;
+   const numbers = [];
+-  for (const token of normalized.toLocaleLowerCase(locale).match(/\p{N}+|\p{L}+/gu) ?? []) {
++  for (const token of normalized.toLocaleLowerCase(locale).match(/\p{N}+|[\p{L}\p{M}]+/gu) ?? []) {
+     if (/^\d+$/.test(token)) {
+       numbers.push(token);
+       continue;
+@@ -82,11 +82,11 @@ function parseDate(text, locale, options = {}) {
+   }
+   const values = {};
+   if (namedMonth !== void 0) {
+-    const rest = fields.filter((field) => field !== "month");
+     if (numbers.length > 2 || numbers.length === 0) {
+       return void 0;
+     }
+-    const order = numbers.length === 1 ? ["day"] : rest;
++    const [first, second] = numbers;
++    const order = second === void 0 ? ["day"] : first.length > 2 ? ["year", "day"] : second.length > 2 ? ["day", "year"] : namedMonthOrder(locale);
+     order.forEach((field, index) => values[field] = numbers[index]);
+     values.month = String(namedMonth);
+   } else if (numbers.length === 1) {
+@@ -110,6 +110,18 @@ function parseDate(text, locale, options = {}) {
+   const year = values.year === void 0 ? referenceYear : fullYear(values.year, referenceYear + offset) - offset;
+   return isoDate(year, Number(values.month), Number(values.day));
+ }
++var namedMonthOrders = /* @__PURE__ */ new Map();
++function namedMonthOrder(locale) {
++  const key = locale ?? "";
++  let order = namedMonthOrders.get(key);
++  if (!order) {
++    order = dateFormatter(locale, { dateStyle: "long" }).formatToParts(Date.UTC(2026, 9, 16)).flatMap(
++      (part) => part.type === "day" || part.type === "year" ? [part.type] : []
++    );
++    namedMonthOrders.set(key, order);
++  }
++  return order;
++}
+ var yearOffsets = /* @__PURE__ */ new Map();
+ function yearOffset(locale) {
+   const key = locale ?? "";
+@@ -192,7 +204,7 @@ function isPatternWord(word, locale) {
+         Date.UTC(2026, 9, 16)
+       )) {
+         if (part.type === "literal") {
+-          for (const literal of part.value.toLocaleLowerCase(locale).match(/\p{L}+/gu) ?? []) {
++          for (const literal of part.value.toLocaleLowerCase(locale).match(/[\p{L}\p{M}]+/gu) ?? []) {
+             words.add(literal);
+           }
+         }
+diff --git a/dist/foundation/focus/tabbable.js b/dist/foundation/focus/tabbable.js
+index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..79846d5c872cb76b64ac4d69aabe213e4bd14793 100644
+--- a/dist/foundation/focus/tabbable.js
++++ b/dist/foundation/focus/tabbable.js
+@@ -46,6 +46,33 @@ function radioGroup(el) {
+ function tabbables(root) {
+   return Array.from(root.querySelectorAll(candidates)).filter(isTabbable);
+ }
++function composedTabbables(root) {
++  const stops = [];
++  const visit = (scope) => {
++    for (const el of scope.children) {
++      visitElement(el);
++    }
++  };
++  const visitElement = (el) => {
++    if (el.matches(candidates) && isTabbable(el)) {
++      stops.push(el);
++    }
++    if (el.shadowRoot) {
++      visit(el.shadowRoot);
++    } else if (el.localName === "slot") {
++      const assigned = el.assignedNodes({ flatten: true });
++      if (assigned.length) {
++        assigned.filter(node => node.nodeType === 1).forEach(visitElement);
++      } else {
++        visit(el);
++      }
++    } else {
++      visit(el);
++    }
++  };
++  visit(root);
++  return stops;
++}
+ function positiveTabStops(stops, root) {
+   const slotted = (el) => {
+     for (let node = el; node && node !== root; node = node.parentElement) {
+@@ -139,6 +159,7 @@ function bindTabStop(el, wanted, {
+ }
+ export {
+   bindTabStop,
++  composedTabbables,
+   focusables,
+   isTabbable,
+   nextTabbable,
+diff --git a/dist/foundation/lists/listbox-engine.js b/dist/foundation/lists/listbox-engine.js
+index e4779f5ab005bc250263fdfee05cf667f1703e0e..79a8c40f63c3a78d58a83fe641350d529934f075 100644
+--- a/dist/foundation/lists/listbox-engine.js
++++ b/dist/foundation/lists/listbox-engine.js
+@@ -299,15 +299,16 @@ function createListboxEngine(config, filtering) {
+     if (!list.length) {
+       return void 0;
+     }
++    const wraps = loop && (step === 1 || step === -1);
+     const current = store.get().highlighted;
+     const index = list.findIndex((entry) => entry.key === current);
+     if (index !== -1 || typeof step !== "number") {
+-      return list[moveIndex(index, step, list.length, loop)].key;
++      return list[moveIndex(index, step, list.length, wraps)].key;
+     }
+     const skipped = all.findIndex((entry) => entry.key === current);
+     if (skipped !== -1) {
+       const before = all.slice(0, skipped).filter((entry) => !entry.disabled).length;
+-      return list[moveIndex(step > 0 ? before - 1 : before, step, list.length, loop)].key;
++      return list[moveIndex(step > 0 ? before - 1 : before, step, list.length, wraps)].key;
+     }
+     return list[step > 0 ? 0 : list.length - 1].key;
+   }
+diff --git a/dist/foundation/lists/listbox-parts.js b/dist/foundation/lists/listbox-parts.js
+index 04989ee69eb32ff5a52ca4ec4bc5c2e86ef1f136..b47a9de1f3039053139a3ff166179c0fe7fbfdfd 100644
+--- a/dist/foundation/lists/listbox-parts.js
++++ b/dist/foundation/lists/listbox-parts.js
+@@ -211,7 +211,6 @@ function hiddenInputPart(slot) {
+       const keys = api.internal.selection.keysOf(state.value);
+       return {
+         id: `${id}-${slot}`,
+-        type: "text",
+         name: state.multiple ? void 0 : state.name,
+         value: state.multiple ? keys.join(",") : keys[0] ?? "",
+         form: state.form,
+diff --git a/dist/foundation/lists/listbox-value.js b/dist/foundation/lists/listbox-value.js
+index 20f450d4d216b744ccc4fb15fd4f661e91593292..95a6190a21eb64c187da7b71a45ebda0acafdbfb 100644
+--- a/dist/foundation/lists/listbox-value.js
++++ b/dist/foundation/lists/listbox-value.js
+@@ -6,16 +6,18 @@ import { sameValue } from "../kernel/store.js";
+ var listFormats = /* @__PURE__ */ new Map();
+ function formatLabels(labels, {
+   maxLabels,
+-  getMoreLabel = (count) => `${count} more`
++  getMoreLabel
+ } = {}) {
+   if (maxLabels === void 0) {
+     return labels.join(", ");
+   }
+-  const shown = labels.length > maxLabels ? [...labels.slice(0, maxLabels), getMoreLabel(labels.length - maxLabels)] : labels;
++  const hidden = labels.length - maxLabels;
++  const moreLabel = getMoreLabel ?? ((count) => `${count} more`);
++  const shown = hidden > 0 ? [...labels.slice(0, maxLabels), moreLabel(hidden)] : labels;
+   if (typeof Intl.ListFormat !== "function") {
+     return shown.join(", ");
+   }
+-  const locale = pageLocale();
++  const locale = hidden > 0 && !getMoreLabel ? "en-US" : pageLocale() ?? "en-US";
+   let format = listFormats.get(locale);
+   if (!format) {
+     listFormats.set(
+diff --git a/dist/foundation/number/parse.js b/dist/foundation/number/parse.js
+index 810aca513c04f0a83a1c0dd75e608ed46e2fce05..7fdca8d83f055bc3b3a4d1a8400b03119aefd89d 100644
+--- a/dist/foundation/number/parse.js
++++ b/dist/foundation/number/parse.js
+@@ -15,11 +15,10 @@ function symbolsOf(locale, options) {
+   }
+   const formatter = numberFormatter(locale, options);
+   const parts = [
+-    ...formatter.formatToParts(-12345.6),
+-    ...formatter.formatToParts(12345.6),
+-    // Long currency names differ between one and many.
+-    ...formatter.formatToParts(1)
+-  ];
++    -12345.6,
++    12345.6,
++    ...pluralSamples(locale, formatter)
++  ].flatMap((sample) => formatter.formatToParts(sample));
+   const find = (type) => parts.find((part) => part.type === type)?.value;
+   const numbering = formatter.resolvedOptions().numberingSystem;
+   const separators = numberFormatter(locale, {
+@@ -51,6 +50,22 @@ function symbolsOf(locale, options) {
+   symbolCache.set(key, symbols);
+   return symbols;
+ }
++var pluralCandidates = [...Array(111).keys(), 0.5, 1.5, 1e6];
++function pluralSamples(locale, formatter) {
++  const rules = new Intl.PluralRules(locale, formatter.resolvedOptions());
++  const forms = rules.resolvedOptions().pluralCategories.length;
++  const samples = /* @__PURE__ */ new Map();
++  for (const candidate of pluralCandidates) {
++    const form = rules.select(candidate);
++    if (!samples.has(form)) {
++      samples.set(form, candidate);
++    }
++    if (samples.size === forms) {
++      break;
++    }
++  }
++  return samples.values();
++}
+ var parenthesized = /^\s*\(.*\)\s*$/;
+ function normalize(text, symbols) {
+   let result = text.replace(formatCharacters, "").replace(minusSigns, "-").replace(plusSigns, "+");
+diff --git a/dist/foundation/popups/popup.js b/dist/foundation/popups/popup.js
+index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..11a1cfaf387ef71a20aa99c2df5a5e8c4c8874b7 100644
+--- a/dist/foundation/popups/popup.js
++++ b/dist/foundation/popups/popup.js
+@@ -35,6 +35,7 @@ import {
+ import { registerPopupElement } from "./popup-elements.js";
+ import { animateIn, animateOut, writeOpen } from "../motion/presence.js";
+ import {
++  composedTabbables,
+   nextTabbable,
+   positiveTabStops,
+   radioGroup,
+@@ -776,8 +777,9 @@ function createPopupLayer(options) {
+       return options.close("focus-out", { event, focus: false });
+     }
+     const list = tabbables(popup);
+-    const first = list[0];
+-    const last = list.at(-1);
++    const stops = composedTabbables(popup);
++    const first = stops[0];
++    const last = stops.at(-1);
+     const active = activeElement();
+     const atStart = !first || active === first || active === popup;
+     const atEnd = !last || active === last;
+diff --git a/dist/page/agent/agent.js b/dist/page/agent/agent.js
+index 1ecff8c76929cef63cb8ddc214734c8ece3a06db..7c501889a6b585c89282b07cc3e0f2888aa7d788 100644
+--- a/dist/page/agent/agent.js
++++ b/dist/page/agent/agent.js
+@@ -747,7 +747,7 @@ function createAgent(options = {}) {
+       clearTimeout(timer);
+     }
+   }
+-  async function perform(ref, action, args, guard) {
++  async function perform(ref, action, args, prior, guard) {
+     if (typeof ref !== "string" || !ref.trim()) {
+       throw new Error(
+         "A step needs a ref: a component's ref from snapshot, or its label."
+@@ -757,6 +757,11 @@ function createAgent(options = {}) {
+       throw new Error(`A step on "${ref}" needs an action, like "press".`);
+     }
+     const { entry, instance, parts } = await reveal(ref, action);
++    for (const [shown, state] of capture().states) {
++      if (!prior.states.has(shown)) {
++        prior.states.set(shown, state);
++      }
++    }
+     const { actions, disabled } = describe(entry, instance, parts);
+     const asked = /* @__PURE__ */ new Set();
+     const ask = async (stepArgs, targets2, what) => {
+@@ -1071,6 +1076,7 @@ function createAgent(options = {}) {
+           step.ref,
+           step.action,
+           step.args ?? [],
++          prior,
+           guard
+         );
+         touched.add(ref);
+diff --git a/dist/testing/aria.js b/dist/testing/aria.js
+index 42ba2acabcac67777d0f84fe27bd91127e8b1d91..54d1635b717c132504e56a8f5e52a934669150ec 100644
+--- a/dist/testing/aria.js
++++ b/dist/testing/aria.js
+@@ -31,7 +31,7 @@ function isUndisplayed(el, known = /* @__PURE__ */ new Map()) {
+ function withRole(scope, roles, { displayed = true } = {}) {
+   const known = /* @__PURE__ */ new Map();
+   return [...scope.querySelectorAll("*")].filter(
+-    (el) => roles.includes(roleOf(el)) && !isGone(el) && (!displayed || !isUndisplayed(el, known))
++    (el) => roles.includes(roleOf(el)) && !isGone(el) && !isUnreachable(el) && (!displayed || !isUndisplayed(el, known))
+   );
+ }
+ var hasBoolean = (el, attribute) => ["true", "false"].includes(el.getAttribute(attribute) ?? "");
+diff --git a/dist/testing/input.js b/dist/testing/input.js
+index 9f01ac3745b84c683984c4248bf1774ce34b0aaa..fe7ab57e36b540616066787399c42351b63a986a 100644
+--- a/dist/testing/input.js
++++ b/dist/testing/input.js
+@@ -1,6 +1,7 @@
+ // src/testing/input.ts
+ import { dragThreshold } from "../foundation/drag-and-drop/pointer.js";
+ import { trustSent } from "../foundation/kernel/trusted.js";
++import { isRtl } from "./aria.js";
+ var sent = /* @__PURE__ */ new WeakSet();
+ trustSent(sent);
+ function markTrusted(event) {
+@@ -115,6 +116,62 @@ function insert(el, data) {
+   );
+ }
+ var activates = (el, key) => !!el && (key === "Enter" ? el instanceof HTMLButtonElement || el instanceof HTMLAnchorElement : key === " " && (el instanceof HTMLButtonElement || el instanceof HTMLInputElement && /^(checkbox|radio)$/.test(el.type)));
++function horizontalOffset(el, key) {
++  const rtl = isRtl(el);
++  const forward = rtl ? "ArrowLeft" : "ArrowRight";
++  const back = rtl ? "ArrowRight" : "ArrowLeft";
++  return key === forward ? 1 : key === back ? -1 : 0;
++}
++function stepRange(el, key) {
++  const min = Number(el.min || 0);
++  const max = Number(el.max || 100);
++  const step = Number(el.step) || 1;
++  const page = Math.max(step, (max - min) / 10);
++  const value = Number(el.value);
++  const offset = key === "ArrowUp" ? 1 : key === "ArrowDown" ? -1 : horizontalOffset(el, key);
++  const targets = {
++    PageUp: value + page,
++    PageDown: value - page,
++    Home: min,
++    End: max
++  };
++  const target = offset ? value + offset * step : targets[key];
++  if (target === void 0) {
++    return;
++  }
++  const before = el.value;
++  el.value = String(Math.min(max, Math.max(min, target)));
++  if (el.value !== before) {
++    el.dispatchEvent(markTrusted(new Event("input", { bubbles: true })));
++    el.dispatchEvent(markTrusted(new Event("change", { bubbles: true })));
++  }
++}
++function moveRadio(el, key) {
++  const offset = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : horizontalOffset(el, key);
++  if (!el.name || !offset) {
++    return;
++  }
++  const group = [
++    ...el.getRootNode().querySelectorAll("input")
++  ].filter(
++    (radio) => radio.type === "radio" && radio.name === el.name && radio.form === el.form && !radio.matches(":disabled") && !isHidden(radio)
++  );
++  const next = group.at((group.indexOf(el) + offset) % group.length);
++  if (next && next !== el) {
++    next.focus();
++    keyClick(next);
++  }
++}
++function nativeKeyAction(el, key) {
++  if (!(el instanceof HTMLInputElement) || el.matches(":disabled")) {
++    return;
++  }
++  if (el.type === "range") {
++    stepRange(el, key);
++  } else if (el.type === "radio") {
++    moveRadio(el, key);
++  }
++}
+ async function keys(doc, names, scope) {
+   for (const name of names) {
+     const init = parseKey(name);
+@@ -130,6 +187,9 @@ async function keys(doc, names, scope) {
+     if (proceeds && init.key === "Enter" && activates(target, "Enter")) {
+       keyClick(target);
+     }
++    if (proceeds && !init.ctrlKey && !init.metaKey && !init.altKey) {
++      nativeKeyAction(target, init.key);
++    }
+     const up = doc.activeElement ?? doc.body;
+     up.dispatchEvent(keyEvent("keyup", init));
+     if (proceeds && init.key === " " && activates(target, " ")) {
 diff --git a/dist/web.css b/dist/web.css
 index 3dd0e5e2d54bae93ae1f8d6dc19b5c72c610adc5..091a809c10bbde00cc40ff44b27d1e7533ec1ebb 100644
 --- a/dist/web.css
