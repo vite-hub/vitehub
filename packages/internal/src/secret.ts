@@ -1,3 +1,5 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+
 const secretEncoder = new TextEncoder()
 
 /**
@@ -40,13 +42,13 @@ export function readViteHubSecret(env: Readonly<Record<string, unknown>>): strin
 /**
  * Derives a 32-byte secret for one purpose from the root secret, hex-encoded. It uses HKDF-SHA256 with the salt
  * `vitehub` and the purpose as `info`. The result is stable while the root is unchanged and distinct for every purpose.
- * Throws a `TypeError` when the root is shorter than 32 characters or the purpose is empty. It uses no Node API.
+ * Throws a coded error when the root is shorter than 32 characters or the purpose is empty. It uses no Node API.
  */
 export async function deriveViteHubSecret(root: string, purpose: string): Promise<string> {
   if (root.length < viteHubSecretMinimumLength) {
-    throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`)
+    throw internalErrorDiagnostics.INTERNAL_SECRET_TOO_SHORT({ minimum: viteHubSecretMinimumLength })
   }
-  if (!purpose) throw new TypeError("[vitehub] A derived secret requires a purpose.")
+  if (!purpose) throw internalErrorDiagnostics.INTERNAL_SECRET_PURPOSE_MISSING()
   const key = await globalThis.crypto.subtle.importKey("raw", secretEncoder.encode(root), "HKDF", false, ["deriveBits"])
   return hex(await globalThis.crypto.subtle.deriveBits({
     hash: "SHA-256",
