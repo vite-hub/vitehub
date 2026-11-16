@@ -79,7 +79,7 @@ function unsupported(note: string): WorkflowOperationSupport {
 export function resolveWorkflowOperationSupport(provider: WorkflowProvider): Record<WorkflowOperationName, WorkflowOperationSupport> {
   if (provider === "cloudflare") {
     return {
-      cancel: unsupported("Cloudflare Workflows do not support cancellation through ViteHub."),
+      cancel: { note: "Terminates a queued, running, waiting, or paused run through the Cloudflare Workflow binding. A finished run keeps its status. Inline runs return an unsupported error.", supported: true },
       get: { note: "Reads the run from the Cloudflare Workflow binding when the runtime has one.", supported: true },
       resume: unsupported("Cloudflare Workflows do not support ViteHub signals."),
       start: { note: `Uses the Cloudflare Workflow binding when the runtime has one. Otherwise: ${inlineRunNote}`, supported: true },

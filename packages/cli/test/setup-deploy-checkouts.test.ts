@@ -341,7 +341,7 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
       const app = workspaceApp(hosts)
       const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env, { fetch: app.fetch })
       expect(result.exitCode, `${name}: ${result.stdout}${result.stderr}`).toBe(0)
-      expect(result.json, name).toEqual({ host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
+      expect(result.json, name).toEqual({ env: { checked: [], missing: [], pushed: [], stage: "production" }, host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
       expect(result.stderr.split("\n").filter(line => line.startsWith("[vitehub] vitehub.lock")).map(line => `${line}\n`).join(""), name).toBe(project.stderr)
       expect(app.requests, name).toEqual([])
     }

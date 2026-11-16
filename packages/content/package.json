@@ -92,6 +92,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
+    "@mdream/js": "catalog:markdown",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",
@@ -134,7 +135,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

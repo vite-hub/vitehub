@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { createKVStorage } from "./create-storage.ts"
@@ -86,7 +87,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
   const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
   driver.setItems = async (items, commonOptions) => {
-    for (const item of items) assertCloudflareKVWrite(item.key, item.value, { ...commonOptions, ...item.options })
+    for (const item of items) assertCloudflareKVWrite(item.key, item.value)
     await setItemsOneByOneWithLimits(items, commonOptions)
   }
   // Continuation state is keyed by the cursor that carries it. Consuming the
@@ -108,7 +109,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     }
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
-    if (disposed) throw new Error("KV storage has been disposed.")
+    invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
@@ -124,7 +125,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
-        if (disposed) throw new Error("KV storage has been disposed.")
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(page.cursor!)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }

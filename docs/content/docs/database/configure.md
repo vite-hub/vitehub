@@ -116,14 +116,14 @@ export default defineDatabase({
 
 `schema` can be an object literal, an imported object, a namespace import such as `import * as schema from './schema'`, or a spread of several schemas. ViteHub loads the Definition and exports every Drizzle table and view in it, so `vitehub database generate` writes migrations for all of them. A schema key cannot be `schema`, `relations`, or `default`, because the generated module uses those export names.
 
-ViteHub loads the Definition with your Vite or Nuxt string aliases. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub database generate` fails instead, so a migration never drops a table silently.
+ViteHub loads the Definition with your Vite or Nuxt string aliases, such as `~~` and `#layers/<name>`. It also writes them to `.vitehub/database/tsconfig.json`, so drizzle-kit resolves the same imports in `vitehub database generate`. If it still fails, for example on a module that only a Vite plugin provides, `vite dev` and builds warn and use the keys of a literal `schema: { ... }`. `vitehub database generate` fails instead, so a migration never drops a table silently.
 
 ### Query related tables
 
 `db.query.<table>` reads rows with Drizzle's relational queries. To read related rows in the same query, pass `relations` from Drizzle's `defineRelations()`:
 
 ```ts [server/databases/blog.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { defineRelations } from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -150,7 +150,7 @@ export default defineDatabase({
 Then `with` reads the related rows, and its result is typed:
 
 ```ts [server/api/users.get.ts]
-import { useDatabase } from '@vite-hub/database'
+import { useDatabase } from 'vite-hub/database'
 import { defineEventHandler } from 'h3'
 
 export default defineEventHandler(() => {
@@ -169,7 +169,7 @@ Without `relations`, ViteHub uses `defineRelations(schema)`: `db.query.<table>` 
 Drizzle 1.0 sets the casing of column names on each table, not on the database. To write camelCase keys as snake_case columns, declare the table with `snakeCase.table()`. Queries and the migrations of `vitehub database generate` both use the snake_case names.
 
 ```ts [server/databases/default/index.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 import { integer, snakeCase, text } from 'drizzle-orm/sqlite-core'
 
 export default defineDatabase({
@@ -234,6 +234,31 @@ A native D1 binding is migrated with `wrangler d1 migrations apply`, not `vitehu
 
 For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`), one row per applied file, so Wrangler and ViteHub can take turns. Wrangler reads flat `.sql` files, so each migration folder counts as `NNNN_<name>.sql`, and a Cloudflare build writes it as that file next to the Wrangler config. `vitehub database generate` and the build keep these names in `d1-migrations.json` next to the migrations. Commit it: a listed folder keeps its name, and a new folder takes the next number, even when a merge brings a folder with an earlier timestamp. Without the file, the numbers follow the folder order. These are the names that Drizzle Kit 0.x used, so a folder that `drizzle-kit up` converted keeps its row in `d1_migrations` and does not run again. When a name in `d1_migrations` moved to another number, `vitehub database migrate` fails the check with `DATABASE_MIGRATION_CHECK_FAILED`. Each file and its row go in one request, so D1 keeps neither when the file fails. When that table is missing but Drizzle Kit's `__drizzle_migrations` exists, ViteHub records the migrations Drizzle Kit applied.
 
+### Rename a column or table
+
+When one change removes a column and adds another in the same table, Drizzle Kit cannot know if you renamed it. A rename keeps the data. A new column starts empty, and the migration drops the old column with its data. The same applies to tables.
+
+In a terminal, `vitehub database generate` asks. Without a terminal, with `CI` set, or with `--non-interactive`, it never waits for an answer. It writes no migration, exits with code 2, and prints `DATABASE_GENERATE_AMBIGUOUS_CHANGE` with one command per answer:
+
+```txt
+[DATABASE_GENERATE_AMBIGUOUS_CHANGE] The Definitions of the database "default" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, `vitehub database generate` cannot ask, so it wrote no migration.
+The changes to answer:
+  - column public.notes.content
+├▶ fix: Answer each change with a hint and run the command again. A rename keeps the data. A create adds an empty column or table, and the migration drops the removed one with its data.
+Replace <old_name> with the removed name. With several changes, put one answer per change in the same array:
+  column public.notes.content:
+    rename: vitehub database generate --hints '[{"type":"rename","kind":"column","from":["public","notes","<old_name>"],"to":["public","notes","content"]}]'
+    create: vitehub database generate --hints '[{"type":"create","kind":"column","entity":["public","notes","content"]}]'
+```
+
+Run the command for your answer. This one renames `body` to `content`:
+
+```bash [commands/generate]
+pnpm vitehub database generate --hints '[{"type":"rename","kind":"column","from":["public","notes","body"],"to":["public","notes","content"]}]'
+```
+
+`--hints` takes the JSON array that Drizzle Kit reads for its own `--hints` option, and `--hints-file <file>` reads it from a file. SQLite ids also start with `public`. ViteHub never picks an answer for you.
+
 ### Upgrade to Drizzle 1.0
 
 ViteHub uses `drizzle-orm` and `drizzle-kit` 1.0. Install `drizzle-orm@1.0.0-rc.5` and `drizzle-kit@1.0.0-rc.5`. Four things change for an app that used Drizzle 0.x:
@@ -251,6 +276,8 @@ pnpm vitehub database migrate --dry-run
 ```
 
 `vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
+
+On SQLite, Drizzle Kit 0.x made a unique index for a `.unique()` column, and Drizzle Kit 1.0 declares a `UNIQUE` constraint in the table. `vitehub database up` records these indexes as the constraints of your Definitions in the converted snapshots, so the next `vitehub database generate` does not rebuild the tables. The database keeps its indexes, and they reject the same duplicate rows.
 
 ## Migrate when the server starts
 
@@ -727,7 +754,7 @@ Vite and Nuxt output keep provisioned IDs as fallbacks for unset runtime env val
 
 ## Define a Postgres database
 
-Set `dialect: 'postgresql'`, write the tables with `drizzle-orm/pg-core`, and install the [`postgres`](https://github.com/porsager/postgres) driver.
+Set `dialect: 'postgresql'`, write the tables with `drizzle-orm/pg-core`, and install the [`postgres`](https://github.com/porsager/postgres) driver. To use [`pg`](https://node-postgres.com) instead, see [Use node-postgres](#use-node-postgres).
 
 ```bash
 pnpm add postgres
@@ -756,7 +783,13 @@ export default defineDatabase({
 | `connection.replicas` | `DatabaseConfigValue[]` | No | Read replica URLs. `db.$replica` reads from them. See [Read from replicas](#read-from-replicas). |
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
-| `driver` | `'pglite'` | No | Runs the Database on PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
+| `driver` | `'node-postgres' \| 'pglite'` | No | The client. Without it, ViteHub uses postgres.js. See the driver list below. |
+
+| Driver | Package | Use it for |
+| --- | --- | --- |
+| none (default) | `postgres` | postgres.js. `db.$client` is its `sql` function. |
+| `'node-postgres'` | `pg` | node-postgres. `db.$client` is a `pg` Pool. See [Use node-postgres](#use-node-postgres). |
+| `'pglite'` | `@electric-sql/pglite` | PGlite in development, app tests, and `vitehub database migrate`, even with a URL. A production build fails with it. See [Run Postgres locally with PGlite](#run-postgres-locally-with-pglite). |
 
 A Postgres Definition has its own connection. It ignores the top-level `connection`, the D1 options, and the local SQLite default. With a Hyperdrive binding at runtime, ViteHub uses its connection string, else `connection.url`. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. When none is set, development uses PGlite, and a production query fails with `DATABASE_MISSING_CONNECTION`.
 
@@ -764,9 +797,35 @@ The client drops the notices of the server, such as `relation already exists, sk
 
 Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
 
+### Use node-postgres
+
+Set `driver: 'node-postgres'` and install `pg` instead of `postgres`:
+
+```bash
+pnpm add pg
+```
+
+```ts [server/databases/default.ts] fragment
+export default defineDatabase({
+  dialect: 'postgresql',
+  driver: 'node-postgres',
+  connection: { url: process.env.DATABASE_URL },
+  schema,
+})
+```
+
+- The connection rules do not change: a Hyperdrive binding, then `connection.url`, then the PG* variables. Development without any of them still runs on PGlite.
+- `db.$client` is a `pg` Pool. Inside a Cloudflare request, each request gets its own Pool with at most 5 connections, as with postgres.js.
+- The app loads only the driver that its Definitions use. An app with only `driver: 'node-postgres'` does not need `postgres`, and an app without it never loads `pg`.
+- `migrateOnStart` and `vitehub database migrate` use `pg` too, with the same advisory lock.
+- The Pool prints Postgres warnings with `console.warn` and drops notices. An idle connection that fails prints an error and does not stop the process.
+
+> [!NOTE]
+> Cloudflare documents `pg` with Hyperdrive on Workers with `nodejs_compat`. ViteHub tests node-postgres on Node with a real Postgres server, and with fakes for Hyperdrive.
+
 ### Read from replicas
 
-Set `connection.replicas` to the URLs of read replicas. ViteHub opens one postgres.js client for each one, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
+Set `connection.replicas` to the URLs of read replicas. ViteHub opens one client of the Definition's driver for each one, postgres.js or node-postgres, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
 
 ```ts [server/databases/replicas.ts]
 import { defineDatabase } from 'vite-hub/database'

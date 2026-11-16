@@ -2,11 +2,12 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { satisfies } from "semver"
+import { subset } from "semver"
 import { glob } from "tinyglobby"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { formatReport, runCodemod, runMigration } from "../src/index.ts"
+import { codemodsRange, withVersionPlaceholder } from "./fixture-version.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const databasePackage = JSON.parse(await readFile(join(packageRoot, "../database/package.json"), "utf8"))
@@ -36,7 +37,7 @@ describe.each([
     const run = await runCodemod("nuxthub", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       if (edit.before !== undefined) expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      if (edit.after !== null) await expect(edit.after).toMatchFileSnapshot(join(output, edit.path))
+      if (edit.after !== null) await expect(withVersionPlaceholder(edit.after)).toMatchFileSnapshot(join(output, edit.path))
     }
     // The output folder holds exactly the written files and the report.
     const written = run.result.edits.filter(edit => edit.after !== null).map(edit => edit.path)
@@ -46,7 +47,7 @@ describe.each([
 })
 
 describe("nuxthub", () => {
-  it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
+  it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
     const directory = await app(`drizzle-${version ?? "missing"}`, {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
       "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", ...(version ? { "drizzle-orm": version, "drizzle-kit": version } : {}) } }),
@@ -55,9 +56,41 @@ describe("nuxthub", () => {
     const manifest = JSON.parse(run.result.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
     for (const name of ["drizzle-orm", "drizzle-kit"] as const) {
       const selected = manifest.dependencies[name]
-      expect(satisfies(selected?.slice(1) ?? "", databasePackage.peerDependencies[name])).toBe(true)
-      if (version && satisfies(version.slice(1), databasePackage.peerDependencies[name])) expect(selected).toBe(version)
+      // Every version the app can install is one that Database accepts, snapshot builds such as 1.0.0-rc.5-ab785fc too.
+      expect(subset(selected, databasePackage.peerDependencies[name], { includePrerelease: true })).toBe(true)
+      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || ^1.0.0")
     }
+  })
+
+  it("reports NuxtHub hooks in local modules and layers, studio external media, and packages that need NuxtHub", async () => {
+    const hook = (name: string) => `export default defineNuxtModule({ setup(_, nuxt) { nuxt.hook('${name}', () => {}) } })\n`
+    const directory = await app("module-follow-ups", {
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['@nuxthub/core'],\n  extends: ['./base', 'github:org/remote-layer'],\n  hub: { db: 'sqlite' },\n  hooks: { 'hub:db:schema:extend': () => {} },\n  studio: { media: { external: true } },\n})\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "@evlog/nuxthub": "^1.0.0", "uses-hub": "^1.0.0", "plain": "^1.0.0" } }, null, 2),
+      "server/db/schema.ts": "export {}\n",
+      "modules/history.ts": hook("hub:db:migrations:dirs"),
+      "layers/reports/nuxt.config.ts": "export default defineNuxtConfig({ hooks: { [`hub:db:queries:paths`]: () => {} } })\n",
+      "base/modules/nested/tables.mjs": hook("hub:db:schema:extend"),
+      // Not a module or layer config: the codemod does not run it as a Nuxt hook.
+      "server/utils/names.ts": "export const name = 'hub:db:schema:extend'\n",
+      "node_modules/@evlog/nuxthub/package.json": JSON.stringify({ name: "@evlog/nuxthub", peerDependencies: { "@nuxthub/core": "^0.10.12" } }),
+      "node_modules/@evlog/nuxthub/modules/x.ts": hook("hub:db:schema:extend"),
+      "node_modules/uses-hub/package.json": JSON.stringify({ name: "uses-hub", dependencies: { "@nuxthub/core": "^0.10.12" } }),
+      "node_modules/plain/package.json": JSON.stringify({ name: "plain", peerDependencies: { "@nuxthub/kv": "^1.0.0" } }),
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    const followUps = run.result.followUps.filter(followUp => /NuxtHub's (?:hub:db|module APIs)/.test(followUp.message))
+    expect(followUps.map(({ file, line, message }) => [file, line, message.slice(0, 40)])).toEqual([
+      ["base/modules/nested/tables.mjs", 1, "NuxtHub's hub:db:schema:extend hook adds"],
+      ["layers/reports/nuxt.config.ts", 1, "NuxtHub's hub:db:queries:paths hook adds"],
+      ["modules/history.ts", 1, "NuxtHub's hub:db:migrations:dirs hook ad"],
+      ["nuxt.config.ts", 5, "NuxtHub's hub:db:schema:extend hook adds"],
+      ["nuxt.config.ts", 6, "nuxt-studio uploads external media only "],
+      ["package.json", 4, "@evlog/nuxthub needs @nuxthub/core (peer"],
+      ["package.json", 5, "uses-hub needs @nuxthub/core (dependency"],
+    ])
+    expect(followUps.find(followUp => followUp.file === "modules/history.ts")?.message).toContain("vitehub.dev/docs/database/configure#contribute-tables-from-a-nuxt-module")
+    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub")
   })
 
   it("reports legacy Drizzle relations at the moved schema", async () => {
@@ -288,7 +321,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": "^0.1.0", "drizzle-kit": "^1.0.0-rc.5", "drizzle-orm": "^1.0.0-rc.5", "vite-hub": "^0.1.0" } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": codemodsRange } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",

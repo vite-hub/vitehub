@@ -25,11 +25,12 @@ import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
+import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
-import { docsFilesModule } from "./files.ts"
-import { docsAppManifestSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
+import { docsDevFilesModule, docsFilesModule } from "./files.ts"
+import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
@@ -159,6 +160,12 @@ export interface DocsModuleOptions {
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
   /**
+   * A Markdown copy of every app page that is not a docs page, such as the home page, at its URL plus `.md` and for
+   * `Accept: text/markdown`. Content converts the HTML that the app renders for the same request. Docs pages keep their
+   * exact copy. `false` turns it off.
+   */
+  markdownPages?: boolean
+  /**
    * The share image of every page, rendered by `nuxt-og-image` while the build prerenders. By default it shows the
    * site, the page title and description, and the section. `component` names the app's own template in
    * `components/OgImage/`, such as `Docs` for `OgImage/Docs.takumi.vue`; it gets the same props. A page sets
@@ -209,6 +216,8 @@ export interface DocsPublicConfig {
   github: { repo: string, branch: string, dir: string, url: string, stars: number | null } | false
   icons: DocsIcons
   mcp: { name: string, url: string, guide: string | null } | false
+  /** Whether app pages that are not docs pages get a converted Markdown copy. */
+  markdownPages: boolean
   assistant: { agent: string } | false
   ogImage: { component: string } | false
 }
@@ -243,7 +252,6 @@ interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
-  serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   handlers?: Array<{ route: string, method?: string, handler: string }>
   virtual?: Record<string, string | (() => string | Promise<string>)>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
@@ -373,27 +381,34 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     }
     writeSources(read.files)
+    /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
+    const readPage = (page: DocsPage): string => readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
-     * build folder after the modules load, so it runs before the build.
+     * build folder after the modules load, so it runs before the build. It returns the paths of the copies.
      */
-    async function writeAgentSources(snapshot = read) {
+    async function writeAgentSources(snapshot = read): Promise<string[]> {
       writeSources(snapshot.files)
       rmSync(agentDir, { force: true, recursive: true })
       mkdirSync(agentDir, { recursive: true })
       const rawMarkdown = options.rawMarkdown
-      if (!rawMarkdown) return
+      if (!rawMarkdown) return []
+      const written: string[] = []
       for (const page of docsManifestPages(snapshot.manifest)) {
-        const source = readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
+        const source = readPage(page)
         const rewritten = await rawMarkdown(source, page)
         if (rewritten === source) continue
         const target = join(agentDir, docsContentSource(page), page.file)
         mkdirSync(dirname(target), { recursive: true })
         writeFileSync(target, rewritten)
+        written.push(target)
       }
+      return written
     }
-    nuxt.hook("build:before", writeAgentSources)
+    // Development lists these files in `#docs/files` when it generates the module, so the watcher compares them.
+    let agentCopies: string[] = []
+    nuxt.hook("build:before", async () => { agentCopies = await writeAgentSources() })
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
@@ -479,7 +494,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Types `#docs/manifest` in server code. Nitro 2 maps the alias to `docs/manifest` without an extension, so the
     // declaration is `.d.ts`, not `.d.mts`. Nuxt finds a `.d.ts` beside the module too.
     addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
-    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(manifest), write: true }).dst
+    // Each panel's pages get their own module, which the app loads when a reader opens the panel. Development keeps
+    // them in the manifest, since a content change there can add a panel after the templates exist.
+    const app = () => docsAppManifest(manifest, { panels: !nuxt.options.dev })
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => docsAppManifestSource(app().manifest), write: true }).dst
+    const panelFiles = app().panels.map((panel, index) => ({
+      path: panel.path,
+      file: addTemplate({ filename: `docs/panels/${index}.mjs`, getContents: () => docsAppPanelSource(app().panels.find(candidate => candidate.path === panel.path) ?? { ...panel, pages: [] }), write: true }).dst,
+    }))
+    nuxt.options.alias["#docs/panels"] = addTemplate({
+      filename: "docs/panels.mjs",
+      write: true,
+      getContents: () => `export default {\n${panelFiles.map(({ path, file }) => `  ${JSON.stringify(path)}: () => import(${JSON.stringify(file)}),\n`).join("")}}\n`,
+    }).dst
+    // Nuxt prefetches every dynamic import when the browser is idle. A reader opens one panel at most, so the others
+    // would download for nothing.
+    nuxt.hook("build:manifest", (chunks) => {
+      for (const [key, chunk] of Object.entries(chunks)) if (/docs[/\\]panels[/\\]\d+\.mjs$/.test(decodeURIComponent(key))) chunk.prefetch = false
+    })
+    addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")
@@ -506,6 +539,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
+    nuxt.options.alias["#docs/blocks"] = addTemplate({ filename: "docs/blocks.mjs", write: true, getContents: () => comarkBlocksSource() }).dst
+    addTemplate({ filename: "docs/blocks.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const blocks: Record<string, Component>\nexport default blocks\n` })
     // An app page in the docs layout picks its sidebar in `definePageMeta`, like the `sidebar` frontmatter of a docs page.
     addTypeTemplate({
       filename: "types/docs-page-meta.d.ts",
@@ -537,6 +572,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
+      let viteServer: { watcher: { emit: (event: "change", file: string) => unknown } } | undefined
+      nuxt.hook("vite:serverCreated", (server) => { viteServer = server })
       const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
       const watchers = contentDirsToWatch.map(contentDir => {
         let watchDir = contentDir
@@ -555,11 +592,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
               try {
                 const next = await readDocsContent(manifestOptions)
                 const changed = JSON.stringify(next.manifest) !== JSON.stringify(manifest)
-                await writeAgentSources(next)
+                const copies = await writeAgentSources(next)
+                // `#docs/files` imports each file through Vite, and lists the agent copies when it is generated. Nuxt's
+                // watcher skips the build folder, so Vite learns about changed copies only from here.
+                const copiesChanged = copies.join("\n") !== agentCopies.join("\n")
+                agentCopies = copies
+                for (const file of copies) viteServer?.watcher.emit("change", file)
                 read = next
                 manifest = next.manifest
                 // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
-                if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+                if ((changed || copiesChanged) && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
               }
               catch (error) {
                 // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
@@ -601,7 +643,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: (): string => [
         // comark-ui's blocks style themselves in a `comark` layer. Naming the order first keeps Tailwind's base below it.
         `@layer theme, base, comark, components, utilities;`,
-        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
+        // Absolute paths, like the theme below: the app may not depend on either package, and Nuxt can read this
+        // template from outside the app (a custom `buildDir`), where a bare name does not resolve.
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "${stylesheet("tailwindcss")}";`, `@import "${stylesheet("@nuxt/ui")}";`],
         `@import "${scopedTheme?.dst ?? sharedTheme}";`,
         `@import "${join(runtime, "theme/design.css")}";`,
         "",
@@ -609,9 +653,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     })
     nuxt.options.css.unshift(docsCss.dst)
 
-    // @nuxt/icon bundles only the icons it finds in the app, so add the shell's icons and the configured ones.
+    // @nuxt/icon bundles only the icons it finds in the app, so add the shell's icons, the configured ones, and the ones
+    // that pages name, such as `icon="i-lucide-lock"` on a block. The browser loads an icon outside the bundle from the
+    // `/api/_nuxt_icon` endpoint, so the icon is blank until that request ends.
     Reflect.apply(nuxt.hook, nuxt, ["icon:clientBundleIcons", (icons: Set<string>) => {
       const names = [
+        ...docsManifestPages(manifest).flatMap(page => readPage(page).match(markdownIconName) ?? []),
         ...shellIcons,
         ...Object.values(vitehubTheme.icons),
         config.icons.page,
@@ -696,6 +743,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
     }
     if (config.mcp) addServerHandler({ route: "/mcp", handler: resolver.resolve("./runtime/server/mcp.js") })
+    if (config.markdownPages) addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/markdown.js") })
 
     /**
      * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
@@ -753,7 +801,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           else if (route.fileName?.endsWith(".html") && route.contentType?.includes("text/html")) pages.push(readDocsSeoPage(route.route, route.contents, origin))
         })
         nitro.hooks?.hook("prerender:done", () => {
-          const problems = docsSeoProblems(pages, sitemap)
+          const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
           const error = new DocsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
@@ -779,16 +827,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
-      // Pack production files into one module to stay below Cloudflare's module limit. Development reads server assets.
+      // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
+      // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
-      if (nuxt.options.dev) {
-        nitro.serverAssets = [...nitro.serverAssets ?? [], ...stores.map(store => ({ baseName: store.name, dir: store.dir, pattern: "**/*.md" }))]
-        nitro.virtual = { ...nitro.virtual, "#docs/files": "export default null\n" }
-      }
-      else {
-        const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
-        nitro.virtual = { ...nitro.virtual, "#docs/files": () => docsFilesModule(stores, order()) }
-      }
+      const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
+      nitro.virtual = { ...nitro.virtual, "#docs/files": nuxt.options.dev ? () => docsDevFilesModule(stores) : () => docsFilesModule(stores, order()) }
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
@@ -845,6 +888,9 @@ const shellIcons = [
   "i-vscode-icons-file-type-vue", "i-vscode-icons-file-type-yaml",
 ]
 
+/** An icon name in Markdown, such as `i-lucide-sun`. A name that is no icon is dropped when @nuxt/icon cannot resolve it. */
+const markdownIconName = /(?<![\w-])i-[a-z0-9]+(?:-[a-z0-9]+)+/g
+
 /**
  * `i-lucide-sun` as @nuxt/icon bundles it: `lucide:sun`. Collection names with one hyphen end in `-icons`, such as
  * `simple-icons`. Rail icon names such as `kv` are not Iconify names and return `null`.
@@ -900,6 +946,19 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
+/** The file a CSS `@import "<name>"` loads: the package's `style` export. */
+function stylesheet(name: string): string {
+  // `@nuxt/ui` does not export its package.json, so walk up from its entry.
+  let root = dirname(fileURLToPath(import.meta.resolve(name)))
+  while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
+    // Internal invariant: a package that resolved has a package.json above its entry.
+    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    root = dirname(root)
+  }
+  const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }
+  return join(root, exports["."].style)
+}
+
 function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | null {
   if (!logo) return null
   if (typeof logo === "string") return { src: docsAppPath(logo, appBase), dark: null, mask: true }
@@ -943,6 +1002,7 @@ function publicConfig(options: DocsModuleOptions, base: string, appBase: string)
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
     icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", stroke: 1.5, ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
+    markdownPages: options.markdownPages !== false,
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }

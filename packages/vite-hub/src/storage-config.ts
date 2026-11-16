@@ -27,7 +27,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     : options.cache
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
-  const state = agent && agent.providers?.state
+  const state = agent ? agent.providers?.state ?? {} : undefined
+  const sqlState = state && state.driver !== "cloudflare" && state.driver !== "memory" ? state : undefined
   return {
     ...options,
     ...(cache ? { cache } : {}),
@@ -41,8 +42,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent ? {
       agent: {
         ...agent,
-        ...(state !== false && (!state?.driver || ["auto", "sqlite", "libsql"].includes(state.driver)) ? {
-          providers: { ...agent.providers, state: { ...state, driver: state?.driver ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } },
+        ...(sqlState ? {
+          providers: { ...agent.providers, state: { ...sqlState, driver: sqlState.driver ?? "libsql", url: sqlState.url ?? file("agent-state.sqlite") } },
         } : {}),
         ...(isDefaultAgentJournal(agent.invocations) ? {
           invocations: { ...agent.invocations, databaseUrl: agent.invocations?.databaseUrl ?? file("agent-invocations.sqlite") },
@@ -54,6 +55,19 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+}
+
+/**
+ * The `file:` Agent State URL that the default journal goes next to on the node host, so one writable directory holds
+ * both. Undefined for other hosts, remote or memory State, and a journal with its own `databaseUrl`.
+ */
+export function agentJournalStateUrl(options: ViteHubOptions): string | undefined {
+  const agent = options.agent
+  if (options.host !== "node" || !agent || agent === true || !isDefaultAgentJournal(agent.invocations) || agent.invocations?.databaseUrl) return
+  const state = agent.providers?.state
+  if (!state || (state.driver === "memory" || state.driver === "cloudflare") || typeof state.url !== "string") return
+  const url = state.url.trim()
+  return /^file:/i.test(url) ? url : undefined
 }
 
 /**
@@ -89,13 +103,16 @@ export function defaultDatabaseD1Binding(
 /**
  * The `comments` option turns Comments on. It keeps threads in the Database, so it enables `database` when it is unset.
  * `database: false` with Comments on fails. The Console does not turn Comments on.
+ *
+ * When nothing changes, it returns the same object. `vitehub()` calls it again on the options that the Nuxt module
+ * passed to `markCmsPresetFeaturesResolved()`, and a copy would lose that mark.
  */
 export function withComments(options: ViteHubOptions): ViteHubOptions {
   if (!options.comments) return options
   if (options.database === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: "[vitehub] Comments keeps its threads in the Database, and the `comments` option turns Comments on, but `database` is false. Remove `database: false`, or set `comments: false`." })
   }
-  return { ...options, database: options.database ?? true }
+  return options.database === undefined ? { ...options, database: true } : options
 }
 
 /**

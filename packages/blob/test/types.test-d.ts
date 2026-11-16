@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 import { blob, file, image, type BlobOptions, type BlobStorage, type ReadonlyBlobStorage, type BlobReference, type BlobReferenceInput, type BlobErrorCode, type BlobObject, type BlobPutOptions, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import type { H3Event } from "h3"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -87,6 +88,13 @@ describe("types", () => {
       new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
     expectTypeOf(authorize).parameter(0).toHaveProperty("session").toEqualTypeOf<Record<string, unknown>>()
     expectTypeOf(authorize).returns.toMatchTypeOf<boolean | Response | Promise<boolean | Response>>()
+
+    // The H3 event of the route reaches helpers of the app that take it.
+    const canRead = (event: H3Event, pathname: string) => event.context.params?._ === pathname
+    const withEvent: BlobServeAuthorize = ({ event, user }) => canRead(event, `${user.id}/meal.jpg`)
+    expectTypeOf(withEvent).parameter(0).toHaveProperty("event").toEqualTypeOf<H3Event>()
+    const anonymous: BlobServeAnonymousAuthorize = ({ event }) => canRead(event, "public/meal.jpg")
+    expectTypeOf(anonymous).toBeFunction()
   })
 
   it("types the anonymous serve callback with a nullable user", () => {
@@ -135,7 +143,7 @@ describe("types", () => {
   it("narrows Blob results by the error element", async () => {
     const [error, value] = await blob.put("proof.txt", "value")
     if (error) {
-      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
+      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }

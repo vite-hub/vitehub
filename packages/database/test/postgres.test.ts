@@ -128,9 +128,10 @@ describe("Postgres Database Definitions", () => {
       .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
 
-  it("accepts `driver: \"pglite\"` only on a Postgres Definition", () => {
+  it("accepts `driver: \"pglite\"` and `driver: \"node-postgres\"` only on a Postgres Definition", () => {
     expect(defineDatabase({ dialect: "postgresql", driver: "pglite", schema: { notes } })).toMatchObject({ driver: "pglite" })
-    // @ts-expect-error PGlite is the only driver option.
+    expect(defineDatabase({ dialect: "postgresql", driver: "node-postgres", schema: { notes } })).toMatchObject({ driver: "node-postgres" })
+    // @ts-expect-error postgres.js is the default, not a driver option.
     expect(() => defineDatabase({ dialect: "postgresql", driver: "postgres", schema: { notes } }))
       .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DRIVER" }))
     // @ts-expect-error A SQLite Definition has no driver option.
@@ -305,6 +306,40 @@ describe("Postgres build configuration", () => {
     ])
   })
 
+  it("imports only node-postgres for `driver: \"node-postgres\"`, in hosted modules, the Vite module, and inspection", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", [
+      "  dialect: 'postgresql',",
+      "  driver: 'node-postgres',",
+      "  connection: { url: process.env.DATABASE_URL },",
+    ])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+    expect(config.databases.default).toMatchObject({ driver: "node-postgres" })
+    const output = join(rootDir, ".vitehub/database")
+
+    await writeHostedDatabaseRuntimeModules(output, config)
+    for (const provider of ["cloudflare", "vercel"]) {
+      const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
+      expect(code).toContain("import { createNodePostgresDatabase } from")
+      expect(code).toContain("runtime/node-postgres")
+      expect(code).not.toMatch(/runtime\/postgres\.(?:js|ts)/)
+      expect(code).toContain("db: createNodePostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 },")
+    }
+
+    const plugin = hubDatabase()
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
+    const resolveId = (plugin.resolveId as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
+    // SAFETY: These are Vite hook handlers returned by hubDatabase.
+    const load = (plugin.load as { handler: (id: string) => string | undefined | Promise<string | undefined> }).handler
+    const code = await load((await resolveId("#vitehub/database/databases"))!)
+    expect(code).toContain("runtime/node-postgres")
+    expect(code).not.toMatch(/runtime\/postgres\.(?:js|ts)/)
+
+    expect((await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir }))[0]?.fields).toContainEqual({ label: "Driver", value: "node-postgres. Queries use a `pg` Pool." })
+  })
+
   it("lists the number of read replicas in Definition inspection, without their URLs", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", [
@@ -342,6 +377,9 @@ describe("Postgres build configuration", () => {
       expect(code).toContain("runtime/postgres")
       expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).not.toContain("createHostedDrizzleDb")
+      // The module stands in for `@vite-hub/database`, so it has the export that OpenWorkflow imports.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }")
+      expect(code).toContain("runtime/postgres-connection")
     }
   })
 
@@ -363,6 +401,26 @@ describe("Postgres runtime", () => {
     relations: defineRelations({ notes }),
     schema: { notes },
   }
+
+  it("tells another package its connection URL without opening a client", async () => {
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const { postgresConnectionUrl } = await import("../src/runtime/postgres-connection.ts")
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://fallback/app" })
+    const read = Reflect.get(db, postgresConnectionUrl) as () => string | undefined
+
+    expect(read()).toBe("postgres://fallback/app")
+    expect(driver.clients).toHaveLength(0)
+    expect(Reflect.get(createPostgresDatabase(definition, { binding: "HYPERDRIVE" }), postgresConnectionUrl)).toBeTypeOf("function")
+  })
+
+  it("reports a missing connection when another package reads its URL without opening a client", async () => {
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const { readPostgresConnectionUrl } = await import("../src/runtime/postgres-connection.ts")
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+
+    expect(() => readPostgresConnectionUrl({ default: { db } }, "default")).toThrowError(expect.objectContaining({ code: "DATABASE_MISSING_CONNECTION" }))
+    expect(driver.clients).toHaveLength(0)
+  })
 
   it("creates one client per Cloudflare request from the Hyperdrive binding", async () => {
     const { createPostgresDatabase } = await loadPostgresRuntime()

@@ -7,8 +7,8 @@ import { intersects, validRange } from "semver"
 import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
-import { readNuxtConfig } from "./shared/nuxt-config.ts"
-import { CodemodError } from "./types.ts"
+import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
+import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
 
@@ -17,6 +17,8 @@ export interface RunMigrationOptions {
   cwd?: string
   /** Plan the edits and write nothing. */
   dryRun?: boolean
+  /** The codemods to detect and run, in order. Defaults to every codemod. `vitehub migrate` passes `upgradeCodemods`. */
+  codemods?: readonly Codemod[]
 }
 
 /** One codemod that the migration ran. It has a `result` or an `error`. */
@@ -36,6 +38,8 @@ export interface Migration {
   edits: FileEdit[]
   /** Problems with the project that no codemod owns, such as a Nuxt version that ViteHub does not support. */
   warnings: string[]
+  /** Names of the codemods that the migration checked. */
+  supported: string[]
 }
 
 /** Folders that the migration does not copy into its scratch directory. */
@@ -55,10 +59,10 @@ async function projectWarnings(cwd: string): Promise<string[]> {
   return []
 }
 
-/** Lists every codemod that applies to the project, in registry order. */
-export async function detectCodemods(cwd: string): Promise<Array<{ codemod: Codemod, detection: Detection }>> {
+/** Lists every codemod of `candidates` that applies to the project, in their order. */
+export async function detectCodemods(cwd: string, candidates: readonly Codemod[] = codemods): Promise<Array<{ codemod: Codemod, detection: Detection }>> {
   const found: Array<{ codemod: Codemod, detection: Detection }> = []
-  for (const codemod of codemods) {
+  for (const codemod of candidates) {
     const detection = await codemod.detect({ cwd })
     if (detection) found.push({ codemod, detection })
   }
@@ -77,13 +81,17 @@ async function readOptional(path: string): Promise<string | undefined> {
 export async function runMigration(options: RunMigrationOptions = {}): Promise<Migration> {
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  if (!existsSync(cwd)) throw new CodemodError(`Cannot find the directory ${cwd}.`)
+  if (!existsSync(cwd)) throw codemodError(`Cannot find the directory ${cwd}.`)
+  const candidates = options.codemods ?? codemods
+  const supported = candidates.map(codemod => codemod.name)
   const warnings = await projectWarnings(cwd)
-  const found = await detectCodemods(cwd)
+  const found = await detectCodemods(cwd, candidates)
   const steps: MigrationStep[] = []
   if (!found.length) {
-    await readNuxtConfig(cwd)
-    return { cwd, dryRun, steps, edits: [], warnings }
+    // A plain Vite or Node app has no nuxt.config. Still name a nuxt.config that does not parse, and a folder that is no app.
+    if (findNuxtConfigName(cwd)) await readNuxtConfig(cwd)
+    else if (!existsSync(join(cwd, "package.json"))) throw codemodError(`Cannot find package.json or nuxt.config in ${cwd}. Pass the app directory as the first argument.`)
+    return { cwd, dryRun, steps, edits: [], warnings, supported }
   }
   const touched = new Set<string>()
   const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
@@ -97,7 +105,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
     for (const { codemod, detection } of found) {
       try {
-        const planned = await codemod.run({ cwd: scratch })
+        const planned = await codemod.run({ cwd: scratch, dependencyRoot: cwd })
         const result: CodemodResult = {
           ...planned,
           summary: unscratch(planned.summary),
@@ -114,7 +122,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
         steps.push({ codemod, detection, result })
       }
       catch (error) {
-        if (!(error instanceof CodemodError)) throw error
+        if (!isCodemodError(error)) throw error
         steps.push({ codemod, detection, error: unscratch(error.message) })
       }
     }
@@ -125,7 +133,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
       if (after !== (before ?? null)) edits.push({ path, before, after })
     }
     if (!dryRun) for (const edit of edits) await applyEdit(cwd, edit)
-    return { cwd, dryRun, steps, edits, warnings }
+    return { cwd, dryRun, steps, edits, warnings, supported }
   }
   finally {
     await rm(scratch, { recursive: true, force: true })
@@ -137,17 +145,19 @@ function formatLocation(followUp: FollowUp): string {
   return followUp.line ? `${followUp.file}:${followUp.line} ` : `${followUp.file} `
 }
 
-/** Formats the report that ends a migration: what each codemod did, what it could not do, and what to run next. */
-export function formatMigrationReport(migration: Migration): string {
+/**
+ * Formats the report that ends a migration: what each codemod did, what it could not do, and what to run next.
+ * `nextSteps` adds steps of the caller after those of the codemods, when the migration changed files.
+ */
+export function formatMigrationReport(migration: Migration, nextSteps: readonly string[] = []): string {
   const { steps, edits, dryRun } = migration
   const lines: string[] = []
-  const supported = codemods.map(codemod => codemod.name).join(", ")
   if (!steps.length) {
-    lines.push(`No supported module found in ${migration.cwd}.`, `Supported: ${supported}.`)
+    lines.push(`Nothing to migrate in ${migration.cwd}. No codemod applies.`, `Checked: ${migration.supported.join(", ")}.`)
   }
   else {
     const failed = steps.filter(step => step.error).length
-    lines.push(`Found ${steps.length} supported module${steps.length === 1 ? "" : "s"} in ${relative(process.cwd(), migration.cwd) || "."}: migrated ${steps.length - failed}, could not migrate ${failed}.`)
+    lines.push(`${steps.length} codemod${steps.length === 1 ? " applies" : "s apply"} to ${relative(process.cwd(), migration.cwd) || "."}: migrated ${steps.length - failed}, could not migrate ${failed}.`)
   }
   if (dryRun) lines.push("Dry run: no files were written.")
   for (const step of steps) {
@@ -174,10 +184,10 @@ export function formatMigrationReport(migration: Migration): string {
     lines.push("", "Notes:")
     for (const note of notes) lines.push(`  - ${note}`)
   }
-  const nextSteps = [...new Set(steps.flatMap(step => step.result?.nextSteps ?? []))]
-  if (nextSteps.length) {
+  const allNextSteps = [...new Set([...steps.flatMap(step => step.result?.nextSteps ?? []), ...edits.length ? nextSteps : []])]
+  if (allNextSteps.length) {
     lines.push("", "Next steps:")
-    for (const step of nextSteps) lines.push(`  - ${step}`)
+    for (const step of allNextSteps) lines.push(`  - ${step}`)
   }
   return `${lines.join("\n")}\n`
 }

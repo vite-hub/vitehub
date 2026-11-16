@@ -1,0 +1,11 @@
+{
+  "rawErrors": {
+    "packages/web-container/src/connect.ts": 1,
+    "packages/web-container/src/index.ts": 10,
+    "packages/web-container/src/snapshot.ts": 4
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/web-container/src/snapshot.ts": 2
+  }
+}

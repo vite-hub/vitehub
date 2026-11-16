@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-const source = await readFile(new URL('../src/internal/browser-runtime.ts', import.meta.url), 'utf8')
-const script = source.split('const smokeLinuxChromiumScript = `')[1].split('\n`')[0]
+const source = await readFile(new URL('../src/internal/browser-runtime-scripts.injected.ts', import.meta.url), 'utf8')
+const script = source.split('export const smokeLinuxChromiumScript = `')[1].split('\n`')[0]
 
 for (const mode of ['ready', 'cancel', 'timeout']) {
   test(`joins Chromium helpers before profile cleanup on ${mode}`, { skip: process.platform !== 'linux' }, async () => {

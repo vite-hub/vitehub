@@ -172,12 +172,12 @@ describe("blob operations", () => {
 
   it("reports missing blobs and unknown stores", async () => {
     await expect(run({ operation: "head", pathname: "missing.txt" })).resolves.toEqual({
-      body: { error: { code: "BLOB_NOT_FOUND", message: "Blob missing.txt was not found in store default." } },
+      body: { error: { code: "BLOB_NOT_FOUND", fix: expect.stringContaining("Check the pathname"), message: "Blob missing.txt was not found in store default." } },
       status: 404,
     })
     await expect(run({ operation: "get", pathname: "missing.txt" })).resolves.toMatchObject({ body: { error: { code: "BLOB_NOT_FOUND" } }, status: 404 })
     await expect(run({ operation: "list", store: "nope" })).resolves.toEqual({
-      body: { error: { code: "BLOB_STORE_NOT_FOUND", message: "Blob store \"nope\" was not found. Stores: default, archive, media." } },
+      body: { error: { code: "BLOB_STORE_NOT_FOUND", fix: expect.stringContaining("`blob.stores`"), message: "Blob store \"nope\" was not found. Stores: default, archive, media." } },
       status: 404,
     })
   })

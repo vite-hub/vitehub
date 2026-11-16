@@ -27,10 +27,12 @@ import { inspectKVResources, inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 import { kvRedisEnvWarning } from "./config.ts"
+import { kvDeploymentEnv } from "./deployment-env.ts"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -68,6 +70,8 @@ export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
 export type { KVViteRuntimeConfig } from "./vite-config.ts"
 
 export interface KVVitePluginAPI {
+  /** The variables that the KV stores read on the deployed host. See `kvDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => KVViteRuntimeConfig
 }
 
@@ -266,6 +270,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async has(key, options) { return kvResult(\"has\", name, () => resolveStorage(name).hasItem(key, options), kvKeyLimitCodes); },",
     "    async increment() { return unsupported(\"increment\", name); },",
     "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
+    "    lock() { return { async acquire() { return unsupported(\"lock\", name); }, async run() { return unsupported(\"lock\", name); } }; },",
     "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
     "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }, kvWriteLimitCodes); },",
     "    async setMany(entries, options) { return kvResult(\"setMany\", name, async () => { await resolveStorage(name).setMany(entries, options); }, kvWriteLimitCodes); },",
@@ -409,7 +414,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   return {
     name: KV_VITE_PLUGIN_NAME,
     enforce: "post",
-    api: { getConfig },
+    api: { deploymentEnv: () => kvDeploymentEnv(getConfig().kv), getConfig },
     nitro: {
       name: "@vite-hub/kv/cloudflare-bindings",
       setup(nitro) {
