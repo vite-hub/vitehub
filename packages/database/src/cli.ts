@@ -11,7 +11,7 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
 import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
-import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
+import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -202,7 +202,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
   let env = context.env ?? process.env
   if (parsed.stage) {
     const { loadEnv } = await import("vite")
-    env = { ...loadEnv(parsed.stage, projectRoot, ""), ...env }
+    env = { ...loadAllEnv(loadEnv, parsed.stage, projectRoot), ...env }
   }
   const { describeExportTarget, exportDatabase } = await import("./internal/export.ts")
   const time = new Date().toISOString().replaceAll(":", "").replaceAll(".", "")
@@ -235,7 +235,7 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
   return await withViteStageEnvironment(env, async () => {
     if (parsed.stage) {
       const { loadEnv } = await import("vite")
-      env = { ...loadEnv(parsed.stage, context.rootDir, ""), ...env }
+      env = { ...loadAllEnv(loadEnv, parsed.stage, context.rootDir), ...env }
       Object.assign(process.env, env)
     }
     const config = await getConfig?.({ strict: false })
