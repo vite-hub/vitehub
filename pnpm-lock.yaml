@@ -3588,9 +3588,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3616,6 +3613,9 @@ importers:
       '@types/picomatch':
         specifier: catalog:tooling
         version: 4.0.3
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -4361,9 +4361,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
@@ -4425,6 +4422,9 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

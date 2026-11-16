@@ -127,6 +127,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ variable }: { variable: string }) => `[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`,
       fix: "Set the variable that the message names to the private key that `vitehub secret console-key` prints, and name it `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` with A-Z, 0-9, and _ in `<NAME>`.",
     },
+    INTERNAL_FORGE_NOT_INSTALLED: {
+      why: ({ feature }: { feature: string }) => `${feature} needs @vite-hub/forge, and the app did not install it.`,
+      fix: "Install Forge in your app with `pnpm add @vite-hub/forge`, then build again.",
+    },
     INTERNAL_PRESET_OPTION_UNKNOWN: {
       why: ({ key, label }: { key: string, label: string }) => `[vitehub] Unknown ${label} option "${key}".`,
       fix: "Remove the option that the message names from the preset options, or correct its spelling to an option that the preset declares.",

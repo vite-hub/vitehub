@@ -29,6 +29,7 @@ export default defineConfig({
       "src/durability.ts",
       "src/env.ts",
       "src/features.ts",
+      "src/forge.ts",
       "src/http-request.ts",
       "src/inspect.ts",
       "src/invariant.ts",
