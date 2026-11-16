@@ -1,14 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
 
 import type { Nitro } from "nitro/types"
 
-it("sets up the default MCP and discovery resources in a path-mounted Nuxt consumer", async () => {
+it.each([false, true])("sets up a path-mounted Nuxt consumer (Nuxt UI first: %s)", async (uiFirst) => {
   const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
   const moduleUrl = pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href
   const docs = (await import(moduleUrl)).default as never
@@ -22,7 +22,7 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
       overrides: {
         dev: false,
         app: { baseURL: "/portal/" },
-        modules: [[docs, { base: "/docs/", site: { url: "https://docs.example.com" } }]],
+        modules: [...uiFirst ? [fileURLToPath(import.meta.resolve("@nuxt/ui"))] : [], [docs, { base: "/docs/", site: { url: "https://docs.example.com" } }]],
       },
       ready: true,
     })
