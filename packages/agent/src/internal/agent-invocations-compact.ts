@@ -155,13 +155,7 @@ export async function compactJournalFile(options: JournalCompactOptions): Promis
   if (options.dryRun) return result
   if (!space.ok) {
     const lines = space.volumes.map(volume => `${volume.directory} (${volume.uses.join(" and ")}): ${volume.availableBytes} bytes available, ${volume.requiredBytes} bytes required.`)
-    throw agentDiagnostics.AGENT_R0931({
-      message: [
-        `Not enough free space to compact ${label}. VACUUM writes a copy of the ${before.liveBytes} live bytes and a journal of about the same size.`,
-        ...lines,
-        "Free space on the volume, or set SQLITE_TMPDIR to a directory on another volume for the temporary copy.",
-      ].join("\n"),
-    })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_SPACE({ label, liveBytes: before.liveBytes, volumes: lines })
   }
   try {
     // auto_vacuum changes on an existing file only when VACUUM rebuilds it.
@@ -170,9 +164,7 @@ export async function compactJournalFile(options: JournalCompactOptions): Promis
   }
   catch (error) {
     if (!isSqliteLockError(error)) throw error
-    throw agentDiagnostics.AGENT_R0931({
-      message: `${label} is busy. VACUUM needs the write lock, and another process held it for more than ${options.busyTimeoutMs} ms. Stop the server that uses the journal, or run compact during a quiet window.`,
-    })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_BUSY({ label, busyTimeoutMs: options.busyTimeoutMs })
   }
   let walTruncated = true
   try {
