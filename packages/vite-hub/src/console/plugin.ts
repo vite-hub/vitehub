@@ -16,6 +16,7 @@ import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
 import { setupDevRoute } from "../setup-dev.ts"
+import { readViteHubVersion } from "../version.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -198,7 +199,7 @@ function renderConsoleNitroPlugin(
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
@@ -215,6 +216,8 @@ function renderConsoleNitroPlugin(
     "  }",
     "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
+    // `project.get` names the installed `vite-hub`, also a pkg.pr.new preview, whose version the app's server output lacks.
+    `installConsoleVersion(${JSON.stringify(readViteHubVersion())})`,
     // A production build records its time and commit for `project.get`. A development server has no build to name.
     ...(development ? [] : [`installConsoleBuild(${JSON.stringify(consoleBuildOf(projectRoot))})`]),
     // The application module loads on the first document request, so the Console does not start Content at boot.
