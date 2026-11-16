@@ -302,6 +302,18 @@ it("rejects a base merge that keeps the PR's stale copy of a file", async () => 
   expect(await git(root, "log", "-1", "--format=%B", head)).toBe("merge base");
 });
 
+it("rejects stale PR exports as evidence of a resolution rewrite", async () => {
+  const origin = 'export const version = 1;\n';
+  const base = origin + 'export { oauthLogin } from "./auth.ts";\n';
+  const pr = origin + 'export { passwordLogin } from "./auth.ts";\n';
+  const { root, expectedHead } = await conflictingMerge(origin, base, pr);
+  await writeFile(join(root, "file.txt"), pr);
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead }))
+    .rejects.toMatchObject({ code: "PRESETS_REPAIR_BASE_REVERTED", message: expect.stringContaining("oauthLogin") });
+  await writeFile(join(root, "file.txt"), base + 'export { passwordLogin } from "./auth.ts";\n');
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead })).resolves.toMatch(/^[a-f\d]{40}$/);
+});
+
 it("rejects a base merge that brings back lines the base removed", async () => {
   const { root, expectedHead } = await conflictingMerge("callLegacyHelper()\nconst value = 1\n", "const value = 2\n", "callLegacyHelper()\nconst value = 3\n");
   await writeFile(join(root, "file.txt"), "callLegacyHelper()\nconst value = 3\n");

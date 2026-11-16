@@ -166,8 +166,13 @@ export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
   formKey?: string
-  /** Accept more than one file. Defaults to `true`. */
+  /** Accept more than one file. Defaults to `true`. `false` is the same as `maxFiles: 1`. */
   multiple?: boolean
+  /**
+   * The most files that `formKey` accepts. A request with more files gets an H3 400 error before the extra files are
+   * read. Defaults to no limit.
+   */
+  maxFiles?: number
   /** Validate each file with `ensureBlob()` before it is stored. */
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */

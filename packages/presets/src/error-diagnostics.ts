@@ -395,6 +395,108 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: 'Babysitter repairStackChildren requires merge: "direct": only a direct merge stops a stack child from merging into its parent\'s branch.',
       fix: 'Set merge to "direct" or { strategy: "direct" }, or set repairStackChildren to false.',
     },
+    // Babysitter pass and inbox errors. The agent's tool input, the repair Sandbox, the host data directory, or GitHub caused them.
+    PRESETS_BABYSITTER_ADMISSION_CHECK_INVALID: {
+      why: "Invalid admission.check result. Expected undefined or { reason, detail, retryAt }.",
+      fix: "Return undefined from the Babysitter admission.check function, or a pause object with a non-empty reason string, an optional detail string, and an optional retryAt timestamp in milliseconds.",
+    },
+    PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED: {
+      why: ({ path }: { path: string }) => `[vitehub] Refusing to clean replaced Babysitter checkout pool: ${path}`,
+      fix: "Stop every other process that uses the Babysitter data directory, remove the directory that the message names, and start the Babysitter again.",
+    },
+    PRESETS_BABYSITTER_CHECKOUT_POOL_UNSAFE: {
+      why: ({ root }: { root: string }) => `[vitehub] Refusing to clean unsafe Babysitter checkout pool: ${root}`,
+      fix: "Replace the path that the message names with a real directory, or remove it. The Babysitter keeps its checkout pool there and does not follow symbolic links.",
+    },
+    PRESETS_BABYSITTER_GITHUB_CURSOR_INVALID: {
+      why: ({ kind }: { kind: "review thread pagination" | "open pull request" }) => `Invalid ${kind} cursor`,
+      fix: "Retry later; the Babysitter reads the pull requests again on its next pass. If it keeps failing, check the GitHub status page.",
+    },
+    PRESETS_BABYSITTER_GITHUB_HEAD_MISSING: {
+      why: "GitHub returned no pull request head.",
+      fix: "Check that the head branch or fork of the pull request still exists. Restore it, or close the pull request.",
+    },
+    PRESETS_BABYSITTER_GITHUB_QUERY_FAILED: {
+      why: ({ query, errors }: { query: "review thread" | "open pull request", errors: string }) => `GitHub ${query} query failed: ${errors}`,
+      fix: "Read the GitHub error in the message and check that the GitHub App has Pull requests: read permission on the repository. The Babysitter retries on its next pass.",
+    },
+    PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE: {
+      why: ({ program, problem }: { program: string, problem: string }) => `The host executable ${program} ${problem}.`,
+      fix: "Install the executable that the message names in the PATH of the trusted host service. A script must start with an interpreter line, such as #!/usr/bin/env node. Model passes wait until this check succeeds.",
+    },
+    PRESETS_BABYSITTER_INBOX_STORAGE_MISSING: {
+      why: "PullRequestInbox requires exactly one of path or storage.",
+      fix: "Set inboxPath, a private node:sqlite file, or inboxStorage, such as agentState.extension(\"babysitter\"), in the createBabysitterRuntime() options.",
+    },
+    PRESETS_BABYSITTER_PROMPT_TOO_LARGE: {
+      why: ({ characters, bytes, limit }: { characters: number, bytes: number, limit: number }) => `GitHubPullRequest prompt exceeds transport safety limit: ${characters} characters, ${bytes} UTF-8 bytes; limit ${limit}. All review/comment bodies were retained. No truncated prompt was sent.`,
+      fix: "Shorten or hide the longest comments and review bodies on the pull request, or split it into smaller pull requests. The Babysitter does not cut feedback.",
+    },
+    PRESETS_DEPENDENCY_CHECKS_INCOMPLETE: {
+      why: ({ warnings }: { warnings: string }) => `Dependency checks are incomplete: ${warnings}`,
+      fix: "Give the GitHub App Checks: read and Commit statuses: read permission on the repository of the dependency. The Babysitter checks the wait again later.",
+    },
+    PRESETS_FEEDBACK_CHANGED: {
+      why: "Feedback changed during pagination. Read again from offset zero.",
+      fix: "Call readFeedback again with offset 0 and no version, then continue with the new version.",
+    },
+    PRESETS_FEEDBACK_NOT_FOUND: {
+      why: "Feedback is absent or deleted from the assigned PR snapshot.",
+      fix: "Pass to readFeedback the id and kind of a comment, review, or review comment from the pull request context of this pass.",
+    },
+    PRESETS_FEEDBACK_OFFSET_INVALID: {
+      why: "Feedback offset exceeds the body length.",
+      fix: "Pass an offset that is at most the body length, such as next.offset of the last readFeedback result.",
+    },
+    PRESETS_FEEDBACK_VERSION_MISSING: {
+      why: "Continue with the version returned by the first feedback read.",
+      fix: "Pass next.version from the last readFeedback result together with next.offset.",
+    },
+    PRESETS_SANDBOX_BUNDLE_MISSING: {
+      why: "The repair Sandbox bundle is unavailable.",
+      fix: "Call commitRepair or pushRepair again. If it fails again, check that the Sandbox provider can read files from the Sandbox workspace.",
+    },
+    PRESETS_SANDBOX_COMMIT_EXPORT_FAILED: {
+      why: ({ stderr }: { stderr: string }) => `Cannot export the repair Sandbox commit: ${stderr}`,
+      fix: "Commit the repair in the Sandbox checkout on top of the assigned head, without rewriting earlier commits, then call commitRepair or pushRepair again.",
+    },
+    PRESETS_SANDBOX_COMMIT_MISSING: {
+      why: "The repair Sandbox did not return a commit SHA.",
+      fix: "Check that the Sandbox workspace is a Git checkout with a commit at HEAD, then call commitRepair or pushRepair again.",
+    },
+    PRESETS_SANDBOX_HEAD_CHANGED: {
+      why: "The repair Sandbox HEAD changed during export.",
+      fix: "Do not commit in the Sandbox while commitRepair or pushRepair runs. Call it again.",
+    },
+    PRESETS_SANDBOX_REPAIR_DESTINATION_CHANGED: {
+      why: "Repair destination parent changed during transfer.",
+      fix: "Do not move or link directories in the checkout while commitRepair runs. Call commitRepair again.",
+    },
+    PRESETS_SANDBOX_REPAIR_DESTINATION_OUTSIDE: {
+      why: "Repair destination parent must stay inside the checkout.",
+      fix: "Remove the symbolic link in the parent path of the repair file, so that the file stays inside the checkout.",
+    },
+    PRESETS_SANDBOX_REPAIR_FILE_MISSING: {
+      why: "The repair Sandbox file disappeared during transfer.",
+      fix: "Do not delete repair files while commitRepair runs. Call commitRepair again with the files that exist.",
+    },
+    PRESETS_SANDBOX_REPAIR_PARENT_INVALID: {
+      why: "Repair Sandbox parent must be a regular directory.",
+      fix: "Replace the file or symbolic link in the parent path of the repair file with a directory in the Sandbox checkout.",
+    },
+    PRESETS_SANDBOX_REPAIR_PATH_DIRECTORY: {
+      why: "Repair paths must name individual files.",
+      fix: "List each changed file in the repair paths, not its directory.",
+    },
+    PRESETS_SANDBOX_REPAIR_PATH_INVALID: {
+      why: "Repair paths must name files inside the assigned checkout.",
+      fix: "Pass repair paths relative to the checkout root, such as src/index.ts, without .., .git, or a leading slash.",
+    },
+    PRESETS_SANDBOX_SYNC_FAILED: {
+      why: ({ stderr }: { stderr: string }) => `Cannot synchronize repair Sandbox files: ${stderr}`,
+      fix: "Read the Sandbox error in the message, check that the repair files are readable in the Sandbox, and call commitRepair again.",
+    },
+    // Review thread errors.
     PRESETS_REVIEW_COMMENT_MISSING: {
       why: "Review thread has no comment to answer.",
       fix: "Read the review thread again and use a thread that contains a review comment. Do not record an outcome until its reply can be posted.",
@@ -423,10 +525,6 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_DEPENDENCIES_NOT_CURRENT: {
       why: "Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.",
       fix: "Call refreshDependencies, read .git/vitehub-install.json for the install result, and run validation again before you commit.",
-    },
-    PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED: {
-      why: ({ path }: { path: string }) => `Resolve dependency conflicts in ${path} and call refreshDependencies before validation.`,
-      fix: "Remove the merge conflict markers from the dependency file that the message names, then call refreshDependencies again.",
     },
     PRESETS_DEPENDENCY_GIT_HOST_LOCAL: {
       why: "Host-local Git dependencies are not allowed.",
@@ -508,9 +606,17 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "GitHub authentication is not configured. Set VITEHUB_GITHUB_TOKEN or GitHub App credentials.",
       fix: "Set VITEHUB_GITHUB_TOKEN, or return a token or GitHub App credentials from the credentials() option of createGitHubHost(). A repository outside the App owner needs the token.",
     },
+    PRESETS_GITHUB_DEPENDENCY_CONFLICT: {
+      why: ({ file }: { file: string }) => `Resolve dependency conflicts in ${file} and call refreshDependencies before validation.`,
+      fix: "Remove the merge conflict markers from the dependency file that the message names, then call `refreshDependencies` again.",
+    },
     PRESETS_GITHUB_HOST_APP_OWNER_MISSING: {
       why: "GitHub App owner must be configured with App credentials.",
       fix: "Return owner, the repository owner of the installation, with appId, installationId, and privateKey from the credentials() option of createGitHubHost().",
+    },
+    PRESETS_GITHUB_INSTALL_FAILED: {
+      why: ({ detail }: { detail: string }) => `Frozen dependency installation failed: ${detail}`,
+      fix: "Read error.cause for the package manager output. Fix the lockfile or package.json of the pull request when `kind` is `input`. A retry helps when `retryable` is true, such as for installer capacity or the network.",
     },
     PRESETS_GITHUB_REPOSITORY_INVALID: {
       why: "Expected a GitHub repository in owner/name form.",
@@ -595,10 +701,6 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_PUSH_TARGET_INVALID: {
       why: "Push target must be the root of its prepared Git checkout.",
       fix: "Pass the root directory of the prepared checkout or workspace to push(), not a subdirectory.",
-    },
-    PRESETS_WORKSPACE_INSTALL_FAILED: {
-      why: ({ message }: { message: string }) => `Frozen dependency installation failed: ${message}`,
-      fix: "Read error.cause for the install step that failed and fix the dependency files that it names. The Babysitter retries a retryable failure on a later pass.",
     },
     PRESETS_YARN_LOCKFILE_INVALID: {
       why: "Invalid Yarn lockfile stanza; dependency fields must be structured.",

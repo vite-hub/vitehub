@@ -39,9 +39,8 @@ export async function findGitHubBaseReverts(git: GitHubConflictGit, options: { h
 /** Compare one file's merge base, base, PR head and merge result. */
 export function revertedLines(origin: string, base: string, head: string, result: string): Omit<GitHubBaseRevert, "path"> {
   const [o, b, p, r] = [origin, base, head, result].map(lineCounts);
-  // Lines that neither the merge base nor the base has: the PR's own lines and the resolution's rewrites.
-  // A stale copy of the file adds only merge-base lines, so it never appears here.
-  const rewrites = [...r.keys()].filter(line => !o.has(line) && !b.has(line)).map(words);
+  // Only new resolution lines can demonstrate a rewrite; existing PR lines cannot excuse a lost base addition.
+  const rewrites = [...r.keys()].filter(line => !o.has(line) && !b.has(line) && !p.has(line)).map(words);
   const dropped: string[] = [];
   const restored: string[] = [];
   for (const line of new Set([...o.keys(), ...b.keys()])) {

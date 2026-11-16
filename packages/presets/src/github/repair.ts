@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import * as v from "valibot";
+import { invariantError } from "@vite-hub/internal/invariant";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { findGitHubBaseReverts } from "./base-reverts.ts";
 import type { GitHubBaseRevert } from "./base-reverts.ts";
@@ -38,12 +39,10 @@ export async function commitGitHubPullRequestWorkspace(
     });
     if (entry?.isDirectory()) throw presetsErrorDiagnostics.PRESETS_REPAIR_PATH_DIRECTORY();
   }
-  // Internal invariant: the GitHub host passes the root of its own prepared clone or workspace here.
-  if (!(await lstat(join(target, ".git"))).isDirectory()) throw new Error("Repair requires an independent prepared Git directory.");
+  if (!(await lstat(join(target, ".git"))).isDirectory()) throw invariantError("the GitHub host passes the root of its own prepared clone to the repair")
   const git = repairGit(target, options);
   let message = input.message;
-  // Internal invariant: the GitHub host passes the root of its own prepared clone or workspace here.
-  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target)) throw new Error("Repair target must be its checkout root.");
+  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target)) throw invariantError("the GitHub host passes the checkout root of its own clone to the repair")
   await git("merge-base", "--is-ancestor", options.expectedHead, "HEAD");
   const recordPath = join(target, ".git", "vitehub-merge.json");
   const rawRecord = await readFile(recordPath, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; });
@@ -134,13 +133,10 @@ function repairGit(target: string, options: { signal?: AbortSignal; identity?: R
  * no judgment are resolved and staged; the result lists them when the merge conflicted.
  */
 export async function prepareGitHubRepairBase(target: string, options: { expectedHead: string; base: string; signal?: AbortSignal; fetch?: { url: string; env: Record<string, string> }; conflicts?: Omit<GitHubConflictOptions, "signal"> }): Promise<GitHubConflictResolution | undefined> {
-  // Internal invariant: the Babysitter host calls this on its own clean clone of the assigned head, with the exact base SHA that it read from GitHub.
-  if (!/^[a-f\d]{40}$/i.test(options.base)) throw new Error("Repair base must be an exact commit SHA.");
+  if (!/^[a-f\d]{40}$/i.test(options.base)) throw invariantError("the Babysitter passes the exact base commit SHA that it read from GitHub")
   const git = repairGit(target, options);
-  // Internal invariant: the Babysitter host calls this on its own clean clone of the assigned head, with the exact base SHA that it read from GitHub.
-  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target) || !(await lstat(join(target, ".git"))).isDirectory()) throw new Error("Base merge requires an independent prepared checkout.");
-  // Internal invariant: the Babysitter host calls this on its own clean clone of the assigned head, with the exact base SHA that it read from GitHub.
-  if (await git("rev-parse", "HEAD") !== options.expectedHead || await git("status", "--porcelain")) throw new Error("Base merge requires the clean assigned PR head.");
+  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target) || !(await lstat(join(target, ".git"))).isDirectory()) throw invariantError("the Babysitter merges the base in the root of its own prepared clone")
+  if (await git("rev-parse", "HEAD") !== options.expectedHead || await git("status", "--porcelain")) throw invariantError("the Babysitter merges the base on a clean clone of the assigned pull request head")
   // The live branch may have advanced after the checkout fetched its objects.
   // This runs only during host preparation, before provider writes are admitted.
   if (options.fetch) await repairGit(target, { signal: options.signal, env: options.fetch.env })("fetch", "--no-tags", "--", options.fetch.url, options.base);
@@ -152,8 +148,7 @@ export async function prepareGitHubRepairBase(target: string, options: { expecte
   }
   const mergeHead = await readFile(join(target, ".git", "MERGE_HEAD"), "utf8").catch(() => undefined);
   if (!mergeHead) return undefined;
-  // Internal invariant: the Babysitter host calls this on its own clean clone of the assigned head, with the exact base SHA that it read from GitHub.
-  if (mergeHead.trim() !== options.base) throw new Error("Prepared merge selected a different base.");
+  if (mergeHead.trim() !== options.base) throw invariantError("the prepared merge uses the base commit SHA that the Babysitter read from GitHub")
   // Host resolutions are staged before the digest, so commitRepair accepts them as host work.
   const conflicts = await resolveGitHubMergeConflicts(target, git.raw, { ...options.conflicts, signal: options.signal });
   await writeFile(join(target, ".git", "vitehub-merge.json"), JSON.stringify({ head: options.expectedHead, base: options.base, index: digest(await git("ls-files", "--stage", "-z")), conflicts }));

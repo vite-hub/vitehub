@@ -3,7 +3,8 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleSignInMethods } from "../client/account";
 import { acceptConsoleInvitation, linkConsoleGitHub, loadConsoleSignInMethods, signInWithGitHub, signInWithPasskey, signUpWithPasskey } from "../client/account";
-import { consoleSignInReturnPath, finishConsoleSignIn, reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { consoleSignInReturnPath, consoleSiteLink, finishConsoleSignIn, reloadConsoleAccount, useConsoleProjects } from "../client/project-session";
+import { consoleProjectHost } from "../client/projects";
 
 /**
  * The sign-in page of an `account` Console: GitHub, a passkey, or a new account with a passkey. On an `/invite/<id>`
@@ -12,6 +13,11 @@ import { consoleSignInReturnPath, finishConsoleSignIn, reloadConsoleAccount, use
 const props = defineProps<{ invitation?: string }>();
 
 const projects = useConsoleProjects();
+// The app of a `/_vitehub` link, which the sign-in goes back to.
+const siteHost = computed(() => {
+  const site = consoleSiteLink(new URL(consoleSignInReturnPath(), "https://console.invalid").search);
+  return site ? consoleProjectHost(site) : undefined;
+});
 const account = computed(() => projects.account.value);
 const methods = shallowRef<ConsoleSignInMethods>();
 const busy = ref<"github" | "passkey" | "create" | "accept">();
@@ -81,6 +87,7 @@ const invitationPath = computed(() => props.invitation ? `/invite/${encodeURICom
     <div class="grid gap-1.5">
       <h1 class="text-xl/7 font-semibold text-balance text-highlighted">{{ creating ? "Create your account" : invitation ? "Sign in to join the team" : "Sign in to ViteHub Console" }}</h1>
       <p v-if="invitation" class="vitehub-project-gate__text">This invitation is for a GitHub account. Continue with GitHub to accept it.</p>
+      <p v-else-if="siteHost" class="vitehub-project-gate__text">Then you go back to {{ siteHost }}, signed in with your tools.</p>
       <p v-else class="vitehub-project-gate__text">Open your team's ViteHub apps from any browser.</p>
     </div>
 
