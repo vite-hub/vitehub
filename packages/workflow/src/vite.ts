@@ -319,7 +319,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
 
   let devRootDir: string | undefined
   // The options of the Nitro instance that builds this app, and whether its Vercel build has a native Workflow entry.
-  let nitroOptions: Record<string, unknown> | undefined
+  let nitroOptions: object | undefined
   let vercelNativeEntry = false
 
   /**

@@ -531,13 +531,14 @@ export const vercelWorkflowWebhookRoute = { src: "^\\/\\.well-known\\/workflow\\
  * Nitro writes `.vercel/output/config.json` after the native Workflow build and replaces its routes. So Nitro must
  * write the webhook route too. Nitro puts `vercel.config.routes` before its own routes.
  */
-export function addVercelWorkflowNitroRoutes(nitro: Record<string, unknown>): void {
-  const vercel = isRuntimeRecord(nitro.vercel) ? nitro.vercel : {}
+export function addVercelWorkflowNitroRoutes(nitro: object): void {
+  const existingVercel = Reflect.get(nitro, "vercel")
+  const vercel = isRuntimeRecord(existingVercel) ? existingVercel : {}
   const config = isRuntimeRecord(vercel.config) ? vercel.config : {}
   const routes = Array.isArray(config.routes) ? config.routes : []
   const route = JSON.stringify(vercelWorkflowWebhookRoute)
   if (routes.some(candidate => JSON.stringify(candidate) === route)) return
-  nitro.vercel = { ...vercel, config: { ...config, routes: [{ ...vercelWorkflowWebhookRoute }, ...routes] } }
+  Reflect.set(nitro, "vercel", { ...vercel, config: { ...config, routes: [{ ...vercelWorkflowWebhookRoute }, ...routes] } })
 }
 
 async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
