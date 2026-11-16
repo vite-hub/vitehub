@@ -45,7 +45,7 @@ describe("Auth changes for a signed Console person", () => {
     expect(description?.actions.ban).toEqual({ enabled: false, reason: expect.stringContaining("No app user has the email of your Console account, stranger@example.com") });
     const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("No app user") });
+    expect(error).toMatchObject({ message: expect.stringContaining("No app user") });
   });
 
   it("refuses changes when the app account has no live session", async () => {
@@ -54,7 +54,7 @@ describe("Auth changes for a signed Console person", () => {
     const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" } });
     const [error] = await api.execute({ action: "ban", userId: fixture.member.id }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("Sign in to the app as operator@example.com") });
+    expect(error).toMatchObject({ message: expect.stringContaining("Sign in to the app as operator@example.com") });
   });
 
   it("keeps Better Auth's permissions: a person whose app account is not an admin cannot ban", async () => {
@@ -121,7 +121,7 @@ describe("Auth changes for a signed Console person", () => {
     const api = createAuthConsole({ api: {}, $context: Promise.resolve(context) } as unknown as Parameters<typeof createAuthConsole>[0], {}, undefined, { actor: { email: "operator@example.com" } });
     const [error] = await api.execute({ action: "ban", userId: "user-2" }, signedCall());
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("keeps sessions only in cookies") });
+    expect(error).toMatchObject({ message: expect.stringContaining("keeps sessions only in cookies") });
     const [, description] = await api.describe(signedCall());
     expect(description?.actions.ban).toMatchObject({ enabled: false });
   });
@@ -130,7 +130,7 @@ describe("Auth changes for a signed Console person", () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store, { actor: { email: "operator@example.com" }, impersonation: true });
     const [error] = await api.execute({ action: "impersonate", userId: fixture.member.id }, signedCall());
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("browser's app session") });
+    expect(error).toMatchObject({ message: expect.stringContaining("browser's app session") });
     expect((await fixture.store.list({ type: "impersonation.started" })).events).toEqual([]);
   });
 });
@@ -204,7 +204,7 @@ describe("users and sessions that a host signs in", () => {
     const [error, user] = await api.hostUser({ email: "ada@example.com", name: "Ada", roles: ["console"] });
     expect(user).toBeUndefined();
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("not verified") });
+    expect(error).toMatchObject({ message: expect.stringContaining("not verified") });
     expect(fixture.database.sqlite.prepare("SELECT role FROM user WHERE id = ?").get(fixture.member.id)).toEqual({ role: "user" });
   });
 
@@ -279,6 +279,6 @@ describe("users and sessions that a host signs in", () => {
     const context = await fixture.auth.$context;
     const api = createAuthConsole({ api: fixture.auth.api, $context: Promise.resolve({ ...context, options: { ...context.options, plugins: [] } }) });
     const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
-    expect(error?.cause).toMatchObject({ message: expect.stringContaining("admin()") });
+    expect(error).toMatchObject({ message: expect.stringContaining("admin()") });
   });
 });
