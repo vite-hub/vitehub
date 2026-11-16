@@ -51,8 +51,8 @@ async function deflate(text: string): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/** Inflates at most `inflatedLimit` bytes, so a crafted link cannot fill the memory of the tab. */
-async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+/** Inflates at most `inflatedLimit` bytes, so a crafted link cannot fill the memory of the tab. Undefined above it. */
+async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<string | undefined> {
   const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   const decoder = new TextDecoder();
   let text = "";
@@ -61,8 +61,7 @@ async function inflate(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
     size += chunk.value.byteLength;
     if (size > inflatedLimit) {
       await reader.cancel();
-      // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
-      throw new Error("The shared files are too big.");
+      return undefined;
     }
     text += decoder.decode(chunk.value, { stream: true });
   }
@@ -94,7 +93,9 @@ function isFiles(value: unknown): value is PlaygroundFiles {
  */
 export async function decodePlaygroundLink(code: string, templates: readonly PlaygroundTemplate[] = []): Promise<PlaygroundState | undefined> {
   try {
-    const payload: unknown = JSON.parse(await inflate(fromBase64Url(code)));
+    const text = await inflate(fromBase64Url(code));
+    if (text === undefined) return undefined;
+    const payload: unknown = JSON.parse(text);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
     const { t, f = {}, d = [] } = payload as Payload;
     const template = t === undefined ? undefined : templates.find(candidate => candidate.id === t);

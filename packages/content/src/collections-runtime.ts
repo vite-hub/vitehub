@@ -1599,14 +1599,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const opened = (await refState("draft")).opened
       if (!opened) return null
       const updatedAt = (await updatedAtOf(opened, [target.path])).get(target.path) ?? null
-      if (target.document) {
+      const frontmatter = target.document && normalizeFrontmatter(target.document.data)
+      // Fields that are not data render the stored draft.
+      if (target.document && frontmatter && "data" in frontmatter) {
         try {
-          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
+          const text = renderDocumentFile(inFieldOrder(frontmatter.data), format === "markdown" ? target.document.body ?? "" : "", format)
           const parsed = await parseText(text)
           if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt, sourceLocale)
         }
         catch {
-          // Fields that are not data render the stored draft.
+          // A draft that its format cannot write renders the stored draft too.
         }
       }
       const digest = opened.files.get(target.path)
@@ -1857,13 +1859,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (format !== "markdown" && body) {
         throw contentInvalid(name, id, path, [{ message: `${format === "json" ? "JSON" : "YAML"} documents have no body. Store the value in a field.`, path: ["body"] }])
       }
-      let frontmatter: Record<string, unknown>
-      try {
-        frontmatter = normalizeFrontmatter(input.data)
-      }
-      catch (cause) {
-        throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
-      }
+      const normalized = normalizeFrontmatter(input.data)
+      if ("issue" in normalized) throw contentInvalid(name, id, path, [{ message: normalized.issue, path: [] }])
+      const frontmatter = normalized.data
       const { sourceDigest } = writeOptions
       if (sourceDigest !== undefined && (locale === undefined || locale === sourceLocale)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })

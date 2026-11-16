@@ -229,6 +229,18 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ key }: { key: string }) => `Unknown content cache key ${JSON.stringify(key)}.`,
       fix: "Pass `content.cache` a key that starts with the name of a Content source and a colon, such as `default:<path>`.",
     },
+    CONTENT_EDITOR_FAILED: {
+      why: ({ command, code }: { command: string, code: number | null }) => `The editor \`${command}\` exited with code ${code}.`,
+      fix: "Set `$VISUAL` or `$EDITOR` to an editor command that waits until you close the file and then exits with code 0, such as `code --wait`. Or pass `--file <path>` to `vitehub content edit`.",
+    },
+    CONTENT_LIVE_DOCUMENT_HELD: {
+      why: ({ holder }: { holder: string }) => `${holder} is editing this document alone. Live edits save once they stop or someone takes over.`,
+      fix: "Wait until the person that the message names stops editing, or take over their edit lease. Then open the live document again.",
+    },
+    CONTENT_LIVE_ROOM_UNKNOWN: {
+      why: ({ documentId }: { documentId: string }) => `No Content Markdown document matches the live room ${JSON.stringify(documentId)}.`,
+      fix: "Join the live room of a Markdown document of a Content collection: `<collection>/<id>`, or the collection name of a singleton.",
+    },
     CONTENT_RUNTIME_EXPORT_INVALID: {
       why: "[vitehub] server/content.ts must default-export the defineContent() runtime.",
       fix: "Default-export the result of `defineContent({ ... })` from `server/content.ts`.",

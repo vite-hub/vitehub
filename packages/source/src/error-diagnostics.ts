@@ -145,5 +145,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
     },
+    // Named errors. Keep these codes in alphabetical order.
+    SOURCE_GITHUB_ARCHIVE_INVALID: {
+      why: "[vitehub] The archive of the github() Source has an entry with an invalid size.",
+      fix: "Load the Source again: GitHub or `git archive` sent a cut or broken archive. If it fails again, check the network and that the ref of the `github()` Source exists.",
+    },
   },
 })

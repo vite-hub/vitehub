@@ -15,6 +15,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { Plugin, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
+import { renderContentTypesPlugin } from "./internal/content-types-plugin.injected.ts"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles, discoverCollections, inspectCollectionSource } from "./internal/collection-discovery.ts"
@@ -673,19 +674,7 @@ async function writeContentArtifact(
   }
   else await rm(sqlite, { force: true })
   // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
-  await writeFileIfChanged(typesPlugin, [
-    `import { defineContentTypesPlugin } from ${importBase}`,
-    'import { useRuntimeConfig } from "nitro/runtime-config"',
-    "",
-    "// A production build drops this branch, so the server does not load Content at startup.",
-    "const write = async (declarations) => {",
-    '  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })',
-    // Internal invariant: generated Nitro plugin source. This module does not throw it.
-    '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
-    "}",
-    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).default, write, { moduleName: ${importBase} }) : () => {}`,
-    "",
-  ].join("\n"))
+  await writeFileIfChanged(typesPlugin, renderContentTypesPlugin(importBase, contentModule))
   handlers.push({ handler: typesPlugin, plugin: true })
   // Until the first development server writes the types, an empty file keeps the reference in `.vitehub/types.d.ts`.
   if (!await readFile(types, "utf8").then(() => true, () => false)) await writeFileIfChanged(types, "export {}\n")

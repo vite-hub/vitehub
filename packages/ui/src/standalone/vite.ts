@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { invariant } from "@vite-hub/internal/invariant";
 import type { Plugin } from "vite";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,12 +54,10 @@ function shapes(name: string, body: string): Array<[string, Record<string, strin
   const content = group ? group[2]! : body;
   const found: Array<[string, Record<string, string>]> = [];
   for (const [, tag, attributes] of content.matchAll(elementPattern)) {
-    // Internal invariant: the icon list is fixed in this module, and the pinned Lucide set draws every icon in it.
-    if (tag === "g" || tag === "svg") throw new TypeError(`The Lucide icon "${name}" nests elements, which the stand-in UIcon does not draw.`);
+    invariant(tag !== "g" && tag !== "svg", `the Lucide icon "${name}" of the fixed icon list has no nested elements, so the stand-in UIcon draws it`);
     found.push([tag!, { ...shared, ...attributesOf(attributes!) }]);
   }
-  // Internal invariant: the icon list is fixed in this module, and the pinned Lucide set draws every icon in it.
-  if (!found.length || content.replaceAll(elementPattern, "").trim()) throw new TypeError(`The Lucide icon "${name}" has a body that the stand-in UIcon cannot draw: ${body}`);
+  invariant(found.length && !content.replaceAll(elementPattern, "").trim(), `the Lucide icon "${name}" of the fixed icon list has only shapes that the stand-in UIcon draws`);
   return found;
 }
 
@@ -100,8 +99,7 @@ export function standaloneUI(): Plugin {
         const bodies = Object.fromEntries(Object.entries(icons).map(([className, name]) => {
           // Lucide keeps renamed icons, such as `trash-2`, as aliases of the current name.
           const icon = set.icons[name] ?? set.icons[set.aliases?.[name]?.parent ?? ""];
-          // Internal invariant: the icon list is fixed in this module, and the pinned Lucide set draws every icon in it.
-          if (!icon) throw new TypeError(`The Lucide icon "${name}" does not exist.`);
+          invariant(icon, `the pinned Lucide set has the icon "${name}" of the fixed icon list`);
           return [className, shapes(name, icon.body)];
         }));
         return `export const icons = ${JSON.stringify(bodies)};`;

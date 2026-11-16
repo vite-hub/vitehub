@@ -7,6 +7,7 @@ import { typesetCss } from "comark-ui";
 import { chooseFiles, uploadKey, uploadPlugin, type UploadOptions } from "comark-ui/editor";
 import { useComarkEditor, type UseComarkEditorOptions } from "comark-ui/editor/vue";
 import { computed, defineComponent, h, provide, ref, shallowRef, watch, watchEffect, type PropType } from "vue";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 /** Sends one file and resolves with the URL the document links to. Call `progress` with a fraction from 0 to 1. */
@@ -19,8 +20,7 @@ export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => 
 export function blobUpload(route: string): MarkdownEditorUpload {
   return async (file, progress) => {
     const [object] = await uploadFiles(route, [file], { onProgress: (percent) => progress(percent / 100) });
-    // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
-    if (!object?.url) throw new Error(`${route} stored ${file.name} without a URL. Serve the Blob store with \`blob.serve\` so the editor can link it.`);
+    if (!object?.url) throw uiErrorDiagnostics.UI_MARKDOWN_UPLOAD_URL_MISSING({ route, file: file.name });
     return object.url;
   };
 }

@@ -406,4 +406,4 @@ With a valid preview cookie, every Content read above uses `draft`. A preview fr
 <span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
 ```
 
-The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws a `TypeError` for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.
+The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.

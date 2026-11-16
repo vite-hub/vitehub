@@ -796,23 +796,21 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Normalize saved frontmatter to what a reader will parse back: JSON values, with Dates and other `toJSON()` values
- * converted. Validation runs on the normalized value, so a stored file always validates.
+ * converted. Validation runs on the normalized value, so a stored file always validates. For data that is not a plain
+ * object of JSON values, it returns the issue, which the save path reports as invalid content.
  */
-export function normalizeFrontmatter(data: unknown): Record<string, unknown> {
-  if (data === undefined) return {}
-  // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
-  if (!isPlainRecord(data)) throw new TypeError("data must be a plain object of field values.")
+export function normalizeFrontmatter(data: unknown): { data: Record<string, unknown> } | { issue: string } {
+  if (data === undefined) return { data: {} }
+  if (!isPlainRecord(data)) return { issue: "data must be a plain object of field values." }
   let normalized: unknown
   try {
     normalized = JSON.parse(JSON.stringify(data))
   }
   catch (cause) {
-    // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
-    throw new TypeError(`data must be JSON-serializable: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return { issue: `data must be JSON-serializable: ${cause instanceof Error ? cause.message : String(cause)}` }
   }
-  // Internal invariant: the save path catches it and throws a coded invalid-content error; the render path passes stored data that passed this check.
-  if (!isPlainRecord(normalized)) throw new TypeError("data must be a plain object of field values.")
-  return normalized
+  if (!isPlainRecord(normalized)) return { issue: "data must be a plain object of field values." }
+  return { data: normalized }
 }
 
 /**

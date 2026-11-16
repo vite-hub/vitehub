@@ -3772,6 +3772,9 @@ importers:
       '@vite-hub/icons':
         specifier: workspace:*
         version: link:../icons
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 /**
  * Content live editing, as installed by generated host output when a Realtime authority serves the Content Realtime
  * Definition. The slot is process-wide, so the Content runtime, its Console actions, and the generated Nitro plugin
@@ -16,10 +18,10 @@ const scope = globalThis as typeof globalThis & { [liveKey]?: ContentLiveInstall
 
 /** Install Content live editing for this process. Generated host output calls it; applications do not. */
 export function installContentLive(install: ContentLiveInstall): void {
-  if (install === null || Object(install) !== install || String(install.definition) !== install.definition || !install.definition || !(install.refresh instanceof Function)) {
-    // Internal invariant: generated host output calls installContentLive() with the definition and refresh that it builds.
-    throw new TypeError("[vitehub] installContentLive() requires { definition, refresh }.")
-  }
+  invariant(
+    install !== null && Object(install) === install && String(install.definition) === install.definition && install.definition && install.refresh instanceof Function,
+    "generated host output calls installContentLive() with the definition and refresh that it builds",
+  )
   scope[liveKey] = Object.freeze({ definition: install.definition, refresh: install.refresh })
 }
 
