@@ -232,6 +232,32 @@ describe("vitehub deploy checks Server Env", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary])
   })
 
+  it("decrypts a tracked dotenvx value before the upload, and fails before any host write without the key", async () => {
+    // `dotenvx encrypt -f .env.production` (dotenvx 2.38.2) wrote these lines and the key below. The key is for tests only.
+    const encrypted = `DOTENV_PUBLIC_KEY_PRODUCTION="03c7b1a9970356dfd0c1fa6d34b3d05c06e26f636fc6f6855bce6144c44f06f55e"
+VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jguUWOaFZottMvcB7tajL79HiGXWwwgSxVino5Hdjy3hfeOT20gycBhZwSFlTHKdeeELYQl69v3rx1lLBfjyjn/hirIORxpH+olOqg=
+`
+    const privateKey = "bdef9133803342d7416abc3655c313601e331f26f375fdbe9662e942af23a50d"
+    const plaintext = "canary-7f3a9c1e5b2d"
+    const root = await project("cloudflare", [appSecret], { deployCommand: migratingDeploy, files: { ".env.production": encrypted } })
+    execFileSync("git", ["init", "-q"], { cwd: root })
+    execFileSync("git", ["add", "-f", ".env.production"], { cwd: root })
+
+    const hosts = await fakeHosts(hostEnv.cloudflare)
+    const missingKey = await deploy([], root, hosts.env)
+    expect(missingKey.exitCode).toBe(2)
+    expect(missingKey.json.error?.code).toBe("SETUP_ENV_PRIVATE_KEY_MISSING")
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
+    expect(await hosts.state()).toMatchObject({ deploys: 0, secrets: {} })
+
+    const result = await deploy([], root, { ...hosts.env, DOTENV_PRIVATE_KEY_PRODUCTION: privateKey })
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.env?.pushed).toEqual(["VITEHUB_SECRET"])
+    expect(result.stderr).toContain("Setting VITEHUB_SECRET on cloudflare with the new version from .env.production, decrypted.")
+    expect(await hosts.state()).toMatchObject({ uploadedSecrets: { VITEHUB_SECRET: plaintext } })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [plaintext, privateKey])
+  })
+
   it.each(["$BASE", "${BASE.KEY}", "${DOLLAR}BASE"])("refuses %s from a tracked file, or an unignored file, before any host write", async (reference) => {
     const root = await project("cloudflare", [apiKey], { files: { ".env": `BASE=${canary}\nBASE.KEY=${canary}\n`, ".env.production": `DOLLAR=$\nAPI_KEY=${reference}\n` } })
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: { ...process.env, LC_ALL: "C" } })
