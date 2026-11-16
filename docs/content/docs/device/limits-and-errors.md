@@ -22,6 +22,7 @@ icon: i-lucide-circle-alert
 | Wait for IndexedDB | 1 second in `openDevice()`. A page that waited longer keeps its copies in memory. |
 | Time to open | 1 to 3 ms for one copy, and 8 to 15 ms for 5 MB, in headless Chromium on a desktop computer. |
 | Values | JSON only. A `Date` becomes a string, and a value that JSON cannot store is not kept. |
+| Builds | One `version`. A tab takes the disk for its version when it opens. When a tab of a newer build takes it later for the same account, the older tab stores nothing until it loads again. Another account always empties the disk. |
 
 ## Not in the device yet
 

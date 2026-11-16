@@ -558,6 +558,34 @@ describe("tabs", () => {
     expect(disk.keys).toEqual(["projects"])
   })
 
+  it("leaves the disk to a newer build that opened in another tab, instead of taking it back on each naming", async () => {
+    const disk = createFakeDisk()
+    const browser = createFakeBrowser()
+    const old = openPage(disk, browser)
+    await old.open({ version: "1" })
+    await old.setAccount("ada")
+    answer(old, "projects", ["v1"])
+    await old.settled()
+    // A new build opens in another tab and takes the disk for its version.
+    const fresh = openPage(disk, browser)
+    await fresh.open({ version: "2" })
+    await fresh.setAccount("ada")
+    answer(fresh, "projects", ["v2"])
+    await fresh.settled()
+    expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
+    // The old tab names the same account again, as its session read does on each answer. The disk stays with version 2.
+    await old.setAccount("ada")
+    answer(old, "projects", ["v1 again"])
+    await old.settled()
+    expect(disk.meta).toMatchObject({ account: "ada", version: "2" })
+    expect(disk.entry("projects")?.json).toBe(JSON.stringify(["v2"]))
+    expect(old.inspect().persisted).toBe(false)
+    // Another account still empties the disk, whatever the build.
+    await old.setAccount("grace")
+    expect(disk.meta).toMatchObject({ account: "grace", version: "1" })
+    expect(disk.keys).toEqual([])
+  })
+
   it("keeps the shared disk under its size cap when several tabs write", async () => {
     let time = 1
     const disk = createFakeDisk()

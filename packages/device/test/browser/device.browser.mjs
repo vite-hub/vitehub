@@ -1,13 +1,16 @@
-// Runs stored reads in headless Chromium with the real IndexedDB and BroadcastChannel. Pages load from a routed
-// localhost origin, so no server listens, and the test answers `/api/projects` when it wants.
-// Run: pnpm --filter @vite-hub/device test:browser
+// Runs stored reads in a headless browser with the real IndexedDB and BroadcastChannel: Chromium, or the engine that
+// `DEVICE_BROWSER` names (`firefox`, `webkit`). Pages load from a routed localhost origin, so no server listens, and the
+// test answers `/api/projects` when it wants.
+// Run: pnpm --filter @vite-hub/device test:browser, or DEVICE_BROWSER=firefox pnpm --filter @vite-hub/device test:browser
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
-import { chromium } from "playwright-core"
+import { chromium, firefox, webkit } from "playwright-core"
 import { build } from "vite"
 
 const origin = "http://localhost:4873"
+const engine = { chromium, firefox, webkit }[process.env.DEVICE_BROWSER ?? "chromium"]
+if (!engine) throw new Error(`DEVICE_BROWSER must be chromium, firefox, or webkit, not ${process.env.DEVICE_BROWSER}.`)
 
 const output = await build({
   configFile: false,
@@ -36,7 +39,7 @@ async function until(check, timeout = 10_000) {
  * once. `hold()` makes the next requests wait again.
  */
 async function openBrowser(t, { initScript } = {}) {
-  const browser = await chromium.launch()
+  const browser = await engine.launch()
   t.after(() => browser.close())
   const context = await browser.newContext()
   if (initScript) await context.addInitScript(initScript)
