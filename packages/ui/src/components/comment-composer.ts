@@ -470,6 +470,7 @@ export const CommentComposer = defineComponent({
               attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
               filesDisabled: props.busy,
+              readonly: props.busy,
               filterFiles: (list: readonly File[]) => {
                 addFiles(list);
                 return [];

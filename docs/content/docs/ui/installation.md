@@ -1,10 +1,10 @@
 ---
 title: Installation
-description: "Install ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup with server rendering."
-seo.title: Install ViteHub UI
+description: "Install the AI components of ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup."
+seo.title: Install the ViteHub UI AI components
 navigation.title: Installation
-navigation.order: 3
-navigation.group: Start
+navigation.order: 7
+navigation.group: AI components
 icon: i-lucide-package
 ---
 
@@ -129,7 +129,7 @@ Start your application and open it in the browser. You should see
 **ViteHub UI is ready.** in bold. If the component is missing, check the Nuxt
 modules or the Vue import. If it appears without styles, check the CSS imports.
 
-Next, follow the [UI tutorial](/docs/ui/get-started) to show a chat message,
+Next, follow the [chat tutorial](/docs/ui/chat-tutorial) to show a chat message,
 or pick a [Console block](/docs/ui/blocks/chat-app). Connecting a model or chat
 endpoint is a separate step.
 

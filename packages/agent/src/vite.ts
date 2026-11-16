@@ -19,6 +19,7 @@ import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentStateDurabilityInput } from "./durability.ts"
 import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -45,6 +46,7 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
+import { agentDeploymentEnv } from "./deployment-env.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
@@ -107,7 +109,10 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">>
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
+  /** The variables that hosted Agents read on the deployed host. See `agentDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
+}
 
 // `vite` is an optional peer. Load its parser on demand so this entry stays
 // importable without it.
@@ -1841,10 +1846,11 @@ async function generateAgentWebhookRouteHandler(
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
     // On Node, Nitro passes a srvx Request that builds its native Request lazily, from a body that the handlers have
-    // already read when they copy the request. The handlers get a plain Request with the same body stream instead.
+    // already read when they copy the request. The handlers get a plain Request with the same body stream instead, and
+    // the same Standard Context, so the headers that they prepare reach the response of the event.
     "function toWebhookRequest(request: Request): Request {",
     "  const { headers, method, signal, url } = request",
-    "  return createAgentWebhookRequest({ body: request.body ?? undefined, headers, method, signal, url })",
+    "  return createAgentWebhookRequest({ body: request.body ?? undefined, from: request, headers, method, signal, url })",
     "}",
     "",
     ...generatedRuntimeHelpers(),
@@ -2911,6 +2917,17 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
 
   return {
     name: "@vite-hub/agent/vite",
+    api: {
+      deploymentEnv(context) {
+        // Without hosted Agent Definitions, the server reads nothing for Agents.
+        if (!resolved || !hasHostedAgentDefinitions(resolved.root, serverDirs ?? [join(resolved.root, "server")])) return []
+        const normalized = normalizeAgentOptions(agent)
+        return agentDeploymentEnv(normalized, context, {
+          authTokenEnvName: normalized ? resolveEnvNameForValue(normalized.providers.state.authToken) : undefined,
+          processDiscordGateway: Boolean(frameworkOptions?.processDiscordGateway),
+        })
+      },
+    },
     resolveId: {
       // Run before Vite resolves installed optional peers to absolute module paths.
       order: "pre",
