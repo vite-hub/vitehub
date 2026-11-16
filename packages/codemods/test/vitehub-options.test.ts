@@ -294,6 +294,42 @@ describe("vitehub-options transform", () => {
     ])
   })
 
+  it("renames preset to host in a Nuxt config and keeps an expression value", () => {
+    const input = lines(
+      "export default defineNuxtConfig({",
+      "  modules: ['vite-hub/nuxt', 'nuxt-og-image'],",
+      "  vitehub: { preset: process.env.VERCEL ? 'vercel' : 'cloudflare' },",
+      "})",
+    )
+    expect(migrateViteHubOptions("nuxt.config.ts", input)).toMatchObject({
+      changed: true,
+      code: input.replace("preset:", "host:"),
+      followUps: [],
+    })
+  })
+
+  it.each([
+    ["vitehub({ preset: 'cloudflare' })", "vitehub({ host: 'cloudflare' })"],
+    ["vitehub({ preset })", "vitehub({ host: preset })"],
+    ["vitehub({ 'preset': 'vercel', sandbox: true })", "vitehub({ host: 'vercel', sandboxTask: true })"],
+    ["vitehub({ host: 'node', devtools: true })", "vitehub({ host: 'node' })"],
+    ["vitehub({ ['preset']: 'node', ['sandbox']: true })", "vitehub({ host: 'node', sandboxTask: true })"],
+  ])("renames the removed vitehub() options in %s", (from, to) => {
+    const input = `import { vitehub } from 'vite-hub'\nconst preset = 'node'\nexport default { plugins: [${from}] }\n`
+    expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: true, code: input.replace(from, to), followUps: [] })
+  })
+
+  it("reports preset next to host, sandbox options, and cloudflare", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ preset: 'node', host: 'node', sandbox: { cpu: 2 }, cloudflare: { secretsFile: '.env.prod' } })] }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(false)
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([
+      expect.stringContaining("Both preset and host are set"),
+      expect.stringContaining("sandbox is now sandboxTask"),
+      expect.stringContaining("cloudflare.secretsFile was removed"),
+    ])
+  })
+
   it("leaves configs that use the current options unchanged", () => {
     const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ observability: { logs: true }, env: { server: {} } })] }\n"
     expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: false, code: input, followUps: [] })

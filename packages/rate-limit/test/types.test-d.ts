@@ -7,6 +7,8 @@ import { discoverRateLimitDeclarations, hubRateLimit } from "../src/vite.ts"
 
 import type { H3Event } from "h3"
 import type { Result } from "@vite-hub/runtime"
+import { toResultError } from "@vite-hub/runtime"
+import { rateLimitErrorDiagnostics } from "../src/error-diagnostics.ts"
 import type { CheckRateLimitErrorCode, RateLimitDecision, RateLimitDeclaration, RateLimitDriver, RateLimitDriverOutcome, RateLimitDriverResult, RateLimiter } from "../src/index.ts"
 
 type H3EventWithHostContext = Omit<H3Event, "req"> & {
@@ -41,14 +43,16 @@ it("types the portable Rate Limit contract", async () => {
 })
 
 it("types custom and provider drivers", async () => {
-  const unavailable = [new Error("offline"), undefined] satisfies RateLimitDriverOutcome
+  const unavailable = [toResultError(rateLimitErrorDiagnostics.RATE_LIMIT_R0005()), undefined] satisfies RateLimitDriverOutcome
+  // @ts-expect-error A driver returns `[undefined, value]`, not `[null, value]`.
+  void ([null, { allowed: true }] satisfies RateLimitDriverOutcome)
   const custom: RateLimitDriver = {
     capabilities: {
       enforcement: "strict",
       rejectedAttempts: "not-counted",
       scope: "global",
     },
-    consume: async () => [null, { allowed: true, remaining: 1 }],
+    consume: async () => [undefined, { allowed: true, remaining: 1 }],
     name: "custom",
   }
   createRateLimiter({ driver: custom, limit: 2, window: "10s" })

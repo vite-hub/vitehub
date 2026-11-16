@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest"
 import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "../src/features.ts"
 
 const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
 describe("feature catalog", () => {
+  it.each([
+    ["queue", "postgres", "@vercel/queue"],
+    ["workflow", "openworkflow", "@vercel/functions"],
+  ] as const)("selects Vercel SDKs for %s unless another driver is explicit", (feature, driver, sdk) => {
+    expect(featurePackages(feature, true, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver: "vercel" }, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
+  })
+
   it("has one definition per feature id, keyed by its id", () => {
     expect(Object.keys(features).sort()).toEqual([...featureIds].sort())
     for (const id of featureIds) expect(features[id].id).toBe(id)

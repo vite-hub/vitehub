@@ -101,7 +101,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0025: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, { allowed }]` from `consume()`, with `allowed` as a boolean.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, { allowed }]` from `consume()`, with `allowed` as a boolean.",
     },
     RATE_LIMIT_R0026: {
       ...dynamicError,
@@ -149,7 +149,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0037: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, { used }]` from `peek()`, with `used` as a whole number of 0 or more and an optional `resetAt` in milliseconds.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, { used }]` from `peek()`, with `used` as a whole number of 0 or more and an optional `resetAt` in milliseconds.",
     },
     RATE_LIMIT_R0038: {
       ...dynamicError,
@@ -169,15 +169,15 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0042: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null]` from `reset()`, or `[error]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, undefined]` from `reset()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0043: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, result]` from `peek()`, or `[error, undefined]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, result]` from `peek()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0044: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, result]` from `consume()`, or `[error, undefined]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, result]` from `consume()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0045: {
       ...dynamicError,
@@ -202,6 +202,10 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_KV_STORE_UNSUPPORTED: {
       ...dynamicError,
       fix: "Use a KV driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash. Or remove `driver: 'kv'` to let ViteHub choose.",
+    },
+    RATE_LIMIT_KV_TIMEOUT: {
+      why: "The KV store did not answer the Rate Limit within 1000 milliseconds.",
+      fix: "Check that the KV store of the Rate Limit is reachable and not overloaded, then retry. Until it answers, `consume()` applies the `failure` policy of the Rate Limit.",
     },
     RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED: {
       ...dynamicError,

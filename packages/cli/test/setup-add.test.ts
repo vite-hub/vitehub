@@ -92,6 +92,16 @@ describe("vitehub add", () => {
     expect(result.json.install.packages).not.toContain(other)
   })
 
+  it.each([
+    ["queue", ["@vite-hub/queue", "@vercel/queue", "@vercel/functions"]],
+    ["workflow", ["@vite-hub/workflow", "@vercel/functions"]],
+  ] as const)("installs the Vercel provider SDKs with %s on Vercel", async (feature, packages) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "vercel" }') })
+    const result = await add([feature, "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(packages)
+  })
+
   it("writes Sandbox Task provider options to the framework config", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "cloudflare" }') })
     const result = await add(["sandboxTask", "--option", "sandboxTask.driver=cloudflare", "--option", "sandboxTask.keepAlive=true", "--option", "sandboxTask.migrationTag=v2", "--no-install", "--yes"], root)

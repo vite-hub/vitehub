@@ -59,7 +59,7 @@ export type Claim = {
   /** The pass's class of the automated review of the claimed head. `finish()` records it with `budgets.minorReviewRounds`. */
   automatedReview?: AutomatedReviewClass
 }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean; foldInto?: number }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
   digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
@@ -779,17 +779,38 @@ export class PullRequestInbox {
     })
   }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
-  /** Atomically records that a claim has started an irreversible merge request. */
-  async beginDirectMerge(claim: Claim, head: string, asynchronous = false): Promise<boolean> {
+  private stackFoldKey(repository: string, parent: number): string { return `stack-fold:${repository}:${parent}` }
+  /** The stacked pull request whose merge into this pull request's branch has an unknown outcome. */
+  private async foldingChildIn(tx: PullRequestInboxExecutor, repository: string, parent: number): Promise<number | undefined> {
+    const fold = await this.metaIn(tx, this.stackFoldKey(repository, parent))
+    if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
+    const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
+    return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+  }
+  async foldingChild(repository: string, parent: number): Promise<number | undefined> {
+    await this.init()
+    return await this.foldingChildIn({ execute: (statement, args) => this.storage.execute(statement, args) }, repository, parent)
+  }
+  /**
+   * Atomically records that a claim has started an irreversible merge request. With `foldInto`, the merge
+   * targets that open parent's branch. A parent with a merge in flight refuses the fold, and a parent with
+   * a fold in flight refuses its own merge, so a fold never lands on a branch that already merged.
+   */
+  async beginDirectMerge(claim: Claim, head: string, asynchronous = false, foldInto?: number): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.generation !== claim.generation ||
         (s.revision ?? 0) !== (claim.snapshot.revision ?? 0) || s.leaseUntil <= this.clock()) return false
       if (await this.metaIn(tx, this.directMergeKey(s.repository, s.number)) !== undefined) return false
+      if (await this.foldingChildIn(tx, s.repository, s.number) !== undefined) return false
+      // One fold at a time per parent: the parent's marker names one child, and a sibling must not replace it.
+      if (foldInto !== undefined && (await this.metaIn(tx, this.directMergeKey(s.repository, foldInto)) !== undefined
+        || await this.foldingChildIn(tx, s.repository, foldInto) !== undefined)) return false
       await this.setMetaIn(tx, this.directMergeKey(s.repository, s.number), {
         token: claim.token, generation: claim.generation, revision: claim.snapshot.revision ?? 0,
-        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}),
+        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}), ...(foldInto === undefined ? {} : { foldInto }),
       } satisfies DirectMergeAttempt)
+      if (foldInto !== undefined) await this.setMetaIn(tx, this.stackFoldKey(s.repository, foldInto), { child: s.number, token: claim.token })
       return true
     })
   }
@@ -819,6 +840,11 @@ export class PullRequestInbox {
       const attempt = await this.metaIn(tx, key)
       if (!isRuntimeRecord(attempt) || Array.isArray(attempt) || attempt.token !== token) return false
       await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+      if (isRuntimeNumber(attempt.foldInto)) {
+        const foldKey = this.stackFoldKey(repository, attempt.foldInto)
+        const fold = await this.metaIn(tx, foldKey)
+        if (isRuntimeRecord(fold) && fold.token === token) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, foldKey])
+      }
       return true
     })
   }

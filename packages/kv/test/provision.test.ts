@@ -129,7 +129,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 403 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 403 })
   })
 
   it("reads the id back after a 409 conflict", async () => {
@@ -156,7 +156,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", code: "INTERNAL_R0013", status: 400 })
     expect(requests.map(request => request.method)).toEqual(["GET", "POST"])
   })
 
@@ -167,7 +167,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 400 })
   })
 
   it("describes the KV Store ids it records without network access", () => {

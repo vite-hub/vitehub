@@ -27,7 +27,7 @@ import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDep
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
@@ -1381,8 +1381,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && plan.host !== "netlify"))
-  // The packages of these features are optional peers. One error lists every package that the app must add.
-  assertFeaturePackages(([
+  // The packages of these features are optional peers. One error lists every package that the app must add, also the
+  // SDKs that the host or a provider adds, such as `@vercel/functions` for Workflow on Vercel.
+  const enabledFeatures = ([
     ["agent", options.agent || telemetry],
     ["auth", options.auth],
     ["blob", blobEnabled],
@@ -1407,7 +1408,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Agents run on Workflow outside Netlify unless the app sets `workflow: false`.
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
-  ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature))
+  ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
+  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options))
   const { blobVite, browserVite, channelsVite, connectionsVite, emailVite, kvVite, markdownTemplateVite, queueVite, rateLimitVite, sandboxTaskVite, workflowVite } = ownerModules
   const configuredBlob = blobEnabled ? hostBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob

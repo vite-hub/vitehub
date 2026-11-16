@@ -558,11 +558,22 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   // A Sandbox Task loads its driver SDK at build time (Cloudflare) or at run time (Vercel). An explicit `driver` wins over the host's.
   const sandboxDriver = typeof options?.driver === "string" ? options.driver : host
   if (id === "sandboxTask" && (sandboxDriver === "vercel" || sandboxDriver === "cloudflare")) selected.push(sandboxDriverPackages[sandboxDriver])
+  // On Vercel, Queue and Workflow use the Vercel driver unless the app sets another `driver`.
+  if ((id === "queue" || id === "workflow") && host === "vercel" && (options?.driver ?? "vercel") === "vercel") selected.push(...vercelProviderPackages[id])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
 }
 
 const sandboxDriverPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
+
+/**
+ * The SDKs of the Vercel provider. Native Vercel Workflows also need `workflow` and `@workflow/builders`, but only
+ * `@vite-hub/workflow` knows when a Workflow is native, so it checks those two itself.
+ */
+const vercelProviderPackages = {
+  queue: ["@vercel/queue", "@vercel/functions"],
+  workflow: ["@vercel/functions"],
+} as const
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

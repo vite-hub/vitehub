@@ -1,3 +1,4 @@
+import { defineErrors } from "@vite-hub/runtime"
 import { mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -42,6 +43,8 @@ function fakeKV(): FakeKV {
 }
 
 const windowStart = Date.UTC(2026, 10, 9, 12, 0, 0)
+
+const kvErrors = defineErrors({ codes: { KV_OPERATION_FAILED: { why: "The KV operation failed.", fix: "Check the KV store." } }, docs: "https://vitehub.dev/docs/kv/diagnostics" })
 
 describe("kvRateLimitDriver", () => {
   it("counts a fixed window with one increment for each request, with the window as TTL", async () => {
@@ -109,7 +112,7 @@ describe("kvRateLimitDriver", () => {
   })
 
   it.each([["deny", false], ["allow", true]] as const)("follows failure: %s when KV fails", async (failure, allowed) => {
-    const cause = new Error("connection refused")
+    const cause = kvErrors.KV_OPERATION_FAILED()
     const kv: RateLimitKVStorage = { ...fakeKV(), increment: async () => [cause, undefined] }
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), failure, limit: 1, window: "1m" })
 

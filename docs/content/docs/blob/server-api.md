@@ -157,7 +157,7 @@ Use `blob.serve()` in an application route when authorization or a database look
 In a Nitro 3 or H3 2 handler:
 
 ```ts [server/routes/files/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -176,7 +176,7 @@ Every response that serves an object sends `X-Content-Type-Options: nosniff`. A 
 Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
 
 ```ts [server/routes/exports/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -240,7 +240,7 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
 
 ```ts [server/routes/builds/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
