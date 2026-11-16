@@ -167,9 +167,10 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   const previousClaims = getScheduleOccurrenceClaims()
   const reportError = createErrorReporter(options.onError)
   const leaseTtlMs = resolveLeaseTtlMs(options.leaseTtlMs)
+  const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
   const claims = createOccurrenceClaims({
     // Catch-up after a restart looks back `catchUpMs`. The done marker must outlast it and the wait of other processes.
-    doneTtlMs: (options.catchUpMs ?? DEFAULT_CATCH_UP_MS) + leaseTtlMs + 2 * minuteMs,
+    doneTtlMs: catchUpMs + leaseTtlMs + 2 * minuteMs,
     leases: options.leases ?? createMemoryLeaseStore(),
     owner: `${hostname()}:${process.pid}`,
     prefix: options.prefix,
@@ -212,9 +213,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     reportError,
     retries() {
       const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
-      const since = currentMinute - (options.catchUpMs ?? DEFAULT_CATCH_UP_MS)
       for (const [runId, input] of held) {
-        if (input.scheduledAt.getTime() < since) held.delete(runId)
+        if (currentMinute > (input.startBy ?? input.scheduledAt.getTime() + catchUpMs)) held.delete(runId)
       }
       return [...held.values()]
     },
@@ -249,7 +249,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
             scheduledAt: input.scheduledAt,
             waitUntil,
           }))
-          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
+          // The claim of a crashed process can end after the catch-up window. Retry until the window of its done marker ends.
+          if (result === "held") held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt, startBy: input.scheduledAt.getTime() + catchUpMs + leaseTtlMs + minuteMs })
           else held.delete(runId)
         }
         catch (error) {
@@ -271,7 +272,6 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
    * finished them.
    */
   async function recoverUnfinishedOccurrences(): Promise<void> {
-    const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
     if (catchUpMs <= 0) return
     const currentMinute = Math.floor((options.now?.() ?? new Date()).getTime() / minuteMs) * minuteMs
     const since = currentMinute - catchUpMs
