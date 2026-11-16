@@ -99,6 +99,26 @@ export default defineEventHandler(() => {
 })
 ```
 
+### Run queries in one batch
+
+On SQLite Databases (D1, D1 over HTTP, and libSQL), `db.batch()` runs a list of queries in one transaction and one call. A literal list types each result. A list that the handler builds works too:
+
+```ts [server/api/notes/import.post.ts]
+import type { BatchItem } from 'drizzle-orm/batch'
+import { defineEventHandler, readBody } from 'h3'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineEventHandler(async (event) => {
+  const { db, schema } = useDatabase('default')
+  const { titles } = await readBody<{ titles: string[] }>(event)
+  const writes: BatchItem<'sqlite'>[] = []
+  for (const title of titles) writes.push(db.insert(schema.notes).values({ title }))
+  await db.batch(writes)
+})
+```
+
+An empty list runs nothing and resolves `[]`. D1 rejects an empty batch, so ViteHub does not send it.
+
 ### Pass the D1 binding to other code
 
 Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).

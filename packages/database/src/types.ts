@@ -238,8 +238,10 @@ export type RuntimeDrizzleDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
 > = SQLiteAsyncDatabase<"async", unknown, TRelations> & {
-  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
+  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. A literal list types each result. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
+  /** Execute a list of queries that the code builds. An empty list runs nothing and resolves `[]`. */
+  batch(queries: readonly BatchItem<"sqlite">[]): Promise<unknown[]>
 }
 
 /** A module whose `schema` tables join a database. */
