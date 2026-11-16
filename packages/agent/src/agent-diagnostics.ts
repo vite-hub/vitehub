@@ -372,10 +372,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0740",
   "AGENT_R0741",
   "AGENT_R0744",
-  "AGENT_R0749",
-  "AGENT_R0754",
-  "AGENT_R0759",
-  "AGENT_R0760",
   "AGENT_R0768",
   "AGENT_R0773",
   "AGENT_R0776",
@@ -2696,70 +2692,240 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Give the Agent Invoker a non-empty string id, such as { id: \"user-1\" }.",
     },
-    AGENT_R0638: dynamicError,
-    AGENT_R0639: dynamicError,
-    AGENT_R0640: dynamicError,
-    AGENT_R0641: dynamicError,
-    AGENT_R0642: dynamicError,
-    AGENT_R0643: dynamicError,
+    AGENT_R0638: {
+      ...dynamicError,
+      fix: "Give the Agent Invoker meta as a plain object, such as meta: { team: \"support\" }, or remove meta.",
+    },
+    AGENT_R0639: {
+      ...dynamicError,
+      fix: "Pass defineAgent({ invoker: { profiles } }) an array of Agent Invoker objects, or remove profiles.",
+    },
+    AGENT_R0640: {
+      ...dynamicError,
+      fix: "Give each Agent Invoker Profile in defineAgent({ invoker: { profiles } }) a different id.",
+    },
+    AGENT_R0641: {
+      ...dynamicError,
+      fix: "Pass defineAgent({ invoker }) an object, such as { profiles, resolve }, or remove invoker.",
+    },
+    AGENT_R0642: {
+      ...dynamicError,
+      fix: "Pass defineAgent({ invoker: { resolve } }) a function that returns the Agent Invoker, or remove resolve.",
+    },
+    AGENT_R0643: {
+      ...dynamicError,
+      fix: "Select an Agent Invoker Profile id that defineAgent({ invoker: { profiles } }) defines, or add a profile with the id that the message names.",
+    },
     // AGENT_R0644 and AGENT_R0645 are retired with scheduled Agent turn reauthorization. Do not reuse them.
-    AGENT_R0669: dynamicError,
-    AGENT_R0670: dynamicError,
-    AGENT_R0671: dynamicError,
-    AGENT_R0672: dynamicError,
-    AGENT_R0673: dynamicError,
-    AGENT_R0674: dynamicError,
-    AGENT_R0675: dynamicError,
-    AGENT_R0676: dynamicError,
-    AGENT_R0677: dynamicError,
-    AGENT_R0678: dynamicError,
-    AGENT_R0679: dynamicError,
-    AGENT_R0680: dynamicError,
-    AGENT_R0681: dynamicError,
-    AGENT_R0682: dynamicError,
-    AGENT_R0683: dynamicError,
-    AGENT_R0684: dynamicError,
-    AGENT_R0685: dynamicError,
-    AGENT_R0686: dynamicError,
-    AGENT_R0687: dynamicError,
-    AGENT_R0688: dynamicError,
-    AGENT_R0689: dynamicError,
-    AGENT_R0690: dynamicError,
-    AGENT_R0691: dynamicError,
-    AGENT_R0692: dynamicError,
-    AGENT_R0693: dynamicError,
-    AGENT_R0694: dynamicError,
-    AGENT_R0695: dynamicError,
-    AGENT_R0696: dynamicError,
-    AGENT_R0697: dynamicError,
-    AGENT_R0698: dynamicError,
-    AGENT_R0699: dynamicError,
-    AGENT_R0700: dynamicError,
-    AGENT_R0701: dynamicError,
-    AGENT_R0702: dynamicError,
-    AGENT_R0703: dynamicError,
-    AGENT_R0704: dynamicError,
-    AGENT_R0705: dynamicError,
-    AGENT_R0706: dynamicError,
-    AGENT_R0707: dynamicError,
-    AGENT_R0708: dynamicError,
-    AGENT_R0709: dynamicError,
-    AGENT_R0710: dynamicError,
-    AGENT_R0711: dynamicError,
-    AGENT_R0712: dynamicError,
-    AGENT_R0713: dynamicError,
-    AGENT_R0714: dynamicError,
-    AGENT_R0715: dynamicError,
-    AGENT_R0716: dynamicError,
-    AGENT_R0717: dynamicError,
-    AGENT_R0718: dynamicError,
-    AGENT_R0719: dynamicError,
-    AGENT_R0720: dynamicError,
-    AGENT_R0721: dynamicError,
-    AGENT_R0722: dynamicError,
-    AGENT_R0723: dynamicError,
-    AGENT_R0724: dynamicError,
-    AGENT_R0725: dynamicError,
+    AGENT_R0669: {
+      ...dynamicError,
+      fix: "Replace the symbolic link that the message names with a real directory in the provider working directory, or remove it.",
+    },
+    AGENT_R0670: {
+      ...dynamicError,
+      fix: "Rename or remove the file that the message names, so ViteHub can create a directory at that path in the provider working directory.",
+    },
+    AGENT_R0671: {
+      ...dynamicError,
+      fix: "Rename or remove the directory or special entry at the path that the message names, so ViteHub can write its provider file there.",
+    },
+    AGENT_R0672: {
+      ...dynamicError,
+      fix: "Make the codexDriver() or claudeCodeDriver() env option return an object, such as { NODE_ENV: \"production\" }.",
+    },
+    AGENT_R0673: {
+      ...dynamicError,
+      fix: "Give each value of the codexDriver() or claudeCodeDriver() env option a string or undefined, such as String(port).",
+    },
+    AGENT_R0674: {
+      ...dynamicError,
+      fix: "Make driver.launch return { command } with a non-empty command, and give onExit and prepare only functions.",
+    },
+    AGENT_R0675: {
+      ...dynamicError,
+      fix: "Give driver.launch args an array of strings, such as [\"--port\", \"3000\"], or remove args.",
+    },
+    AGENT_R0676: {
+      ...dynamicError,
+      fix: "Remove driver.launch on Windows, or run the server on Linux or macOS.",
+    },
+    AGENT_R0677: {
+      ...dynamicError,
+      fix: "Restart the server process to use the Codex credential profile again. Check the Codex Driver logs for the reason that its runtime stopped.",
+    },
+    AGENT_R0678: {
+      ...dynamicError,
+      fix: "Make codexDriver({ credentials }) return the content of the Codex auth.json, for example from a Server Env secret.",
+    },
+    AGENT_R0679: {
+      ...dynamicError,
+      fix: "Make codexDriver({ credentials }) return the full content of the Codex auth.json as valid JSON.",
+    },
+    AGENT_R0680: {
+      ...dynamicError,
+      fix: "Make codexDriver({ credentials }) return the Codex auth.json, a JSON object, not an array or a single value.",
+    },
+    AGENT_R0681: {
+      ...dynamicError,
+      fix: "Replace the symbolic link that the message names with a regular file, or remove it, in .vitehub/data/codex/<credentialProfile>.",
+    },
+    AGENT_R0682: {
+      ...dynamicError,
+      fix: "Replace the config.toml that the message names with a regular file that has no hard links, or remove it.",
+    },
+    AGENT_R0683: {
+      ...dynamicError,
+      fix: "Make the config.toml that the message names smaller than the size in the message, or remove it.",
+    },
+    AGENT_R0684: {
+      ...dynamicError,
+      fix: "Do not change TMPDIR while the server runs, and remove the directory that the message names by hand.",
+    },
+    AGENT_R0685: {
+      ...dynamicError,
+      fix: "Replace the symbolic link that the message names with a real directory, or remove it, under .vitehub/data/codex.",
+    },
+    AGENT_R0686: {
+      ...dynamicError,
+      fix: "Remove the file that the message names, so ViteHub can create the .vitehub/data/codex/<credentialProfile> directory.",
+    },
+    AGENT_R0687: {
+      ...dynamicError,
+      fix: "Remove the .vitehub-seed.sha256 entry that the message names. ViteHub writes it again on the next Invocation.",
+    },
+    AGENT_R0688: {
+      ...dynamicError,
+      fix: "Remove the .vitehub-seed.sha256 file that the message names. ViteHub writes it again on the next Invocation.",
+    },
+    AGENT_R0689: {
+      ...dynamicError,
+      fix: "Replace the auth.json that the message names with a regular file that has no hard links, or remove it so ViteHub writes it again from codexDriver({ credentials }).",
+    },
+    AGENT_R0690: {
+      ...dynamicError,
+      fix: "Remove codexDriver({ credentials }) on Windows and sign in to Codex on the host, or run the server on Linux or macOS.",
+    },
+    AGENT_R0691: {
+      ...dynamicError,
+      fix: "Restart the server process to use this Codex credential profile again. Read error.cause for the reason that the previous Codex runtime did not stop.",
+    },
+    AGENT_R0692: {
+      ...dynamicError,
+      fix: "Restart the server process to use this Codex credential profile again. Read error.cause for the reason that the previous Codex runtime did not stop.",
+    },
+    AGENT_R0693: {
+      ...dynamicError,
+      fix: "Do not change TMPDIR while the server runs, and remove the directory that the message names by hand.",
+    },
+    AGENT_R0694: {
+      ...dynamicError,
+      fix: "Check that the server can delete files in TMPDIR, then remove the vitehub-provider- directory in TMPDIR by hand.",
+    },
+    AGENT_R0695: {
+      ...dynamicError,
+      fix: "Give each tool of a Provider Agent Driver an inputSchema that converts to JSON Schema, such as a Zod or Valibot object schema or a JSON Schema object.",
+    },
+    AGENT_R0696: {
+      ...dynamicError,
+      fix: "Give the Agent tool that the message names an inputSchema that implements Standard Schema, such as a Zod or Valibot schema, or a JSON Schema object.",
+    },
+    AGENT_R0697: {
+      ...dynamicError,
+      fix: "Change the tool call input so it matches the inputSchema of the Agent tool that the message names, or change that inputSchema.",
+    },
+    AGENT_R0698: {
+      ...dynamicError,
+      fix: "Change the tool call input so it matches the inputSchema of the Agent tool that the message names. The message lists the schema errors.",
+    },
+    // AGENT_R0720, AGENT_R0742, AGENT_R0743, AGENT_R0749, AGENT_R0750, AGENT_R0752 through AGENT_R0754, and AGENT_R0759 through AGENT_R0765 are retired. Nothing raised them. AGENT_R0699, AGENT_R0712, AGENT_R0717, and AGENT_R0724 are retired: only a ViteHub bug reached them. Do not reuse them.
+    AGENT_R0700: {
+      ...dynamicError,
+      fix: "Give the Agent a Workspace whose driver supports Workspace Sessions (startSession), or use a model-backed Driver.",
+    },
+    AGENT_R0701: {
+      ...dynamicError,
+      fix: "Run the Agent with a Provider Driver and a Workspace on a Linux or macOS Node host, or remove the Workspace.",
+    },
+    AGENT_R0702: {
+      ...dynamicError,
+      fix: "Send a smaller attachment, or raise driver.execution.attachments.maxBytes.",
+    },
+    AGENT_R0703: {
+      ...dynamicError,
+      fix: "Give the attachment fetchData() in the Channel adapter or the message, so the app downloads the URL. A Provider Driver does not fetch URLs.",
+    },
+    AGENT_R0704: {
+      ...dynamicError,
+      fix: "Give the attachment inline data or a fetchData() function.",
+    },
+    AGENT_R0705: {
+      ...dynamicError,
+      fix: "Send a smaller attachment, or raise driver.execution.attachments.maxBytes.",
+    },
+    AGENT_R0706: {
+      ...dynamicError,
+      fix: "Send a smaller attachment, or raise driver.execution.attachments.maxBytes.",
+    },
+    AGENT_R0707: {
+      ...dynamicError,
+      fix: "Send a smaller attachment, or raise driver.execution.attachments.maxBytes.",
+    },
+    AGENT_R0708: {
+      ...dynamicError,
+      fix: "Send only image attachments to a Provider Driver, or use a model-backed Driver for other files.",
+    },
+    AGENT_R0709: {
+      ...dynamicError,
+      fix: "Run a Provider Driver, such as codexDriver(), on a Node.js host, or use a model-backed Driver on Cloudflare Workers and Deno.",
+    },
+    AGENT_R0710: {
+      ...dynamicError,
+      fix: "Remove the model-specific Provider Tools from this Agent. Use Capability tools with codexDriver() or claudeCodeDriver().",
+    },
+    AGENT_R0711: {
+      ...dynamicError,
+      fix: "Set the Invocation timeout to 2147483647 milliseconds or less.",
+    },
+    AGENT_R0713: {
+      ...dynamicError,
+      fix: "Remove CODEX_HOME from the env of codexDriver(), because codexDriver({ credentials }) sets it.",
+    },
+    AGENT_R0714: {
+      ...dynamicError,
+      fix: "Remove T3CODE_CODEX_LAUNCH_ARGS from the env of codexDriver(), or remove reasoningEffort and reasoningSummary.",
+    },
+    AGENT_R0715: {
+      ...dynamicError,
+      fix: "Set driver.sessionStorePath to a non-empty directory path, or remove it.",
+    },
+    AGENT_R0716: {
+      ...dynamicError,
+      fix: "Set driver.providerSettings.binaryPath to the provider command as a string, such as \"codex\", or remove it.",
+    },
+    AGENT_R0718: {
+      ...dynamicError,
+      fix: "Send a prompt, a user message, or an image attachment to the Agent.",
+    },
+    AGENT_R0719: {
+      ...dynamicError,
+      fix: "Run the Invocation again. If it fails again, check that the provider command runs and is signed in, for example with codex login status.",
+    },
+    AGENT_R0721: {
+      ...dynamicError,
+      fix: "Run the Invocation again. If it fails again, read the reason in the message and check that the provider command runs and is signed in.",
+    },
+    AGENT_R0722: {
+      ...dynamicError,
+      fix: "Run the Invocation again. If the provider aborts again, read the reason in the message and check the provider account and its limits.",
+    },
+    AGENT_R0723: {
+      ...dynamicError,
+      fix: "Run the Invocation again. If it fails again, restart the server, so the provider runtime starts clean.",
+    },
+    AGENT_R0725: {
+      ...dynamicError,
+      fix: "Restart the server, so the provider runtime starts clean, then run the Invocation again.",
+    },
     AGENT_R0726: {
       why: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
@@ -2785,42 +2951,94 @@ const agentDiagnosticHandles = defineDiagnostics({
         return "Check the provider diagnostic details and service status before retrying.";
       },
     },
-    AGENT_R0727: dynamicError,
-    AGENT_R0728: dynamicError,
-    AGENT_R0729: dynamicError,
-    AGENT_R0730: dynamicError,
-    AGENT_R0731: dynamicError,
-    AGENT_R0732: dynamicError,
-    AGENT_R0733: dynamicError,
-    AGENT_R0734: dynamicError,
-    AGENT_R0735: dynamicError,
-    AGENT_R0736: dynamicError,
-    AGENT_R0737: dynamicError,
-    AGENT_R0738: dynamicError,
-    AGENT_R0739: dynamicError,
-    AGENT_R0740: dynamicError,
-    AGENT_R0741: dynamicError,
-    AGENT_R0742: dynamicError,
-    AGENT_R0743: dynamicError,
-    AGENT_R0744: dynamicError,
-    AGENT_R0745: dynamicError,
-    AGENT_R0746: dynamicError,
-    AGENT_R0747: dynamicError,
-    AGENT_R0749: dynamicError,
-    AGENT_R0750: dynamicError,
-    AGENT_R0752: dynamicError,
-    AGENT_R0753: dynamicError,
-    AGENT_R0754: dynamicError,
-    AGENT_R0759: dynamicError,
-    AGENT_R0760: dynamicError,
-    AGENT_R0761: dynamicError,
-    AGENT_R0762: dynamicError,
-    AGENT_R0763: dynamicError,
-    AGENT_R0764: dynamicError,
-    AGENT_R0765: dynamicError,
-    AGENT_R0768: dynamicError,
-    AGENT_R0769: dynamicError,
-    AGENT_R0770: dynamicError,
+    AGENT_R0727: {
+      ...dynamicError,
+      fix: "Pass a non-empty run id to the Agent Run Events call.",
+    },
+    AGENT_R0728: {
+      ...dynamicError,
+      fix: "Pass an event object with a non-empty type, such as { type: \"progress\" }.",
+    },
+    AGENT_R0729: {
+      ...dynamicError,
+      fix: "Make the defineAgentRunEvents({ store }) store have append(), read(), and subscribe() functions.",
+    },
+    AGENT_R0730: {
+      ...dynamicError,
+      fix: "Pass defineAgentRunEvents() an object with a store.",
+    },
+    AGENT_R0731: {
+      ...dynamicError,
+      fix: "Pass defineAgent({ runEvents }) the value that defineAgentRunEvents() returns.",
+    },
+    AGENT_R0732: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ concurrency }) to a positive integer, such as 4.",
+    },
+    AGENT_R0733: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ fallbackConcurrency }) to an integer from 0 to concurrency.",
+    },
+    AGENT_R0734: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ intervalMs }) to a number from 100 to 2147483647.",
+    },
+    AGENT_R0735: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ rampUp }) to a positive integer, such as 1.",
+    },
+    AGENT_R0736: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ sampleTimeoutMs }) to a positive number no greater than 2147483647.",
+    },
+    AGENT_R0737: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ memory: { perInvocationBytes } }) to a positive number of bytes.",
+    },
+    AGENT_R0738: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity({ memory }) reserveBytes and serviceReserveBytes to zero or a positive number of bytes.",
+    },
+    AGENT_R0739: {
+      ...dynamicError,
+      fix: "Pass createProcessAgentCapacity({ sample }) a function, or remove sample.",
+    },
+    AGENT_R0740: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity() cpu.pausePressure and memory.pausePressure to a number from 0 to 1.",
+    },
+    AGENT_R0741: {
+      ...dynamicError,
+      fix: "Set createProcessAgentCapacity() cpu.resumePressure and memory.resumePressure to a number from 0 to the pausePressure of the same option.",
+    },
+    AGENT_R0744: {
+      ...dynamicError,
+      fix: "Return only JSON values from the Agent, such as strings, numbers, arrays, and plain objects. Convert a Date with toISOString().",
+    },
+    AGENT_R0745: {
+      ...dynamicError,
+      fix: "Throw an Error object, not a string or another value, from the Agent, its tools, and its Driver. Read error.cause for the value that was thrown.",
+    },
+    AGENT_R0746: {
+      ...dynamicError,
+      fix: "Throw an Error that is not frozen from the Agent, its tools, and its Driver. Read error.cause for the original error.",
+    },
+    AGENT_R0747: {
+      ...dynamicError,
+      fix: "Keep the Agent Invocations store that recorded the Channel delivery. If you changed or cleared it, start a new Invocation from the Channel.",
+    },
+    AGENT_R0768: {
+      ...dynamicError,
+      fix: "Set route maxBodyBytes to a positive integer no greater than 10 MiB (10485760), or remove it to use 1 MiB.",
+    },
+    AGENT_R0769: {
+      ...dynamicError,
+      fix: "Make the chat trigger return a ReadableStream of UI message parts or a Response with a body.",
+    },
+    AGENT_R0770: {
+      ...dynamicError,
+      fix: "Check the webhook timeout of the Channel platform. It closed the response before the Agent finished, so return the response before that timeout.",
+    },
     AGENT_R0771: {
       ...dynamicError,
       fix: "Check the webhook timeout of the Channel platform. It closed the response before the Agent finished, so return the response before that timeout.",

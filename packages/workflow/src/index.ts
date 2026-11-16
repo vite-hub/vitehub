@@ -26,6 +26,8 @@ export type {
   WorkflowDefinitionOptions,
   WorkflowDefinitionRegistry,
   WorkflowCreateOptions,
+  WorkflowDuration,
+  WorkflowDurationUnit,
   WorkflowExecutionContext,
   WorkflowHandle,
   WorkflowHandler,
