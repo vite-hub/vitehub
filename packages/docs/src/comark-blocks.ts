@@ -19,7 +19,12 @@ export async function comarkBlocksSource(): Promise<string> {
   }
   const fromUi = createRequire(ui)
   const uiVue = fromUi.resolve("comark-ui/vue")
-  const { components } = await import(pathToFileURL(uiVue).href) as { components: Record<string, unknown> }
+  const uiModule = await import(pathToFileURL(uiVue).href) as {
+    components?: Record<string, unknown>
+    default: () => { components: Record<string, unknown> }
+  }
+  // 0.9.x exposes components only through the preset; 0.10 adds the named map.
+  const components = uiModule.components ?? uiModule.default().components
   const files = new Map<unknown, string>()
   const dependencies = Object.keys((JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {})
   for (const name of dependencies.filter(name => name.startsWith("comark-"))) {
@@ -34,8 +39,10 @@ export async function comarkBlocksSource(): Promise<string> {
     for (const component of Object.values(plugin.components ?? {})) files.set(component, file)
   }
   const entries = Object.entries(components).map(([tag, component]) => {
-    const file = JSON.stringify(files.get(component) ?? uiVue)
-    return `  ${JSON.stringify(tag)}: defineAsyncComponent(() => import(${file}).then(({ components }) => components[${JSON.stringify(tag)}])),`
+    const owner = files.get(component)
+    const file = JSON.stringify(owner ?? uiVue)
+    const map = owner ? "module.components" : "(module.components ?? module.default().components)"
+    return `  ${JSON.stringify(tag)}: defineAsyncComponent(() => import(${file}).then(module => ${map}[${JSON.stringify(tag)}])),`
   })
   return `import { defineAsyncComponent } from "vue"\nexport default {\n${entries.join("\n")}\n}\n`
 }
