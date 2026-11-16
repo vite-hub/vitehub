@@ -13,6 +13,7 @@ import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-confi
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
@@ -248,8 +249,7 @@ function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
 
 function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string): string {
   if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName === "." || fileName === "..") {
-    // Internal invariant: ViteHub packages pass fixed ownership file names, not names from app config.
-    throw new Error(`Invalid Provider Output ownership file name: ${JSON.stringify(fileName)}`)
+    throw invariantError(`ViteHub packages pass a plain Provider Output ownership file name (${JSON.stringify(fileName)})`)
   }
   return resolve(outputRoot, fileName)
 }
@@ -299,8 +299,7 @@ async function resolvePersistedProviderOutputOwnership(
   const arrays = { ...ownership?.arrays }
   await Promise.all(Object.entries(files).map(async ([field, fileName]) => {
     const current = arrays[field]
-    // Internal invariant: ViteHub packages pass an ownership file only for a field that they own as an array.
-    if (!current) throw new Error(`Provider Output ownership file for ${JSON.stringify(field)} requires array ownership.`)
+    invariant(current, `ViteHub packages pass a Provider Output ownership file only for a field that they own as an array (${JSON.stringify(field)})`)
     arrays[field] = {
       ...current,
       values: [
@@ -346,8 +345,7 @@ export function recoverNetlifyDeploymentOutput(rootDir: string): void {
 
 function assertNetlifyFunctionName(functionName: string): void {
   if (!functionName || functionName.includes("\\") || functionName.split("/").some(part => !part || part === "." || part === "..")) {
-    // Internal invariant: ViteHub writes Netlify function names from safe Definition names.
-    throw new Error(`Invalid Netlify function name: ${functionName}`)
+    throw invariantError(`ViteHub writes Netlify function names from safe Definition names (${functionName})`)
   }
 }
 
@@ -373,8 +371,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
     ? resolve(outputRoot, options.bundleOutfileName ?? "index.js")
     : undefined
   if (workerOutfile && files.some(([fileName]) => resolve(outputRoot, fileName) === workerOutfile)) {
-    // Internal invariant: ViteHub packages choose both the Cloudflare output file names and the bundle file name.
-    throw new Error(`Cloudflare output file conflicts with bundle outfile: ${workerOutfile}`)
+    throw invariantError(`no Cloudflare output file that ViteHub writes has the name of the bundle file (${workerOutfile})`)
   }
   const backupRoot = copiesStaticOutput
     ? await mkdtemp(resolve(options.rootDir, ".vitehub-cloudflare-output-"))

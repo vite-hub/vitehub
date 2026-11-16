@@ -13,6 +13,7 @@ import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sou
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
 
@@ -362,8 +363,7 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    // Internal invariant: the specifier comes from a module that the bundler emitted, so it ends with a complete escape unless a module path holds a quote character.
-    if (escape === undefined) throw new Error("Deno output contains an incomplete import escape sequence.")
+    invariant(escape !== undefined, "the import specifiers of bundler output are complete JavaScript module strings, so each escape sequence ends")
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -381,16 +381,14 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
-        throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+        throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw new Error("Deno output contains an invalid hexadecimal import escape sequence.")
+      invariant(/^[\dA-Fa-f]{2}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each hexadecimal escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -401,22 +399,19 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
-          throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+          throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw new Error("Deno output contains an invalid Unicode import escape sequence.")
+      invariant(/^[\dA-Fa-f]{4}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    // Internal invariant: the import specifier comes from a module that the bundler emitted and the parser read, and JavaScript modules reject this escape.
-    if (/[1-9]/.test(escape)) throw new Error("Deno output contains an unsupported legacy octal import escape sequence.")
+    invariant(!/[1-9]/.test(escape), "the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
     cooked += escape
   }
   return cooked
@@ -1160,13 +1155,10 @@ async function finalizeStagedDenoDeploymentOutput(
   await addServerRuntimePackages(options.serverPackages, options.rootDir, resolvedPackageJsonPaths, runtimePackages)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
+  // Schedule output from an earlier build without the Schedule integration is stale. `access()` below then fails with ENOENT, which means "no Schedule output".
+  if (options.hasScheduleIntegration === false) await rm(scheduleSource, { force: true })
   try {
     await access(scheduleSource)
-    if (options.hasScheduleIntegration === false) {
-      await rm(scheduleSource, { force: true })
-      // Internal invariant: the catch below takes this ENOENT error as "no Schedule output" and never rethrows it.
-      throw Object.assign(new Error("stale Deno Schedule output"), { code: "ENOENT" })
-    }
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })
