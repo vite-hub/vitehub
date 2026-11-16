@@ -14,6 +14,7 @@ export const cmsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     // Named errors. Each names what failed. Keep them in alphabetical order.
     CONTENT_CMS_OPTION_INVALID: {
+      docs: "https://vitehub.dev/docs/cms/diagnostics/content_cms_option_invalid",
       why: ({ problem }: { problem: string }) => `[vitehub] Content cms preset ${problem}`,
       fix: "Set each option of `extends: [cms, { ... }]` to a value that the message accepts. Use `repo`, `branch`, `draftBranch`, `root`, and `publish` only with the GitHub store, and `blob` only without it.",
     },

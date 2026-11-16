@@ -47,6 +47,7 @@ it("puts the fix of CONTENT_CMS_OPTION_INVALID on the error of a cms preset opti
   const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
   expect(() => defineContent({ extends: [cms, { workspace: "Bad name!" }], collections })).toThrow(expect.objectContaining({
     code: "CONTENT_CMS_OPTION_INVALID",
+    docs: "https://vitehub.dev/docs/cms/diagnostics/content_cms_option_invalid",
     fix: cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem: "p" }).fix,
   }))
 })
