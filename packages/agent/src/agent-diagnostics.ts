@@ -227,7 +227,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0937",
   "AGENT_R0933",
   "AGENT_R0939",
-  "AGENT_R0940",
   "AGENT_R0942",
   "AGENT_R0943",
   "AGENT_R0945",
@@ -402,7 +401,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0970",
   "AGENT_R0971",
   "AGENT_R0976",
-  "AGENT_R0930",
   "AGENT_R0936",
   "AGENT_R0935",
   "AGENT_R0924",
@@ -446,6 +444,23 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_TRIGGER_TASK_UNKNOWN",
   "AGENT_UI_STREAM_MISSING",
   "AGENT_WEBHOOK_STATE_SCOPE_INVALID",
+  // The named codes that replace AGENT_R0930 and AGENT_R0940 keep their input-error status.
+  "AGENT_CHANNEL_HISTORY_INVALID",
+  "AGENT_CHANNEL_HISTORY_TRIGGER_UNKNOWN",
+  "AGENT_CHANNEL_MESSAGE_INVALID",
+  "AGENT_CHANNEL_MESSAGE_METHOD_INVALID",
+  "AGENT_CHANNEL_ON_ADAPTER_UNSUPPORTED",
+  "AGENT_CHANNEL_ON_TRIGGER_NAME_TAKEN",
+  "AGENT_CHANNEL_ON_WEBHOOK_TRIGGER",
+  "AGENT_GMAIL_AGENT_AMBIGUOUS",
+  "AGENT_GMAIL_AGENT_MISSING",
+  "AGENT_GMAIL_CHANNEL_EXPECTED",
+  "AGENT_GMAIL_LABEL_MISSING",
+  "AGENT_GMAIL_OPTIONS_INVALID",
+  "AGENT_GMAIL_POLL_HOST_MISSING",
+  "AGENT_INVOCATIONS_DURATION_INVALID",
+  "AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID",
+  "AGENT_INVOCATIONS_SIZE_INVALID",
 ])
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
@@ -3260,8 +3275,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0932: dynamicError,
     AGENT_R0933: dynamicError,
     AGENT_R0929: dynamicError,
-    AGENT_R0930: dynamicError,
-    AGENT_R0931: dynamicError,
+    // AGENT_R0930, AGENT_R0931, AGENT_R0940, AGENT_R0946, and AGENT_R1025 are retired. Each of their causes has its own named code. Do not reuse them.
     AGENT_R0938: dynamicError,
     AGENT_R0001: {
       why: ({ name, available }: { name: string, available: string[] }) => formatUnknownAgentMessage(name, available, { prefix: true }),
@@ -3320,7 +3334,6 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] Observability is not configured.",
       fix: "Set vitehub({ observability: { service } }) in the Vite config.",
     },
-    AGENT_R0940: dynamicError,
     AGENT_R0947: {
       why: ({ requested, actual }: { requested: string; actual: string }) => `[vitehub] SQLite journal mode ${requested} was requested, but the VFS retained ${actual}.`,
       fix: "Use a local VFS that supports the requested journal mode. Set journalMode to delete for volumes that support rollback journaling only.",
@@ -3330,7 +3343,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0943: dynamicError,
     AGENT_R0944: dynamicError,
     AGENT_R0945: dynamicError,
-    AGENT_R0946: dynamicError,
     AGENT_R0991: dynamicError,
     AGENT_R0992: dynamicError,
     AGENT_R0993: dynamicError,
@@ -3353,7 +3365,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,
-    AGENT_R1025: dynamicError,
     AGENT_R1027: dynamicError,
     AGENT_R1028: dynamicError,
     AGENT_R1030: dynamicError,
@@ -3797,6 +3808,223 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_WORKFLOW_REPLAY_UNSAFE: {
       why: ({ reason }: { reason: "The acknowledged Workflow run is unavailable" | "Workflow dispatch acknowledgement is unknown" | "Workflow dispatch identity changed" }) => `${reason}; replay cannot safely submit this Invocation again.`,
       fix: "Find the Workflow run of this Invocation in the Workflow provider and finish or cancel it there. A replay does not help; keep the Workflow provider and Agent name unchanged while runs are pending.",
+    },
+    // Channel and Invocation errors. They replace AGENT_R0930, AGENT_R0931, AGENT_R0940, AGENT_R0946, and AGENT_R1025, one code for each cause. Keep these codes in alphabetical order.
+    AGENT_CHANNEL_HISTORY_INVALID: {
+      why: ({ kind, detail }: { kind: string, detail: string }) => `[vitehub] channelAdapter("${kind}", { history }) ${detail}`,
+      fix: "Pass `history` in `channelAdapter(kind, { history })` as `{ collection, key }` with a Collection from `defineCollection()`, and set `history.trigger` to a trigger of the Channel when it has more than one.",
+    },
+    AGENT_CHANNEL_HISTORY_MISSING: {
+      why: ({ channel }: { channel: string }) => `[vitehub] Channel "${channel}" has no history. Add history to its defineChannel() or channelAdapter() options.`,
+      fix: "Add `history` to the `defineChannel()` or `channelAdapter()` options of the Channel, or replay a Channel that has it.",
+    },
+    AGENT_CHANNEL_HISTORY_TRIGGER_UNKNOWN: {
+      why: ({ channel, triggers }: { channel: string, triggers: string }) => `[vitehub] Channel "${channel}" history trigger must name one of the Channel triggers: ${triggers}.`,
+      fix: "Set `history.trigger` of the Channel to the name of one of its triggers.",
+    },
+    AGENT_CHANNEL_MESSAGE_INVALID: {
+      why: ({ kind, option }: { kind: string, option: "message" | "message: { methods }" }) => `[vitehub] channelAdapter("${kind}", { ${option} }) expects an object.`,
+      fix: "Pass `message` in `channelAdapter(kind, { message })` as an object, and `message.methods` as an object of functions.",
+    },
+    AGENT_CHANNEL_MESSAGE_METHOD_INVALID: {
+      why: ({ kind, name }: { kind: string, name: string }) => `[vitehub] Channel "${kind}" message method "${name}" must be a function or { read: true, handler }.`,
+      fix: "Give each entry of `message.methods` in `channelAdapter(kind, { message })` a function or `{ read: true, handler }`.",
+    },
+    AGENT_CHANNEL_NOT_FOUND: {
+      why: ({ channel }: { channel: string }) => `[vitehub] Agent has no Channel "${channel}".`,
+      fix: "Pass the name of a Channel that the Agent uses, and check the spelling of the name in the message.",
+    },
+    AGENT_CHANNEL_ON_ADAPTER_UNSUPPORTED: {
+      why: ({ kind }: { kind: string }) => `[vitehub] The \`on\` handlers of a "${kind}" Channel need an adapter that receives webhooks, such as webhook() or stripe().`,
+      fix: "Set `defineChannel({ adapter })` to an adapter that receives webhooks, such as `webhook()` or `stripe()`, or remove the `on` handlers.",
+    },
+    AGENT_CHANNEL_ON_TRIGGER_NAME_TAKEN: {
+      why: ({ name }: { name: string }) => `[vitehub] "${name}" is the trigger that runs the \`on\` handlers. Give the "${name}" trigger another name.`,
+      fix: "Rename the Channel trigger that the message names.",
+    },
+    AGENT_CHANNEL_ON_WEBHOOK_TRIGGER: {
+      why: ({ kind, trigger }: { kind: string, trigger: string }) => `[vitehub] The \`on\` handlers of the "${kind}" Channel receive its webhook, so the trigger "${trigger}" cannot. Set \`webhooks: []\` on it to run it only through dispatch, pull, or sendChannelTrigger().`,
+      fix: "Set `webhooks: []` on the trigger that the message names, or make it an `on` handler.",
+    },
+    AGENT_CHANNEL_STATE_QUEUE_UNSUPPORTED: {
+      why: ({ channel, action }: { channel: string, action: "cancel queued tasks" | "queue tasks" | "queue triggers" }) => `[vitehub] Channel "${channel}" State cannot ${action}. Use durable SQLite or libSQL Agent State.`,
+      fix: "Give the Agent durable SQLite or libSQL Agent State, for example a libSQL database in VITEHUB_AGENT_STATE_URL.",
+    },
+    AGENT_CHANNEL_TASK_AGENT_AMBIGUOUS: {
+      why: ({ channel, agents }: { channel: string, agents: string }) => `[vitehub] Channel "${channel}" is served by more than one Agent (${agents}). Give the Channel one Agent.`,
+      fix: "Use the Channel that the message names in one Agent only.",
+    },
+    AGENT_CHANNEL_TASK_DELAY_INVALID: {
+      why: "[vitehub] enqueueChannelTask() delayMs must be a non-negative integer.",
+      fix: "Pass `delayMs` to `enqueueChannelTask()` as a whole number of milliseconds, 0 or more.",
+    },
+    AGENT_CHANNEL_TASK_KEY_INVALID: {
+      why: ({ method }: { method: "cancelChannelTask" | "enqueueChannelTask" }) => method === "enqueueChannelTask"
+        ? "[vitehub] enqueueChannelTask() key must be a non-empty string."
+        : "[vitehub] cancelChannelTask() needs the non-empty key that the task was enqueued with.",
+      fix: "Pass `key` as a non-empty string, and pass `cancelChannelTask()` the key that `enqueueChannelTask()` used.",
+    },
+    AGENT_CHANNEL_TASK_NAME_MISSING: {
+      why: ({ method, target }: { method: "cancelChannelTask" | "enqueueChannelTask" | "sendChannelTrigger", target: "task" | "trigger" }) => `[vitehub] ${method}() needs a non-empty Channel name and ${target} name.`,
+      fix: "Pass a non-empty Channel name and a non-empty task or trigger name to the function that the message names.",
+    },
+    AGENT_CHANNEL_TASK_NOT_BEFORE_INVALID: {
+      why: "[vitehub] enqueueChannelTask() notBefore must be a valid Date or a finite timestamp.",
+      fix: "Pass `notBefore` to `enqueueChannelTask()` as a valid `Date` or a timestamp in milliseconds.",
+    },
+    AGENT_CHANNEL_TASK_QUEUE_MISSING: {
+      why: ({ channel }: { channel: string }) => `[vitehub] Channel "${channel}" has no running webhook queue. Channel tasks need a declared Channel webhook and durable SQLite or libSQL Agent State in the same persistent Node server. Standalone serverless Schedule and API entries are not supported.`,
+      fix: "Declare a webhook for the Channel, give the Agent SQLite or libSQL Agent State, and call the function from the persistent Node server that hosts the webhook.",
+    },
+    AGENT_CHANNEL_TASK_START_CONFLICT: {
+      why: "[vitehub] enqueueChannelTask() takes notBefore or delayMs, not both.",
+      fix: "Pass `notBefore` or `delayMs` to `enqueueChannelTask()`, not both.",
+    },
+    AGENT_CHANNEL_TASK_TRIGGER_AMBIGUOUS: {
+      why: ({ channel, task, triggers }: { channel: string, task: string, triggers: string }) => `[vitehub] More than one trigger of Channel "${channel}" declares task "${task}" (${triggers}). Pass the trigger option.`,
+      fix: "Pass the `trigger` option with one of the triggers that the message lists.",
+    },
+    AGENT_CHANNEL_TASK_UNDECLARED: {
+      why: ({ channel, task, trigger }: { channel: string, task: string, trigger?: string }) => `[vitehub] No trigger of Channel "${channel}" declares task "${task}"${trigger === undefined ? "" : ` as trigger "${trigger}"`}.`,
+      fix: "Pass the name of a task that a trigger of the Channel declares in its `tasks`, or add the task to the `tasks` of a trigger.",
+    },
+    AGENT_CHANNEL_TRIGGER_UNKNOWN: {
+      why: ({ channel, trigger }: { channel: string, trigger: string }) => `[vitehub] Channel "${channel}" has no trigger or \`on\` handler "${trigger}".`,
+      fix: "Pass `sendChannelTrigger()` the name of a trigger or an `on` handler of the Channel.",
+    },
+    AGENT_CHANNEL_WEBHOOK_MISSING: {
+      why: ({ channel, target, name }: { channel: string, target: "task" | "trigger", name: string }) => `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for ${target} "${name}".`,
+      fix: "Declare a webhook for the Channel that the message names.",
+    },
+    AGENT_DISPATCH_QUEUE_UNAVAILABLE: {
+      why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" can queue dispatched items only from its webhook route with a queue-capable State.`,
+      fix: "Call `dispatch(items, { queue: true })` only in a trigger that runs from the Channel webhook route, and give the Agent SQLite or libSQL Agent State.",
+    },
+    AGENT_DISPATCH_TRIGGER_UNKNOWN: {
+      why: ({ channel, trigger }: { channel: string, trigger: string }) => `[vitehub] Channel "${channel}" has no trigger "${trigger}" to dispatch to.`,
+      fix: "Set `dispatch(items, { trigger })` to the name of a trigger of the Channel.",
+    },
+    AGENT_FORGE_ACTIVITY_FAILED: {
+      why: "[vitehub] Forge pull request activity initialization failed.",
+      fix: "Check that the Forge token can write comments in the repository. Read `error.cause` for the Forge error.",
+    },
+    AGENT_FORGE_ACTIVITY_TARGET_INVALID: {
+      why: "[vitehub] Forge Agent activity requires a target with repository and issue.",
+      fix: "Set `run.activity.target` to `{ repository: \"owner/name\", issue: <number> }` when you start the Invocation.",
+    },
+    AGENT_FORGE_AGENT_IDENTITY_MISSING: {
+      why: "[vitehub] Forge activity session links require an Agent identity.",
+      fix: "Start the Invocation through a named Agent, or remove `publicUrl` from the `activity` option of the Channel.",
+    },
+    AGENT_FORGE_EFFECT_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] Forge delivery effect failed with ${status}.`,
+      fix: "Check that the Forge token can write issues and merge requests or pull requests in the repository. Read `error.cause` for the Forge error. A retry helps only for 429 or 5xx.",
+    },
+    AGENT_FORGE_IDENTITY_UNRESOLVED: {
+      why: "[vitehub] Forge Agent activity could not resolve the authenticated identity.",
+      fix: "Set the Channel `token`, VITEHUB_GITLAB_TOKEN, or VITEHUB_FORGEJO_TOKEN to a token that can read its own user.",
+    },
+    AGENT_FORGE_LIFECYCLE_UPDATE_UNSUPPORTED: {
+      why: "[vitehub] Forge pull request lifecycle invocations cannot update a triggering comment.",
+      fix: "Call `message.reply()` instead of `message.update()` when a pull request event starts the Invocation, because no triggering comment exists.",
+    },
+    AGENT_FORGE_METADATA_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] Forge metadata request failed with ${status}.`,
+      fix: "Check that the Forge token can read the repository and its merge requests or pull requests. Read `error.cause` for the Forge error. A retry helps only for 429 or 5xx.",
+    },
+    AGENT_FORGE_REVIEW_UNSUPPORTED: {
+      why: "[vitehub] GitLab has no request changes review. Use an approve or comment review.",
+      fix: "Send an `APPROVE` or `COMMENT` review effect to a `gitlab()` Channel.",
+    },
+    AGENT_FORGE_WEBHOOK_SECRET_MISSING: {
+      why: ({ kind }: { kind: "forgejo" | "gitlab" }) => `[vitehub] ${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET.`,
+      fix: "Set `webhookSecret` in the Channel options, or set VITEHUB_GITLAB_WEBHOOK_SECRET or VITEHUB_FORGEJO_WEBHOOK_SECRET.",
+    },
+    AGENT_GMAIL_AGENT_AMBIGUOUS: {
+      why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,
+      fix: "Pass `gmailChannelStatus(channel, { agent })` with the name of one Agent that the message lists.",
+    },
+    AGENT_GMAIL_AGENT_MISSING: {
+      why: "[vitehub] pollGmailChannel() found no Agent that uses this Channel.",
+      fix: "Pass `pollGmailChannel()` a Gmail Channel that an Agent of the app uses.",
+    },
+    AGENT_GMAIL_CHANNEL_EXPECTED: {
+      why: ({ method }: { method: "gmailChannelStatus" | "gmailClient" | "pollGmailChannel" | "syncGmailChannel" }) => `[vitehub] ${method}() expects a Channel from gmail().`,
+      fix: "Pass the Channel that `gmail()` returns to the function that the message names.",
+    },
+    AGENT_GMAIL_LABEL_MISSING: {
+      why: ({ name }: { name: string }) => `[vitehub] Gmail label "${name}" does not exist. Declare it in gmail({ labels }) or create it in Gmail.`,
+      fix: "Declare the label in `gmail({ labels })`, or create it in Gmail.",
+    },
+    AGENT_GMAIL_OPTIONS_INVALID: {
+      why: ({ detail }: { detail: string }) => `[vitehub] gmail() ${detail}`,
+      fix: "Change the `gmail()` option that the message names to the value that the message asks for.",
+    },
+    AGENT_GMAIL_POLL_HOST_MISSING: {
+      why: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects.",
+      fix: "Call `pollGmailChannel()` in the app that serves the Agent webhook routes, and set VITEHUB_AGENT_STATE_URL to a libSQL database or use Cloudflare Durable Objects.",
+    },
+    AGENT_INVOCATIONS_COMPACT_BUSY: {
+      why: ({ label, busyTimeoutMs }: { label: string, busyTimeoutMs: number }) => `${label} is busy. VACUUM needs the write lock, and another process held it for more than ${busyTimeoutMs} ms. Stop the server that uses the journal, or run compact during a quiet window.`,
+      fix: "Stop the server that uses the journal, or run `compact` again when no process writes to it.",
+    },
+    AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED: {
+      why: ({ remote }: { remote?: string }) => remote === undefined
+        ? "compact rebuilds a local SQLite file. An in-memory database has no file to compact. Pass --database with a local file path."
+        : `compact rebuilds a local SQLite file. ${remote} is a remote libSQL database, which manages its own storage. Pass --database with a local file path.`,
+      fix: "Pass `--database` with the path of a local SQLite journal file.",
+    },
+    AGENT_INVOCATIONS_COMPACT_SPACE: {
+      why: ({ label, liveBytes, volumes }: { label: string, liveBytes: number, volumes: string[] }) => [
+        `Not enough free space to compact ${label}. VACUUM writes a copy of the ${liveBytes} live bytes and a journal of about the same size.`,
+        ...volumes,
+        "Free space on the volume, or set SQLITE_TMPDIR to a directory on another volume for the temporary copy.",
+      ].join("\n"),
+      fix: "Free space on the volume, or set SQLITE_TMPDIR to a directory on another volume for the temporary copy.",
+    },
+    AGENT_INVOCATIONS_DATABASE_NOT_FILE: {
+      why: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app.",
+      fix: "Pass `--url` with the app URL to read a deployed app, or pass `--database` with a local SQLite file path.",
+    },
+    AGENT_INVOCATIONS_DATABASE_URL_INVALID: {
+      why: "The Agent Invocation journal database URL is invalid.",
+      fix: "Set `--database` or VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to a valid URL, such as `libsql://<host>`, or to a file path.",
+    },
+    AGENT_INVOCATIONS_DURATION_INVALID: {
+      why: ({ flag }: { flag: string }) => `${flag} requires a duration such as 90m, 12h, or 30d.`,
+      fix: "Pass the flag that the message names a number with a unit, such as `90m`, `12h`, or `30d`.",
+    },
+    AGENT_INVOCATIONS_JOURNAL_FAILED: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Check that the journal database is reachable and that VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN is valid. Retry when the database is available again.",
+    },
+    AGENT_INVOCATIONS_JOURNAL_MISSING: {
+      why: ({ location, hint }: { location: string, hint?: "Pass --database with the journal file, or --url with the app URL." | "Pass --database with the journal file." | "Pass --database with the journal URL." }) => `No Agent Invocation journal exists at ${location}.${hint ? ` ${hint}` : ""}`,
+      fix: "Pass `--database` with the journal file that the app writes, or `--url` with the app URL.",
+    },
+    AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING: {
+      why: ({ table, location }: { table: string, location: string }) => `No Agent Invocation journal table ${table} exists in ${location}.`,
+      fix: "Pass `--table-prefix` with the `tablePrefix` that the app uses, or pass `--database` with the journal that the app writes.",
+    },
+    AGENT_INVOCATIONS_NODE_SQLITE_MISSING: {
+      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.",
+      fix: "Run the command with Node.js 22.18 or newer, or pass `--url` with the app URL.",
+    },
+    AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID: {
+      why: "--older-than must produce a cutoff within JavaScript's Date range.",
+      fix: "Pass a shorter `--older-than` duration, such as `30d`.",
+    },
+    AGENT_INVOCATIONS_SIZE_INVALID: {
+      why: ({ flag }: { flag: string }) => `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.`,
+      fix: "Pass `--max-size` a size such as `500MB`, a number of bytes, or a percent of the volume such as `30%`.",
+    },
+    AGENT_INVOCATIONS_TABLE_PREFIX_INVALID: {
+      why: "--table-prefix must be alphanumeric.",
+      fix: "Pass `--table-prefix` with letters, digits, and underscores only, such as `vitehub_agent_`.",
+    },
+    AGENT_INVOCATION_NOT_FOUND: {
+      why: ({ id, location }: { id: string, location: string }) => `Agent Invocation ${id} was not found in ${location}.`,
+      fix: "Pass an Invocation ID that `vitehub agent invocations list` shows for the same `--database`.",
     },
   },
 })
