@@ -184,10 +184,10 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 
 <style scoped>
 .skills-browser { display: grid; grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr); flex: 1; min-height: 0; }
-.skills-browser__tree { border-inline-end: 1px solid var(--ui-border); }
+.skills-browser__tree { border-inline-end: 1px solid var(--border); }
 @media (width < 640px) {
   .skills-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: 12rem minmax(0, 1fr); }
-  .skills-browser__tree { border-inline-end: 0; border-bottom: 1px solid var(--ui-border); }
+  .skills-browser__tree { border-inline-end: 0; border-bottom: 1px solid var(--border); }
   .skills-browser__tree > p { display: none; }
 }
 </style>

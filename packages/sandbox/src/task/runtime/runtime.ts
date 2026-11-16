@@ -15,7 +15,7 @@ import {
   withSandboxTaskProvider,
 } from './provider-resolution'
 import { err, ok } from './result'
-import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
+import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
 
 import type {
   AgentSandboxTaskConfig,
@@ -277,7 +277,7 @@ export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknow
   catch (error) {
     if (options?.signal?.aborted)
       throw options.signal.reason ?? error
-    return err(toSandboxTaskError(error))
+    return err(toSandboxTaskError(error), isSandboxTaskRuntimeDevelopment())
   }
 }
 

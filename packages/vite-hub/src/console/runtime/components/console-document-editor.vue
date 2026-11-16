@@ -1908,7 +1908,7 @@ async function onPreviewSelect(field: string): Promise<void> {
   const row = document.querySelector<HTMLElement>(`.vitehub-document-editor [data-vitehub-field="field-${field.replace(/[^a-zA-Z0-9_-]/g, "-")}"]`);
   if (!row) return;
   row.scrollIntoView({ block: "center" });
-  row.animate([{ backgroundColor: "color-mix(in oklab, var(--ui-primary) 14%, transparent)" }, { backgroundColor: "transparent" }], { duration: 1200, easing: "ease-out" });
+  row.animate([{ backgroundColor: "color-mix(in oklab, var(--primary) 14%, transparent)" }, { backgroundColor: "transparent" }], { duration: 1200, easing: "ease-out" });
   if (!inPlace) row.querySelector<HTMLElement>("input, textarea, select, button, [contenteditable='true']")?.focus({ preventScroll: true });
 }
 
@@ -2510,7 +2510,7 @@ const menuItems = computed(() => [[
       @pointerdown="onSplitterPointerDown"
       @keydown="onSplitterKeydown"
     >
-      <div class="mx-auto h-full w-px bg-(--ui-border) transition-colors hover:bg-(--ui-border-accented)" :class="resizing ? 'w-0.5 bg-primary' : ''" />
+      <div class="mx-auto h-full w-px bg-(--border) transition-colors hover:bg-(--ui-border-accented)" :class="resizing ? 'w-0.5 bg-primary' : ''" />
     </div>
     <ConsoleDocumentPreview
       id="vitehub-document-preview"

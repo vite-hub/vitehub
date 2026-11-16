@@ -25,7 +25,7 @@ export async function verifyChatGPTIdentity(input: {
   subject?: string
 }): Promise<ConnectionAccount> {
   try {
-    if (!input.idToken || input.idToken.length > 65_536) throw new Error("Missing identity")
+    if (!input.idToken || input.idToken.length > 65_536) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
     let jwks = identities.get(input.request)
     if (!jwks) {
       jwks = createRemoteJWKSet(new URL(`${chatgptIssuer}/.well-known/jwks.json`), {
@@ -41,11 +41,11 @@ export async function verifyChatGPTIdentity(input: {
       currentDate: new Date(input.now),
       clockTolerance: 5,
     })
-    if (typeof payload.iat !== "number" || payload.iat * 1000 > input.now + 5000) throw new Error("Invalid issue time")
-    if (input.nonce !== undefined && (payload.nonce !== input.nonce || !input.nonce)) throw new Error("Invalid nonce")
-    if ((Array.isArray(payload.aud) && payload.aud.length > 1 || payload.azp !== undefined) && payload.azp !== input.clientId) throw new Error("Invalid authorized party")
+    if (typeof payload.iat !== "number" || payload.iat * 1000 > input.now + 5000) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
+    if (input.nonce !== undefined && (payload.nonce !== input.nonce || !input.nonce)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
+    if ((Array.isArray(payload.aud) && payload.aud.length > 1 || payload.azp !== undefined) && payload.azp !== input.clientId) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
     const identity = v.parse(identitySchema, payload)
-    if (input.subject !== undefined && identity.sub !== input.subject) throw new Error("Different account")
+    if (input.subject !== undefined && identity.sub !== input.subject) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY()
     return { id: identity.sub, ...(identity.email === undefined ? {} : { email: identity.email }) }
   }
   catch {

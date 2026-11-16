@@ -31,6 +31,7 @@ export default defineConfig({
       "src/features.ts",
       "src/http-request.ts",
       "src/inspect.ts",
+      "src/invariant.ts",
       "src/object.ts",
       "src/operation-registry.ts",
       "src/operation-definition.ts",

@@ -14,6 +14,7 @@ icon: i-lucide-code-2
 | `useDatabase` from `vite-hub/database` | Select a generated Drizzle database and its schema, by name or the only one. |
 | `useDatabaseBinding` from `vite-hub/database` | Get the D1 binding or request session of a database. |
 | `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
+| `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
 | `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
@@ -137,7 +138,7 @@ export async function deleteFiles(ownerId: string, ids: string[]) {
 
 The helper trusts your counts. It does not read row contents or SQL defaults. An SQL expression can bind several parameters in one column: a one-column row with `` sql`${first} || ${second}` `` binds two, so use `{ per: 2 }`, not the table. Pick a `per` that covers the most a whole row can bind, SQL defaults included.
 
-Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
+Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws `DATABASE_CHUNK_VALUE_TOO_LARGE`, and `DATABASE_CHUNK_INVALID_COUNT` when a count is not a whole number in range. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
 
 ## Apply migrations from server code
 

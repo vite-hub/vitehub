@@ -8,6 +8,8 @@ export interface CloudflareWorkflowBinding<TPayload = unknown> {
 export interface CloudflareWorkflowInstance {
   id: string
   status: () => Promise<unknown>
+  /** Stops the instance. Cloudflare rejects the call when the instance has already finished. */
+  terminate: () => Promise<void>
 }
 
 export interface WorkflowSharedOptions {
@@ -52,18 +54,31 @@ export interface OpenWorkflowWorkerOptions {
   concurrency?: number
 }
 
+/**
+ * The OpenWorkflow worker that the Nitro server starts. `false` keeps the server from starting it, for apps that run
+ * a separate worker process with `startOpenWorkflowWorker()`.
+ */
+export type OpenWorkflowWorkerOption = false | OpenWorkflowWorkerOptions
+
 export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
   provider: "openworkflow"
+  /**
+   * `vite dev` keeps runs in the local SQLite file, even when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set.
+   * `true` lets it use that storage, so the dev server can run the runs of a shared database. Builds ignore it.
+   */
+  remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
-  worker?: OpenWorkflowWorkerOptions
+  worker?: OpenWorkflowWorkerOption
 }
 
 export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
   provider?: undefined
+  /** See `OpenWorkflowProviderOptions.remote`. */
+  remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
-  worker?: OpenWorkflowWorkerOptions
+  worker?: OpenWorkflowWorkerOption
 }
 
 export type WorkflowProviderOptions =
@@ -81,9 +96,20 @@ export type WorkflowOptions =
 
 export type ResolvedWorkflowOptions = WorkflowProviderOptions
 
+/** The failure of a failed Workflow Run. Every provider fills it, and it is safe to send as JSON. */
+export interface WorkflowRunError {
+  /** Code of the thrown error, when it has one. */
+  code?: string
+  message: string
+  /** Name of the thrown error, when it is not `Error`. */
+  name?: string
+}
+
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   completedAt?: Date
   createdAt?: Date
+  /** Set when `status` is `failed`. */
+  error?: WorkflowRunError
   id: string
   provider: WorkflowProvider
   result?: TResult
@@ -207,7 +233,12 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
+/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = number | string | Date
+
 export interface WorkflowStartOptions {
+  /** Starts the run later. A `Date` in the past starts it now. */
+  delay?: WorkflowStartDelay
   id?: string
 }
 
