@@ -3,6 +3,7 @@ import { consoleBytes } from "../client/format";
 import { computed, ref } from "vue";
 
 import type { ConsoleMcpOutcome } from "../mcp-client";
+import Icon from "./console-icon.vue";
 
 /**
  * The answer of one MCP request as the server sent it: text, images, audio, resource links, embedded resources, and
@@ -92,7 +93,7 @@ function bytes(base64: string): string {
         <img v-else-if="block.type === 'image' && mediaSource(block)" :src="mediaSource(block)" alt="Image from the tool result" class="max-h-80 w-fit max-w-full rounded-md outline outline-1 -outline-offset-1 outline-(--ui-border)">
         <audio v-else-if="block.type === 'audio' && mediaSource(block)" :src="mediaSource(block)" controls class="w-full" />
         <div v-else-if="block.type === 'resource_link'" class="flex min-w-0 items-center gap-2 rounded-lg border border-default px-3 py-2">
-          <UIcon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+          <Icon name="i-lucide-link" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0">
             <span class="block truncate font-medium text-highlighted">{{ string(block.title) || string(block.name) }}</span>
             <span class="block truncate font-mono text-xs text-dimmed">{{ string(block.uri) }}</span>

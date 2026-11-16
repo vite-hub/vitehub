@@ -4,6 +4,7 @@ import { computed } from "vue";
 import { consoleBytes } from "../client/format";
 
 import type { ConsoleMediaUploads } from "../client/media-uploads";
+import Icon from "./console-icon.vue";
 
 /**
  * The upload queue: one row per file with its progress, then a check, a duplicate note, or the reason it failed with a
@@ -31,7 +32,7 @@ const title = computed(() => {
     <ul class="max-h-64 overflow-y-auto py-1">
       <li v-for="entry in entries" :key="entry.id" class="grid gap-1 px-3 py-1.5">
         <div class="flex min-w-0 items-center gap-2">
-          <UIcon
+          <Icon
             :name="entry.state === 'done' ? 'i-lucide-check' : entry.state === 'failed' ? 'i-lucide-circle-alert' : 'i-lucide-loader-circle'"
             class="size-3.5 shrink-0"
             :class="entry.state === 'failed' ? 'text-error' : entry.state === 'done' ? 'text-muted' : 'animate-spin text-dimmed'"

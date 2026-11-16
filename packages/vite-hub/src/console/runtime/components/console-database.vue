@@ -14,6 +14,7 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 interface SchemaLine {
   id: string;
@@ -397,7 +398,7 @@ onBeforeUnmount(() => {
                 :aria-label="collapsed ? table.name : undefined"
                 @click="openTable(table.name)"
               >
-                <UIcon name="i-lucide-table" class="vitehub-console__section-icon" aria-hidden="true" />
+                <Icon name="i-lucide-table" class="vitehub-console__section-icon" aria-hidden="true" />
                 <span v-if="!collapsed" class="min-w-0 flex-1 truncate text-start font-mono text-xs">{{ table.name }}</span>
               </button>
             </UTooltip>
@@ -538,7 +539,7 @@ onBeforeUnmount(() => {
                 type="button"
                 @click="openTable(table.name)"
               >
-                <UIcon name="i-lucide-table" class="size-3.5 text-dimmed" />
+                <Icon name="i-lucide-table" class="size-3.5 text-dimmed" />
                 <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">{{ table.name }}</span>
                 <span class="text-xs tabular-nums text-dimmed">{{ table.columns.length }}</span>
               </button>
@@ -548,7 +549,7 @@ onBeforeUnmount(() => {
                   :key="column.key"
                   class="flex h-[25px] items-center gap-1.5 border-b border-muted px-2.5 last:border-b-0"
                 >
-                  <UIcon
+                  <Icon
                     :name="column.primary ? 'i-lucide-key-round' : column.foreignKey ? 'i-lucide-link' : 'i-lucide-dot'"
                     class="size-3 shrink-0 text-dimmed"
                   />
@@ -573,8 +574,8 @@ onBeforeUnmount(() => {
             <dt class="grid min-w-0 content-start gap-0.5">
               <span class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-toned">
                 <span class="truncate" :title="field.column.name">{{ field.column.name }}</span>
-                <UIcon v-if="field.column.primary" name="i-lucide-key-round" class="size-3 shrink-0 text-dimmed" aria-label="Primary key" />
-                <UIcon v-else-if="field.column.foreignKey" name="i-lucide-link" class="size-3 shrink-0 text-dimmed" :aria-label="`References ${field.column.foreignKey.table}`" />
+                <Icon v-if="field.column.primary" name="i-lucide-key-round" class="size-3 shrink-0 text-dimmed" aria-label="Primary key" />
+                <Icon v-else-if="field.column.foreignKey" name="i-lucide-link" class="size-3 shrink-0 text-dimmed" :aria-label="`References ${field.column.foreignKey.table}`" />
               </span>
               <span class="font-mono text-xs text-dimmed">{{ field.column.type }}</span>
             </dt>

@@ -52,6 +52,7 @@ import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleAgentSession from "./console-agent-session.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
+import Icon from "./console-icon.vue";
 import { formatConsoleUsageCost } from "./console-usage-model";
 import { refreshCapabilityFilteredInvocations, useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
@@ -1098,7 +1099,7 @@ onBeforeUnmount(() => {
               variant="ghost"
             >
               <UChip as="span" :show="activeFilterCount > 0" color="neutral" size="sm">
-                <UIcon name="i-lucide-funnel" class="size-4" />
+                <Icon name="i-lucide-funnel" class="size-4" />
               </UChip>
             </UButton>
             <template #content>
