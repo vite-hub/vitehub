@@ -39,16 +39,18 @@ describe("Console rail icons", () => {
     // The test supplies only the Nuxt UI components that contain or render section icons.
     app.config.warnHandler = () => {}
     app.mount(root)
+    // A sidebar row is named by its label, which stays in the row while the sidebar is collapsed.
+    const item = (label: string) => [...root.querySelectorAll("button")].find(button => button.querySelector(".vitehub-sidebar__label")?.textContent === label)
     try {
-      await vi.waitFor(() => expect(root.querySelector('button[aria-label="KV"]')).not.toBeNull())
+      await vi.waitFor(() => expect(item("KV")).toBeDefined())
       await nextTick()
 
-      const kv = root.querySelector('button[aria-label="KV"]')
+      const kv = item("KV")
       expect(kv?.querySelector("svg")?.getAttribute("data-icon")).toBe("kv")
       expect(kv?.querySelector("[data-icon-name]")).toBeNull()
 
-      const custom = root.querySelector('button[aria-label="Custom"]')
-      expect(custom).not.toBeNull()
+      const custom = item("Custom")
+      expect(custom).toBeDefined()
       expect(custom?.querySelector("[data-icon-name]")?.getAttribute("data-icon-name")).toBe("i-lucide-sparkles")
       expect(custom?.querySelector("svg")).toBeNull()
     }

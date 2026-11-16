@@ -424,7 +424,7 @@ function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["imag
   const invalid = (message: string) => blobErrorDiagnostics.BLOB_C0015({ message })
   if (!isPlainObject(value)) throw invalid("`blob.images` must be false or a plain object.")
   // SAFETY: `value` is a plain object, and each field below is checked before it is copied.
-  const { binding, quality, sizes, transformer } = value as BlobImagesOptions
+  const { binding, maxPixels, quality, sizes, transformer } = value as BlobImagesOptions
   const images: BlobImagesOptions = {}
   if (transformer !== undefined) {
     if (!imageTransformers.includes(transformer)) throw invalid(`\`blob.images.transformer\` must be one of ${imageTransformers.join(", ")}.`)
@@ -433,6 +433,11 @@ function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["imag
   if (binding !== undefined) {
     if (!trimmed(binding)) throw invalid("`blob.images.binding` must be a non-empty Cloudflare binding name.")
     images.binding = trimmed(binding)
+  }
+  if (maxPixels !== undefined) {
+    if (transformer !== "photon") throw invalid("`blob.images.maxPixels` sets the source limit of the photon transformer. Set `blob.images.transformer` to \"photon\", or remove `maxPixels`.")
+    if (!Number.isSafeInteger(maxPixels) || maxPixels < 1) throw invalid("`blob.images.maxPixels` must be a positive integer, such as 6000000.")
+    images.maxPixels = maxPixels
   }
   if (quality !== undefined) {
     if (!Number.isInteger(quality) || quality < 1 || quality > 100) throw invalid("`blob.images.quality` must be an integer from 1 to 100.")

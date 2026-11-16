@@ -28,6 +28,14 @@ describe("@vite-hub/kit package contract", () => {
     expect(kitEntries.filter((entry) => uiSdkEntries.includes(entry))).toEqual([]);
   });
 
+  it("ships the patched web.css inside default.css, not an import of the npm file", () => {
+    const packed = readFileSync(new URL("../dist/styles/default.css", import.meta.url), "utf8");
+    expect(packed).not.toContain('@import "@ui-sdk');
+    // Rules that only the workspace patch of @ui-sdk/core adds.
+    expect(packed).toContain('[data-slot="input-group"]');
+    expect(packed).toContain("--ui-radius-popup");
+  });
+
   it("loads each entry from the built package", async () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/kit", [...kitEntries, "nuxt"]);
   }, 60_000);

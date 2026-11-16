@@ -205,6 +205,20 @@ describe("composer mentions", () => {
     expect(wrapper.emitted("cancel")).toHaveLength(1);
   });
 
+  it("keeps the text unchanged while a send runs, and shows Send as loading", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, busy: true, layout: "row", modelValue: "On its way" } }));
+    const field = wrapper.get("textarea");
+    expect(field.attributes("readonly")).toBeDefined();
+    expect(field.attributes("aria-busy")).toBe("true");
+    const send = wrapper.findAll("button").at(-1)!;
+    expect(send.attributes("disabled")).toBeDefined();
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(wrapper.get("textarea").attributes("readonly")).toBeUndefined();
+  });
+
   it("keeps the text while Esc is held down", async () => {
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
     const field = wrapper.get("textarea");
@@ -534,6 +548,45 @@ describe("thread slots", () => {
 });
 
 describe("CommentPanel", () => {
+  it.each(["open", "resolved"] as const)("reveals %s panel selections without opening a page popover and preserves flashes on release", async (status) => {
+    const selected = client([thread(1, { status }), thread(2, { status })]);
+    let state!: ReturnType<typeof useComments>;
+    const visible = ref(true);
+    const selection = ref<string | null | undefined>(undefined);
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: selected, subject: pricing, visibility: "hidden", hotkey: false });
+        return () => visible.value ? h(CommentPanel, { comments: state, status, thread: selection.value }) : null;
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(selected.status).toBe("ready"));
+    expect([...state.shown.value]).toEqual([]);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    expect(state.isShown("thread-1")).toBe(true);
+    expect(state.openId.value).toBe(null);
+    expect(state.opened.value).toBeUndefined();
+    expect(state.visibility.value).toBe("hidden");
+    await wrapper.get("[aria-label='Back to comments']").trigger("click");
+    expect(state.isShown("thread-1")).toBe(false);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    selection.value = "thread-2";
+    await flushPromises();
+    expect(state.isShown("thread-1")).toBe(false);
+    expect(state.isShown("thread-2")).toBe(true);
+    vi.useFakeTimers();
+    try {
+      state.flash("thread-2");
+      visible.value = false;
+      await flushPromises();
+      expect(state.isShown("thread-2")).toBe(true);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(state.isShown("thread-2")).toBe(false);
+      expect(state.visibility.value).toBe("hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])("provides its explicit state to children with ancestor=%s", async (ancestor) => {
     const selected = client([thread(1, { messages: [message("m1", { body: "Hello @Ben Soto", mentions: ["ben"], author: ben })] })]);
     const wrapper = keep(mount(defineComponent({

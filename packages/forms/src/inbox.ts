@@ -35,7 +35,7 @@ export function createFormsInbox(store: FormsStore, now: () => number = Date.now
       return submission
     }),
     setStatus: (id, status) => attempt(async () => {
-      if (!statuses.includes(status)) throw new TypeError(`[vitehub] A form submission status is open, done, or spam, not ${JSON.stringify(status)}.`)
+      if (!statuses.includes(status)) throw formsDiagnostics.FORMS_SUBMISSION_STATUS_INVALID({ status: JSON.stringify(status) })
       const submission = await store.setStatus(id, status, now())
       if (!submission) throw missing(id)
       return submission

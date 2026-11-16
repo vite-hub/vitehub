@@ -258,6 +258,29 @@ Agent also turns on Workflow, unless you set `workflow: false`. Env is on by def
 Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
 ::
 
+## Update ViteHub
+
+Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
+
+```bash [commands/update]
+pnpm update --latest vite-hub "@vite-hub/*"
+```
+
+To try a [pkg.pr.new](https://pkg.pr.new) preview, put its URLs in `package.json`, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, for every ViteHub package. Then run:
+
+```bash [commands/update-preview]
+pnpm update vite-hub "@vite-hub/*"
+```
+
+A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
+
+```text [output/pnpm-why-stale.txt]
+@vite-hub/env@0.0.0-preview-156a885
+@vite-hub/env@0.1.0 peer#1f85 (2 variations)
+```
+
+After the update command, it lists only the preview.
+
 ## Build for production
 
 Stop the dev server, then build and start the app:
