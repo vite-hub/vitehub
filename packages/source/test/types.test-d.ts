@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import * as v from "valibot"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -181,7 +181,8 @@ describe("@vite-hub/source types", () => {
 
   it("types Collection authorize callbacks", () => {
     const collection = defineCollection(async () => [{ id: 1 }], {
-      authorize: ({ request, session, user }) => {
+      authorize: ({ event, request, session, user }) => {
+        expectTypeOf(event).toEqualTypeOf<Request & ViteHubContext>()
         expectTypeOf(request.url).toBeString()
         expectTypeOf(session).toEqualTypeOf<Record<string, unknown>>()
         expectTypeOf(user.id).toBeString()
@@ -190,7 +191,7 @@ describe("@vite-hub/source types", () => {
       cursor: row => row.id,
       cursorSchema: v.number(),
     })
-    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption | undefined>()
+    expectTypeOf(collection.authorize).toEqualTypeOf<AccessAuthorizeOption<Request & ViteHubContext> | undefined>()
     expectTypeOf(collection.access).toEqualTypeOf<"public" | undefined>()
     defineCollection(async () => [{ id: 1 }], { authorize: true, cursor: row => row.id, cursorSchema: v.number() })
     defineCollection(async () => [{ id: 1 }], { access: "public", cursor: row => row.id, cursorSchema: v.number() })

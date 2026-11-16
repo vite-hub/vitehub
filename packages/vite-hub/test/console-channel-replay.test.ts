@@ -121,7 +121,7 @@ describe("Console Channel replay operation", () => {
     const { agent } = labeller()
     installConsoleAgentDefinitions([{ definition: { default: agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
     const result = await replay({ agent: "labeller", channel: "missing" })
-    expect(result).toMatchObject({ body: { code: "AGENT_R0931", ok: false }, status: 404 })
+    expect(result).toMatchObject({ body: { code: "AGENT_CHANNEL_NOT_FOUND", ok: false }, status: 404 })
   })
 
   it("rejects cross-site and malformed calls before replay", async () => {

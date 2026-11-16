@@ -11,6 +11,23 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Event and password errors. The event store, the events route, and the password verifier throw them.
+    AUTH_EVENT_QUERY_INVALID: {
+      why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
+        ? "Auth event from must be before to."
+        : "Auth event windows must be positive and at most 366 days.",
+      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long.",
+    },
+    AUTH_EVENT_RETENTION_INVALID: {
+      why: "Auth event retention limits must be positive integers.",
+      fix: "Pass `retention: { maxAgeMs, maxRecords }` to `createDatabaseAuthEventStore()` with positive whole numbers, or `retention: false` to keep every event.",
+    },
+    AUTH_PASSWORD_HASH_INVALID: {
+      why: "Invalid password hash",
+      fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+
+    // Published numbered errors.
     AUTH_R0001: withFix("Return an Agent Invoker from the `map` callback of `authenticated()` for each request. Remove `map` to use the default Invoker."),
     AUTH_R0002: withFix("Make `meta` of `authenticated()` return a plain object, `null`, or `undefined`, for example `meta: ({ user }) => ({ plan: user.plan })`."),
     AUTH_C0001: withFix("Write the value as a string literal in `defineAuth()`, for example `basePath: '/auth'`. The Vite plugin reads it at build time, so it cannot use a variable or an expression."),
@@ -94,5 +111,23 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
     AUTH_R0022: withFix("Send the request to an origin that `vitehub({ publicUrl })` returns for one of your Agents, or set `baseURL` in the Auth Definition. The request Host cannot choose the Auth origin."),
     AUTH_R0023: withFix("Return `null` from `verify` to ignore the header, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`, for example `{ providerId: 'github', accountId: String(user.id), email, name: user.login, emailVerified: true }`."),
+
+    // CLI errors. `vitehub auth events` prints them with the fix.
+    AUTH_EVENTS_OPTION_INVALID: {
+      why: ({ option, problem }: { option: string, problem: "unknown" | "value" }) => problem === "unknown" ? `[vitehub] Unknown auth events option: ${option}` : `[vitehub] Missing value for ${option}.`,
+      fix: "Pass only the options that `vitehub auth events --help` lists, each followed by its value.",
+    },
+    AUTH_EVENTS_REQUEST_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] Auth events returned HTTP ${status}.`,
+      fix: "Return true from `events.authorize` in `defineAuth()` for your user, and set VITEHUB_AUTH_COOKIE to the cookie of a session of that user.",
+    },
+    AUTH_EVENTS_URL_INSECURE: {
+      why: "[vitehub] Auth events requires HTTPS or a loopback HTTP URL.",
+      fix: "Pass an `https://` Auth base URL to `--url`, or `http://localhost` for a dev server.",
+    },
+    AUTH_EVENTS_URL_MISSING: {
+      why: "[vitehub] `vitehub auth events` has no Auth base URL.",
+      fix: "Pass `--url` with the Auth base URL, such as `--url http://localhost:5173/api/auth`, or set VITEHUB_AUTH_URL.",
+    },
   },
 })

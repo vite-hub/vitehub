@@ -1,6 +1,6 @@
 import { assertCollectionAccess, CollectionCursorError } from "./core/collection.ts"
 
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -14,7 +14,7 @@ export interface CollectionHandler {
 
 /** Wraps a Collection handler so it runs only after the request is authorized. Return a `Response` to reject the request. */
 export type CollectionAuthorizationGuard = <TResult>(
-  authorize: AccessAuthorizeOption,
+  authorize: AccessAuthorizeOption<Request & ViteHubContext>,
   handler: (request: Request) => Promise<TResult>,
 ) => (request: Request) => Promise<TResult | Response>
 

@@ -1,6 +1,7 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
-import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
+import { isResponse, serializeResponse, toResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { isNonRetryableError, NonRetryableError } from "../errors.ts"
 import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const defaultStepOptions = {
@@ -78,6 +79,30 @@ function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>
 const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
 
 /**
+ * The step result that says the step threw a `NonRetryableError`. A provider that retries every error, such as
+ * OpenWorkflow, ends the step with it, so it does not run the step again. The caller throws the error outside the
+ * step, and a replay reads the stored result and throws the same error.
+ */
+export interface NonRetryableStepResult {
+  "~vitehubNonRetryableError": { code?: string, message: string, name: string }
+}
+
+export function toNonRetryableStepResult(error: unknown): NonRetryableStepResult | undefined {
+  if (!isNonRetryableError(error)) return undefined
+  const code: unknown = Reflect.get(error, "code")
+  return { "~vitehubNonRetryableError": { ...(typeof code === "string" ? { code } : {}), message: error.message, name: error.name } }
+}
+
+export function readNonRetryableStepResult(value: unknown): NonRetryableError | undefined {
+  if (typeof value !== "object" || value === null || !Object.hasOwn(value, "~vitehubNonRetryableError")) return undefined
+  // SAFETY: Only toNonRetryableStepResult writes this key.
+  const { code, message, name } = (value as NonRetryableStepResult)["~vitehubNonRetryableError"]
+  const error = new NonRetryableError(message)
+  error.name = name
+  return code === undefined ? error : Object.assign(error, { code })
+}
+
+/**
  * Runs the handler in its root step, or alone for a folder Workflow (`rootStep: false`). A sleep inside the root step
  * fails the run with `WORKFLOW_ROOT_STEP_SLEEP` on every provider. The root step returns a marker instead of throwing,
  * so the provider does not retry it and run the code before the sleep again.
@@ -122,10 +147,20 @@ export async function runWorkflowHandler<TPayload, TResult>(
   return toResponse(await runInRootStep(context, definition, value => value))
 }
 
+/**
+ * The stored result of a run. A `Response` from the handler is stored as a serialized Response. Any other value is
+ * stored as JSON, so every provider returns the same plain value.
+ */
+async function toStoredWorkflowResult(value: unknown): Promise<unknown> {
+  if (isResponse(value)) return await serializeResponse(value)
+  const json = JSON.stringify(value)
+  return json === undefined ? undefined : JSON.parse(json)
+}
+
 /** Encode inside the root step so both checkpoints and final outputs survive replay. */
 export async function runSerializedWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
-): Promise<SerializedResponse> {
-  return await runInRootStep(context, definition, value => serializeResponse(toResponse(value)))
+): Promise<unknown> {
+  return await runInRootStep(context, definition, toStoredWorkflowResult)
 }

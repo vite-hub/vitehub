@@ -143,7 +143,7 @@ i18n uses `AGENT_C0014` for invalid `i18n()` options, and `AGENT_R0104` when the
 
 Forge uses `AGENT_C0011` for invalid options. `AGENT_R0941` to `AGENT_R0945` cover credentials, repository access, context, requests, and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
-The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
+The `gitlab()` and `forgejo()` Channels use `AGENT_FORGE_WEBHOOK_SECRET_MISSING` for a missing webhook secret, `AGENT_FORGE_METADATA_FAILED` and `AGENT_FORGE_EFFECT_FAILED` for failed Forge requests, and other `AGENT_FORGE_*` codes for activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
 
 ## Agent public errors
 
@@ -241,7 +241,7 @@ For Env, read the `ENV_*` code first. Its codes and public messages are fixed:
 Raw labels and diagnostics stay in `cause`, which the serialized shape omits. Errors from custom source resolvers pass through unchanged.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
 pnpm --filter @vite-hub/sandbox test
 ```

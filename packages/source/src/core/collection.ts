@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 import { CollectionCursorError, createCollectionCursorCodec } from "./collection-cursor.ts"
 import { parseCollectionSchema } from "./schema.ts"
@@ -65,7 +65,7 @@ export interface Collection<
   /** `"public"` lets anyone read the generated route without sign-in. */
   readonly access?: "public"
   /** Access rule for the generated route. Undefined only with `access: "public"` or `route: false`. */
-  readonly authorize?: AccessAuthorizeOption
+  readonly authorize?: AccessAuthorizeOption<Request & ViteHubContext>
   readonly route?: false
   readonly get?: (key: string, options?: { signal?: AbortSignal }) => Promise<TItem | null | undefined>
   page(options: CollectionPageOptions<TQuery>): Promise<CollectionPage<TItem>>
@@ -191,14 +191,14 @@ type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
  * accident. Set `route: false` to keep the Collection server-only.
  */
 export type CollectionAccess =
-  | { access?: undefined; authorize: AccessAuthorizeOption; route?: undefined }
+  | { access?: undefined; authorize: AccessAuthorizeOption<Request & ViteHubContext>; route?: undefined }
   | { access: "public"; authorize?: undefined; route?: undefined }
-  | { access?: undefined; authorize?: AccessAuthorizeOption; route: false }
+  | { access?: undefined; authorize?: AccessAuthorizeOption<Request & ViteHubContext>; route: false }
 
 /** The access of a source that returns whole table rows without `transform`. The route cannot be public. */
 type RawRowsAccess =
-  | { access?: undefined; authorize: AccessAuthorizeOption; route?: undefined }
-  | { access?: undefined; authorize?: AccessAuthorizeOption; route: false }
+  | { access?: undefined; authorize: AccessAuthorizeOption<Request & ViteHubContext>; route?: undefined }
+  | { access?: undefined; authorize?: AccessAuthorizeOption<Request & ViteHubContext>; route: false }
 
 /**
  * A cursor the loader must not mutate. Only object cursors become readonly, so `AnyCollectionSource` keeps `any`
@@ -653,7 +653,7 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
  */
 export function assertCollectionAccess(definition: { access?: unknown; authorize?: unknown; route?: unknown; page?: unknown }): {
   access?: "public"
-  authorize?: AccessAuthorizeOption
+  authorize?: AccessAuthorizeOption<Request & ViteHubContext>
 } {
   const { access, authorize } = definition
   // `false` reads as "deny" to most readers, so it is not a public opt-in.
@@ -674,7 +674,7 @@ export function assertCollectionAccess(definition: { access?: unknown; authorize
     throw sourceErrorDiagnostics.SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED()
   }
   // SAFETY: The checks above narrow authorize to true or a callable access rule.
-  return { access, authorize: authorize as AccessAuthorizeOption | undefined }
+  return { access, authorize: authorize as AccessAuthorizeOption<Request & ViteHubContext> | undefined }
 }
 
 function isProviderCursor(value: unknown): value is string {

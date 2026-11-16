@@ -8,6 +8,7 @@ import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
 import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
+import { queueDeploymentEnv } from "./deployment-env.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, generatedQueueTestSetup, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
 import type { NormalizedQueueOptions } from "./internal/vite-build.ts"
@@ -15,6 +16,7 @@ import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueOptions } from "./types.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
@@ -39,7 +41,10 @@ interface QueueProvisionContributingPlugin {
     }
   }
 }
-export type QueueVitePlugin = Plugin & QueueProvisionContributingPlugin
+export type QueueVitePlugin = Plugin & QueueProvisionContributingPlugin & {
+  /** The variables that Queue reads on the deployed host. See `queueDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
+}
 
 export interface QueueNitroConfigOptions {
   development?: boolean
@@ -278,6 +283,10 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
 
   return {
     name: "@vite-hub/queue/vite",
+    api: {
+      // The config that the build wrote, else the one this host resolves to.
+      deploymentEnv: context => queueDeploymentEnv(writtenQueue ?? normalizeQueueOptions(nitroQueue === false ? false : queue, { hosting: context.host, postgresDatabase })),
+    },
     vitehub: {
       durability: () => {
         const resolvedQueue = writtenQueue ?? (nitroQueue === false ? undefined : normalizeQueueOptions(queue, { hosting }))
