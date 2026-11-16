@@ -212,7 +212,7 @@ it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record i
   const abandoned = path()
   await storage.put(abandoned, "image")
   await storage.put(`${cleanupPrefix}batch/${crypto.randomUUID()}`, body)
-  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).resolves.toBe(true)
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs).toEqual([])
@@ -229,7 +229,7 @@ it("preserves unknown ownership if quarantine persistence fails", async () => {
   await storage.put(record, "{")
   await expect(retryConsoleAttachmentCleanup({ ...storage, async put() { throw new Error("Write unavailable") } })).rejects.toThrow("Write unavailable")
   expect(await (await storage.get(record))[1]!.text()).toBe("{")
-  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).rejects.toThrow()
+  await expect(isConsoleAttachmentPendingCleanup(storage, crypto.randomUUID())).resolves.toBe(true)
 })
 
 it("rejects reuse when another request quarantines a record during the ownership scan", async () => {

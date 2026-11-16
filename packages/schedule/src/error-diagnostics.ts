@@ -9,6 +9,25 @@ const dynamicError = {
 export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {
+    // Operation errors. The `schedule.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    SCHEDULE_DEFINITION_NOT_FOUND: {
+      why: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
+      fix: "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).",
+    },
+    SCHEDULE_HISTORY_INCOMPLETE: {
+      why: ({ maxRecords, recordCount }: { maxRecords: number, recordCount: number }) => `Schedule run history is incomplete because ${recordCount} records have no usable metadata index (maximum fallback is ${maxRecords}). Rebuild the schedule run index before listing history.`,
+      fix: "Rebuild the Schedule run index of the store, as the message says, before you list the history.",
+    },
+    SCHEDULE_OPERATION_FAILED: {
+      why: "Schedule operation failed.",
+      fix: "Read `error.cause` for the error of the Schedule store or handler. Check that the store is reachable, then retry.",
+    },
+    SCHEDULE_RUN_NOT_FOUND: {
+      why: "Schedule Run was not found.",
+      fix: "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.",
+    },
+
+    // Published numbered errors.
     SCHEDULE_C0001: {
       ...dynamicError,
       fix: "Pass `cron` to `defineSchedule()` as a non-empty string without spaces around it, such as `defineSchedule({ cron: \"0 9 * * *\", handler })`. Remove `cron` for a Schedule that only `startSchedule()` starts.",
