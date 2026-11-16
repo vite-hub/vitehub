@@ -1,0 +1,131 @@
+import { createHmac } from "node:crypto"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { runWithCloudflareEnv } from "../src/server.ts"
+import { verifyWebhook } from "../src/webhook.ts"
+
+const stripeSecret = "whsec_formula100test"
+const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1" } } })
+
+function stripeHeader(payload: string, secret = stripeSecret, time = Math.floor(Date.now() / 1000)): string {
+  return `t=${time},v1=${createHmac("sha256", secret).update(`${time}.${payload}`).digest("hex")}`
+}
+
+function post(headers: Record<string, string>, payload = body): Request {
+  return new Request("https://formula-100.test/api/stripe/webhook", { body: payload, headers, method: "POST" })
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+describe("verifyWebhook({ provider: 'stripe' })", () => {
+  it("returns the parsed body for a valid signature", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
+    const [error, event] = await verifyWebhook<{ type: string }>(post({ "stripe-signature": stripeHeader(body) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+    expect(error).toBeUndefined()
+    expect(event?.type).toBe("checkout.session.completed")
+  })
+
+  it("refuses a changed body, a wrong secret, and a missing header", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
+    const options = { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" } as const
+    for (const request of [
+      post({ "stripe-signature": stripeHeader(body) }, `${body} `),
+      post({ "stripe-signature": stripeHeader(body, "whsec_other") }),
+      post({}),
+    ]) {
+      const [error, event] = await verifyWebhook(request, options)
+      expect(event).toBeUndefined()
+      expect(error).toMatchObject({
+        code: "ENV_WEBHOOK_SIGNATURE_INVALID",
+        why: "The `stripe-signature` header is missing, or it does not match the body signed with a secret in `STRIPE_WEBHOOK_SECRET`.",
+      })
+    }
+  })
+
+  it("refuses a signature older than the tolerance", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", stripeSecret)
+    const old = Math.floor(Date.now() / 1000) - 301
+    const [error] = await verifyWebhook(post({ "stripe-signature": stripeHeader(body, stripeSecret, old) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+    expect(error?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
+    const [late] = await verifyWebhook(post({ "stripe-signature": stripeHeader(body, stripeSecret, old) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", toleranceSeconds: 600 })
+    expect(late).toBeUndefined()
+  })
+
+  it("accepts each secret of a comma-separated list, for rotation", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", `whsec_old, ${stripeSecret}`)
+    for (const secret of ["whsec_old", stripeSecret]) {
+      const [error] = await verifyWebhook(post({ "stripe-signature": stripeHeader(body, secret) }), { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+      expect(error, secret).toBeUndefined()
+    }
+  })
+
+  it("refuses every delivery when the variable has no secret", async () => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", " , ")
+    const request = post({ "stripe-signature": stripeHeader(body) })
+    const [error] = await verifyWebhook(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+    expect(error).toMatchObject({ code: "ENV_WEBHOOK_SECRET_UNSET", docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_secret_unset" })
+    expect(request.bodyUsed).toBe(false)
+  })
+})
+
+describe("verifyWebhook({ provider: 'github' })", () => {
+  it("checks X-Hub-Signature-256", async () => {
+    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "gh-secret")
+    const payload = JSON.stringify({ action: "opened", number: 7 })
+    const signature = `sha256=${createHmac("sha256", "gh-secret").update(payload).digest("hex")}`
+    const [error, delivery] = await verifyWebhook<{ action: string }>(post({ "x-hub-signature-256": signature }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
+    expect(error).toBeUndefined()
+    expect(delivery?.action).toBe("opened")
+    const [wrong] = await verifyWebhook(post({ "x-hub-signature-256": signature.replace("sha256=", "") }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
+    expect(wrong?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
+  })
+})
+
+describe("verifyWebhook({ provider: 'hmac' })", () => {
+  it("checks a base64 HMAC with a base64 key, as Airtable sends it", async () => {
+    const key = Buffer.from("airtable-mac-secret").toString("base64")
+    vi.stubEnv("AIRTABLE_WEBHOOK_SECRET", key)
+    const payload = JSON.stringify({ base: { id: "app1" }, webhook: { id: "ach1" } })
+    const mac = `hmac-sha256=${createHmac("sha256", Buffer.from(key, "base64")).update(payload).digest("base64")}`
+    const options = { provider: "hmac", secret: "AIRTABLE_WEBHOOK_SECRET", header: "X-Airtable-Content-MAC", prefix: "hmac-sha256=", encoding: "base64", secretEncoding: "base64" } as const
+    const [error, notification] = await verifyWebhook<{ webhook: { id: string } }>(post({ "x-airtable-content-mac": mac }, payload), options)
+    expect(error).toBeUndefined()
+    expect(notification?.webhook.id).toBe("ach1")
+  })
+
+  it("returns ENV_WEBHOOK_BODY_INVALID for a signed body that is not JSON", async () => {
+    vi.stubEnv("LULU_WEBHOOK_SECRET", "lulu-secret")
+    const payload = "status=SHIPPED"
+    const signature = createHmac("sha256", "lulu-secret").update(payload).digest("hex")
+    const [error] = await verifyWebhook(post({ "lulu-hmac-sha256": signature }, payload), { provider: "hmac", secret: "LULU_WEBHOOK_SECRET", header: "Lulu-HMAC-SHA256" })
+    expect(error?.code).toBe("ENV_WEBHOOK_BODY_INVALID")
+    expect(error?.cause).toBeInstanceOf(SyntaxError)
+  })
+})
+
+describe("verifyWebhook() events", () => {
+  it("reads an H3 event and Cloudflare bindings", async () => {
+    const bindings = { STRIPE_WEBHOOK_SECRET: stripeSecret }
+    await runWithCloudflareEnv(bindings, async () => {
+      const event = { context: {}, req: post({ "stripe-signature": stripeHeader(body) }), res: { headers: new Headers() } }
+      const [error] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+      expect(error).toBeUndefined()
+    })
+  })
+
+  it("reads the bindings of a Standard Context event", async () => {
+    const event = {
+      "~standard": {
+        vendor: "test",
+        req: post({ "stripe-signature": stripeHeader(body) }),
+        res: { headers: new Headers() },
+        runtime: { cloudflare: { env: { STRIPE_WEBHOOK_SECRET: stripeSecret } } },
+      },
+    }
+    const [error] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+    expect(error).toBeUndefined()
+  })
+})
