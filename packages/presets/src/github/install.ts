@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, chmod, lstat, mkdir, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { invariant } from "@vite-hub/internal/invariant";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { validateGitHubInstallInputs } from "./install-inputs.ts";
 import { createGitHubInstallSnapshot, publishGitHubInstallSnapshot } from "./install-snapshot.ts";
 import { randomUUID } from "node:crypto";
@@ -16,8 +18,18 @@ const exists = async (path: string) => await access(path).then(() => true, () =>
 const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-export class GitHubWorkspaceInstallError extends Error {
-  constructor(cause: unknown, readonly retryable = true, readonly kind: "capacity" | "prerequisite" | "input" | "command" | "filesystem" = "command") { super(`Frozen dependency installation failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
+/** The install step that failed. The Babysitter waits for `capacity` and reports the other kinds. */
+export type GitHubWorkspaceInstallKind = "capacity" | "prerequisite" | "input" | "command" | "filesystem";
+/** A `PRESETS_WORKSPACE_INSTALL_FAILED` error, with whether the Babysitter may retry it and the step that failed. */
+export type GitHubWorkspaceInstallError = Error & { readonly code: string; retryable: boolean; kind: GitHubWorkspaceInstallKind };
+
+export function gitHubWorkspaceInstallError(cause: unknown, retryable = true, kind: GitHubWorkspaceInstallKind = "command"): GitHubWorkspaceInstallError {
+  const error = presetsErrorDiagnostics.PRESETS_WORKSPACE_INSTALL_FAILED({ message: cause instanceof Error ? cause.message : String(cause), cause });
+  return Object.assign(error, { retryable, kind });
+}
+
+export function isGitHubWorkspaceInstallError(error: unknown): error is GitHubWorkspaceInstallError {
+  return error instanceof Error && isRecord(error) && error.code === "PRESETS_WORKSPACE_INSTALL_FAILED";
 }
 
 /** Trusted host hook for dependency caching; commands and inputs have already been validated. */
@@ -65,8 +77,8 @@ export interface GitHubInstallSlotOptions {
  * concurrent installs. A cancelled waiter leaves the queue without holding up later installs.
  */
 export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 * 60_000 }: GitHubInstallSlotOptions = {}): GitHubInstallSlots {
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("Install concurrency must be a positive integer.");
-  if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs <= 0) throw new TypeError("Install queue timeout must be positive.");
+  invariant(Number.isSafeInteger(concurrency) && concurrency >= 1, "the Babysitter checks install.concurrency, so the install concurrency is a positive integer");
+  invariant(Number.isFinite(queueTimeoutMs) && queueTimeoutMs > 0, "the Babysitter passes a fixed install queue timeout, which is positive");
   let running = 0;
   const waiters: Array<() => void> = [];
   const release = () => {
@@ -94,7 +106,7 @@ export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 *
           reject(error);
         };
         const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
+        const timeout = setTimeout(() => fail(gitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
         const cleanup = () => {
           clearTimeout(timeout);
           signal?.removeEventListener("abort", abort);
@@ -132,7 +144,7 @@ async function packageManagerVersion(source: string): Promise<(name: string, fal
   return (name, fallback) => {
     if (!packageManager) return fallback;
     const match = packageManager.match(/^(pnpm|npm|yarn)@(\d+\.\d+\.\d+)(?:\+sha(?:224|256|384|512)\.[a-f\d]+)?$/);
-    if (!match || match[1] !== name) throw new Error("packageManager must select an official matching package-manager version.");
+    if (!match || match[1] !== name) throw presetsErrorDiagnostics.PRESETS_PACKAGE_MANAGER_UNSUPPORTED();
     return match[2]!;
   };
 }
@@ -185,14 +197,14 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let yarnConfig: string | undefined;
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
-  let kind: GitHubWorkspaceInstallError["kind"] = "input";
+  let kind: GitHubWorkspaceInstallKind = "input";
   const cleanup = async () => {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
       finally { await snapshot?.close(); }
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new GitHubWorkspaceInstallError(error);
+      throw gitHubWorkspaceInstallError(error);
     }
   };
   try {
@@ -212,7 +224,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     }
     else if (await exists(join(source, "package-lock.json")) || await exists(join(source, "npm-shrinkwrap.json"))) {
       const npmVersion = version("npm", "11.6.3");
-      if (Number(npmVersion.split(".")[0]) < 7) throw new Error("Host installation requires npm 7 or newer; older npm can execute repository onload scripts.");
+      if (Number(npmVersion.split(".")[0]) < 7) throw presetsErrorDiagnostics.PRESETS_NPM_VERSION_UNSUPPORTED();
       command = "corepack";
       args = [`npm@${npmVersion}`, "ci", "--ignore-scripts", "--no-audit", "--no-fund"];
     }
@@ -243,7 +255,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
         args.push("--immutable", "--mode=skip-build");
       }
     }
-    else throw new Error("Frozen dependency installation requires a supported lockfile.");
+    else throw presetsErrorDiagnostics.PRESETS_LOCKFILE_MISSING();
     // Input validation needs changed PR evidence. Commands can fail while the
     // registry or host is temporarily unavailable and retain their retry path.
     retryable = true;
@@ -258,7 +270,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
         // Keep the wait retryable so the scheduler can recheck it.
         retryable = true;
         kind = "prerequisite";
-        throw new Error("Babysitter host installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
+        throw presetsErrorDiagnostics.PRESETS_COREPACK_MISSING({ cause: error });
       }
       throw error;
     }
@@ -267,7 +279,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
       if (isSystemError(error)) throw error;
       return undefined;
     });
-    if (current !== fingerprint) throw new Error("Dependency inputs changed during installation. Call refreshDependencies again before validation.");
+    if (current !== fingerprint) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_INPUTS_CHANGED();
     retryable = true;
     await publishGitHubInstallSnapshot(snapshot, signal);
     await writeFile(record, JSON.stringify({ ...runMetadata, status: "installed", fingerprint, inputs, command: command ? [command, ...args] : undefined, at: new Date().toISOString(), scripts: runMetadata?.scripts ?? false }));
@@ -277,7 +289,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
     const lockfileDefect = isGitHubLockfileDefect(error);
-    throw new GitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
+    throw gitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
   } finally {
     await cleanup();
   }
@@ -305,10 +317,10 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs: st
       const source = join(checkout, path);
       const info = await lstat(source).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; });
       if (!info) { await rm(destination, { force: true }); continue; }
-      if (!info.isFile()) throw new Error("Linked dependency bin targets must be regular files.");
+      if (!info.isFile()) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_NOT_FILE();
       const resolved = await realpath(source);
       const part = relative(checkout, resolved);
-      if (part === ".." || part.startsWith(`..${sep}`) || isAbsolute(part)) throw new Error("Linked dependency bin targets must stay inside the checkout.");
+      if (part === ".." || part.startsWith(`..${sep}`) || isAbsolute(part)) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_OUTSIDE();
       // Bind the read to the validated file. A parent swap must never make
       // pathname-based copying import a different host file into this snapshot.
       const file = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -318,7 +330,7 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs: st
           const current = await lstat(source);
           if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino
             || !current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
-            || await realpath(source) !== resolved) throw new Error("Linked dependency bin target changed during snapshot validation.");
+            || await realpath(source) !== resolved) throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_CHANGED();
         };
         await assertSource();
         await mkdir(dirname(destination), { recursive: true });
@@ -327,7 +339,7 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs: st
         const settled = await file.stat();
         await assertSource();
         if (settled.size !== opened.size || settled.mtimeMs !== opened.mtimeMs || settled.ctimeMs !== opened.ctimeMs || settled.mode !== opened.mode) {
-          throw new Error("Linked dependency bin target changed during snapshot validation.");
+          throw presetsErrorDiagnostics.PRESETS_LINKED_BIN_CHANGED();
         }
         // A reused input snapshot must reflect the current generated command.
         // Remove its old entry before exclusive creation, without following it.
@@ -338,7 +350,7 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs: st
     }
   });
   const record = v.parse(v.object({ status: v.string(), fingerprint: v.optional(v.string()) }), JSON.parse(await readFile(join(target, ".git", "vitehub-install.json"), "utf8")));
-  if (record.status !== "installed" || record.fingerprint !== fingerprint) throw new Error("Dependency inputs changed or installation failed. Call refreshDependencies and rerun validation before committing.");
+  if (record.status !== "installed" || record.fingerprint !== fingerprint) throw presetsErrorDiagnostics.PRESETS_DEPENDENCIES_NOT_CURRENT();
 }
 
 export interface GitHubDependencyStatus {
