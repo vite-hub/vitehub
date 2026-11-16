@@ -257,7 +257,7 @@ test('prospective publication CI association survives opening a new inbox proces
   try {
     await inbox.seed('vite-hub/vitehub', { number: 42, state: 'open', head: { sha: 'a'.repeat(40), ref: 'feature' }, base: { ref: 'main' } })
     const claim = (await inbox.claim(1))[0]!
-    await assert.rejects(inbox.registerProspectivePush(claim, 'unvalidated'), /exact publication/)
+    await assert.rejects(inbox.registerProspectivePush(claim, 'unvalidated'), { code: 'INTERNAL_INVARIANT_FAILED', message: /full commit SHA/ })
     assert.equal(await inbox.registerProspectivePush(claim, head), true)
     await inbox.close()
     inbox = new PullRequestInbox(options)
