@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { PullRequestInbox } from "../src/babysitter/inbox/store.ts"
+import { looksMergeReady, PullRequestInbox } from "../src/babysitter/inbox/store.ts"
 import { detectChangedPullRequests, openPullRequestFingerprint, probeChangedSnapshots } from "../src/babysitter/inbox/snapshot-sync.ts"
 
 const repository = "acme/app"
@@ -160,6 +160,25 @@ describe("GitHub inbox change detection", () => {
     const onError = vi.fn()
     await detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000, true, onError)
     expect(onError).toHaveBeenCalledWith(repository, expect.objectContaining({ message: "GitHub 504" }))
+    await f.inbox.close()
+  })
+
+  it("reads again a workflow run that a lost completed delivery left running", async () => {
+    const run = { id: 77, name: "pkg.pr.new", head_sha: head, status: "in_progress", conclusion: null, updated_at: "2026-10-01T00:00:00Z" }
+    const f = setup(() => [node(7)])
+    await f.inbox.seed(repository, { number: 7, state: "open", user: { login: "dev" }, head: { sha: head, ref: "fix-7" }, base: { ref: "main" } })
+    await f.inbox.ingest("d-run", "workflow_run", { action: "in_progress", repository: { full_name: repository }, workflow_run: run })
+    await f.inbox.ingest("d-check", "check_run", { action: "completed", repository: { full_name: repository }, check_run: { id: 1, name: "ci", head_sha: head, status: "completed", conclusion: "success" } })
+    expect(looksMergeReady((await f.inbox.get(repository, 7))!)).toBe(false)
+    f.read.mockImplementation(async (path: string): Promise<never[]> => {
+      if (path.endsWith("/pulls/7")) return [{ number: 7, state: "open", user: { login: "dev" }, head: { sha: head, ref: "fix-7" }, base: { ref: "main" }, updated_at: "2026-10-01T01:00:00Z" }] as never[]
+      if (path.includes("/check-runs")) return [{ id: 1, name: "ci", head_sha: head, status: "completed", conclusion: "success" }] as never[]
+      if (path.endsWith("/actions/runs/77")) return [{ ...run, status: "completed", conclusion: "success", updated_at: "2026-10-01T00:10:00Z" }] as never[]
+      return []
+    })
+    expect(await f.tick()).toBe(1)
+    expect(f.read).toHaveBeenCalledWith(`repos/${repository}/actions/runs/77`, ".")
+    expect(looksMergeReady((await f.inbox.get(repository, 7))!)).toBe(true)
     await f.inbox.close()
   })
 

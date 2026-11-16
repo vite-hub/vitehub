@@ -22,7 +22,7 @@ export const viteHubServerImports = {
   database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
   email: { "vite-hub/email": ["email"] },
   // Generated Env declarations type the primitive root for each app.
-  env: { "vite-hub/env": ["useServerEnv"] },
+  env: { "vite-hub/env": ["checkServiceToken", "requireServiceToken", "useServerEnv"] },
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },

@@ -101,6 +101,23 @@ async function readAccount(nitroApp: object, request: Request): Promise<ViteHubP
   }
 }
 
+/**
+ * Whether the page tool `id` of the request's app allows this visitor, by the same check as the session route. `false`
+ * when the app has no such tool, the check throws, or the request did not come through the app's `fetch`.
+ */
+export async function viteHubPageToolAllows(request: Request, id: string): Promise<boolean> {
+  const nitroApp = state().apps.get(request)
+  const tool = nitroApp && state().tools.get(nitroApp)?.get(id)
+  if (!tool) return false
+  try {
+    return await tool.allowed({ request }) === true
+  }
+  catch (error) {
+    console.error(`[vitehub] The visitor check of the page tool "${id}" failed. The tool stays off for this request.`, error)
+    return false
+  }
+}
+
 /** The grants that the registered page tools declare, in registration order. */
 export function viteHubPageGrants(): ViteHubPageGrant[] {
   return [...state().grants?.values() ?? []]

@@ -5,7 +5,7 @@ import {
   channelDeliveryFinishEffectsContextKey,
   normalizeCapabilities,
 } from "./capability-runtime.ts"
-import { AgentHttpError } from "./http-error.ts"
+import { agentHttpError, type AgentHttpError } from "./http-error.ts"
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { runInvocationReference } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
@@ -483,7 +483,7 @@ async function verifyBearerSignature(secret: string, header: string): Promise<bo
 }
 
 function missingBearerSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
-  return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
+  return agentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
 }
 
 async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
@@ -550,7 +550,7 @@ async function verifyStripeSignature(secret: string, header: string, rawBody: Ui
 }
 
 function webhookVerificationError(message: string): AgentHttpError {
-  return new AgentHttpError(401, message)
+  return agentHttpError(401, message)
 }
 
 function unresolvedSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {

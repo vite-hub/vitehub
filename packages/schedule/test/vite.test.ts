@@ -1190,7 +1190,13 @@ describe("Vite schedule integration", () => {
 
       const { default: vercelFunction } = await import(pathToFileURL(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
       const response = { end: vi.fn(), statusCode: 0 }
-      await vercelFunction({ headers: {}, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      vi.stubEnv("CRON_SECRET", "cron-secret")
+      try {
+        await vercelFunction({ headers: { authorization: "Bearer cron-secret" }, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
       expect(response.statusCode).toBe(204)
       expect((globalThis as { cleanupCron?: string }).cleanupCron).toBe("0 0 * * *")
 

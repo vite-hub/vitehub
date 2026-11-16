@@ -9,6 +9,7 @@ import { z } from "zod"
 import { formatReport, runCodemod, runMigration } from "../src/index.ts"
 import { classify, resolveSpecifier } from "../src/t3-env/call-sites.ts"
 import { envPathOf, planT3Env } from "../src/t3-env/plan.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/t3-env-test/", import.meta.url))
@@ -172,7 +173,7 @@ describe.each([
     const run = await runCodemod("t3-env", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after ?? "(deleted)\n").toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      await expect(withVersionPlaceholder(edit.after ?? "(deleted)\n")).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })
