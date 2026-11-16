@@ -23,8 +23,13 @@ export interface NuxtConfigFile {
   root: ObjectExpression
 }
 
+/** The file name of the project's nuxt.config, or `undefined` when it has none. */
+export function findNuxtConfigName(cwd: string): string | undefined {
+  return configNames.find(name => existsSync(join(cwd, name)))
+}
+
 export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
-  const fileName = configNames.find(name => existsSync(join(cwd, name)))
+  const fileName = findNuxtConfigName(cwd)
   if (!fileName) throw codemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
   const path = join(cwd, fileName)
   const code = await readFile(path, "utf8")

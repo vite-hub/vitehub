@@ -1,6 +1,6 @@
 export { createLogBuffer } from "./logs/memory.ts";
 export type { LogBuffer } from "./logs/memory.ts";
-export { LogCursorExpiredError, parseLogQuery } from "./logs/source.ts";
+export { logCursorExpiredError, parseLogQuery } from "./logs/source.ts";
 export type {
   LogEntry,
   LogLevel,

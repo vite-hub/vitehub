@@ -11,6 +11,7 @@ import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 import type { ConsoleMcpConnection, ConsoleMcpOverview } from "../mcp-client";
 
@@ -165,7 +166,7 @@ onBeforeUnmount(() => request?.abort());
                 <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
               </span>
               <template v-if="!collapsed">
-                <UIcon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
+                <Icon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
                 <span v-else class="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
                 <span class="sr-only">{{ consoleMcpStatus[connection.status].label }}</span>
               </template>
@@ -179,7 +180,7 @@ onBeforeUnmount(() => request?.abort());
               :aria-label="collapsed ? `${group.connections.length ? 'Add an account to' : 'Connect to'} ${group.title}` : undefined"
               @click="connect({ another: group.connections.length > 0, server: group.url })"
             >
-              <UIcon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
+              <Icon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
               <span v-if="!collapsed" class="truncate font-normal">{{ group.connections.length ? "Add an account" : "Connect" }}</span>
             </button>
           </UTooltip>
@@ -231,7 +232,7 @@ onBeforeUnmount(() => request?.abort());
         >
           <ul v-if="overview?.servers.length" class="grid w-full max-w-md gap-2 text-start">
             <li v-for="candidate in overview.servers" :key="candidate.url" class="flex min-w-0 items-center gap-3 rounded-lg border border-default px-3 py-2.5">
-              <UIcon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+              <Icon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
               <span class="grid min-w-0 flex-1">
                 <span class="truncate text-[13px] font-medium text-highlighted">{{ candidate.label }}</span>
                 <span class="truncate font-mono text-xs text-dimmed">{{ consoleMcpEndpoint(candidate.url) }}</span>

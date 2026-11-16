@@ -15,13 +15,6 @@ export const legacyConsoleAttachmentPrefix = "vitehub-console-attachments/"
 const cleanupPrefix = consoleAttachmentCleanupPrefix
 const idSchema = v.pipe(v.string(), v.uuid())
 
-// Internal invariant: caught in this module, which moves the record to quarantine.
-class CorruptCleanupRecord extends Error {
-  constructor(readonly body: string) {
-    super("Invalid attachment cleanup batch record")
-  }
-}
-
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
 }
@@ -76,11 +69,9 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
       if (processed >= 100) break
       const { marker, cleanupPrefix, quarantinePrefix } = entry
       if (!marker.pathname.startsWith(cleanupPrefix)) continue
-      let ids: string[] | undefined
-      try { ids = await cleanupIds(storage, marker.pathname, cleanupPrefix) }
-      catch (error) {
-        if (!(error instanceof CorruptCleanupRecord)) throw error
-        const [writeError] = await storage.put(`${quarantinePrefix}${marker.pathname.slice(cleanupPrefix.length)}`, error.body, { contentType: "application/json" })
+      const ids = await cleanupIds(storage, marker.pathname, cleanupPrefix)
+      if (ids && "corrupt" in ids) {
+        const [writeError] = await storage.put(`${quarantinePrefix}${marker.pathname.slice(cleanupPrefix.length)}`, ids.corrupt, { contentType: "application/json" })
         if (writeError) throw writeError
         const [deleteError] = await storage.delete(marker.pathname)
         if (deleteError) throw deleteError
@@ -100,7 +91,8 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
   }
 }
 
-async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string, cleanupPrefix: string): Promise<string[] | undefined> {
+/** The attachment ids of a cleanup record, or the body of a batch record that cannot be read, so it is quarantined. */
+async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string, cleanupPrefix: string): Promise<string[] | { corrupt: string } | undefined> {
   const suffix = pathname.slice(cleanupPrefix.length)
   if (!suffix.startsWith("batch/")) {
     const parsed = v.safeParse(idSchema, suffix)
@@ -115,9 +107,9 @@ async function cleanupIds(storage: Pick<BlobStorage, "get">, pathname: string, c
   const body = await blob.text()
   let data: unknown
   try { data = JSON.parse(body) }
-  catch { throw new CorruptCleanupRecord(body) }
+  catch { return { corrupt: body } }
   const parsed = v.safeParse(v.pipe(v.array(idSchema), v.minLength(1), v.maxLength(10)), data)
-  if (!parsed.success) throw new CorruptCleanupRecord(body)
+  if (!parsed.success) return { corrupt: body }
   return parsed.output
 }
 
@@ -132,7 +124,10 @@ export async function isConsoleAttachmentPendingCleanup(storage: Pick<BlobStorag
       const [listError, result] = await storage.list({ prefix: `${cleanupPrefix}batch/`, limit: 100, cursor })
       if (listError) throw listError
       for (const blob of result.blobs) {
-        if (blob.pathname.startsWith(`${cleanupPrefix}batch/`) && (await cleanupIds(storage, blob.pathname, cleanupPrefix))?.includes(id)) return true
+        if (!blob.pathname.startsWith(`${cleanupPrefix}batch/`)) continue
+        const ids = await cleanupIds(storage, blob.pathname, cleanupPrefix)
+        // A corrupt record may own the image, so it stays pending until the cleanup quarantines the record.
+        if (ids && ("corrupt" in ids || ids.includes(id))) return true
       }
       if (!result.hasMore) break
       // A Blob driver that returns the same cursor twice would loop forever.

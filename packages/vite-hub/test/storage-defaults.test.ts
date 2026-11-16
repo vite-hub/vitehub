@@ -259,6 +259,9 @@ describe("Connections database default", () => {
     expect(withComments({ host: "node", console: { auth: false }, comments: false })).toEqual({ host: "node", console: { auth: false }, comments: false })
     expect(withComments({ host: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
     expect(withComments({ host: "node" })).toEqual({ host: "node" })
+    // `markCmsPresetFeaturesResolved()` marks the object, so a call that changes nothing keeps it.
+    const resolved = { host: "node", comments: true, database: true } as const
+    expect(withComments(resolved)).toBe(resolved)
   })
 
   it("keeps Comments off with the Console alone, and on with server/comments.ts", async () => {

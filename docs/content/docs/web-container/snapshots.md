@@ -16,7 +16,7 @@ Run this script in Node at build time:
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 
-import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
+import { createNodeModulesSnapshot, packSnapshot } from "vite-hub/web-container/snapshot"
 
 const lockfile = existsSync("app.package-lock.json") ? readFileSync("app.package-lock.json", "utf8") : undefined
 // Runs `npm ci` in build/app with the lockfile, or `npm install` without one.
@@ -37,7 +37,7 @@ parts.forEach((part, index) => writeFileSync(`public/app-modules.${sha256.slice(
 In the browser, download the parts and pass them to `bootWebContainer()`:
 
 ```ts [src/playground.ts] fragment
-import { bootWebContainer, fetchSnapshot } from "@vite-hub/web-container"
+import { bootWebContainer, fetchSnapshot } from "vite-hub/web-container"
 
 const container = await bootWebContainer({
   snapshot: fetchSnapshot(partUrls, { cache: "my-app-modules", sha256 }),

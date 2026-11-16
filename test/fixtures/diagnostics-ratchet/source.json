@@ -1,0 +1,11 @@
+{
+  "rawErrors": {
+    "packages/source/src/core/collection-cursor.ts": 3,
+    "packages/source/src/internal/content-types-writer.ts": 1,
+    "packages/source/src/sources/github/archive.ts": 3,
+    "packages/source/src/sources/github/git.ts": 1,
+    "packages/source/src/vite.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}
