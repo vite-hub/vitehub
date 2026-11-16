@@ -8,9 +8,10 @@
     "packages/content/src/operations.ts": 1,
     "packages/content/src/realtime.ts": 2,
     "packages/content/src/ref-routes.ts": 1,
-    "packages/content/src/runtime/console.ts": 1,
-    "packages/content/src/schedules.ts": 1
+    "packages/content/src/runtime/console.ts": 1
   },
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/content/src/ref-routes.ts": 1
+  }
 }
