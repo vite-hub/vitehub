@@ -252,7 +252,7 @@ onBeforeUnmount(() => unsubscribe?.());
 }
 
 .vitehub-app-settings__list {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   border-radius: 0.375rem;
   font-size: 0.8125rem;
 }
@@ -266,6 +266,6 @@ onBeforeUnmount(() => unsubscribe?.());
 }
 
 .vitehub-app-settings__row + .vitehub-app-settings__row {
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
 }
 </style>

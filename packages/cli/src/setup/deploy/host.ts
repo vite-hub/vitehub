@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdtemp, open, rm, unlink } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { constants, tmpdir } from "node:os"
 import { delimiter } from "node:path"
 import process from "node:process"
 
@@ -151,12 +151,37 @@ export type ListDeployments = (context: DeploymentsContext, options: { limit: nu
 
 /** Replaces every value in `secrets` with `<redacted>`. */
 export function redact(text: string, secrets: readonly string[]): string {
-  return secrets.reduce((result, secret) => secret ? result.replaceAll(secret, "<redacted>") : result, text)
+  return [...secrets].sort((a, b) => b.length - a.length).reduce((result, secret) => secret ? result.replaceAll(secret, "<redacted>") : result, text)
 }
 
 /**
- * The default runner. It never uses a shell, so no argument is parsed again. Shown output is redacted per line, so a
- * value split across two chunks is still found.
+ * Runs `work` with a signal that SIGINT and SIGTERM abort. The abort stops the host CLI that `work` runs and lets its
+ * `finally` remove the files it wrote. Then the process exits with 128 + the signal number, as a shell reports it.
+ * It exits instead of raising the signal again: another listener, such as signal-exit, would delay that past our exit.
+ */
+export async function untilInterrupted<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  let received: NodeJS.Signals | undefined
+  const stop = (signal: NodeJS.Signals) => {
+    received ??= signal
+    controller.abort()
+  }
+  process.on("SIGINT", stop)
+  process.on("SIGTERM", stop)
+  try {
+    return await work(controller.signal)
+  }
+  finally {
+    process.off("SIGINT", stop)
+    process.off("SIGTERM", stop)
+    if (received) process.exit(128 + constants.signals[received])
+  }
+}
+
+/**
+ * The default runner. It never uses a shell, so no argument is parsed again. Shown output is redacted per line, and a
+ * line end that could start a secret waits for the next chunk, so a value split across chunks, even at its own
+ * newline, is still found.
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
   return async (command, args, options) => {
@@ -184,16 +209,28 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
 
     function run(stdinFd?: number): Promise<DeployRunResult> {
       return new Promise((resolve, reject) => {
-        const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: [stdinFd ?? "pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
+        const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: [stdinFd ?? "pipe", "pipe", "pipe"], detached: process.platform !== "win32" })
         const output = { stderr: "", stdout: "" }
         const pending = { stderr: "", stdout: "" }
+        const lines = { stderr: "", stdout: "" }
+        const values = [...new Set(secrets.filter(Boolean))].sort((a, b) => b.length - a.length)
         const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
           if (!options.show) return
-          pending[stream] += chunk
-          const end = flush ? pending[stream].length : pending[stream].lastIndexOf("\n") + 1
-          if (end === 0) return
-          stderr.write(redact(pending[stream].slice(0, end), secrets))
-          pending[stream] = pending[stream].slice(end)
+          const text = pending[stream] + chunk
+          let index = 0
+          let ready = ""
+          while (index < text.length) {
+            const rest = text.slice(index)
+            if (!flush && values.some(value => value.length > rest.length && value.startsWith(rest))) break
+            const match = values.find(value => rest.startsWith(value))
+            ready += match ? "<redacted>" : text[index]
+            index += match?.length ?? 1
+          }
+          pending[stream] = text.slice(index)
+          lines[stream] += ready
+          const end = flush ? lines[stream].length : lines[stream].lastIndexOf("\n") + 1
+          if (end) stderr.write(lines[stream].slice(0, end))
+          lines[stream] = lines[stream].slice(end)
         }
         for (const stream of ["stdout", "stderr"] as const) {
           const outputStream = child[stream]
@@ -204,12 +241,68 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
             show(stream, chunk)
           })
         }
-        child.on("error", reject)
-        child.on("close", (exitCode) => {
+        // A separate process group includes npm's shell and the host CLI it launches.
+        // Escalate even if the immediate child exits first: descendants may retain its pipes.
+        let failure: unknown
+        let finished = false
+        let stopping = false
+        let closed = false
+        let code: number | null = null
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const finish = () => {
+          if (finished) return
+          finished = true
+          if (timeout) clearTimeout(timeout)
+          options.signal?.removeEventListener("abort", abort)
+          if (failure !== undefined) return reject(failure)
           show("stdout", "", true)
           show("stderr", "", true)
-          resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
+          resolve({ exitCode: stopping ? null : code, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
+        }
+        const killTree = (signal: NodeJS.Signals) => {
+          if (!child.pid) return
+          if (process.platform === "win32") {
+            const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+            killer.on("error", () => { child.kill(signal) })
+          }
+          else {
+            try { process.kill(-child.pid, signal) }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal)
+            }
+          }
+        }
+        const stop = () => {
+          if (stopping) return
+          stopping = true
+          killTree("SIGTERM")
+          setTimeout(() => {
+            killTree("SIGKILL")
+            // Pipes held outside the process group must not indefinitely delay secret cleanup.
+            setTimeout(() => {
+              child.stdin?.destroy()
+              child.stdout?.destroy()
+              child.stderr?.destroy()
+              finish()
+            }, closed ? 0 : 500)
+          }, 500)
+        }
+        const abort = () => {
+          failure = Object.assign(new Error("The operation was aborted"), { name: "AbortError" })
+          stop()
+        }
+        child.on("error", (error) => {
+          failure = error
+          if (!stopping) finish()
         })
+        child.on("close", (exitCode) => {
+          closed = true
+          code = exitCode
+          if (!stopping) finish()
+        })
+        options.signal?.addEventListener("abort", abort, { once: true })
+        if (options.timeoutMs) timeout = setTimeout(stop, options.timeoutMs)
+        if (options.signal?.aborted) abort()
         // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
         child.stdin?.on("error", () => {})
         child.stdin?.end(options.stdin ?? "")
