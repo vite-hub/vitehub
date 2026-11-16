@@ -142,6 +142,11 @@ export function createDevice(options: DeviceOptions): Device {
    * it follows the order of the operations. A message of another tab sets it at once.
    */
   let meta: DeviceMeta | undefined
+  /**
+   * `true` once this tab saw the disk in the version of its build. When the disk shows another version for the same
+   * account after that, a newer build opened in another tab, and this tab leaves the disk to it.
+   */
+  let versionSeen = false
   /** The account that this page named. `undefined` before it calls `setAccount()`, or after another tab named another account. */
   let named: string | null | undefined
   /** The account of the latest `setAccount()` call, also while the device opens. */
@@ -189,6 +194,12 @@ export function createDevice(options: DeviceOptions): Device {
     emit({ type: "reset" })
   }
 
+  /** Sets the meta that this tab expects on the disk. */
+  function setMeta(next: DeviceMeta | undefined): void {
+    meta = next
+    if (next?.version === version) versionSeen = true
+  }
+
   /** Writes `change` when the disk still has the generation `expected`. Runs in the queue. */
   async function persist(target: DeviceStorage, expected: DeviceMeta, change: DeviceChange): Promise<void> {
     const found = await target.write(expected, change)
@@ -202,7 +213,7 @@ export function createDevice(options: DeviceOptions): Device {
    * this tab is old. After another account, this tab stores again only after it names an account.
    */
   function adopt(found: DeviceMeta | undefined): void {
-    meta = found
+    setMeta(found)
     if (found?.account !== named) named = undefined
     invalidate()
   }
@@ -297,7 +308,7 @@ export function createDevice(options: DeviceOptions): Device {
     if (epoch === started) take(found.meta, found.entries)
     // Another tab changed the disk while this tab read it. The copies that this tab read are old. The message of the
     // other tab has the new meta, when the disk changed.
-    else meta ??= found.meta
+    else if (!meta) setMeta(found.meta)
     // The disk follows the page: the account that it named, or else the account of the disk, in the version of this build.
     // The account of the disk only follows what the disk had. The account that the page named is what the page knows.
     const fromPage = named !== undefined
@@ -311,7 +322,7 @@ export function createDevice(options: DeviceOptions): Device {
 
   /** Takes the copies that the disk had when the device opened. */
   function take(found: DeviceMeta | undefined, stored: StoredEntry[]): void {
-    meta = found
+    setMeta(found)
     // Copies of another version can have another shape, and copies of an account other than the one that the page asked
     // for would show for a moment. Leave them out.
     if (!found || found.version !== version || found.account === null || (requested !== undefined && requested !== found.account)) return
@@ -353,6 +364,10 @@ export function createDevice(options: DeviceOptions): Device {
       if (announce) options.channel.post({ type: "account", account, meta: undefined })
       return ok
     }
+    // Another build took the disk for this account after this tab saw it in its own version: a newer build opened in
+    // another tab. This tab stores nothing until it loads again, and does not take the disk back. Another account still
+    // resets the disk, so no copy of the previous account stays.
+    if (meta?.account === account && meta.version !== version && versionSeen) return ok
     if (meta?.account !== account || meta.version !== version) {
       const expected = meta
       const next = { account, version, generation: newGeneration() }
@@ -370,7 +385,7 @@ export function createDevice(options: DeviceOptions): Device {
         if (meta === expected) adopt(found)
         return ok
       }
-      meta = next
+      setMeta(next)
       options.channel.post({ type: "account", account, meta: next })
     }
     flush()
@@ -414,7 +429,7 @@ export function createDevice(options: DeviceOptions): Device {
         return ok
       }
       try {
-        meta = await target.clear(newGeneration())
+        setMeta(await target.clear(newGeneration()))
         options.channel.post({ type: "clear", meta })
         return ok
       }
