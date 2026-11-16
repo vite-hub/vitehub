@@ -62,7 +62,7 @@ const title = computed(() => {
 .vitehub-media-uploads {
   backdrop-filter: blur(12px);
   background: var(--vh-floating);
-  border-radius: calc(var(--ui-radius) * 3);
+  border-radius: calc(var(--radius) * 3);
   bottom: 1rem;
   box-shadow: var(--vh-shadow-floating);
   overflow: hidden;

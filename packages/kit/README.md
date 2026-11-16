@@ -136,7 +136,7 @@ The parts have no styles until you load a style family. A family is CSS that sty
 
 `default.css` has three parts:
 
-1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.2.patch`, which we send to ui-sdk.
+1. ui-sdk's `web.css`, copied into the file when the kit is built. The copy has the rules that web.css does not have yet (InputGroup, Timeline, Waterfall, SelectLabel, the NumberInput scrub area, and `<span data-slot="visually-hidden">`) and the `--ui-ring-width`, `--ui-ring-offset`, and `--ui-radius-popup` variables. They come from the workspace patch `patches/@ui-sdk__core@0.1.0-beta.5.patch`, which we send to ui-sdk.
 2. An unlayered alias sheet that sets each `--ui-*` variable from its shadcn name, such as `--ui-background: var(--background)`, on `:root`, `.dark`, and `[data-theme="dark"]`, and the ViteHub look.
 3. The rules for the kit's `TagsInput`, the text field focus, and the dialog close button, in web.css's `ui-sdk` cascade layer.
 
