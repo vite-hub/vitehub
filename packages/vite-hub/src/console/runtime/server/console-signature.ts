@@ -1,7 +1,7 @@
 import { consoleSignatureHeader, readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
 import { resolvePublicUrl } from "@vite-hub/runtime"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 
@@ -29,6 +29,15 @@ export function consoleSignatureRejection(status: 401 | 500, code: ConsoleSignat
 /** The host environment of this request: the Cloudflare `env`, then `process.env` for the names it does not set. */
 function requestEnv(event: ConsoleRequestEvent): Record<string, unknown> {
   return { ...globalThis.process?.env, ...getStandardContext(event).runtime?.cloudflare?.env }
+}
+
+/**
+ * Whether the host env of this request has no `VITEHUB_CONSOLE_KEY_<NAME>` variable, so no signature can pass. A
+ * malformed key counts as a key: the check then answers `CONSOLE_KEY_MALFORMED`.
+ */
+export function consoleKeysMissing(event: ConsoleRequestEvent): boolean {
+  const keys = readConsolePublicKeys(requestEnv(event))
+  return !(keys instanceof Map) && keys.code === "CONSOLE_KEY_NOT_CONFIGURED"
 }
 
 /** Whether a path is the Console RPC route, below any application mount. */

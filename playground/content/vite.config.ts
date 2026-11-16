@@ -7,13 +7,16 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
+      // `server/agents/translator.ts` translates English docs pages. `server/queues/translate.ts` runs it after each change.
+      agent: true,
       auth: true,
       // `serve` exposes stored images at /api/_vitehub/blob, so SEO previews and social cards can show them.
-      blob: { driver: "fs", base: ".vitehub/data/blob", serve: true },
+      blob: { driver: "fs", base: ".vitehub/data/blob", serve: { access: "public" } },
       database: true,
       console: { auth: false },
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+      queue: true,
       // Content edits posts live in one Node process. `vite dev` uses the `memory` driver; a Node build needs
       // `realtime: { driver: "memory" }`, and hosts without a Realtime driver keep one editor at a time.
       realtime: true,

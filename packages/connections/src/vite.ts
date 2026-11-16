@@ -1,7 +1,6 @@
 import { existsSync, statSync } from "node:fs"
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { findPackageJSON } from "node:module";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import * as v from "valibot";
 
@@ -27,6 +26,7 @@ import { resolveActivityRetention } from "./internal/activity-retention.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
+import type { OperationContributions } from "@vite-hub/internal/operations";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
@@ -34,12 +34,6 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
-/**
- * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
- * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
- * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
- */
-const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 const generatedTypesPath = ".vitehub/types/connections.d.ts";
 /** The exact shape of `renderRegistryTypes()`, with or without its header, so cleanup never removes a file a developer edited. */
@@ -132,10 +126,12 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
     cli: () => Promise<ViteHubCliContributor>;
     /** The Database use that `@vite-hub/database` collects: the Database that keeps Connection data. */
     databases: () => ConnectionsDatabaseUse[];
+    /** The `connections.*` operations that the Console and MCP run. */
+    operations: OperationContributions;
   };
   nitro: {
     name: string;
-    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
+    /** Nitro rebuilds its routing table from `options.handlers` when `routing.sync()` runs. */
     setup: (nitro: ConnectionsNitro) => void;
   };
 };
@@ -143,7 +139,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
 /** The parts of a Nitro instance that the management route reads and changes. */
 type ConnectionsNitro = {
   options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
-  routing?: { sync: () => void };
+  routing: { sync: () => void };
 };
 
 /** The Markdown file next to a definition file, such as `server/connections/github.md` for `github.ts`. */
@@ -212,9 +208,11 @@ function connectionMountBase(base: unknown): string {
  * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
-function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
-  kit.addHandler({ handler, method: "post", route });
-  kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+function addManagementHandlers(kit: NitroServerKit, handler: string, route: string, callbackOnly: boolean): void {
+  if (!callbackOnly) {
+    kit.addHandler({ handler, method: "post", route });
+    kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+  }
   kit.addHandler({ handler, method: "get", route: `${route}/callback` });
 }
 
@@ -305,6 +303,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
+      operations: [{
+        export: "connectionsOperations",
+        load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).connectionsOperations,
+        module: `${importBase}/operations`,
+      }],
       // Without a Database Definition, `@vite-hub/database` adds the `default` Database for this use, and
       // `vitehub inspect` shows the reason.
       databases: () => database
@@ -335,30 +338,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const nitro = v.parse(
         v.looseObject({
           alias: v.optional(v.record(v.string(), v.unknown()), {}),
-          externals: v.optional(
-            v.looseObject({
-              inline: v.optional(v.union([v.literal(true), v.array(v.unknown())]), []),
-            }),
-            {},
-          ),
         }),
         nitroInput ?? {},
       );
       const alias = nitro.alias;
-      const externals = nitro.externals;
-      const inline =
-        externals.inline === true
-          ? true
-          : [
-              ...new Set([
-                ...(Array.isArray(externals.inline) ? externals.inline : []),
-                "vite-hub",
-                "@vite-hub/connections",
-                connectionsPackageRoot,
-              ]),
-            ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
-      nitro.externals = { ...externals, inline };
       if (environment.command === "serve") {
         // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
         const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
@@ -370,10 +354,13 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         Object.assign(nitro, kit.config);
       }
 
-      if (environment.command === "serve" || options.management) {
-        const actorModule =
-          (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
+      {
+        // Without the management API, production serves only the callback of flows that the Console starts.
+        const callbackOnly = environment.command !== "serve" && !options.management;
+        const actorModule = callbackOnly
+          ? undefined
+          : (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
+        if (!callbackOnly && isProductionBuild(config, environment) && !actorModule?.trim()) {
           throw connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "management-actor" });
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
@@ -386,9 +373,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
             // Without an actor module, only a development server allows management.
             // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
-            actorModule
-              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
+            `export default createConnectionsHandler({ ${actorModule ? "actor" : callbackOnly ? "actor: () => undefined" : 'actor: "development"'}, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -403,19 +388,19 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 !v.is(v.looseObject({ handler: v.literal(handlerFile) }), handler),
               ));
             }
-            addManagementHandlers(kit, handlerFile, route);
+            addManagementHandlers(kit, handlerFile, route, callbackOnly);
             return kit.config;
           };
           Reflect.set(config, "nitro", updateHandlers(Reflect.get(config, "nitro")));
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing?.sync();
+            nitroInstance.routing.sync();
           }
           await writeManagementHandler(route);
         };
         const kit = createNitroServerKit(nitro);
-        addManagementHandlers(kit, handlerFile, managementRoute);
+        addManagementHandlers(kit, handlerFile, managementRoute, callbackOnly);
         Object.assign(nitro, kit.config);
       }
       Reflect.set(config, "nitro", nitro);
@@ -480,3 +465,5 @@ export function hubConnectionsTypesCleanup(): Plugin<{ prepareTypes: (options: {
     configResolved: config => prepareTypes({ projectRoot: resolveViteHubProjectRoot(config.root) }),
   }
 }
+
+export { connectionsConsoleSection } from "./console.ts"

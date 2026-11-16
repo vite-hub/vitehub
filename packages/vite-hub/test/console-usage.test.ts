@@ -29,6 +29,26 @@ function invocationRecord(usage: Record<string, unknown>) {
 }
 
 describe("Console usage projection", () => {
+  it("adds the cost of priced usage observations to a finish record without one", () => {
+    const record = invocationRecord({ inputTokens: 100, outputTokens: 20, totalTokens: 120 });
+    const usageObservation = (attributes: Record<string, unknown>) => ({
+      attributes: { "usage.totalTokens": 60, ...attributes },
+      name: "agent.usage.recorded",
+      sequence: 0,
+      timestamp: "2026-08-27T10:00:00.000Z",
+      type: "run" as const,
+    });
+    const priced = { ...record, observations: [
+      usageObservation({ "usage.costUsd": "0.25", "usage.costEstimated": true, "usage.costSource": "models.dev", "usage.hasCost": true }),
+      usageObservation({ "usage.costUsd": "0.5", "usage.costEstimated": true, "usage.costSource": "models.dev", "usage.hasCost": true }),
+      ...record.observations,
+    ] };
+    expect(invocationUsage(priced)?.cost).toEqual({ display: "~$0.75", estimated: true, source: "models.dev", usd: "0.75" });
+    // One usage observation without a cost leaves the cost unknown, not partial.
+    const partial = { ...priced, observations: [usageObservation({ "usage.hasCost": false }), ...priced.observations] };
+    expect(invocationUsage(partial)?.cost).toBeUndefined();
+  });
+
   it("uses the configured invocation model when provider usage omits it", () => {
     expect(
       invocationUsage({

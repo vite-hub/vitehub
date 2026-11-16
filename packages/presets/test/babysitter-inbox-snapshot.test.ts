@@ -16,6 +16,22 @@ test('claim hydration persists feedback/checks and reuses it on the same generat
  assert.equal(calls, 6)
  await hydrateSnapshot(inbox, claim, fetch); assert.equal(calls, 6)
 })
+test('unknown mergeability rereads only the pull request', async t => {
+ const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
+ const paths: string[] = []
+ const fetch = async (path: string) => { paths.push(path); return path.endsWith('/pulls/7') ? [{ ...pr, mergeable: true, mergeable_state: 'blocked' }] : read(path) }
+ const claim = (await inbox.claim(1))[0]!
+ assert.equal(await hydrateSnapshot(inbox, claim, fetch), true)
+ await inbox.finish(claim, { text: 'Waiting for CI' })
+ await inbox.ingest('edited', 'pull_request', { repository: { full_name: repo }, action: 'edited', pull_request: { ...pr, title: 'Renamed', mergeable: null, mergeable_state: 'unknown' } })
+ paths.length = 0
+ const next = (await inbox.claim(1))[0]!
+ assert.equal(next.snapshot.pr?.mergeable, null)
+ assert.equal(await hydrateSnapshot(inbox, next, fetch), true)
+ assert.deepEqual(paths, [`repos/${repo}/pulls/7`])
+ assert.equal(next.snapshot.pr?.mergeable_state, 'blocked')
+ assert.equal(next.snapshot.checks['check_run:1']?.conclusion, 'success')
+})
 test('new webhook during hydration wins over stale REST projection', async t => {
  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
  const claim = (await inbox.claim(1))[0]!
@@ -136,4 +152,26 @@ test('REST hydration preserves all reviewer bots and maps full inline text to ex
  assert.equal(claim.snapshot.reviewComments['9']?.body, 'Entire inline finding')
  assert.ok(Array.isArray(claim.snapshot.threads[0]?.comments)); assert.equal(claim.snapshot.threads[0].comments[0]?.databaseId, 9)
  assert.equal(claim.snapshot.threads[0]?.isResolved, false)
+})
+
+test('reconcile keeps review and comment delivery IDs when only the embedded PR changed', async t => {
+ let now = 1000
+ const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo], clock: () => now}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
+ let current = { ...pr, updated_at: '2026-11-01T00:00:00Z', mergeable_state: 'clean' }
+ const review = { id: 9, state: 'COMMENTED', body: 'nit', user: { login: 'human' }, commit_id: 'a' }
+ const comment = { id: 5, body: 'repair', user: { login: 'human' }, path: 'a.ts' }
+ const fetch = async (path: string) => path.endsWith('/pulls/7') ? [current] : path.includes('/reviews') ? [review] : path.includes('/pulls/7/comments') ? [comment] : read(path)
+ const stored: string[] = []
+ const ingest = inbox.ingest.bind(inbox)
+ inbox.ingest = async (id, event, value) => { const result = await ingest(id, event, value); if (!result.duplicate && event !== 'pull_request') stored.push(event); return result }
+ await reconcileOneSnapshot(inbox, fetch, now)
+ now += 15 * 60_000; await reconcileOneSnapshot(inbox, fetch, now)
+ const first = stored.length
+ assert.ok(first >= 2)
+ current = { ...current, updated_at: '2026-11-01T00:15:00Z', mergeable_state: 'blocked' }
+ now += 15 * 60_000; await reconcileOneSnapshot(inbox, fetch, now)
+ assert.equal(stored.length, first)
+ current = { ...current, head: { sha: 'b', ref: 'fix' } }
+ now += 15 * 60_000; await reconcileOneSnapshot(inbox, fetch, now)
+ assert.ok(stored.length > first)
 })

@@ -1309,6 +1309,23 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     for (const env of bindings) expect(env).toEqual({ TELEGRAM_BOT_TOKEN: "host-token" })
   })
 
+  it("loads Server Env again on the next read after a failed load", async () => {
+    vi.resetModules()
+    let failures = 1
+    vi.doMock("#vitehub/env/server", () => {
+      if (failures > 0) {
+        failures--
+        throw new Error("transient Server Env import failure")
+      }
+      return { useServerEnv: () => ({ telegram: { botToken: "server-token" } }) }
+    })
+    const { channelEnvValue: readChannelEnv } = await import("../src/channel-env.ts")
+
+    // Vitest wraps the error that a mock factory throws.
+    await expect(readChannelEnv("telegram", "botToken", {})).rejects.toThrow("error when mocking a module")
+    await expect(readChannelEnv("telegram", "botToken", {})).resolves.toBe("server-token")
+  })
+
   it("keeps explicit Telegram options ahead of Server Env", async () => {
     vi.resetModules()
     vi.doMock("#vitehub/env/server", () => ({ useServerEnv: () => ({ telegram: { botToken: "server-token" } }) }))

@@ -8,7 +8,7 @@ import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGener
 import { resolveRuntimeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
 import { supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
-import { hubDb } from "../src/vite.ts"
+import { hubDatabase } from "../src/vite.ts"
 
 import type { ResolvedDBViteConfig, RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
 
@@ -141,17 +141,17 @@ describe("hosted Database runtime", () => {
         "",
       ].join("\n")),
     ])
-    const plugin = hubDb()
+    const plugin = hubDatabase()
     const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, plugins: [{ name: "nitro:main" }], root: rootDir }
-    // SAFETY: This test invokes hubDb's configResolved hook with the Vite fields used by this fixture.
+    // SAFETY: This test invokes hubDatabase's configResolved hook with the Vite fields used by this fixture.
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     const context = { environment: {} }
     const sibling = createProviderDeploymentOutputGenerationState()
     const catalog = useProviderOutputCatalog(config)
     sibling.capture(context, catalog)
-    // SAFETY: hubDb exposes buildStart as a callable Vite hook.
+    // SAFETY: hubDatabase exposes buildStart as a callable Vite hook.
     await Reflect.apply(plugin.buildStart as () => void, context, [])
-    // SAFETY: hubDb exposes buildEnd as a callable Vite hook.
+    // SAFETY: hubDatabase exposes buildEnd as a callable Vite hook.
     await Reflect.apply(plugin.buildEnd as () => Promise<void>, context, [])
 
     const generation = sibling.get(context)
@@ -172,17 +172,17 @@ describe("hosted Database runtime", () => {
         "",
       ].join("\n")),
     ])
-    const plugin = hubDb()
+    const plugin = hubDatabase()
     const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "netlify" }, plugins: [{ name: "nitro:main" }], root: rootDir }
-    // SAFETY: This test invokes hubDb's configResolved hook with the Vite fields used by this fixture.
+    // SAFETY: This test invokes hubDatabase's configResolved hook with the Vite fields used by this fixture.
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     const context = { environment: {} }
     const sibling = createProviderDeploymentOutputGenerationState()
     const catalog = useProviderOutputCatalog(config)
     sibling.capture(context, catalog)
-    // SAFETY: hubDb exposes buildStart as a callable Vite hook.
+    // SAFETY: hubDatabase exposes buildStart as a callable Vite hook.
     await Reflect.apply(plugin.buildStart as () => void, context, [])
-    // SAFETY: hubDb exposes buildEnd as a callable Vite hook.
+    // SAFETY: hubDatabase exposes buildEnd as a callable Vite hook.
     await Reflect.apply(plugin.buildEnd as () => Promise<void>, context, [])
     const write = vi.fn(async () => {})
     contributeProviderDeploymentOutput(catalog, { owner: "schedule", rootDir, write }, sibling.get(context))

@@ -4,9 +4,9 @@ import type { SourceItem } from "@vite-hub/source"
 
 /**
  * The commit cache of `github()` Sources. The files of a commit never change, so Content keeps them and the parsed
- * documents under `content:<parserHash>:<sha>:<source>`. A new head reads new keys. Reads try memory first, then
- * ViteHub KV, and only then download the archive. Custom plugins reparse cached files in each new runtime, because
- * their effective configuration can be hidden in closures.
+ * documents under `content:<parserHash>:<sha>:<source>`. A new head reads new keys. Reads try memory first, then the
+ * build snapshot of the commit, then ViteHub KV, and only then download the archive. Custom plugins reparse cached KV
+ * files in each new runtime, because their effective configuration can be hidden in closures.
  */
 
 type ContentSourceItem = SourceItem<string, unknown, object>
@@ -22,8 +22,8 @@ export interface ContentCommit {
 export interface ContentCommitCacheStats {
   /** The key of the commit that Content serves, such as `content:3f2a…:9c1e…:docs`, or null without a head. */
   key: string | null
-  /** Reads served from memory, and from ViteHub KV. */
-  hits: { memory: number, kv: number }
+  /** Reads served from memory, from the build snapshot of the commit, and from ViteHub KV. */
+  hits: { memory: number, build: number, kv: number }
   /** Reads that found no entry, so Content downloaded the archive of the commit and parsed it. */
   misses: number
 }
@@ -31,7 +31,8 @@ export interface ContentCommitCacheStats {
 /** A file in a KV entry. Valid UTF-8 bytes are text, so the entry gzips well. Other bytes are base64. */
 type StoredFile = Omit<ContentSourceItem, "content"> & { text?: string, bytes?: "utf8" | "base64" }
 
-interface StoredCommit {
+/** A commit as `commitJson()` writes it. */
+export interface StoredCommit {
   files: StoredFile[]
   manifest: Manifest
   items: ContentFile[]
@@ -73,15 +74,24 @@ function readFile({ text, bytes, ...file }: StoredFile): ContentSourceItem {
   return { ...file, content: text }
 }
 
+/** The JSON text of a commit. A KV entry and a build snapshot hold the same text. */
+export function commitJson(commit: ContentCommit): string {
+  const stored: StoredCommit = { files: commit.files.map(storeFile), manifest: commit.manifest, items: commit.items }
+  return JSON.stringify(stored)
+}
+
+/** The commit of a parsed `commitJson()` text. */
+export function readCommitJson({ files, manifest, items }: StoredCommit): ContentCommit {
+  return { files: files.map(readFile), manifest, items }
+}
+
 /** The KV value of a commit: gzipped JSON with a checksum. */
 export async function encodeCommit(name: string, commit: ContentCommit): Promise<CacheArtifact> {
-  const stored: StoredCommit = { files: commit.files.map(storeFile), manifest: commit.manifest, items: commit.items }
-  return await buildArtifact(name, JSON.stringify(stored))
+  return await buildArtifact(name, commitJson(commit))
 }
 
 export async function decodeCommit(artifact: CacheArtifact): Promise<ContentCommit> {
-  const stored = await readArtifact<StoredCommit>(artifact)
-  return { files: stored.files.map(readFile), manifest: stored.manifest, items: stored.items }
+  return readCommitJson(await readArtifact<StoredCommit>(artifact))
 }
 
 /**

@@ -73,7 +73,7 @@ export interface ConsoleMcpRecords {
 
 /** The part of the ViteHub KV store that the records use. Each call returns `[error, value]`. */
 export interface ConsoleMcpKV {
-  del: (key: string) => Promise<readonly [unknown, unknown]>
+  delete: (key: string) => Promise<readonly [unknown, unknown]>
   get: (key: string) => Promise<readonly [unknown, unknown]>
   keys: (base?: string) => Promise<readonly [unknown, string[] | undefined]>
   set: (key: string, value: unknown) => Promise<readonly [unknown, unknown]>
@@ -205,8 +205,8 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
       const connections = await Promise.all(names.map(name => read(name, connectionSchema)))
       return connections.filter((connection): connection is StoredConnection => connection?.owner === owner)
     },
-    remove: async (connection) => { unwrap(await kv.del(await connectionKey(connection.owner, connection.id))) },
-    removeClient: async (name) => { unwrap(await kv.del(await clientKey(name))) },
+    remove: async (connection) => { unwrap(await kv.delete(await connectionKey(connection.owner, connection.id))) },
+    removeClient: async (name) => { unwrap(await kv.delete(await clientKey(name))) },
     save: async connection => write(await connectionKey(connection.owner, connection.id), connection),
     saveClient: async (name, client) => write(await clientKey(name), client),
   }

@@ -166,8 +166,8 @@ it.each(["evlog", "ai"])("keeps installed framework declarations independent of 
       const source: LogSource | undefined = getLogSource()
       if (source) installLogSource("/consumer", source)
       parseLogQuery({ level: "error" })
-      vitehub({ preset: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
-      vitehub({ preset: "node", agent: { providers: { state: { driver: "memory" } }, invocations: { retention: { maxRecords: 10 } } } })
+      vitehub({ host: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "node", agent: { providers: { state: { driver: "memory" } }, invocations: { retention: { maxRecords: 10 } } } })
       // @ts-expect-error Agent backends use driver.
       vitehub({ agent: { providers: { state: { provider: "memory" } } } })
       const valid: ObservabilityEvlogOptions = { dev: { prettyError: { detail: "full" } }, redact: { builtins: ["email"], patterns: [/secret/], replacement: (matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => context.path }, sampling: { keep: [{ status: 400 }] } }

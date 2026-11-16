@@ -24,7 +24,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "node", agent: true }),
+    vitehub({ host: "node", agent: true }),
     nitro(),
   ],
 })`,
@@ -68,7 +68,7 @@ export const AgentsLanding = {
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node", agent: true }]],
+  modules: [[viteHubNuxt, { host: "node", agent: true }]],
 })`,
       }, {
         path: "README.md",

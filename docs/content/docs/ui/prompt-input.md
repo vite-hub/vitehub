@@ -13,7 +13,7 @@ icon: i-lucide-send
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/prompt-input`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
 
 ```ts
 import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
@@ -134,6 +134,7 @@ Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 | `attachVariant` | `"outline" \| "ghost"`                       | `"outline"` | The attach button's look. `ghost` is a muted icon, for a box that has its own frame. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
+| `readonly`      | `boolean`                                     | `false`   | The text is being sent: the field is read-only, Enter does nothing, and Send shows a spinner. |
 | `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and rule. |
 | `accept`      | `string`                                       |           | File types for the picker, in `<input accept>` format. |
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |

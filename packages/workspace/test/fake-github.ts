@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { createHash } from "node:crypto"
+import { createHash, createHmac } from "node:crypto"
 
 import { createTarGz } from "../../source/test/sources/fixtures/github.ts"
 
@@ -84,7 +84,7 @@ function failure(status: number, message: string): Response {
  * A fake of the GitHub REST and GraphQL endpoints that the Workspace GitHub Store and history use.
  * Install `fake.fetch` as the global `fetch`.
  */
-export function createFakeGitHub(options: { owner?: string, repo?: string } = {}) {
+export function createFakeGitHub(options: { owner?: string, repo?: string, etags?: boolean } = {}) {
   const owner = options.owner ?? "onmax"
   const repo = options.repo ?? "repo"
   const prefix = `/repos/${owner}/${repo}`
@@ -96,7 +96,12 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   /** `headRepo` names the fork that a pull request comes from. Without it, the head branch is in this repository. */
   const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, headRepo?: string, labels?: string[], merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
+  /** The comments of issues and pull requests, by `issue` number, in the order GitHub lists them. */
+  const comments: Array<{ body: string, id: number, issue: number, user: string }> = []
+  /** Requests that GitHub answered with `304 Not Modified`, as it does for a matching `If-None-Match`. */
+  const notModified: FakeRequest[] = []
   let commitIndex = 0
+  let deliveryIndex = 0
   let treeIndex = 0
 
   const state = {
@@ -130,9 +135,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     return [...next.values()]
   }
 
-  function addCommit(input: { message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
+  function addCommit(input: { author?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
     const commit: FakeCommit = {
-      author: { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
+      author: input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
       message: input.message,
       parents: input.parents,
       sha: fakeSha(input.sha ?? `commit-sha-${++commitIndex}`),
@@ -269,9 +274,42 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
   }
 
+  /** The paths whose blob differs between two trees. */
+  function treeChanges(before: FakeTreeEntry[], after: FakeTreeEntry[]): Map<string, "added" | "modified" | "removed"> {
+    const old = new Map(before.map(entry => [entry.path, entry.sha]))
+    const next = new Map(after.map(entry => [entry.path, entry.sha]))
+    const changes = new Map<string, "added" | "modified" | "removed">()
+    for (const [path, sha] of next) if (old.get(path) !== sha) changes.set(path, old.has(path) ? "modified" : "added")
+    for (const path of old.keys()) if (!next.has(path)) changes.set(path, "removed")
+    return changes
+  }
+
+  /** `history(first: 1, path: $pN)` for every `pN` variable, as GitHub answers aliased fields on a commit. */
+  function fileHistory(variables: Record<string, unknown>): Response {
+    const head = commits.get(String(variables.sha))
+    if (!head) return json({ data: { repository: { object: null } } })
+    const changed = ancestors(head.sha).map(commit => ({ commit, paths: [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree).keys()] }))
+    const object: Record<string, unknown> = {}
+    for (const [alias, path] of Object.entries(variables)) {
+      if (!/^p\d+$/.test(alias)) continue
+      const latest = changed.find(entry => entry.paths.some(name => name === path || name.startsWith(`${String(path)}/`)))?.commit
+      object[alias] = { nodes: latest
+        ? [{
+            oid: latest.sha,
+            authoredDate: latest.author?.date,
+            message: latest.message,
+            url: `https://github.com/${owner}/${repo}/commit/${latest.sha}`,
+            author: { name: latest.author?.name ?? null, user: latest.author?.login ? { login: latest.author.login } : null },
+          }]
+        : [] }
+    }
+    return json({ data: { repository: { object } } })
+  }
+
   function graphql(request: FakeRequest): Response {
     const variables = (request.body?.variables ?? {}) as { input?: Record<string, unknown> }
     const input = variables.input ?? {}
+    if (request.operation === "FileHistory") return fileHistory(variables)
     if (request.operation === "RepositoryId") return json({ data: { repository: { id: "R_repo" } } })
     if (request.operation === "UpdateRefs") {
       const [update] = input.refUpdates as Array<{ afterOid: string, beforeOid: string, name: string }>
@@ -320,11 +358,15 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
 
   /** The tarball of a commit, as GitHub serves it: every file under one `owner-repo-sha/` folder. */
   function archive(ref: string): Response {
-    if (state.archive) return new Response(state.archive)
+    if (state.archive) return new Response(state.archive.slice())
     const commit = resolve(ref)
     if (!commit) return failure(404, "Not Found")
     const files = Object.fromEntries(commit.tree.map(entry => [entry.path, blobs.get(entry.sha) ?? new Uint8Array()]))
     return new Response(createTarGz(files, `${owner}-${repo}-${commit.sha.slice(0, 7)}/`))
+  }
+
+  function commentBody(comment: (typeof comments)[number]) {
+    return { body: comment.body, html_url: `https://github.com/${owner}/${repo}/pull/${comment.issue}#issuecomment-${comment.id}`, id: comment.id, user: { login: comment.user } }
   }
 
   function route(request: FakeRequest, url: URL): Response {
@@ -349,7 +391,13 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const base = mergeBase(left, right)
       if (!base) return failure(404, `No common ancestor between ${leftRef} and ${rightRef}.`)
       const status = left === right ? "identical" : base === right ? "behind" : base === left ? "ahead" : "diverged"
-      return json({ merge_base_commit: { sha: base }, status })
+      // GitHub lists the files that changed from the merge base to the head, at most 300.
+      const files = [...treeChanges(commits.get(base)!.tree, commits.get(right)!.tree)].slice(0, 300).map(([filename, change]) => ({ filename, status: change }))
+      // GitHub lists the commits from the merge base to the head, oldest first, one page of `per_page` (default 250).
+      const known = reachable(base)
+      const between = [...reachable(right)].filter(sha => !known.has(sha)).map(sha => commits.get(sha)!).reverse()
+      const perPage = Number(url.searchParams.get("per_page") || "250")
+      return json({ merge_base_commit: { sha: base }, status, files, total_commits: between.length, commits: between.slice(0, perPage).map(restCommit) })
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)
@@ -384,6 +432,32 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const pull = pulls.find(entry => entry.number === Number(rest.slice("/pulls/".length)))
       return pull ? json(pullBody(pull)) : failure(404, "Not Found")
     }
+    if (/^\/pulls\/\d+\/files$/.test(rest) && method === "GET") {
+      const pull = pulls.find(entry => entry.number === Number(rest.split("/")[2]))
+      const base = pull && branches.get(pull.base)
+      const head = pull && branches.get(pull.head)
+      if (!pull || !base || !head) return failure(404, "Not Found")
+      // GitHub lists the files that changed from the merge base to the head commit of the pull request.
+      const from = mergeBase(base, head) ?? base
+      return page([...treeChanges(commits.get(from)!.tree, commits.get(head)!.tree)].map(([filename, status]) => ({ filename, status })), url)
+    }
+    const issueComments = /^\/issues\/(\d+)\/comments$/.exec(rest)
+    if (issueComments && method === "GET") {
+      return page(comments.filter(comment => comment.issue === Number(issueComments[1])).map(comment => commentBody(comment)), url)
+    }
+    if (issueComments && method === "POST") {
+      if (!pulls.some(pull => pull.number === Number(issueComments[1]))) return failure(404, "Not Found")
+      const comment = { body: String(request.body?.body), id: 1000 + comments.length, issue: Number(issueComments[1]), user: "vitehub-bot" }
+      comments.push(comment)
+      return json(commentBody(comment), { status: 201 })
+    }
+    const issueComment = /^\/issues\/comments\/(\d+)$/.exec(rest)
+    if (issueComment && method === "PATCH") {
+      const comment = comments.find(entry => entry.id === Number(issueComment[1]))
+      if (!comment) return failure(404, "Not Found")
+      comment.body = String(request.body?.body)
+      return json(commentBody(comment))
+    }
     if (rest === "/branches" && method === "GET") {
       return page([...branches].sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ commit: { sha }, name, protected: false })), url)
     }
@@ -411,7 +485,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (rest.startsWith("/commits/") && method === "GET") {
       const ref = rest.slice("/commits/".length)
       const commit = resolve(ref)
-      return commit ? json(restCommit(commit)) : failure(422, `No commit found for SHA: ${ref}`)
+      if (!commit) return failure(422, `No commit found for SHA: ${ref}`)
+      // GitHub lists the files that the commit changed from its first parent, at most 300.
+      const files = [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree)].slice(0, 300).map(([filename, change]) => ({ filename, status: change }))
+      return json({ ...restCommit(commit), files })
     }
     if (rest.startsWith("/tarball/") && method === "GET") {
       if (state.archiveFailures-- > 0) return new Response("retry", { headers: { "retry-after": "0" }, status: 503 })
@@ -511,13 +588,25 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const response = override(request)
       if (response) return response
     }
-    return route(request, url)
+    const response = route(request, url)
+    if (!options.etags || method !== "GET" || response.status !== 200 || !response.headers.get("content-type")?.includes("json")) return response
+    // GitHub sends an ETag with each JSON answer and answers a request that sends it back with 304.
+    const text = await response.text()
+    const etag = `W/"${createHash("sha1").update(text).digest("hex")}"`
+    if (request.headers.get("if-none-match") === etag) {
+      notModified.push(request)
+      return new Response(null, { status: 304, headers: { etag } })
+    }
+    const headers = new Headers(response.headers)
+    headers.set("etag", etag)
+    return new Response(text, { status: 200, headers })
   }
 
   return {
     blobs,
     commits,
     fetch: fakeFetch,
+    notModified,
     requests,
     state,
     /** The head of `branch`. */
@@ -536,10 +625,11 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const commit = commits.get(branches.get(branch)!)!
       commit.tree = applyChanges(commit.tree, { [path]: { content, mode } })
     },
-    /** Move `branch` to a new commit with `changes`, as another writer would. */
-    commit(branch: string, changes: FakeChanges, input: { message?: string, sha?: string } = {}) {
+    /** Move `branch` to a new commit with `changes`, as another writer would. `author` sets the commit author. */
+    commit(branch: string, changes: FakeChanges, input: { author?: FakeCommit["author"], message?: string, sha?: string } = {}) {
       const parent = branches.get(branch)
       const commit = addCommit({
+        author: input.author,
         message: input.message ?? "remote change",
         parents: parent ? [parent] : [],
         sha: input.sha,
@@ -559,8 +649,29 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     respond(respond: (request: FakeRequest) => Response | undefined) {
       overrides.push(respond)
     },
+    /**
+     * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
+     * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
+     */
+    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+      const branch = input.branch ?? "main"
+      const after = branches.get(branch) ?? null
+      const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
+      const event = input.event ?? "push"
+      const body = JSON.stringify(event === "ping"
+        ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
+        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+      const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+      return new Request(url, {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/json", "x-github-delivery": `delivery-${++deliveryIndex}`, "x-github-event": event, "x-hub-signature-256": signature },
+      })
+    },
     /** The pull requests that were opened. */
     pulls,
+    /** The comments of issues and pull requests. Push one to model a comment that a person wrote. */
+    comments,
     /** Every branch name. */
     branchNames: () => [...branches.keys()],
     /**

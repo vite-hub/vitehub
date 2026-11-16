@@ -1,4 +1,9 @@
-import type { PostgresDatabaseDefaults } from "../runtime/postgres.ts"
+import { resolve } from "pathe"
+
+import { localPgliteDir } from "../runtime/local-path.ts"
+
+import type { PgliteOptions } from "../runtime/pglite.ts"
+import type { PostgresDatabaseDefaults } from "../runtime/postgres-database.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 function renderConfigExpression(value: unknown) {
@@ -26,17 +31,38 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
 /**
  * Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module.
  * `schemaExpression` and `relationsExpression` are the merged schema and relations, because Nuxt layers and contributed
- * tables add tables and relations that the evaluated Definition does not hold.
+ * tables add tables and relations that the evaluated Definition does not hold. A development module renders
+ * `createDevPostgresDatabase()` instead, which can run the Database on PGlite. It is awaited at the top level.
  */
-export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string) {
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string, schemaExpression: string, relationsExpression: string, dev = false) {
   const database = config.databases[name]!
   const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
   if (database.connection?.url !== undefined) defaults.url = database.connection.url
-  return `createPostgresDatabase({ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }, ${JSON.stringify(defaults)})`
+  const definition = `{ ...${definitionVariable}, relations: ${relationsExpression}, schema: ${schemaExpression} }`
+  if (!dev) return `${database.driver === "node-postgres" ? "createNodePostgresDatabase" : "createPostgresDatabase"}(${definition}, ${JSON.stringify(defaults)})`
+  const pglite: PgliteOptions = { dataDir: resolve(config.rootDir, localPgliteDir(name)), migrationsDir: resolve(config.rootDir, database.migrationsDir) }
+  return `await createDevPostgresDatabase(${definition}, ${JSON.stringify(defaults)}, ${JSON.stringify(pglite)})`
+}
+
+/** Lists the Postgres Databases that set `driver: "pglite"`. A production build fails with them. */
+export function pgliteDatabases(config: ResolvedDBViteConfig) {
+  return config.databaseNames.filter(name => config.databases[name]?.driver === "pglite")
 }
 
 export function usesPostgres(config: ResolvedDBViteConfig) {
   return config.databaseNames.some(name => config.databases[name]?.dialect === "postgresql")
+}
+
+/**
+ * The imports of the production Postgres runtime: postgres.js for the Postgres Databases without `driver`, and
+ * node-postgres for `driver: "node-postgres"`. An app imports only the drivers that its Definitions use.
+ */
+export function renderPostgresRuntimeImports(config: ResolvedDBViteConfig, resolveModule: (module: "runtime/node-postgres" | "runtime/postgres") => string): string[] {
+  const drivers = new Set(config.databaseNames.filter(name => config.databases[name]?.dialect === "postgresql").map(name => config.databases[name]!.driver))
+  return [
+    ...[...drivers].some(driver => driver !== "node-postgres") ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveModule("runtime/postgres"))}`] : [],
+    ...drivers.has("node-postgres") ? [`import { createNodePostgresDatabase } from ${JSON.stringify(resolveModule("runtime/node-postgres"))}`] : [],
+  ]
 }
 
 export function usesD1ReadReplication(config: ResolvedDBViteConfig) {

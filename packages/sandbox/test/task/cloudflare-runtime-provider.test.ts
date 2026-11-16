@@ -48,6 +48,19 @@ describe("Cloudflare Sandbox runtime provider", () => {
     )
   })
 
+  it("passes networkPolicy to the Cloudflare runtime", async () => {
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
+      local: {},
+      provider: { driver: "cloudflare", networkPolicy: { allow: ["registry.npmjs.org"] } },
+    }))
+
+    await provider.resolveSandbox(["node"])
+    expect(resolveCloudflareSandbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ networkPolicy: { allow: ["registry.npmjs.org"] } }),
+      ["node"],
+    )
+  })
+
   it("closes a Sandbox session when keepAlive disables idle shutdown", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},

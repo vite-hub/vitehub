@@ -23,8 +23,8 @@ The [GitHub store](/docs/cms/configure#github-store) needs only network access t
 Before a hosted deploy, run [Provisioning](/docs/development/provisioning) for your host:
 
 ```bash [commands/provision]
-pnpm vitehub provision run --provider cloudflare
-pnpm vitehub provision run --provider vercel
+pnpm vitehub provision run --host cloudflare
+pnpm vitehub provision run --host vercel
 ```
 
 Provisioning creates the same Database and Blob resources as without the preset. The preset adds no resources of its own.

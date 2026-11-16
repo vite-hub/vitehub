@@ -140,13 +140,14 @@ async function resolveIdentity(
   if (identity === "ip") {
     const value = resolveIpIdentity(context, trustedIpHeaders)
     if (value) return { source: "ip", value }
-    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders and a matching request header." })
+    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) found none of the trustedIpHeaders on the request." })
   }
   return resolveAutoIdentity(context, trustedIpHeaders)
 }
 
+/** The fallback Invoker of an unidentified caller is shared by every such caller, so `auto` skips it. */
 function resolveAutoIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): { source: string, value: string } {
-  if (context.invoker.id) return { source: "invoker", value: invokerIdentity(context.invoker) }
+  if (context.invoker.id && context.invoker.kind !== "anonymous") return { source: "invoker", value: invokerIdentity(context.invoker) }
   const run = resolveRunIdentity(context)
   if (run) return { source: "run", value: run }
   const ip = resolveIpIdentity(context, trustedIpHeaders)
@@ -233,6 +234,12 @@ export function rateLimit(
   const id = options.id || "rate-limit"
   const identity = options.identity || "auto"
   const trustedIpHeaders = options.trustedIpHeaders?.map(header => header.trim()).filter(Boolean)
+  if (identity === "ip" && !trustedIpHeaders?.length) {
+    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders, the request headers that your host sets, such as [\"cf-connecting-ip\"]." })
+  }
+  if (trustedIpHeaders?.length && identity !== "auto" && identity !== "ip") {
+    throw agentDiagnostics.AGENT_R0161({ message: `[vitehub] rateLimit({ trustedIpHeaders }) is read only with identity "auto" or "ip". Remove trustedIpHeaders, or use identity "ip".` })
+  }
 
   return defineCapability({
     id,

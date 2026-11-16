@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
-import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/github/install.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../src/github/install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -161,7 +161,7 @@ it.each([".npmrc", "pnpm-workspace.yaml"])("accepts pnpm deep workspace linking 
 it("records a reproduced installation failure for durable retry", async () => {
   const root = await fixture();
   await writeFile(join(root, "bin", "corepack"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ code: "PRESETS_WORKSPACE_INSTALL_FAILED" });
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-install.json"), "utf8"))).toMatchObject({ status: "failed" });
 });
 
@@ -169,7 +169,7 @@ it("waits for a new head instead of retrying a lockfile the frozen install rejec
   const root = await fixture();
   await writeFile(join(root, "bin", "corepack"), "#!/bin/sh\necho 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with \"frozen-lockfile\"' >&2\nexit 1\n", { mode: 0o755 });
   const failure = await installGitHubPullRequestWorkspace(root).catch((error: unknown) => error);
-  expect(failure).toBeInstanceOf(GitHubWorkspaceInstallError);
+  expect(failure).toMatchObject({ code: "PRESETS_WORKSPACE_INSTALL_FAILED" });
   expect(failure).toMatchObject({ retryable: false });
   expect(isGitHubLockfileDefect(failure)).toBe(true);
   expect(isGitHubLockfileDefect(new Error("Registry temporarily unavailable."))).toBe(false);
@@ -259,7 +259,7 @@ it.each([{ pnpEnableEsmLoader: "true" }, { nmHoistingLimits: "invalid" }, { nmMo
   await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "yarn@4.9.2" }));
   await writeFile(join(root, "yarn.lock"), "");
   await writeFile(join(root, ".yarnrc.yml"), JSON.stringify(layout));
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ code: "PRESETS_WORKSPACE_INSTALL_FAILED" });
   await expect(readFile(join(root, ".git", "args.txt"))).rejects.toThrow();
 });
 
@@ -281,7 +281,7 @@ it.each(["invalid", ["node-modules"], { path: "/outside" }])("rejects an unsuppo
   await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "yarn@4.9.2" }));
   await writeFile(join(root, "yarn.lock"), "");
   await writeFile(join(root, ".yarnrc.yml"), JSON.stringify({ nodeLinker: linker }));
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ code: "PRESETS_WORKSPACE_INSTALL_FAILED" });
   await expect(readFile(join(root, ".git", "args.txt"))).rejects.toThrow();
 });
 
@@ -469,7 +469,7 @@ mkdir -p node_modules
 `, { mode: 0o755 });
   const failed = installGitHubPullRequestWorkspace(first);
   const next = installGitHubPullRequestWorkspace(second);
-  await expect(failed).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
+  await expect(failed).rejects.toMatchObject({ code: "PRESETS_WORKSPACE_INSTALL_FAILED" });
   await expect(next).resolves.toBeUndefined();
 });
 
@@ -637,7 +637,7 @@ it("rejects local sources in nested workspace manifests", async () => {
 it("requires dependency conflicts to be resolved before refreshing the merged graph", async () => {
   const root = await fixture();
   await writeFile(join(root, "pnpm-lock.yaml"), "<<<<<<< HEAD\nlockfileVersion: '9.0'\n=======\nlockfileVersion: '9.0'\n>>>>>>> main\n");
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/Resolve dependency conflicts/);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ message: expect.stringMatching(/Resolve dependency conflicts/), cause: { code: "PRESETS_DEPENDENCY_CONFLICT_UNRESOLVED" } });
   await expect(readFile(join(root, ".git", "args.txt"))).rejects.toThrow();
   await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
   await installGitHubPullRequestWorkspace(root);
@@ -1012,4 +1012,45 @@ it("ignores workspace npmrc files during root npm installs but validates root co
   await expect(assertGitHubDependenciesCurrent(root)).resolves.toBeUndefined();
   await writeFile(join(root, ".npmrc"), "cache=/outside\n");
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/configuration/);
+});
+
+it("installs a hook-checksummed pnpm lockfile without the hook and leaves the checkout lockfile alone", async () => {
+  // pnpm records pnpmfileChecksum when a repository has a .pnpmfile.cjs. The host runs with
+  // --ignore-pnpmfile, so the frozen install rejected every such lockfile as out of date.
+  const root = await fixture();
+  const lockfile = "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpm:\n        version: 10.34.6\n---\nlockfileVersion: '9.0'\npnpmfileChecksum: sha256-abc\nimporters: {}\n";
+  await writeFile(join(root, "pnpm-lock.yaml"), lockfile);
+  await writeFile(join(root, ".pnpmfile.cjs"), "throw new Error('repository hook executed');\n");
+  let installed = "";
+  await installGitHubPullRequestWorkspace(root, undefined, async ({ cwd, command }) => {
+    expect(command).toContain("--ignore-pnpmfile");
+    installed = await readFile(join(cwd, "pnpm-lock.yaml"), "utf8");
+    await mkdir(join(cwd, "node_modules"));
+  });
+  expect(installed).not.toContain("pnpmfileChecksum");
+  expect(installed).toContain("version: 10.34.6");
+  expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe(lockfile);
+  await expect(hasCurrentGitHubDependencies(root)).resolves.toBe(true);
+});
+
+it("names a missing pnpm patch file and does not retry it", async () => {
+  // The manifest names a patch that the PR deleted. Its ENOENT used to retry every five minutes.
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "patchedDependencies:\n  left-pad@1.3.0: patches/left-pad@1.3.0.patch\n");
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({
+    retryable: false,
+    message: expect.stringContaining("Dependency patch patches/left-pad@1.3.0.patch does not exist in this checkout"),
+  });
+});
+
+it("reports the dependency inputs that changed since the last install", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+  await expect(readGitHubDependencyStatus(root)).resolves.toMatchObject({ current: false, changedInputs: ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"] });
+  await installGitHubPullRequestWorkspace(root);
+  await expect(readGitHubDependencyStatus(root)).resolves.toEqual({ current: true, changedInputs: [] });
+  await writeFile(join(root, "pnpm-workspace.yaml"), "packages: []\n# changed\n");
+  const status = await readGitHubDependencyStatus(root);
+  expect(status).toMatchObject({ current: false, changedInputs: ["pnpm-workspace.yaml"] });
+  expect(status.reason).toMatch(/Call refreshDependencies before validation/);
 });

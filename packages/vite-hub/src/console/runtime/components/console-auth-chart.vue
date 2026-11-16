@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { AuthConsoleOverview } from "@vite-hub/auth/console";
 import ConsoleSection from "./console-section.vue";
+import Icon from "./console-icon.vue";
 
 const props = defineProps<{ analytics: NonNullable<AuthConsoleOverview["analytics"]> }>();
 const days = computed(() => props.analytics.days);
@@ -36,11 +37,11 @@ const dayLabel = (day: string) =>
         x2="640"
         :y1="160 - fraction * 150"
         :y2="160 - fraction * 150"
-        stroke="var(--ui-border)"
+        stroke="var(--border)"
         stroke-dasharray="3 4"
       />
-      <text x="0" y="15" font-size="10" fill="var(--ui-text-muted)">{{ maximum }}</text>
-      <text x="0" y="160" font-size="10" fill="var(--ui-text-muted)">0</text>
+      <text x="0" y="15" font-size="10" fill="var(--muted-foreground)">{{ maximum }}</text>
+      <text x="0" y="160" font-size="10" fill="var(--muted-foreground)">0</text>
       <g v-for="(day, index) in days" :key="day.day">
         <title>
           {{ dayLabel(day.day) }}: {{ day.signIns }} sign-ins, {{ day.signUps }} sign-ups
@@ -50,7 +51,7 @@ const dayLabel = (day: string) =>
           :y="160 - (day.signIns / maximum) * 150"
           width="7"
           :height="(day.signIns / maximum) * 150"
-          fill="var(--ui-primary)"
+          fill="var(--primary)"
         />
         <rect
           :x="42 + index * 20"
@@ -75,7 +76,7 @@ const dayLabel = (day: string) =>
     />
     <details class="group text-xs">
       <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md text-muted select-none hover:text-highlighted">
-        <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+        <Icon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
         Show data table
       </summary>
       <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">

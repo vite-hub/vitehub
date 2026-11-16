@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
-import { afterEach, assert, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkflow } from "../src/runtime/client.ts"
 import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRun, setWorkflowRuntimeConfig } from "../src/runtime/state.ts"
@@ -32,10 +32,8 @@ describe("inline Workflow run retention", () => {
     const secondRun = await second.getRun("run")
     expect(firstRun.status).toBe("completed")
     expect(secondRun.status).toBe("completed")
-    assert(firstRun.result instanceof Response)
-    assert(secondRun.result instanceof Response)
-    await expect(firstRun.result.clone().text()).resolves.toBe("first result")
-    await expect(secondRun.result.clone().text()).resolves.toBe("second result")
+    expect(firstRun.result).toBe("first result")
+    expect(secondRun.result).toBe("second result")
   })
 
   it("keeps active runs distinct when workflow names and IDs contain delimiters", async () => {
@@ -150,7 +148,7 @@ describe("inline Workflow run retention", () => {
       await expect(workflow.getRun("first")).resolves.toMatchObject({ status: "running" })
       first.resolve()
       await firstState.promise
-      await expect(workflow.getRun("first")).resolves.toMatchObject({ result: expect.any(Response), status: "completed" })
+      await expect(workflow.getRun("first")).resolves.toMatchObject({ result: "done", status: "completed" })
     } finally {
       first.resolve()
       remaining.resolve()

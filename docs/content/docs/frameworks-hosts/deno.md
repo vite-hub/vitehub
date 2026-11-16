@@ -6,7 +6,7 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-deno
 ---
 
-The `deno` preset deploys your app to Deno Deploy. Nitro builds the server at
+The `deno` host deploys your app to Deno Deploy. Nitro builds the server at
 `.output/server/index.mjs`. Definitions, KV Stores, and Runtime Helpers stay
 portable. Deno code stays in generated output and driver configuration.
 
@@ -15,18 +15,18 @@ portable. Deno code stays in generated output and driver configuration.
 | Concern | ViteHub boundary |
 | --- | --- |
 | Agent chat and webhook routes | The Nitro server mounts the standard chat dispatcher and webhook route. Route-enabled Channels pick which Agents answer chat requests. |
-| Static cron schedules | The Schedule integration writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` wake output. `vitehub({ schedule })` fails on this preset, so add `hubSchedule()` directly. |
+| Static cron schedules | The Schedule integration writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` wake output. `vitehub({ schedule })` fails on this host, so add `hubSchedule()` directly. |
 | Lightweight state | KV defaults to `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Not available | Blob without an explicit store, Queue, Rate Limit, and Sandbox fail the build. |
 | Deployment | Deno Deploy owns environment variables, permissions, logs, and rollout. |
 
 The Agent option `runtime: 'deno'` writes a separate
-`.vitehub/agent/deno-server.ts`. The `deno` preset rejects it, because that
+`.vitehub/agent/deno-server.ts`. The `deno` host rejects it, because that
 server is outside the deployed Nitro entry.
 
-## Configure the preset
+## Configure the host
 
-Select the `deno` preset. This example also adds static Schedule output, so
+Select the `deno` host. This example also adds static Schedule output, so
 install the Schedule package first.
 
 ```bash [Terminal]
@@ -39,7 +39,7 @@ pnpm add @vite-hub/schedule
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'deno',
+    host: 'deno',
     agent: true,
     console: false,
     workflow: false,
@@ -64,7 +64,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'deno',
+      host: 'deno',
       agent: true,
       console: false,
       workflow: false,
@@ -88,7 +88,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'deno',
+      host: 'deno',
       agent: true,
       console: false,
       workflow: false,

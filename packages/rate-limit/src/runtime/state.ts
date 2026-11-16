@@ -1,23 +1,41 @@
+import { kvRateLimitDriver } from "../drivers/kv.ts"
 import { memoryRateLimitDriver } from "../drivers/memory.ts"
+import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 import { createRateLimiter } from "../limiter.ts"
+import { resolveKVRateLimitDriver } from "../internal/kv-provider.ts"
 import { normalizeRateLimitPolicy } from "../policy.ts"
 
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
+import type { RateLimitKVStorage } from "../drivers/kv.ts"
 import type { RateLimiter, RateLimitPolicy, RateLimitRuntimeConfig } from "../types.ts"
 
-let runtimeConfig: RateLimitRuntimeConfig = { driver: "memory" }
-const runtimeMemoryLimiters = new Map<string, Map<string, RateLimiter>>()
-
-/** The memory counters of this process, or in app tests the counters of the current test. */
-function memoryLimiters(): Map<string, Map<string, RateLimiter>> {
-  const test = getViteHubTestMode()
-  return test ? test.backend("rate-limit", () => new Map<string, Map<string, RateLimiter>>()) : runtimeMemoryLimiters
+/** The KV store of the `kv` driver. The generated Nitro plugin passes it from `@vite-hub/kv`. */
+export interface RateLimitKVRuntime {
+  /** The KV driver that the store uses in this process, for example `getKVStoreDriver()` of `@vite-hub/kv`. */
+  driver: () => Promise<string>
+  storage: RateLimitKVStorage
+  /** The KV store name, for the boot log. */
+  store: string
 }
 
-export function setRateLimitRuntimeConfig(config: RateLimitRuntimeConfig): void {
+let runtimeConfig: RateLimitRuntimeConfig = { driver: "memory" }
+let kvRuntime: RateLimitKVRuntime | undefined
+let activeDriver: Promise<RateLimitRuntimeConfig["driver"]> | undefined
+const runtimeLimiters = new Map<string, Map<string, RateLimiter>>()
+
+/** The counters of this process, or in app tests the counters of the current test. */
+function limiters(): Map<string, Map<string, RateLimiter>> {
+  const test = getViteHubTestMode()
+  return test ? test.backend("rate-limit", () => new Map<string, Map<string, RateLimiter>>()) : runtimeLimiters
+}
+
+/** `kv` needs the KV store of the app in `kv`. Other drivers ignore it. */
+export function setRateLimitRuntimeConfig(config: RateLimitRuntimeConfig, kv?: RateLimitKVRuntime): void {
   runtimeConfig = config
-  runtimeMemoryLimiters.clear()
+  kvRuntime = kv
+  activeDriver = undefined
+  runtimeLimiters.clear()
 }
 
 /** In app tests, Rate Limit counts in memory for the current test, whatever the host. */
@@ -25,27 +43,64 @@ export function getRateLimitRuntimeConfig(): RateLimitRuntimeConfig {
   return getViteHubTestMode() ? { driver: "memory" } : runtimeConfig
 }
 
-function normalizeRateLimitWindowKey(policy: RateLimitPolicy): number {
-  return normalizeRateLimitPolicy(policy).windowMs
+function requireKVRuntime(): RateLimitKVRuntime {
+  if (kvRuntime) return kvRuntime
+  throw rateLimitErrorDiagnostics.RATE_LIMIT_R0047({ message: "[vitehub] The kv Rate Limit driver needs KV. Enable KV in the app, or pass a KV store to setRateLimitRuntimeConfig()." })
 }
 
-export function getMemoryRateLimiter(name: string, policy: RateLimitPolicy): RateLimiter {
-  const limiters = memoryLimiters()
-  let policies = limiters.get(name)
-  const policyKey = JSON.stringify([policy.enforcement, policy.failure, policy.limit, normalizeRateLimitWindowKey(policy)])
-  const existing = policies?.get(policyKey)
+async function resolveKVDriver(kv: RateLimitKVRuntime, memoryFallback: boolean): Promise<RateLimitRuntimeConfig["driver"]> {
+  const driver = await kv.driver()
+  if (resolveKVRateLimitDriver(driver) === "kv") {
+    console.info(`[vitehub] Rate Limit counts in the KV store "${kv.store}" (${driver}). Every server process that uses this store shares the counts.`)
+    return "kv"
+  }
+  if (!memoryFallback) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED({ message: `[vitehub] The kv Rate Limit driver needs a KV store that every server process shares, but the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment.` })
+  }
+  console.warn(`[vitehub] Rate Limit counts in the memory of this process, because the KV store "${kv.store}" uses ${driver}, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.`)
+  return "memory"
+}
+
+/**
+ * The driver that counts in this process. For `kv`, the first call asks KV for its configured driver
+ * and prints the choice: `kv` with a shared driver. Another driver fails, or counts in `memory` with `memoryFallback`.
+ * The generated Nitro plugin calls it at boot.
+ */
+export async function resolveRateLimitDriver(): Promise<RateLimitRuntimeConfig["driver"]> {
+  const { driver, memoryFallback = false } = getRateLimitRuntimeConfig()
+  if (driver !== "kv") return driver
+  if (activeDriver) return await activeDriver
+  const pending = resolveKVDriver(requireKVRuntime(), memoryFallback)
+  activeDriver = pending
+  // A failed choice, for example an unknown KV store, fails this call and lets the next call try again.
+  void pending.catch(() => {
+    if (activeDriver === pending) activeDriver = undefined
+  })
+  return await pending
+}
+
+function policyKey(policy: RateLimitPolicy): string {
+  return JSON.stringify([policy.enforcement, policy.failure, policy.limit, normalizeRateLimitPolicy(policy).windowMs])
+}
+
+/** The Rate Limiter of one name and policy in this process. `kv` limiters share their counters through KV. */
+export function getRuntimeRateLimiter(driver: "kv" | "memory", name: string, policy: RateLimitPolicy): RateLimiter {
+  const all = limiters()
+  let policies = all.get(name)
+  const key = policyKey(policy)
+  const existing = policies?.get(key)
   if (existing) return existing
 
-  const limiter = createRateLimiter({ ...policy, driver: memoryRateLimitDriver(), name })
+  const limiter = createRateLimiter({ ...policy, driver: driver === "kv" ? kvRateLimitDriver({ storage: requireKVRuntime().storage }) : memoryRateLimitDriver(), name })
   if (!policies) {
     policies = new Map()
-    limiters.set(name, policies)
+    all.set(name, policies)
   }
-  policies.set(policyKey, limiter)
+  policies.set(key, limiter)
   return limiter
 }
 
-/** Lists each policy used by this name in the current runtime configuration. */
-export function listMemoryRateLimiters(name: string): RateLimiter[] {
-  return [...memoryLimiters().get(name)?.values() ?? []]
+/** Lists each policy used by this name in this process. */
+export function listRuntimeRateLimiters(name: string): RateLimiter[] {
+  return [...limiters().get(name)?.values() ?? []]
 }

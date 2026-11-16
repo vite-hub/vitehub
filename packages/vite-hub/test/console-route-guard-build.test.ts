@@ -25,7 +25,7 @@ async function build(files: Record<string, string>, base = "/"): Promise<void> {
   const builder = await createBuilder({
     base,
     logLevel: "silent",
-    plugins: [vitehub({ preset: "node", publicUrl: "http://app.example.com", console: true }), nitro() as never],
+    plugins: [vitehub({ host: "node", publicUrl: "http://app.example.com", console: true }), nitro() as never],
     root,
   })
   await builder.buildApp()

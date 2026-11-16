@@ -2,18 +2,36 @@ import { createHash } from "node:crypto"
 
 import type { ForgeProvider } from "forges"
 import { forgeDiagnostics } from "./error-diagnostics.ts"
-import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
+import { abortError, forgeErrorStatus, forgeResponseError, withSignal } from "./provider.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 export interface GitHubAppCredentials {
   installationToken(
     installationId: number | string,
-    options?: { refresh?: boolean, signal?: AbortSignal },
+    options?: {
+      refresh?: boolean
+      signal?: AbortSignal
+      /** Mint a new token when the cached one expires within this many milliseconds. Default 60000. */
+      minLifetime?: number
+    },
   ): Promise<{ token: string, expiresAt: Date }>
   /** GET /repos/{repository}/installation with the app JWT. */
   installation(repository: string, signal?: AbortSignal): Promise<number>
   /** GET /app. */
   app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
+  /**
+   * Every repository that the App's installations can access, from `GET /app/installations` and
+   * `GET /installation/repositories`, all pages. Suspended installations are skipped.
+   */
+  repositories(signal?: AbortSignal): Promise<GitHubAppRepository[]>
+}
+
+/** A repository that one App installation can access. */
+export interface GitHubAppRepository {
+  /** `owner/name`, as GitHub spells it. */
+  repository: string
+  installationId: number
+  archived: boolean
 }
 
 export interface GitHubAppInput {
@@ -82,13 +100,13 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const id = String(installationId)
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
-      if (cached && cached.expiresAt > Date.now() + 60_000) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
+      if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
       // installations.token() cannot forward a signal in the pinned forges version.
       // Keep JWT signing in the provider and pass cancellation through its transport.
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
         "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
       ), options.signal)
-      if (!response.data.token) throw new ForgeResponseError("GitHub App installation token response did not include token.")
+      if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
       const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
       installationTokens.set(provider, { token: details.token, expiresAt: details.expiresAt.getTime() })
       return details
@@ -114,9 +132,21 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const response = await provider.request<unknown>("GET", "/app", { signal })
       const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
       const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
-      if (!id) throw new ForgeResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw new ForgeResponseError("GitHub App response did not include a slug.")
+      if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
+      if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
       return { id, slug, login: `${slug}[bot]` }
+    },
+    async repositories(signal) {
+      const provider = await withSignal(appProvider(input), signal)
+      const repositories: GitHubAppRepository[] = []
+      for await (const installation of provider.installations.list({ perPage: 100, signal })) {
+        const installationId = positiveId(Number(installation.id))
+        if (!installationId || (isRecord(installation.raw) && installation.raw.suspended_at)) continue
+        for await (const repo of provider.installations.repos(installation, { perPage: 100, signal })) {
+          repositories.push({ repository: `${repo.ref.owner}/${repo.ref.name}`, installationId, archived: repo.isArchived })
+        }
+      }
+      return repositories
     },
   }
 }

@@ -17,6 +17,7 @@
  * ```
  */
 
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecord } from "./object.ts"
 
 /** The signature header: `key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>`. */
@@ -50,11 +51,13 @@ export interface ConsoleCallerUser {
 
 /**
  * Who sent a signed request. The key holder asserts it, so an app trusts it as much as it trusts the key.
- * - `via: "console"`: the ViteHub Console, for the signed-in `user`, in the `team` that linked the app.
+ * - `via: "console"`: the ViteHub Console, for the signed-in `user`, in the `team` that linked the app. With
+ *   `surface: "mcp"`, the ViteHub MCP of the Console called for the user: the app applies its MCP rules, and
+ *   `confirmed: true` says that the person agreed to a destructive call.
  * - `via: "cli"`: the `vitehub` CLI, or another tool with a private key. It has no user.
  */
 export type ConsoleCaller =
-  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string } }
+  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string }, surface?: "mcp", confirmed?: true }
   | { via: "cli" }
 
 /** A private key and the name that the app knows its public key by. */
@@ -138,7 +141,7 @@ export function readConsolePublicKey(value: string): Uint8Array<ArrayBuffer> | u
 
 async function importPrivateKey(seed: string) {
   const bytes = fromBase64url(seed.trim())
-  if (bytes?.length !== 32) throw new TypeError("[vitehub] A Console private key is the 32-byte Ed25519 seed as base64url (43 characters). `vitehub secret console-key` makes one.")
+  if (bytes?.length !== 32) throw internalErrorDiagnostics.INTERNAL_CONSOLE_PRIVATE_KEY_INVALID()
   const der = new Uint8Array(pkcs8Prefix.length + 32)
   der.set(pkcs8Prefix)
   der.set(bytes, pkcs8Prefix.length)
@@ -165,6 +168,8 @@ function optionalText(value: unknown, maximum = 512): string | undefined | false
   return String(value) === value && value.length > 0 && value.length <= maximum ? value : false
 }
 
+const consoleCallerKeys = new Set(["via", "user", "team", "surface", "confirmed"])
+
 /** Read an `x-vitehub-caller` value. Returns `undefined` for anything that is not one of the {@link ConsoleCaller} forms. */
 export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
   if (value.length > maximumCallerLength) return undefined
@@ -179,18 +184,21 @@ export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
   }
   if (!isRecord(parsed)) return undefined
   if (parsed.via === "cli") return Object.keys(parsed).length === 1 ? { via: "cli" } : undefined
-  if (parsed.via !== "console" || !isRecord(parsed.user) || Object.keys(parsed).some(key => key !== "via" && key !== "user" && key !== "team")) return undefined
+  if (parsed.via !== "console" || !isRecord(parsed.user) || Object.keys(parsed).some(key => !consoleCallerKeys.has(key))) return undefined
+  // `confirmed` belongs to an MCP call only, so a Console page call cannot carry it.
+  if ((parsed.surface !== undefined && parsed.surface !== "mcp") || (parsed.confirmed !== undefined && (parsed.confirmed !== true || parsed.surface !== "mcp"))) return undefined
+  const mcp = parsed.surface === "mcp" ? { surface: "mcp" as const, ...(parsed.confirmed === true ? { confirmed: true as const } : {}) } : {}
   const id = optionalText(parsed.user.id)
   const name = optionalText(parsed.user.name)
   const email = optionalText(parsed.user.email)
   if (!id || name === false || email === false || Object.keys(parsed.user).some(key => key !== "id" && key !== "name" && key !== "email")) return undefined
   const user: ConsoleCallerUser = { id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
-  if (parsed.team === undefined) return { via: "console", user }
+  if (parsed.team === undefined) return { via: "console", user, ...mcp }
   if (!isRecord(parsed.team)) return undefined
   const teamId = optionalText(parsed.team.id)
   const role = optionalText(parsed.team.role)
   if (!teamId || role === false || Object.keys(parsed.team).some(key => key !== "id" && key !== "role")) return undefined
-  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) } }
+  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) }, ...mcp }
 }
 
 /**
@@ -198,7 +206,7 @@ export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
  * the two headers to add: `x-vitehub-signature` and `x-vitehub-caller`.
  */
 export async function signConsoleRequest(options: { body?: string | ArrayBuffer | Uint8Array, caller: ConsoleCaller, key: ConsoleSigningKey, method: string, now?: number, url: string | URL }): Promise<Record<string, string>> {
-  if (!isConsoleKeyName(options.key.name)) throw new TypeError(`[vitehub] The Console key name ${JSON.stringify(options.key.name)} must be 1 to 64 of A-Z, 0-9, and _.`)
+  if (!isConsoleKeyName(options.key.name)) throw internalErrorDiagnostics.INTERNAL_CONSOLE_KEY_NAME_INVALID({ name: options.key.name })
   const url = new URL(options.url)
   const timestamp = String(Math.floor((options.now ?? Date.now()) / 1_000))
   const bodySha256 = await consoleBodySha256(options.body)
@@ -292,17 +300,17 @@ export async function verifyConsoleSignature(options: { headers: Headers, keys: 
 
 /**
  * The signing key of a CLI from its env: the one `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` variable. Returns `undefined`
- * without one. Throws a `TypeError` when there are several, or when the value is not a 32-byte seed.
+ * without one. Throws a coded error when there are several, or when the value is not a 32-byte seed.
  */
 export function readConsoleSigningKey(env: Readonly<Record<string, string | undefined>>): ConsoleSigningKey | undefined {
   const variables = Object.keys(env).filter(name => name.startsWith(consolePrivateKeyPrefix) && env[name]?.trim()).sort()
   if (!variables.length) return undefined
-  if (variables.length > 1) throw new TypeError(`[vitehub] Set one ${consolePrivateKeyPrefix}<NAME> variable. This environment has ${variables.join(", ")}.`)
+  if (variables.length > 1) throw internalErrorDiagnostics.INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLES_MULTIPLE({ prefix: consolePrivateKeyPrefix, variables: variables.join(", ") })
   const variable = variables[0]!
   const name = variable.slice(consolePrivateKeyPrefix.length)
   const privateKey = env[variable]!.trim()
   if (!isConsoleKeyName(name) || fromBase64url(privateKey)?.length !== 32) {
-    throw new TypeError(`[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`)
+    throw internalErrorDiagnostics.INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLE_INVALID({ variable })
   }
   return { name, privateKey }
 }

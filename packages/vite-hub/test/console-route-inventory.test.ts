@@ -34,7 +34,7 @@ function owner(root: string, path: string): string {
 async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
   const root = await createProject({
     "package.json": JSON.stringify({ name: "console-route-inventory", private: true, type: "module" }),
-    "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+    "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
     "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
     "server/connections-actor.ts": "export default () => ({ id: 'owner' })\n",
     "server/console-authorize.ts": "export default () => true\n",
@@ -53,9 +53,9 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       console: consoleOptions,
       database: true,
       kv: true,
-      preset: "node",
+      host: "node",
       schedule: { providerOutput: false },
-      workflow: true,
+      workflow: { driver: "vercel" },
     }),
     root,
   }, "build", "production")
@@ -77,14 +77,17 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
  * browser `GET`s it with a one-time ticket, for Content preview and impersonation.
  */
 const consoleRoutes = [
+  "route ALL /_vitehub console/server/site-entry.js",
   "route ALL /_vitehub/rpc console/server/rpc.js",
 ]
 
 /**
  * App features that stay on purpose. They serve the app and its visitors, with the app's own identity, not the Console:
- * the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
+ * Blob signed links, the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
  */
 const appRoutes = [
+  // Signed links for private files in the app's fs Blob store.
+  "route ALL /_vitehub/blob/signed/** @vite-hub/blob/dist/runtime/signed.js",
   // The Comments API of the overlay, with the app's own identity.
   "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
   // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
@@ -103,6 +106,7 @@ const plugins = [
   "app/.vitehub/nitro/blob/plugin.ts",
   "app/.vitehub/nitro/comments/plugin.mjs",
   "app/.vitehub/nitro/console/plugin.mjs",
+  "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
@@ -111,13 +115,15 @@ const plugins = [
 const publicAssets = [
   // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
   "/_vitehub/.well-known/skills console/public/skills",
+  // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
+  "/_vitehub/console/assets console/page-tool",
   // The page tools loader and the Comments overlay script.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
   "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
-  it("serves one Console route, /_vitehub/rpc, and the app features that stay", async () => {
+  it("serves the Console routes, /_vitehub/rpc and /_vitehub, and the app features that stay", async () => {
     const inventory = await nitroInventory({ invoke: true, mcpClient: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
     // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.

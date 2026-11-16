@@ -1,22 +1,24 @@
 import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
 import { parseArgs } from "node:util"
 
-import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { basename, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
+import { build, readBuildOutput } from "./build-output.ts"
 import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
-import { createDeployRun, isRecord, optionalString, readDeployCommit } from "./deploy/host.ts"
+import { createDeployRun, readDeployCommit } from "./deploy/host.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
+import { provisionForDeploy } from "./deploy/provision.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { ensureViteHubGitignore, readSetupLink, writeSetupLinkFile } from "./link.ts"
+import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { checkDeployEnv } from "./env.ts"
+import { addSetupLink, ensureViteHubGitignore, hostRequired, readSetupLinks, selectSetupLink, writeSeparateResourcesNote } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
 
@@ -24,22 +26,45 @@ import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cl
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { DeployCheckouts, DeployCheckoutsOutput } from "./deploy/checkouts.ts"
 import type { DeployAdapter, DeployCommit, DeployContext, DeployHost, DeployResult } from "./deploy/host.ts"
-import type { SetupLink } from "./link.ts"
+import type { DeployEnvOutput } from "./env.ts"
+import type { DeployProvisionOutput } from "./deploy/provision.ts"
+import type { SetupLink, SetupLinks } from "./link.ts"
 import type { SetupProject } from "./project.ts"
 
 const deployHosts: readonly DeployHost[] = ["cloudflare", "vercel", "netlify", "deno"]
 const temporaryHosts: readonly DeployHost[] = ["cloudflare", "vercel"]
 
-const usage = "vitehub deploy [--preview] [--no-build] [--no-push] [--temporary] [--yes] [--json]"
+const usage = "vitehub deploy [--host <host>] [--preview] [--push-env] [--no-build] [--no-provision] [--no-push] [--temporary] [--yes] [--json]"
 
-const help = `With checkout folders in vitehub.lock, a production deploy pulls them and checks for conflicts before the build, and
+const help = `--host picks a host target of .vitehub/link.json. Without it, deploy uses the default target. The build runs
+with VITEHUB_HOST set to that host, which wins over \`host\` in vitehub(). Each host has its own resources, such as D1,
+KV, R2, and libSQL.
+
+On Cloudflare and Vercel, deploy first creates the missing resources of the app, such as D1, KV, R2, Queues, and Vercel
+Blob, with the same login, and records their ids in .vitehub/provision.json. The build binds those ids, and a second
+deploy creates nothing. It lists what it creates and asks first, unless you pass --yes. --no-provision skips it.
+
+With checkout folders in vitehub.lock, a production deploy pulls them and checks for conflicts before the build, and
 pushes them after the deploy, as \`vitehub push\` does. A --preview deploy does not push, so a preview never writes
 the shared Workspace ref. --no-push skips the pull, the check and the push.
+
+After the build, deploy checks the env names that the build lists. A production deploy reads stage production, a
+--preview deploy stage preview: the shell, then .env.<stage> files. Each required name must be on the host or have a
+local value, or nothing is deployed. Deploy sets the names that the host lacks from their local values; --push-env
+also replaces the names that the host has. Cloudflare gets the values with the new version through --secrets-file.
+Cloudflare always re-supplies local stage values and needs a local value for every existing Worker secret, so an
+omitted secret cannot inherit from another stage. With --yes, a missing VITEHUB_SECRET is generated and set.
 `
 
 export interface SetupDeployArgs {
+  /** The host of --host, as the user wrote it. */
+  host?: string
   preview: boolean
+  /** `--push-env`: set every local value on the host, also the names that the host has. */
+  pushEnv: boolean
   build: boolean
+  /** False with --no-provision. */
+  provision: boolean
   /** False with --no-push. A preview deploy never pushes. */
   push: boolean
   temporary: boolean
@@ -56,8 +81,12 @@ export interface SetupDeployOutput {
   version?: string
   temporary?: { claimUrl: string, expiresAt?: string }
   commit?: DeployCommit
+  /** The host resources that the deploy provisioned. Missing when the host has none, or with --no-provision. */
+  provision?: DeployProvisionOutput
   /** The Workspace push of the checkout folders of `vitehub.lock`. Missing when the deploy did not push. */
   checkouts?: DeployCheckoutsOutput
+  /** The env names that the deploy checked and set. Never a value. */
+  env: DeployEnvOutput
 }
 
 export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
@@ -66,39 +95,51 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
       args: [...args],
       options: {
         "help": { short: "h", type: "boolean", default: false },
+        "host": { type: "string" },
         "json": { type: "boolean", default: false },
         "no-build": { type: "boolean", default: false },
+        "no-provision": { type: "boolean", default: false },
         "no-push": { type: "boolean", default: false },
         "preview": { type: "boolean", default: false },
+        "push-env": { type: "boolean", default: false },
         "temporary": { type: "boolean", default: false },
         "yes": { short: "y", type: "boolean", default: false },
       },
       strict: true,
     })
-    return { build: !values["no-build"], help: values.help, json: values.json, preview: values.preview, push: !values["no-push"], temporary: values.temporary, yes: values.yes }
+    return { build: !values["no-build"], help: values.help, ...(values.host === undefined ? {} : { host: values.host }), json: values.json, preview: values.preview, pushEnv: values["push-env"], provision: !values["no-provision"], push: !values["no-push"], temporary: values.temporary, yes: values.yes }
   }
   catch (error: unknown) {
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
 
-function rerunCommand(args: SetupDeployArgs, extra: { temporary?: boolean } = {}): string {
-  return ["vitehub deploy", ...(args.preview ? ["--preview"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.push ? [] : ["--no-push"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
+function rerunCommand(args: SetupDeployArgs, extra: { provision?: boolean, temporary?: boolean } = {}): string {
+  return ["vitehub deploy", ...(args.host ? [`--host ${args.host}`] : []), ...(args.preview ? ["--preview"] : []), ...(args.pushEnv ? ["--push-env"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.provision && extra.provision !== false ? [] : ["--no-provision"]), ...(args.push ? [] : ["--no-push"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
-function deployHost(project: SetupProject, link: SetupLink | undefined, env: NodeJS.ProcessEnv): DeployHost {
-  const configured = setupStatus(project, env).host
-  if (link && configured.source === "config" && configured.name !== "unknown" && configured.name !== link.host) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: configured.name, host: link.host }), setupExitCodes.conflict)
-  }
-  const host = link?.host ?? configured.name
+function supportedHost(host: string): DeployHost {
   const found = deployHosts.find(item => item === host)
-  if (!found) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (!found) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
   return found
 }
 
+/** `--host`, else the default target, else the only target, else the config host. The CLI host wins over the config. */
+function deployTarget(project: SetupProject, links: SetupLinks, option: string | undefined, env: NodeJS.ProcessEnv): { host: DeployHost, link: SetupLink | undefined } {
+  if (option !== undefined) {
+    const named = hostFromNitroPreset(option)
+    if (!named) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unknown host ${JSON.stringify(option)}. Use cloudflare, vercel, netlify, or deno. Usage: ${usage}` })
+    const host = supportedHost(named)
+    return { host, link: links.targets.find(target => target.host === host) }
+  }
+  const selected = selectSetupLink(links)
+  if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, "vitehub deploy")
+  if (selected.link) return { host: selected.link.host, link: selected.link }
+  return { host: supportedHost(setupStatus(project, env).host.name), link: undefined }
+}
+
 function temporaryUnsupported(reason: string): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
 }
 
 /** Cloudflare: Wrangler refuses `--temporary` with a login. Vercel: the CLI refuses it in CI and in a linked folder. */
@@ -117,7 +158,7 @@ function credentialsMissing(host: DeployHost, credentials: Extract<HostCredentia
   const offer = temporary
     ? ` Or deploy without an account: run \`${rerunCommand(args, { temporary: true })}\`${host === "cloudflare" ? " and claim the Worker within 60 minutes" : " and claim the deployment with the link that it prints"}.`
     : ""
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
     missing: credentials.missing.map(field => ({ field })),
     ...(temporary ? { rerun: rerunCommand(args, { temporary: true }) } : {}),
   })
@@ -133,38 +174,6 @@ async function confirmDeploy(name: string, host: DeployHost, preview: boolean): 
   }
 }
 
-async function build(project: SetupProject, context: ViteHubCliContext): Promise<void> {
-  const command = `${project.packageManager} run build`
-  const manifest: unknown = existsSync(join(project.root, "package.json")) ? JSON.parse(await readFile(join(project.root, "package.json"), "utf8")) : undefined
-  if (!isRecord(manifest) || !isRecord(manifest.scripts) || typeof manifest.scripts.build !== "string") {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command }), setupExitCodes.error)
-  }
-  const result = await context.spawn(project.packageManager, ["run", "build"], { cwd: project.root, env: context.env, stdout: "stderr" })
-  if (result.exitCode !== 0) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_BUILD_FAILED({ command, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
-}
-
-interface BuildOutput {
-  outputDir: string
-  identityName?: string
-}
-
-/** Reads `<output>/deployment.json`, which the build writes, and checks that it is for `host`. */
-async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOutput> {
-  const outputDir = join(root, resolveDeploymentPlan(host).output.directory)
-  const file = join(outputDir, "deployment.json")
-  let manifest: unknown
-  try {
-    manifest = JSON.parse(await readFile(file, "utf8"))
-  }
-  catch {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
-  }
-  const built = isRecord(manifest) ? optionalString(manifest.preset) : undefined
-  if (built !== host) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
-  const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
-  return { outputDir, ...(identityName ? { identityName } : {}) }
-}
-
 async function hostAdapter(host: DeployHost, context: DeployContext): Promise<DeployAdapter> {
   switch (host) {
     case "cloudflare": return await cloudflareAdapter(context)
@@ -177,8 +186,7 @@ async function hostAdapter(host: DeployHost, context: DeployContext): Promise<De
 /** Records the host project after a first deploy, so `status` finds it. It stays unverified until `vitehub link`. */
 async function recordLink(root: string, host: DeployHost, result: DeployResult, fallbackName: string): Promise<void> {
   const project = result.project ?? { name: fallbackName }
-  await writeSetupLinkFile(root, {
-    schemaVersion: 1,
+  await addSetupLink(root, {
     host,
     ...(project.accountId ? { account: { id: project.accountId } } : {}),
     project: { ...(project.id ? { id: project.id } : {}), name: project.name },
@@ -208,7 +216,7 @@ async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOu
   }
   catch (error: unknown) {
     const failure = checkoutPushError(error)
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
       data: { ...deployed, checkouts: { error: failure } },
       rerun: "vitehub push",
     })
@@ -217,9 +225,9 @@ async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOu
 
 async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Promise<number> {
   const project = await readSetupProject(context.rootDir, context.env)
-  const link = await readSetupLink(project.root)
-  const host = deployHost(project, link, context.env)
-  if (args.preview && host === "deno") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  const links = await readSetupLinks(project.root)
+  const { host, link } = deployTarget(project, links, args.host, context.env)
+  if (args.preview && host === "deno") throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
   const credentials = await resolveHostCredentials(host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   const vercelLogin = host === "vercel" && !credentials.ok && await hasVercelLogin(project.root, context)
   if (args.temporary && vercelLogin) throw temporaryUnsupported("It is for a machine without a vercel login, and a saved CLI login was found.")
@@ -229,22 +237,44 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
     if (!interactive) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
     }
     if (!await confirmDeploy(link?.project.name ?? basename(project.root), host, args.preview)) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
     }
   }
+
+  // Provision runs before the build, because the build binds the ids that it records. A temporary deploy has no account.
+  const provisioned = args.provision && !args.temporary
+    ? await provisionForDeploy({ build: args.build, credentials, host, json: args.json, link, rerun: rerunCommand(args, { provision: false }), yes: args.yes }, context)
+    : undefined
 
   // A preview must not write the shared Workspace ref, so only a production deploy pushes. This imports project code,
   // so it runs only after the confirmation.
   const checkouts = args.push && !args.preview ? await prepareDeployCheckouts(project.root, context) : undefined
-  if (args.build) await build(project, context)
+  // A new host next to linked ones gets this note once: the deploy records its target below.
+  if (!link && !args.temporary) writeSeparateResourcesNote(context, host, links)
+  if (args.build) await build(project, host, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
-  if (!projectName) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
+  if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
+  // After provisioning and the build, the Env gate runs before runtime host writes: `env.apply()` and the D1 migrations of `adapter.deploy()` come after it.
+  const env = await checkDeployEnv({
+    context,
+    entries: output.env,
+    envDir: output.envDir,
+    host,
+    interactive,
+    link: args.temporary ? undefined : link,
+    preview: args.preview,
+    pushEnv: args.pushEnv,
+    root: project.root,
+    run,
+    secrets,
+    yes: args.yes,
+  })
   const deployContext: DeployContext = {
     commit: await readDeployCommit(run, project.root, context.env),
     credentials,
@@ -258,8 +288,10 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     run,
     secrets,
     temporary: args.temporary,
+    upload: env.upload,
   }
   const adapter = await hostAdapter(host, deployContext)
+  await env.apply()
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
 
@@ -270,6 +302,8 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     ...(result.version ? { version: result.version } : {}),
     ...(result.claim ? { temporary: { claimUrl: result.claim.url, ...(result.claim.expiresAt ? { expiresAt: result.claim.expiresAt } : {}) } } : {}),
     ...(deployContext.commit ? { commit: deployContext.commit } : {}),
+    env: env.output,
+    ...(provisioned ? { provision: provisioned } : {}),
   }
   if (!args.json) writeDeployed(deployed, projectName, context)
   const final = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
@@ -278,7 +312,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
 }
 
 export const deployCommand: ViteHubCliCommand = {
-  description: "Build the app and deploy it to its host with your local login. Pushes the checkout folders of vitehub.lock.",
+  description: "Create the missing host resources, build the app for a linked host, check its env, and deploy it with your local login. --host picks the host. Pushes the checkout folders of vitehub.lock.",
   name: "deploy",
   run: async (args, context) => {
     const json = args.includes("--json")

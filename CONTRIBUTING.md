@@ -14,6 +14,7 @@ Use this guide to turn a requested behavior into a tested change. [AGENTS.md](AG
 | Other `packages/*/src/` | Each Server Primitive or integration |
 | `playground/console/` | Real Console UI with synthetic API data |
 | `fixtures/`, `test/consumer/`, `test/output/` | Consumer applications and generated output proof |
+| `test/multi-instance/` | One app on three Node instances against Postgres and Redis |
 | `docs/` | User documentation and the first-party website |
 
 Use these names consistently: Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Runtime policy belongs in its owner package.
@@ -88,21 +89,29 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
+| A primitive on several Node instances | `corepack pnpm exec vp run e2e:multi-instance` (needs Docker, see [its README](test/multi-instance/README.md)) |
+| Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md), not in CI) |
+| Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
+
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
-A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke deployments also require successful CI for the exact `main` commit. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke runs test the newest `main` commit with successful CI from the last 48 hours, and fail when there is none. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
 
 The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
 
 Report the observed user result, exact commands, failures, and unverified parts. Separate setup and infrastructure failures from product failures. Stop when the requested outcome and relevant checks pass; do not broaden testing without a new concern.
 
 ## Load relevant guidance
+
+Use the [ViteHub Dev skill](.agents/skills/vitehub-dev/SKILL.md) for every change to this repository. It holds the judgment behind these rules: when to add a primitive, how to keep the public API small, when to break a contract, and what proof a pull request needs. Agents find it in `.agents/skills/`, Claude Code through the `.claude/skills` link, and every agent through `AGENTS.md`. Add repository skills to `.agents/skills/` only.
 
 Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
 
@@ -134,9 +143,10 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
 2. Definition and config errors throw, at build time, at define time, or when an operation starts.
-3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
-5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
+6. Every thrown error is a diagnostic. For a state that only a ViteHub bug can reach, call `invariant(condition, what)` or throw `invariantError(what)` from `@vite-hub/internal/invariant`. Both raise `INTERNAL_INVARIANT_FAILED`, whose fix asks for a bug report. When a developer can cause the error or fix it, throw a code from the package catalog instead.
 
 ### Documentation structure
 
@@ -233,7 +243,7 @@ The fix is complete when the consumer works without the patch. Retire combined p
 - Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
 - Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
-- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Prefer dense layouts, small icons, minimal copy, a near black page in dark mode (the tokens of `@vite-hub/ui/theme.css`), white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.

@@ -4,6 +4,7 @@ import type {
   BabysitterPassWait,
   BabysitterPassWake,
 } from "../babysitter.ts";
+import type { AutomatedReviewClass } from "./inbox/budgets.ts";
 
 export interface BabysitterResultDiagnostic {
   code: "invalid-wait" | "invalid-wake" | "invalid-reviewed-head" | "invalid-check-head";
@@ -11,6 +12,8 @@ export interface BabysitterResultDiagnostic {
 }
 
 const babysitterSha = /^[a-f0-9]{40,64}$/;
+const automatedReviewClasses: readonly unknown[] = ["P0", "P1", "P2", "P3", "none"] satisfies AutomatedReviewClass[];
+const isAutomatedReviewClass = (value: unknown): value is AutomatedReviewClass => automatedReviewClasses.includes(value);
 const validSha = (value: unknown): value is string =>
   hasRuntimeType(value, "string") && babysitterSha.test(value);
 
@@ -93,6 +96,7 @@ export function createBabysitterPassResultSchema(
         if (wait) normalized.wait = wait;
         if (reviewedHead) normalized.reviewedHead = reviewedHead;
         if (waitForChecksHead) normalized.waitForChecksHead = waitForChecksHead;
+        if (isAutomatedReviewClass(value.automatedReview)) normalized.automatedReview = value.automatedReview;
         return { value: normalized };
       },
     },

@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 - **Nuxt only.** `@vite-hub/docs` is a Nuxt module. A Vite app without Nuxt cannot use it.
 - **One design.** There are no themes. Change the design with `app.config.ts`, CSS variables, or your own components. See [Design](/docs/docs-site/configure#design).
-- **One content folder.** The module reads one folder, `dir`. Sections are the folders under `base`. A page belongs to one section.
+- **Only folders are watched.** In development, the module watches `dir` and the folders in `sources`. Restart the app to see a change in another Source, such as `github()`: it gives its branch as it was when the app started or built. Sections are the folders under `base`, and a page belongs to one section.
 - **Pages are read at build time.** The manifest, agent copies, and routes come from the files at build time, so a production site does not see files added later. In development, a body change shows on the next page load. A new page, title, or order restarts the app.
 - **No page at `/docs` by default.** Without `content/docs/index.md`, `/docs` is not found and the Docs links open the first section.
 - **Search runs in the browser.** The dialog loads the whole index when it first opens. Each `h2` and `h3` is one entry. Titles rank first, then headings, then text.
@@ -53,7 +53,7 @@ A chain of redirects counts where it ends.
 
 ### DocsSeoError
 
-A prerendered page fails a search check. A production build logs it by default and stops on it when `seoAudit` is `"error"` or `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, and a link from another page. Each sitemap URL must be a prerendered page that does not redirect. The message lists each page with its fix:
+A prerendered page fails a search check. A production build logs it by default and stops on it when `seoAudit` is `"error"` or `true`. The limits are those of common site audits: a title of 10 to 60 characters with the site name, a description of 70 to 160, one `h1`, headings that go down one level at a time, at least 150 words, a link from another page, and the Open Graph tags `og:title`, `og:type`, `og:image`, and `og:url`. Each sitemap URL must be a prerendered page that does not redirect. Every page must stay below 2 MB (2,000,000 bytes) of HTML, because Googlebot reads only the first 2 MB, and must not link to a redirect page or to `/mcp`, which answers a browser with an error. The message lists each page with its fix:
 
 ```txt [output/docs-seo-error.txt]
 Docs pages fail the search checks:

@@ -61,7 +61,7 @@ export default defineSchedule({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'cloudflare', schedule: true },
+  vitehub: { host: 'cloudflare', schedule: true },
 })
 ```
 :::
@@ -73,7 +73,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', schedule: true }), nitro()],
 })
 ```
 :::
@@ -84,7 +84,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', schedule: true })],
+  plugins: [vitehub({ host: 'cloudflare', schedule: true })],
 })
 ```
 :::

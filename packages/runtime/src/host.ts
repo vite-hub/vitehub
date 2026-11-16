@@ -1,9 +1,9 @@
-import { detectPreset } from "@vite-hub/internal/deployment"
+import { detectHost as detectDeploymentHost } from "@vite-hub/internal/deployment"
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env-lookup"
 
 import { defineErrors } from "./result.ts"
 
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { ErrorCatalog, Result } from "./result.ts"
 import type { ViteHubContext } from "./standard-context.ts"
 
@@ -15,7 +15,7 @@ declare global {
 }
 
 /** A host that ViteHub builds for. */
-export type ViteHubHost = DeploymentPreset
+export type { ViteHubHost } from "@vite-hub/internal/deployment"
 
 /** The codes that `getHostBinding()` returns. */
 export type HostBindingErrorCode = "RUNTIME_HOST_BINDING_NOT_FOUND" | "RUNTIME_HOST_BINDINGS_UNAVAILABLE"
@@ -23,7 +23,7 @@ export type HostBindingErrorCode = "RUNTIME_HOST_BINDING_NOT_FOUND" | "RUNTIME_H
 const hostBindingCodes = {
   RUNTIME_HOST_BINDINGS_UNAVAILABLE: {
     why: ({ name }: { name: string }) => `This code runs without host bindings, so the binding "${name}" is not available. Only Cloudflare Workers give bindings.`,
-    fix: "Build with `preset: \"cloudflare\"`, or handle the error to use another source in this runtime, for example in `vite dev` on Node.",
+    fix: "Build with `host: \"cloudflare\"`, or handle the error to use another source in this runtime, for example in `vite dev` on Node.",
   },
   RUNTIME_HOST_BINDING_NOT_FOUND: {
     why: ({ name }: { name: string }) => `The Worker has no binding named "${name}".`,
@@ -38,9 +38,9 @@ const hostBindingErrors: ErrorCatalog<typeof hostBindingCodes> = /*#__PURE__*/ d
 
 /**
  * Returns the host that this code builds or runs on, or `undefined` when nothing names one.
- * It reads `VITEHUB_HOSTING`, `NITRO_PRESET`, `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds
+ * It reads `VITEHUB_HOST`, `NITRO_PRESET`, `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds
  * (`WORKERS_CI`), Netlify, Vercel, and Deno Deploy. Inside a Cloudflare Worker, it returns `"cloudflare"`.
- * `vitehub()` uses the same detection when `preset` is omitted.
+ * `vitehub()` uses the same detection when `host` is omitted.
  *
  * @example
  * ```ts
@@ -50,7 +50,7 @@ const hostBindingErrors: ErrorCatalog<typeof hostBindingCodes> = /*#__PURE__*/ d
  * ```
  */
 export function detectHost(env: Record<string, string | undefined> = processEnv()): ViteHubHost | undefined {
-  return detectPreset(env) ?? (globalThis.navigator?.userAgent === "Cloudflare-Workers" ? "cloudflare" : undefined)
+  return detectDeploymentHost(env) ?? (globalThis.navigator?.userAgent === "Cloudflare-Workers" ? "cloudflare" : undefined)
 }
 
 function processEnv(): Record<string, string | undefined> {

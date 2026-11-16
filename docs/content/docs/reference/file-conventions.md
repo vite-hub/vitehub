@@ -31,6 +31,7 @@ ViteHub finds each Definition (a file that declares one feature, such as a queue
 - ViteHub normalizes every path. Suffix names drop a leading `src/`.
 - In Nuxt, `server/` means the server directory of the app and of each layer it extends. Read [Nuxt layers](/docs/frameworks-hosts/nuxt#nuxt-layers).
 - The table shows `.ts`. Other JavaScript and TypeScript module extensions work where the package allows them. The default Database suffix file is exactly `src/database.ts`.
+- Test and declaration files are never Definitions, so `server/schedules/digest.test.ts`, `digest.spec.ts`, and `digest.d.ts` can sit next to `digest.ts`.
 - Rate Limit has no file convention on purpose. Call `requireRateLimit(event, id, options)` in a normal H3 handler. Its ID is the provider identity.
 
 ## Export shape
@@ -67,7 +68,7 @@ A define function takes one handler, or one object with `handler` and the option
 
 `defineWorkflow()` is the one exception. Its typed-steps form, `defineWorkflow(name, handler)`, repeats the Workflow name so that the build can type the steps of the Workflow. Do not copy this form to other primitives.
 
-The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. `npx @vite-hub/codemods define-forms` rewrites all four.
+The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all four.
 
 Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 
@@ -88,7 +89,7 @@ server/
 
 ## Colocated Agent Skills
 
-Put Agent Skills in a `skills/` folder next to the Agent. ViteHub embeds every file and writes the folder to `.agents/skills/` in the Provider Workspace. Existing files stay. Files under `scripts/` become executable.
+Put Agent Skills in a `skills/` folder next to the Agent. ViteHub embeds every file. A model Driver reads the folder at `.agents/skills/` in the Agent Workspace. A Provider Driver reads it from a private folder outside its working directory, or from the Sandbox Home. Files under `scripts/` become executable.
 
 ```txt [File tree]
 server/

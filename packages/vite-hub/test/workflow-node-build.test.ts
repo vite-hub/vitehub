@@ -91,7 +91,7 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
       logLevel: "silent",
       plugins: [
         nitro() as never,
-        vitehub({ preset: "node", workflow: { driver: "vercel" } }),
+        vitehub({ host: "node", workflow: { driver: "vercel" } }),
       ],
       root,
     });

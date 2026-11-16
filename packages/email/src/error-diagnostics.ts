@@ -46,6 +46,20 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.",
     },
 
+    // Operation errors. The `email.*` operations and `vitehub email preview` throw them with an HTTP status.
+    EMAIL_OUTBOX_DISABLED: {
+      why: "The Email development outbox is disabled.",
+      fix: "Remove `email.outbox: false` to capture messages in `vite dev`.",
+    },
+    EMAIL_OUTBOX_MESSAGE_NOT_FOUND: {
+      why: "Outbox message was not found. The outbox keeps only recent messages and a restart clears it.",
+      fix: "Run `vitehub email outbox list` for the ids that the outbox holds.",
+    },
+    EMAIL_TEMPLATE_NOT_FOUND: {
+      why: ({ available, roots, template }: { available: string, roots: string, template: string }) => `Email template "${template}" was not found in ${roots}. ${available ? `Templates: ${available}.` : "No templates were found."}`,
+      fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`.",
+    },
+
     // Config errors. Email throws them because the code or the deployment must change.
     EMAIL_INVALID_DRIVER: {
       why: ({ problem }: { problem: EmailDriverProblem }) => driverProblems[problem],

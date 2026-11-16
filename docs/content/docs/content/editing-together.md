@@ -172,7 +172,7 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     realtime: { driver: 'memory' },
   },
 })
@@ -188,7 +188,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { driver: 'memory' },
     }),
     nitro(),
@@ -205,7 +205,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { driver: 'memory' },
     }),
   ],
@@ -214,7 +214,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` uses the memory driver by default. A Node build needs `driver: 'memory'` (one server process). Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room driver: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
+`vite dev` uses the memory driver by default. A Node build shares rooms across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database, and keeps them in one process without either. Cloudflare uses Durable Objects. Vercel, Netlify, and Deno have no room driver: the build succeeds with one editor at a time. `defineContent({ live: false })` keeps one editor at a time everywhere.
 
 ### What people see
 
@@ -231,7 +231,7 @@ The room holds the edit lease as `kind: 'live'` for everyone in it. It holds it 
 
 ### Build your own live editor
 
-ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the ViteHub Auth session. With the Console on, rooms check Console access instead, which takes only signed calls, so a browser editor needs the Console off. `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or a singleton's collection name. It identifies people with the ViteHub Auth session. With the Console on, rooms check Console access instead, which takes only signed calls, so a browser editor needs the Console off. `authorize` maps to `content.can()`: reading a room needs `read-draft`, editing needs `write`.
 
 ```ts [app editor]
 import { contentRealtimeEditor } from 'vite-hub/content/editor'

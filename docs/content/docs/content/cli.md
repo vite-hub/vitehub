@@ -39,6 +39,12 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 | `vitehub content scheduled [collection] [id]` | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule <schedule>` | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Print the sitemap URLs of published documents. |
+| `vitehub content previews comment --pr <number>` | Print, or post with `--post`, the comment with the preview link of each page that a pull request changes. |
+| `vitehub content head [source]` | Show the commit that each `github()` Source serves, and what holds it back. |
+| `vitehub content advance [source]` | Move the head to the latest commit of the branch when every document parses and `check` finds no error. |
+| `vitehub content pin <sha> [source]` | Serve one commit until `unpin`, for example to roll back. |
+| `vitehub content unpin [source]` | Remove the pin and move to the latest valid commit. |
+| `vitehub content check [source]` | Check frontmatter, links, titles, and descriptions. With `--dir`, check a folder without an app. |
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
@@ -214,6 +220,105 @@ pnpm vitehub content sitemap --xml --site https://example.com
 ```
 
 `sitemap` prints the URL and last change time of each published, indexable document in a collection with a [`url`](/docs/content/seo#document-urls). `--xml` prints the `/sitemap.xml` XML. `--site` sets the origin. It defaults to `defineContent({ seo: { site } })`, else URLs are paths.
+
+## GitHub Source heads
+
+A `github()` Source with a GitHub token and a KV store serves one validated commit, the head. These commands call [`content.sources`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources) in the app, so they read and move the same head as the app.
+
+```bash [Terminal]
+pnpm vitehub content head
+pnpm vitehub content advance docs
+pnpm vitehub content pin 9d1c4e2a7b3f5c8d0e6a1b4f7c2d9e3a5b8f0c1d docs
+pnpm vitehub content unpin docs
+```
+
+```txt [Output]
+docs stays on 978e88bf21f94b93237cfa6e11b6e1277758dc61.
+docs
+  Head:      978e88bf21f94b93237cfa6e11b6e1277758dc61 on main, moved 2026-11-11T12:38:12.512Z
+  Checked:   2026-11-11T12:38:12.525Z
+  Rejected:  062822c8aa1dc2530d98426a6e9f40b856f75579 at 2026-11-11T12:38:12.525Z
+  CONTENT_R0019: Commit 062822c8aa1dc2530d98426a6e9f40b856f75579 of Content source "docs" failed validation, so Content keeps commit 978e88bf21f94b93237cfa6e11b6e1277758dc61: broken.md: unexpected end of the stream within a flow collection (1:17)
+  Fix: Fix the document in the repository and push a new commit, then run `vitehub content advance` or call `content.sources.advance()`. `vitehub content head` and `content.sources.head()` show the rejected commit and the reason.
+```
+
+`head` without a name shows every `github()` Source. The others take the Source name, and need it only when the app has more than one `github()` Source. Each head shows the commit, the branch, the pin, the last branch check, the rejected commit, and the last [push webhook](https://github.com/vite-hub/vitehub/tree/main/packages/content#github-push-webhook) delivery. When the head does not follow the branch, it shows the diagnostic and its fix:
+
+| Code | Why |
+| --- | --- |
+| [`CONTENT_R0020`](/docs/content/diagnostics/content_r0020) | The Source has no GitHub token, so it has no head. |
+| [`CONTENT_R0021`](/docs/content/diagnostics/content_r0021) | The app has no KV store, so the Source has no head. |
+| [`CONTENT_R0019`](/docs/content/diagnostics/content_r0019) | The newest commit has a document that does not parse. The head stays on the last valid commit. |
+| [`CONTENT_R0035`](/docs/content/diagnostics/content_r0035) | GitHub answered 403 or 429 to the branch lookup, as it does when the rate limit is hit. The head did not move. This server instance shows it until a lookup succeeds. |
+
+`advance` and `unpin` exit with status 1 when the head is held back, so a CI step fails on a broken push. A pinned head does not move and exits with status 0. `pin` needs the full 40-character SHA and checks that every document of the commit parses. `--json` prints the [`ContentSourceHead`](https://github.com/vite-hub/vitehub/tree/main/packages/content#live-github-sources), with the diagnostic in `diagnostic: { code, message, fix }`. `head --json` prints `{ "heads": [...] }`.
+
+`head` needs the `content` section of the Console access, read-only is enough. `advance`, `pin`, and `unpin` need the whole section. `defineContent({ authorize })` does not apply, because Sources are read-only and public.
+
+## Pull request previews
+
+`previews comment` prints a Markdown comment with the [preview link](/docs/content/preview#branch-commit-and-pull-request-previews) of each page that a pull request adds or changes. It needs `previews: true` in `server/content.ts`.
+
+```bash [Terminal]
+pnpm vitehub content previews comment --pr 12 --url https://docs.example.com
+```
+
+```md [Output]
+<!-- vitehub-content-previews -->
+**Preview** of commit `9d1c4e2`
+
+- [/docs/kv](https://docs.example.com/pr/12/docs/kv?vitehub-content-token=v1.1794407400.WyJkb2NzIiwicHIvMTIiXQ.…)
+- [/docs/queue](https://docs.example.com/pr/12/docs/queue?vitehub-content-token=v1.1794407400.WyJkb2NzIiwicHIvMTIiXQ.…)
+
+The pull request is private, so each link has a signed token. Anyone with a link can open the preview until 2026-11-11T14:30:00.000Z. Run `vitehub content previews comment --pr 12` again for new links.
+```
+
+A pull request from the same repository gets plain links and no note. A private one, such as a CMS publish, gets links with a token that works for one hour, or `--max-age` seconds up to 86400. A fork pull request without the `preview:enabled` label gets plain links that open after a maintainer adds the label. `--site` sets the origin of the links; without it, they use `seo.site`, else they are paths.
+
+`--post` creates the comment on the pull request, or updates the comment that starts with `<!-- vitehub-content-previews -->`, so each run keeps one comment. It uses `VITEHUB_GITHUB_TOKEN` from the environment of the command, which must be able to write pull request comments. Without it, the command fails with [`CONTENT_R0077`](/docs/content/diagnostics/content_r0077). The command signs links, so it needs the whole `content` section of the Console access. To post from CI, see [Comment preview links from GitHub Actions](/docs/content/preview#comment-preview-links-from-github-actions).
+
+## Check
+
+```bash [Terminal]
+pnpm vitehub content check
+pnpm vitehub content check docs --sha 9d1c4e2a7b3f5c8d0e6a1b4f7c2d9e3a5b8f0c1d
+pnpm vitehub content check --dir content --site https://acme.dev --ignore "/learn" --title-template "%s · Acme"
+```
+
+```txt [Output]
+docs/kv/configure.md:41  error  CONTENT_R0062  /docs/kv/configure links to /docs/kv/drivers, which is no page of Source "docs". Fix the link, or add the path to `check.ignoreLinks` when another route serves it.
+docs/kv/index.md:2  warning  CONTENT_R0065  /docs/kv has a title of 2 characters, "KV". Keep it between 10 and 60, with `seo.title` when the heading must stay.
+
+357 pages in docs: 1 error, 1 warning.
+```
+
+`check` reads the parsed documents, not built HTML, and makes no network calls. A `github()` Source is checked at `--sha`, or at the latest commit of its branch. The head does not move. `advance` runs the same error rules before it moves a head.
+
+Links can target pages and headings in any configured Source. A check of one Source and a head change use the published heads of the other Sources, or their branch commits when no head exists. A check of all Sources uses their checked commits. Pages removed from a checked commit cannot resolve against its previous head.
+
+| Code | Severity | Finds |
+| --- | --- | --- |
+| [`CONTENT_R0060`](/docs/content/diagnostics/content_r0060) | error | A document that does not parse. |
+| [`CONTENT_R0061`](/docs/content/diagnostics/content_r0061) | error | Frontmatter that does not match the Source `schema`. |
+| [`CONTENT_R0062`](/docs/content/diagnostics/content_r0062) | error | A link to a missing page below a first path segment that holds pages, such as `/docs/kvv`. |
+| [`CONTENT_R0063`](/docs/content/diagnostics/content_r0063) | warning | A link to a path that no page serves, such as `/learn`. Another route may serve it. |
+| [`CONTENT_R0064`](/docs/content/diagnostics/content_r0064) | warning | A link to a heading that the target page does not have. |
+| [`CONTENT_R0065`](/docs/content/diagnostics/content_r0065) | warning | No title, or a title outside 10 to 60 characters. |
+| [`CONTENT_R0066`](/docs/content/diagnostics/content_r0066) | warning | No description, or one outside 70 to 160 characters. |
+| [`CONTENT_R0067`](/docs/content/diagnostics/content_r0067) | warning | Pages with the same title or description. |
+| [`CONTENT_R0068`](/docs/content/diagnostics/content_r0068) | warning | A heading that skips a level. |
+
+Warnings do not hold a head back. Errors do, and `check` exits with status 1 on them. Against the app, the options come from [`defineContent({ check })`](https://github.com/vite-hub/vitehub/tree/main/packages/content#check-documents). With `--dir`, `check` needs no app, so a CI step can run it on a content pull request. It parses the folder as one Source with the default Content Markdown, and these options replace the app config:
+
+| Option | Use it for |
+| --- | --- |
+| `--page-url <pattern>` | The page URL of each document, such as `/blog/:id`. Defaults to the document path. |
+| `--schema <file>` | A JSON Schema file that the frontmatter must match. |
+| `--site <url>` | The site origin. Absolute links to it are checked too. |
+| `--ignore <path>` | A link target that another route serves: a path or a glob such as `/docs/*/diagnostics/**`. Repeatable. |
+| `--title-template <pattern>` | The `<title>` pattern, such as `%s · Acme`, for the title length rule. |
+
+`--json` prints `{ ok, errors, warnings, sources, findings }`. Each finding has `source`, `path`, `url`, `line`, `rule`, `code`, `severity`, and `message`. `check` against the app needs `content:read`.
 
 ## How it reaches storage
 

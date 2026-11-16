@@ -487,7 +487,9 @@ describe("document collections", { timeout: 30_000 }, () => {
     await posts.save("react", { data: { title: "React", date: "2026-01-03", tags: ["react"] } })
     await content.publish({ collection: "posts", ids: ["vue"] })
     await posts.save("draft-only", { data: { title: "Draft", date: "2026-01-04", tags: ["vue"] } })
-    const app = new H3().get("/posts", defineCollectionHandler(posts))
+    // A Content collection does not choose its route access. The caller must.
+    expect(() => defineCollectionHandler(posts)).toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
+    const app = new H3().get("/posts", defineCollectionHandler({ ...posts, access: "public" }))
     const response = await app.request("/posts?tags=vue")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -686,23 +688,23 @@ describe("document collections", { timeout: 30_000 }, () => {
     const { content: guarded } = await setup({ authorize: policy })
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })).toBe(true)
     expect(await guarded.can({ user: { role: "editor" }, collection: "posts", action: "publish" })).toBe(false)
-    expect(await guarded.can({ user: null, collection: "posts", action: "read" })).toBe(false)
+    expect(await guarded.can({ user: null, collection: "posts", action: "read-draft" })).toBe(false)
     expect(policy).toHaveBeenCalledWith({ user: { role: "editor" }, collection: "posts", action: "write", id: "hello" })
     // @ts-expect-error unknown collection
-    await expect(guarded.can({ user: null, collection: "pages", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(guarded.can({ user: null, collection: "pages", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
   })
 
   it("passes the Auth user and the Agent Actor to authorize", async () => {
-    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read" && actor?.kind === "agent"))
+    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read-draft" && actor?.kind === "agent"))
     const { content } = await setup({ authorize: policy })
     const actor = { id: "agent:writer", kind: "agent", meta: { authUserId: "u1" } }
-    expect(await content.can({ actor, collection: "posts", action: "read" })).toBe(true)
-    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read" })
+    expect(await content.can({ actor, collection: "posts", action: "read-draft" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read-draft" })
     expect(await content.can({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })).toBe(true)
     expect(policy).toHaveBeenLastCalledWith({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })
     expect(await content.can({ actor, collection: "posts", action: "write" })).toBe(false)
-    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read-draft" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
   })
 
   it("keeps read-only sources next to collections and rejects bad definitions", async () => {

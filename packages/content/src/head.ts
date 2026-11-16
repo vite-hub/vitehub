@@ -1,6 +1,8 @@
 import { servedBlobUrl } from "@vite-hub/blob/served"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
+import { markdownCopyUrl } from "./markdown-negotiation.ts"
+
 /** Where the site lives and what it is called. */
 export interface ContentHeadSite {
   /** Public origin, such as `https://example.com`. Turns document URLs and image paths into absolute URLs. */
@@ -57,6 +59,16 @@ export interface ContentHeadOptions {
   type?: string
   /** Add JSON-LD for the page: `true` for a generated WebPage or Article, or your own object. */
   jsonLd?: boolean | Record<string, unknown>
+  /**
+   * Link the RSS feed of `defineContent({ seo: { rss } })` with `<link rel="alternate" type="application/rss+xml">`.
+   * `href` defaults to `/rss.xml`, `title` to the site name.
+   */
+  rss?: boolean | { href?: string, title?: string }
+  /**
+   * Link the Markdown copy of a document with a URL, which `defineContent({ seo: { markdown } })` serves, with
+   * `<link rel="alternate" type="text/markdown">`. Pass the same `prefix` as `seo.markdown`, such as `/raw`.
+   */
+  markdown?: boolean | { prefix?: string }
 }
 
 export interface ContentHeadMeta {
@@ -70,6 +82,9 @@ export interface ContentHeadLink {
   href: string
   /** The locale of an `alternate` link, or `x-default` for the page to show when no locale matches. */
   hreflang?: string
+  /** The media type of an `alternate` link, such as `application/rss+xml`. */
+  type?: string
+  title?: string
 }
 
 export interface ContentHeadScript {
@@ -204,6 +219,15 @@ export function contentHead(document: ContentHeadDocument | null | undefined, op
   if (alternates.length > 1) {
     for (const page of alternates) head.link.push({ rel: "alternate", hreflang: page.locale, href: absolute(page.url, site.url)! })
     head.link.push({ rel: "alternate", hreflang: "x-default", href: absolute(alternates[0]!.url, site.url)! })
+  }
+  if (options.rss) {
+    const rss = options.rss === true ? {} : options.rss
+    const feedTitle = text(rss.title) ?? siteName
+    head.link.push({ rel: "alternate", type: "application/rss+xml", href: absolute(text(rss.href) ?? "/rss.xml", site.url)!, ...(feedTitle ? { title: feedTitle } : {}) })
+  }
+  if (options.markdown && path) {
+    const prefix = options.markdown === true ? "" : text(options.markdown.prefix) ?? ""
+    head.link.push({ rel: "alternate", type: "text/markdown", href: absolute(markdownCopyUrl(path, prefix), site.url)! })
   }
   if (locale) head.htmlAttrs = { lang: locale }
   if (title) head.title = title

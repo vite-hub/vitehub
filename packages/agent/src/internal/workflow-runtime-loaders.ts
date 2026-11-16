@@ -1,10 +1,9 @@
-import { agentDiagnostics } from "../agent-diagnostics.ts"
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 // Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
 // and then `vite dev` resolves the import eagerly and fails when the app disables Blob or Database.
 const blobSpecifier = "@vite-hub/blob"
-const databaseSpecifier = "@vite-hub/database/drizzle"
+const databaseSpecifier = "@vite-hub/database/runtime/registry"
 
 type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")
@@ -70,7 +69,8 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   const load = workflowCapabilityLoaders.console
-  if (!load) throw agentDiagnostics.AGENT_R0603({ message: "[vitehub] The Console Workflow capability requires a generated runtime loader." })
+  // Internal invariant: the only caller catches this error and treats the Capability as not portable.
+  if (!load) throw new Error("[vitehub] The Console Workflow capability requires a generated runtime loader.")
   return await load()
 }
 

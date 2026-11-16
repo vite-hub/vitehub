@@ -17,6 +17,7 @@ import type {
   GitHubWorkspaceOption,
   GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
+  ResolvedWorkspaceModuleOptions,
   WorkspaceDefinition,
   WorkspaceStore,
   WorkspaceStoreOptions,
@@ -156,18 +157,29 @@ export function normalizeWorkspaceStoreOptions(
   return { driver: "local" as const }
 }
 
-export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition): WorkspaceStore {
+/** Resolve the effective store once for the runtime and its durability report. */
+export function resolveWorkspaceDefinitionStore(
+  definition: WorkspaceDefinition,
+  runtimeConfig: false | ResolvedWorkspaceModuleOptions = getWorkspaceRuntimeConfig(),
+  input: WorkspaceResolutionInput = {},
+): WorkspaceStoreOptions | undefined {
   if (isWorkspaceStore(definition.store)) return definition.store
-
   const rootDir = definition.rootDir || process.cwd()
-  const runtimeConfig = getWorkspaceRuntimeConfig()
   const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
-  const store = normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
+  return normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
     env: typeof process !== "undefined" ? process.env : {},
-    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING : undefined,
+    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOST : undefined,
     rootDir,
     runtime: true,
+    ...input,
   })
+}
+
+export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition): WorkspaceStore {
+  const runtimeConfig = getWorkspaceRuntimeConfig()
+  const store = resolveWorkspaceDefinitionStore(definition, runtimeConfig)
+  if (isWorkspaceStore(store)) return store
+  const rootDir = definition.rootDir || process.cwd()
 
   if (store?.driver === "memory") return createMemoryWorkspaceStore()
   if (store?.driver === "cloudflare" || store?.driver === "github" || store?.driver === "vercel") {

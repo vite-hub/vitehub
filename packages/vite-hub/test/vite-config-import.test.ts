@@ -34,7 +34,7 @@ const config = {
   root: process.cwd(),
   plugins: [vitehub({
     // Queue and Sandbox require a preset that provides both capabilities.
-    preset: "cloudflare",
+    host: "cloudflare",
     agent: true,
     auth: true,
     blob: true,
@@ -92,7 +92,7 @@ describe("vite-hub config import", () => {
       expect(deferredPackages.filter(name => importedPackages.has(name))).toEqual([])
       const packages = new Set(resolved.map(packageName))
       expect(requestTimePackages.filter(name => packages.has(name))).toEqual([])
-      await access(join(root, ".vitehub/nitro/console/plugin.mjs"))
+      await access(join(root, ".vitehub/nitro/console/plugin-dev.mjs"))
     }
     finally {
       await rm(root, { force: true, recursive: true })

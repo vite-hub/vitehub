@@ -47,7 +47,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
 `)
     await writeFile(join(root, "authorize.ts"), "export default () => ({ actor: { id: 'test', name: 'Test' }, mode: 'admin' })\n")
     server = await createServer({ root, configFile: false, appType: "custom", logLevel: "silent",
-      plugins: [vitehub({ preset: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
+      plugins: [vitehub({ host: "node", agent: { invocations: { databaseUrl } }, database: true, workflow: false, env: false, blob: { stores: { default: { driver: "fs", base: join(root, "blob") } } },
         console: { auth: false, authorize: "./authorize.ts" },
       }), nitro()],
       // Initial published SSR-cycle behavior is covered by the separate CLI-discovery PR.

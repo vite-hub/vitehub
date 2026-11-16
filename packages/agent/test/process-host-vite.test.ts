@@ -36,7 +36,7 @@ it.each([undefined, 'default', 'host', '$host', 'π', '变量', 'host\u200Cname'
     expect(drain).toContain(expected)
     expect(plugin).toContain('host.start()')
     // ViteHub drains the host on a stop signal before the server closes HTTP.
-    expect(plugin).toMatch(/import \{ onShutdown \} from ".*runtime\/dist\/shutdown\.js"/)
+    expect(plugin).toMatch(/import \{ onShutdown \} from ".*runtime\/dist\/internal\/shutdown\.js"/)
     expect(plugin).toContain("onShutdown(app, 'agent.process-host', () => host.close())")
     expect(drain).toContain('host.status()')
     expect(result).toMatchObject({ nitro: { handlers: [{ route: '/drain' }] } })

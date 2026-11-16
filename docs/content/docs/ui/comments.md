@@ -28,10 +28,10 @@ Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add 
 pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
-`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/comments`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
 
 ```ts
-import { CommentLayer } from "@vite-hub/ui/comments";
+import { CommentLayer } from "@vite-hub/ui";
 ```
 
 ## Usage
@@ -65,6 +65,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - `?comment=<n>` in the URL opens thread `n` when the page loads.
 - Type `@` to mention a person. The client's `users` call finds people. Names that start with your text come first, then names with a later word that starts with it. Accents and case do not count, so `@jose` finds José. People who already wrote in the thread come first. You are never in the list.
 - In the mention menu, arrow keys move, `Enter` or `Tab` picks, and `Esc` closes only the menu. `Shift+Enter` still breaks the line.
+- When `@` and two or more letters find no one, the menu shows one line instead of a list: "No one by that name can be mentioned here.", or "Could not load people." when the lookup fails. The composer logs the error with `console.warn`. The line is not an option, so `Enter` and `Tab` do not pick it. After a space, the menu stays closed, because the text is then more likely a sentence.
 - A posted message shows each mention as a chip. A mention of you has another color.
 - Paste, drop, or pick files when the app gives an `upload` function. See [Attachments](#attachments).
 - Select text, then press `C`: the comment is about that text.
@@ -73,6 +74,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
+- A thread opens in a small card, as in Drop: 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -140,6 +142,50 @@ comments.people.value; // The people that the state knows, for mention names.
 | `subjectUrl` | The page URL of a subject, for thread links. Page subjects use their id as the path. Other subjects link to the current page unless you give it. |
 | `autoStart` | Load threads and listen for keys on mount. Default `true`. When `false`, call `start()` yourself. |
 | `can` | What the user may do in a thread. See [Permissions](#permissions). |
+| `visibility` | `"all"` or `"hidden"`. Default `"all"`. Pass a ref to keep the reader's choice. See [Hide comments](#hide-comments). |
+| `flashMs` | How long a comment just sent shows while comments are hidden. Default `2500`. |
+
+## Hide comments
+
+A reader can hide the comments on the page and still write them. Set `visibility` to `"hidden"`. Pins, areas, and highlights then show only:
+
+- the open thread, such as one opened from the list,
+- the comment being written,
+- a comment or reply just sent, for `flashMs`. Then it pops out: it shrinks and fades in 180 ms, or only fades under `prefers-reduced-motion`.
+
+Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
+
+```ts fragment
+import { useComments } from "@vite-hub/ui/headless";
+import { ref, watch } from "vue";
+
+const visibility = ref(localStorage.getItem("comments") === "hidden" ? "hidden" : "all");
+watch(visibility, (value) => localStorage.setItem("comments", value));
+
+const comments = useComments({ client, subject, visibility });
+comments.shown.value; // The ids of the threads of this page that get a pin.
+comments.leaving.value; // The ids that just stopped showing, for their pop-out.
+comments.flash(id); // Show a thread for a moment. send(), create(), and reply() do it.
+```
+
+`CommentPanel` keeps its selected thread’s page marks visible while comments are hidden, without opening a page popover. Returning to the list or unmounting the panel releases that exception. Custom panels can call `const release = comments.retainMark(id)` and call `release()` when they close or switch threads; active flashes keep their own timers.
+
+`CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
+
+To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
+
+```ts fragment
+import { createCommentVisibility } from "@vite-hub/ui/headless";
+
+const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500 });
+visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
+visibility.open(threadId); // The open thread shows. open(null) closes it.
+visibility.flash(sent.id); // A comment just sent shows for flashMs.
+visibility.set("all"); // Every comment shows again.
+visibility.stop(); // Clears the timers.
+```
+
+`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last 180 ms. `isShown(id)` answers for one id.
 
 ## Side panel
 
@@ -223,6 +269,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `accept` limits the file types, such as `image/*`.
 - A new comment needs text unless you set `allowEmpty`. A reply can send files without text.
 - `v-model:files` lets the parent clear the files after a send.
+- In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
@@ -262,10 +309,11 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: upload
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
 | `CommentComposer` | `extra` | | Above the text field, such as a suggested-change field. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
+| `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
 
-`CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra` and `mention-item` to its page box.
+`CommentThread` passes `body`, `attachments`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 
 ::example{name="CommentThreadSlotsExample" height=8}
 ::
@@ -296,7 +344,64 @@ Or set the tokens on your own class:
 
 `--vh-comment-mention-bg` and `--vh-comment-mention-self-bg` set mention chip colors.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
+
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so an area shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
+
+## Comment marks without Vue
+
+`@vite-hub/ui/comment-marks.css` draws the pins, the areas, and the text highlights of comments with plain CSS. `styles.css` includes it, so `CommentLayer` needs nothing more. A page or a frame without Vue loads it on its own and sets data attributes. It works in the page and in a shadow root:
+
+```ts
+import marks from "@vite-hub/ui/comment-marks.css?raw";
+
+const host = document.createElement("page-comments");
+const root = host.attachShadow({ mode: "open" });
+root.innerHTML = `<style>${marks}</style>`;
+// The highlights draw on the page's own text, so the page needs the file too.
+document.head.append(Object.assign(document.createElement("style"), { textContent: marks }));
+```
+
+| Element | Attributes | Look |
+| --- | --- | --- |
+| `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
+| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px blue line at half strength with no fill. Active is full blue with a tint, resolved is dashed and grey, and a draft is 2px with a fill. |
+| `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
+| A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
+
+Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
+
+```ts fragment
+CSS.highlights.set("vh-comment", new Highlight(...openRanges));
+CSS.highlights.set("vh-comment-resolved", new Highlight(...resolvedRanges));
+CSS.highlights.set("vh-comment-active", new Highlight(activeRange));
+CSS.highlights.set("vh-comment-draft", new Highlight(draftRange));
+```
+
+The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
+
+## Sizes
+
+`CommentThread` and `CommentComposer` take `size`. The default, `md`, fits a side panel. `sm` fits a small card that floats over the page:
+
+- The thread text is 14px on a 1.5 line, and the rows are tighter.
+- The name and the time of a message share a baseline.
+- With a mouse, Edit and Delete show over the end of the name's row on hover, so the text uses the full width of the card. A touch screen keeps them in their own column.
+- The reply box is shorter, its buttons are 28px, and a focused box shows its edge without the 3px halo.
+
+A thread passes its size on to its messages, its reply box, and its edit box. For a one-line box for a new comment, use `layout="row"` with `size="sm"`.
+
+::example{name="CommentThreadSizeExample" height=8}
+::
+
+```vue
+<template>
+  <CommentThread :thread :user size="sm" />
+  <CommentComposer layout="row" size="sm" :attachments="false" />
+</template>
+```
+
+`data-size` is on `comment-thread`, `comment-reply`, and `comment-composer`, so a stylesheet can change one size only.
 
 ## Anchors
 
@@ -310,11 +415,12 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 
 - A pin is a button. Its label has the number, author, and start of the comment, such as "Comment 3 by Ana Ruiz: Make this bigger", and says when the thread is resolved. `aria-expanded` shows if its thread is open.
 - An open thread is a `dialog` named "Comment 3". Opening it moves focus into it. Closing it returns focus to its pin, unless the reader moved focus elsewhere.
-- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`.
+- The composer has a label. Its box is a `combobox`. While the mention menu is open, the box has `aria-expanded="true"`, `aria-controls`, and `aria-activedescendant`. The menu is a `listbox`. A menu with no one to show is a `status` with one line and no options, so the box keeps `aria-expanded="false"`.
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
-- Under `prefers-reduced-motion` the composer does not shake. Its border flashes.
+- Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
+- A pin that stops showing is `inert` during its pop-out.
 
 ## API Reference
 
@@ -340,6 +446,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
+| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
 
 ### CommentPin
 
@@ -389,6 +496,7 @@ Handlers may return a promise, and the thread waits for it. The reply box clears
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `navigation` | `"close" \| "back"` | `"close"` | `"back"` shows Back at the start of the header instead of Close. Both emit `close`. |
 | `dismissible` | `boolean` | `true` | A click outside the thread closes it. Turn it off in a panel. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` is a compact thread for a small floating card. See [Sizes](#sizes). |
 | `onReply` | `(body: string, mentions: string[], files: File[]) => void \| Promise<unknown>` | | Sends a reply. |
 | `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | | Saves an edited message. |
 | `onDelete` | `(messageId: string) => void \| Promise<unknown>` | | Deletes a message. Deleting the first message deletes the thread, after a confirmation. |
@@ -411,7 +519,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 | `anchor` | `{ thread }` | What the thread is about. Replaces the selected-text quote. |
 | `after` | `{ thread }` | Below the messages, above the reply box. |
 | `body`, `attachments` | `{ message }` | Passed on to each `CommentReply`. |
-| `extra`, `mention-item` | | Passed on to the reply box. |
+| `extra`, `mention-item`, `mention-empty` | | Passed on to the reply box. |
 
 ### CommentReply
 
@@ -429,6 +537,7 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | `deletable` | `boolean` | | Show Delete when `onDelete` is given. Defaults to `editable`. |
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
 | `confirmDelete` | `boolean` | `false` | Confirm before Delete. Threads set it on the first message. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` sets 14px text and shows Edit and Delete over the end of the name's row. Threads pass on their size. |
 | `people` | `CommentUser[]` | `[]` | People the message may mention, so edits keep their mentions and the body shows chips. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions` while editing. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
@@ -442,10 +551,11 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 | `body` | `{ message }` | Replaces the Markdown body. |
 | `attachments` | `{ message }` | Replaces the default attachment list. |
 | `mention-item` | `{ person, active }` | Passed on to the edit box. |
+| `mention-empty` | `{ query, failed }` | Passed on to the edit box. |
 
 ### CommentComposer
 
-The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"` and `data-layout`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"`, `data-layout`, and `data-size`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -468,6 +578,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `accept` | `string` | | File types to take, like a file input's `accept`. |
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
 | `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
+| `size` | `"sm" \| "md"` | `"md"` | `sm` is a shorter field with smaller buttons, and its focus edge has no halo. See [Sizes](#sizes). |
 
 #### Events
 
@@ -485,6 +596,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | --- | --- | --- |
 | `extra` | | Above the text field, such as a suggested-change field. |
 | `mention-item` | `{ person, active }` | One person of the mention menu. `active` is true for the person the arrow keys are on. |
+| `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. `query` is the text after `@`. `failed` is true when the lookup failed. |
 
 The component exposes `focus()` and `shake()`.
 
@@ -523,7 +635,7 @@ The thread list, one thread, and a page box in one surface. Renders a `section` 
 
 #### Slots
 
-Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also go to the page box.
+Every slot of [CommentThread](#commentthread). `extra`, `mention-item`, and `mention-empty` also go to the page box.
 
 | Slot | Scope | Description |
 | --- | --- | --- |

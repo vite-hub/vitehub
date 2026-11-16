@@ -1,7 +1,7 @@
 import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
-import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
@@ -41,8 +41,7 @@ function isString(value: unknown): value is string {
 
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   let decoded: string
   try {
     const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
@@ -50,21 +49,17 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
   }
   catch {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  if (encodeBase64Url(decoded) !== cursor) throw blobErrors.BLOB_INVALID_CURSOR()
   let parsed: unknown
   try {
     parsed = JSON.parse(decoded)
   }
   catch {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
+  if (!isPlainObject(parsed)) throw blobErrors.BLOB_INVALID_CURSOR()
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
     !isNumber(index)
@@ -73,8 +68,7 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
     || (providerCursor !== undefined && !isString(providerCursor))
     || (providerCursorHistory !== undefined && (!Array.isArray(providerCursorHistory) || !providerCursorHistory.every(isString)))
   ) {
-    // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-    throw new TypeError("Invalid Blob cursor.")
+    throw blobErrors.BLOB_INVALID_CURSOR()
   }
   return {
     index,
@@ -122,6 +116,7 @@ async function signRequest(client: FilesInstance, driver: string, pathname: stri
   }
   if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
   if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.maxSize !== undefined) throw unsupportedSign(driver, "the provider cannot bind `maxSize`")
   if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
   const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
   if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")
@@ -152,26 +147,26 @@ async function getUploadUrl(client: FilesInstance, pathname: string): Promise<st
 
 export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
   options: TOptions,
-  createAdapter: (options: TOptions, putOptions?: BlobPutOptions) => Adapter | Promise<Adapter>,
+  createAdapter: (options: TOptions) => Adapter | Promise<Adapter>,
   FilesConstructor?: FilesCtor,
 ): BlobDriverAdapter<TOptions> {
   let filesPromise: Promise<FilesInstance> | undefined
 
-  async function createFiles(putOptions?: BlobPutOptions) {
+  async function createFiles() {
     const Files = FilesConstructor ?? await loadFiles()
-    return new Files({ adapter: await (putOptions ? createAdapter(options, putOptions) : createAdapter(options)) }) as FilesInstance
+    return new Files({ adapter: await createAdapter(options) }) as FilesInstance
   }
 
-  async function files(putOptions?: BlobPutOptions) {
-    if (putOptions?.access && options.driver === "vercel" && putOptions.access !== options.access) {
-      return await createFiles(putOptions)
-    }
-
-    filesPromise ||= createFiles()
+  async function files() {
+    // A failed creation lets the next call try again.
+    filesPromise ||= createFiles().catch((error: unknown) => {
+      filesPromise = undefined
+      throw error
+    })
     return await filesPromise
   }
 
-  return {
+  const driver: BlobDriverAdapter<TOptions> = {
     name: options.driver,
     options,
     async delete(pathnames) {
@@ -253,8 +248,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           })
 
           if (start > 0 && start >= result.items.length) {
-            // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-            throw new TypeError("Invalid Blob cursor.")
+            throw blobErrors.BLOB_INVALID_CURSOR()
           }
 
           let consumed = start
@@ -312,8 +306,20 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         hasMore: Boolean(result.cursor),
       }
     },
+    // The provider copies the object on its side, with its content type and metadata.
+    async copy(from, to) {
+      try {
+        await (await files()).copy(from, to)
+      }
+      catch (error) {
+        // Providers report a missing source in different ways. Azure wraps the source 404 in `CannotVerifyCopySource`.
+        if (isNotFound(error) || !await driver.head(from)) return null
+        throw error
+      }
+      return await driver.head(to)
+    },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const client = await files(putOptions)
+      const client = await files()
       const uploadOptions = {
         contentLength: putOptions.contentLength,
         contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
@@ -332,4 +338,5 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
+  return driver
 }

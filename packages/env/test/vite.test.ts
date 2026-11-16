@@ -166,7 +166,7 @@ describe("Vite plugin", () => {
     const declarations = {
       public: {
         mode: env.enum(["draft", "send"], { default: "draft", mode: "build" }),
-        label: env({ default: "label", mode: "build", optional: true, type: "string | undefined" }),
+        label: env({ default: "label", mode: "build", type: "string | undefined" }),
         settings: env({
           default: { enabled: true },
           mode: "build",
@@ -435,7 +435,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): ServerEnv")
-    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/internal/server\").ViteHubContext): Promise<string>")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, options?: { event?: import(\"@vite-hub/env/internal/server\").ViteHubContext; root?: string }): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = hookHandler<(id: string) => string | undefined>(plugin.load)

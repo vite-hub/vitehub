@@ -2,9 +2,10 @@ import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins";
 import type { SecondaryStorage } from "better-auth";
 import { defineAuth, createDatabaseAuthEventStore } from "../../src/index.ts";
-import { createBetterAuthOptions, getAuthForDefinition } from "../../src/server.ts";
+import { createBetterAuthOptions, getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
 import { eventDatabase } from "../event-helpers.ts";
+import { defineFixedAuth } from "../fixed-auth.ts"
 
 type AuthDefinitionPlugins = NonNullable<Parameters<typeof defineAuth>[0]>["plugins"];
 
@@ -18,16 +19,14 @@ export async function consoleEventsFixture(options: {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });
   const origin = "http://localhost:5173";
-  const definition = defineAuth({
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: options.plugins ?? [admin()],
     events: { store },
-    runtime: {
-      database: database.sqlite,
-      ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
-      secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-    },
+    database: database.sqlite,
+    ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
+    secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
   });
   try {
     await (await getMigrations(createBetterAuthOptions(definition))).runMigrations();

@@ -38,6 +38,17 @@ export function consolePreviewUrl(url: string | undefined, origin: string): URL 
   }
 }
 
+/**
+ * The pull request preview link of a publish for one document, as a URL that this Console can open. Content returns a
+ * path when the app has no `seo.site`, and a path needs the app origin, so a Console on another origin gets undefined.
+ */
+export function consolePublishPreviewUrl(previews: ReadonlyArray<{ id: string, url: string }> | undefined, id: string | undefined, origin: string | undefined): string | undefined {
+  const preview = previews?.find(entry => entry.id === id) ?? previews?.[0]
+  if (!preview || !URL.canParse(preview.url, origin)) return
+  const url = new URL(preview.url, origin)
+  return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined
+}
+
 /** The form action of a draft view: the page URL with the preview parameter. The parameter alone grants nothing. */
 export function consolePreviewFormAction(url: URL, parameter: string): string {
   const action = new URL(url)

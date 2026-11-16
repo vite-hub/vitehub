@@ -1,5 +1,6 @@
+import { invariant } from '@vite-hub/internal/invariant'
 import { createImportPath } from '@vite-hub/internal/build/paths'
-import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
+import { hostFromNitroPreset } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
@@ -20,6 +21,7 @@ import { extractSandboxTaskDefinitionMetadata } from './definition-options'
 import { getSandboxTaskFeatureDriver } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
+import { resolveCloudflareSandboxTaskInstanceType, resolveVercelSandboxTaskVcpus } from './size'
 import { createSandboxTaskTypeTemplateContents } from './type-template'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
@@ -197,7 +199,7 @@ export function resolveSandboxTaskFeatureConfig(sandboxTaskConfig: AgentSandboxT
     } as AgentSandboxTaskConfig
   }
 
-  const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
+  const unsupportedHostedProvider = hostFromNitroPreset(hosting)
   if (unsupportedHostedProvider) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandboxTask.driver` is required.' })
   }
@@ -273,12 +275,20 @@ export async function createSandboxTaskFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxTaskProviderLoaderTarget(defaultProviderName, deps)
+  // Reject a size that the driver cannot give at build time, not at the first run.
+  if (defaultProvider?.driver === 'cloudflare')
+    resolveCloudflareSandboxTaskInstanceType(defaultProvider)
+  else if (defaultProvider?.driver === 'vercel')
+    resolveVercelSandboxTaskVcpus(defaultProvider)
   const cloudflareOptions = defaultProvider?.driver === 'cloudflare'
     ? {
         binding: typeof defaultProvider.binding === 'string' ? defaultProvider.binding : defaultCloudflareSandboxBinding,
         className: typeof defaultProvider.className === 'string' ? defaultProvider.className : defaultCloudflareSandboxClassName,
         migrationTag: typeof defaultProvider.migrationTag === 'string' ? defaultProvider.migrationTag : defaultCloudflareSandboxMigrationTag,
         name: typeof defaultProvider.name === 'string' ? defaultProvider.name : undefined,
+        cpu: defaultProvider.cpu,
+        memory: defaultProvider.memory,
+        maxInstances: defaultProvider.maxInstances,
       }
     : undefined
 
@@ -299,8 +309,7 @@ export async function createSandboxTaskFeaturePlan(
         getContents(emitted, location) {
           return createSandboxTaskRegistryContents(location.dst, sandboxTaskDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
-            if (!artifact)
-              throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0014({ message: `[vitehub] Missing generated sandbox definition module for "${definition.name}".` })
+            invariant(artifact, `the Sandbox Task plan emits the Definition artifact of "${definition.name}" before the registry artifact`)
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,
@@ -312,7 +321,8 @@ export async function createSandboxTaskFeaturePlan(
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-task-provider-loader',
-            filename: 'runtime/sandbox-task-provider-loader.mjs',
+            // Nitro resolves its aliases to real paths once at startup, so this file stays outside the runtime generations.
+            filename: 'sandbox-task-provider-loader.mjs',
             contents: createSandboxTaskProviderLoaderContents(providerLoaderTarget),
           }]
         : []),

@@ -7,11 +7,12 @@ import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVSetOptions, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
+import { createKVLock } from "./lock.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -38,7 +39,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING")
+  const explicit = readEnv(env, "VITEHUB_HOST")
   if (explicit) {
     return explicit
   }
@@ -103,6 +104,17 @@ async function resolveStorage(name = "default") {
   return promise
 }
 
+/**
+ * The configured driver that a store uses in this server process. App tests return `fs-lite`.
+ * An unknown store throws. Reading the driver does not open a connection to the store.
+ */
+export async function getKVStoreDriver(name: KVStoreName = "default"): Promise<KVDriver> {
+  const config = await resolveHostedConfig()
+  const store = resolveHostedKVStore(config.kv, name)
+  if (getViteHubTestMode()) return "fs-lite"
+  return store.driver
+}
+
 async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   operation: KVOperation,
   name: string,
@@ -114,10 +126,22 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   return kvResult(operation, name, () => run(storage), codes)
 }
 
+// JavaScript callers can pass any object, so the runtime checks what the `KVSetOptions` type allows.
+function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSetOptions | undefined): number | undefined {
+  if (options === undefined) return
+  for (const option of Object.keys(options)) {
+    if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
+  }
+  const ttl: unknown = options.ttl
+  if (ttl === undefined) return
+  if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl))) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return ttl
+}
+
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
       return runKVOperation("deleteIfEquals", name, async (storage) => {
         if (!storage.deleteIfEqualsItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "deleteIfEquals", store: name })
@@ -131,6 +155,7 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
+    async getMany(keys, options) { return runKVOperation("getMany", name, storage => storage.getMany(keys, options), kvKeyLimitCodes) },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
@@ -140,18 +165,28 @@ function createKVStorage(name = "default"): KVStorage {
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
+    lock(key, options) { return createKVLock(name, () => resolveStorage(name), key, options) },
     async list(options) {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
-    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
+    async set(key, value, options) {
+      return runKVOperation("set", name, async (storage) => {
+        const ttl = readSetTTL("set", options)
+        return storage.setItem(key, value, ttl === undefined ? undefined : { ttl })
+      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+    },
+    async setMany(entries, options) {
+      return runKVOperation("setMany", name, async (storage) => {
+        const ttl = readSetTTL("setMany", options)
+        return storage.setMany(entries, ttl === undefined ? undefined : { ttl })
+      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+    },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
-        const ttl = options?.ttl
-        if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl)))) throw kvErrorDiagnostics.KV_INVALID_TTL()
-        return storage.setIfAbsentItem(key, value, ttl)
-      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
+        return storage.setIfAbsentItem(key, value, readSetTTL("setIfAbsent", options))
+      }, ["KV_INVALID_OPTION", "KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     store: selectKVStore,
   }

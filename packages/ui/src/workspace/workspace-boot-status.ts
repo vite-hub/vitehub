@@ -2,7 +2,7 @@ import type { WebContainerStage, WebContainerStep } from "@vite-hub/web-containe
 import { computed, defineComponent, h, onBeforeUnmount, type PropType, ref, watch } from "vue";
 import { formatDuration } from "../internal/format.ts";
 import { icon } from "./icons.ts";
-import type { WorkspaceFailure, WorkspaceStatus } from "./use-workspace.ts";
+import type { UseWebContainerStatus, WebContainerFailure } from "@vite-hub/web-container/vue";
 
 type ChecklistStage = Extract<WebContainerStage, "checking" | "booting" | "mounting" | "installing" | "starting">;
 export type BootStepState = "pending" | "running" | "done" | "failed" | "skipped";
@@ -27,7 +27,7 @@ export interface BootStepView {
 }
 
 /** Maps the steps of `@vite-hub/web-container` to the five rows of the checklist. */
-export function bootChecklist(steps: readonly WebContainerStep[], status: WorkspaceStatus, now: number): BootStepView[] {
+export function bootChecklist(steps: readonly WebContainerStep[], status: UseWebContainerStatus, now: number): BootStepView[] {
   const failed = status === "error" || status === "unsupported";
   const last = [...steps].reverse().find(step => step.stage !== "error" && step.stage !== "unsupported" && step.stage !== "ready");
   const reached = last ? checklist.findIndex(row => row.stage === last.stage) : -1;
@@ -56,7 +56,7 @@ const stateText: Record<BootStepState, string> = {
   skipped: "Skipped",
 };
 
-function failureCopy(failure: WorkspaceFailure): { title: string, body: string } {
+function failureCopy(failure: WebContainerFailure): { title: string, body: string } {
   switch (failure.kind) {
     case "install":
       return { body: failure.exitCode === undefined ? failure.error.message : `npm install exited with code ${failure.exitCode}. The output shows which package failed.`, title: "Install failed" };
@@ -76,9 +76,9 @@ function failureCopy(failure: WorkspaceFailure): { title: string, body: string }
 export const WorkspaceBootStatus = defineComponent({
   name: "WorkspaceBootStatus",
   props: {
-    status: { required: true, type: String as PropType<WorkspaceStatus> },
+    status: { required: true, type: String as PropType<UseWebContainerStatus> },
     steps: { default: () => [], type: Array as PropType<readonly WebContainerStep[]> },
-    failure: { default: undefined, type: Object as PropType<WorkspaceFailure> },
+    failure: { default: undefined, type: Object as PropType<WebContainerFailure> },
     online: { default: true, type: Boolean },
   },
   emits: {

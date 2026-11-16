@@ -7,13 +7,13 @@ navigation.group: Chat bots
 icon: i-lucide-bot
 ---
 
-Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` preset. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
+Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
 
 ## What a ViteHub Discord bot is
 
 A [Discord bot](https://discord.com/developers/docs/intro) is the bot user of a Discord application. Discord does not send chat messages to a webhook. A bot gets them through the [Gateway](https://discord.com/developers/docs/events/gateway), a WebSocket that stays open. The HTTP interactions endpoint gets only slash commands, buttons, and other interactions.
 
-In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent: a way for messages to reach it. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` preset, a Nitro plugin opens the Gateway at server start, reopens it every 9 minutes, and closes it at stop. Each accepted message starts one Agent run (Invocation). In a server channel, the answer goes in a thread.
+In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent: a way for messages to reach it. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` host, a Nitro plugin opens the Gateway at server start, reopens it every 9 minutes, and closes it at stop. Each accepted message starts one Agent run (Invocation). In a server channel, the answer goes in a thread.
 
 ## Create the Discord application
 
@@ -35,7 +35,7 @@ pnpm add @chat-adapter/discord
 
 Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -43,7 +43,7 @@ Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -60,7 +60,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -78,7 +78,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -88,7 +88,7 @@ export default defineConfig({
 :::
 ::
 
-The `node` preset starts the Gateway listener in the server process. `workflow: false` runs each reply inline in that process.
+The `node` host starts the Gateway listener in the server process. `workflow: false` runs each reply inline in that process.
 
 ### Define the Agent
 
@@ -162,7 +162,7 @@ If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener f
 
 ## Deploy the bot
 
-Deploy the `node` preset to a server or container that runs all the time. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+Deploy the `node` host to a server or container that runs all the time. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -180,7 +180,7 @@ Run one server process for the bot, because each process opens its own Gateway c
 
 ## Serverless hosts
 
-A serverless function cannot keep the Gateway open, so the listener starts only on the `node` preset. You can generate a wake route instead:
+A serverless function cannot keep the Gateway open, so the listener starts only on the `node` host. You can generate a wake route instead:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -188,7 +188,7 @@ A serverless function cannot keep the Gateway open, so the listener starts only 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     agent: { routes: { discordGateway: true } },
   },
 })
@@ -204,7 +204,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       agent: { routes: { discordGateway: true } },
     }),
     nitro(),
@@ -221,7 +221,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       agent: { routes: { discordGateway: true } },
     }),
   ],
@@ -232,7 +232,7 @@ export default defineConfig({
 
 This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/api/_vitehub/agents/<agent>/webhooks/discord`.
 
-ViteHub does not call this route. Call it on a timer that overlaps the listener time, and the host must let the function run that long. Many serverless plans stop it sooner, and we have no deployed test of this path. For an always-online bot, use the `node` preset. There, `routes.discordGateway` adds no route, because the server process owns the listener.
+ViteHub does not call this route. Call it on a timer that overlaps the listener time, and the host must let the function run that long. Many serverless plans stop it sooner, and we have no deployed test of this path. For an always-online bot, use the `node` host. There, `routes.discordGateway` adds no route, because the server process owns the listener.
 
 ## Limits
 

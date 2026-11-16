@@ -30,12 +30,13 @@ describe("feature catalog parity with owner resolution", () => {
   it.each(presets)("preserves the %s preset for development Workflow", (preset) => {
     const hosting = resolveDeploymentPlan(preset).nitroPreset
     const support = featureSupport("workflow", "dev", preset)
+    // `vite dev` runs Workflows inline when the host has no inferable provider.
     if (support.level === "explicit") {
-      expect(() => normalizeWorkflowOptions({}, { hosting })).toThrow(/workflow.driver/)
+      expect(() => normalizeWorkflowOptions({}, { hosting, inline: true })).toThrow(/workflow.driver/)
       return
     }
     expect(support.level).toBe("native")
-    if (support.level === "native") expect(support.driver).toBe(normalizeWorkflowOptions({}, { hosting })?.driver)
+    if (support.level === "native") expect(support.driver).toBe(normalizeWorkflowOptions({}, { hosting, inline: true })?.driver)
   })
 
   it.each(presets)("preserves the %s Deployment Plan for development Queue and Sandbox", (preset) => {
@@ -44,7 +45,8 @@ describe("feature catalog parity with owner resolution", () => {
       const support = featureSupport(id, "dev", preset)
       const policy = plan.services[service]
       if (!policy.supported) {
-        expect(support.level, id).toBe("unsupported")
+        // A host without a Sandbox takes an explicit Vercel provider.
+        expect(support.level, id).toBe(id === "sandboxTask" && preset === "netlify" ? "explicit" : "unsupported")
         continue
       }
       expect(support, id).toMatchObject({ driver: policy.driver, level: "native" })

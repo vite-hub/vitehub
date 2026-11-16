@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { authDatabase } from "../src/database.ts"
 
-vi.mock("@vite-hub/database/drizzle", () => ({ databases: {} }))
+vi.mock("@vite-hub/database/runtime/registry", () => ({ databases: {} }))
 
 describe("owned Database adapter validation", () => {
   it.each(["user", "session", "account", "verification"] as const)("rejects %s additional fields before looking up the Database", (model) => {

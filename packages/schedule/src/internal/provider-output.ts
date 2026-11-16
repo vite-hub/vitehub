@@ -20,7 +20,7 @@ import { getVercelSchedulePath } from "../integrations/vercel.ts"
 import { utcCronForTimeZone } from "./time-zone-cron.ts"
 
 import type { Plugin } from "esbuild"
-import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
@@ -76,7 +76,7 @@ interface GenerateProviderOutputsOptions {
   crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
   /** The host this build targets. Schedule writes wake output only for it, and for every host when it is `undefined`. */
-  host?: DeploymentPreset
+  host?: ViteHubHost
   rootDir: string
   runtimeImport?: string
   retainedSourcesDir?: string
@@ -989,7 +989,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
     const timeZoneCrons = readTimeZoneCrons(artifacts.definitions, options.cron)
     // Other hosts get the same cleanup as a build without Schedules, so their stale Schedule output goes away.
-    const hostDefinitions = (host: DeploymentPreset) => options.host === undefined || options.host === host ? artifacts.definitions : []
+    const hostDefinitions = (host: ViteHubHost) => options.host === undefined || options.host === host ? artifacts.definitions : []
     options.signal?.throwIfAborted()
     if (hostDefinitions("deno").length > 0) {
       const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`

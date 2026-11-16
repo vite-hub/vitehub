@@ -1,0 +1,257 @@
+/*
+ * The default style family of ViteHub UI: ui-sdk's own stylesheet, the shadcn tokens of `tokens.css` mapped onto its
+ * `--ui-*` variables, the ViteHub look, and the rules for the kit's TagsInput, which ui-sdk does not have. The build
+ * replaces the web.css import with the file itself, with the workspace patch (`patches/@ui-sdk__core@*.patch`).
+ *
+ *   @import "@vite-hub/kit/styles/tokens.css";
+ *   @import "@vite-hub/kit/styles/default.css";
+ *
+ * Load it only in apps without Nuxt UI. web.css styles plain `a`, `kbd`, and `button`, shares `data-slot` names with
+ * Nuxt UI, and reads `--ui-radius` as the whole radius where Nuxt UI reads it as the base step, so the two restyle each
+ * other.
+ */
+
+@import "@ui-sdk/core/web.css";
+
+/* On `.dark` and `[data-theme="dark"]` too, so a dark subtree reads its own tokens and not the page's. */
+:root,
+.dark,
+[data-theme="dark"] {
+  --ui-background: var(--background);
+  --ui-foreground: var(--foreground);
+  --ui-muted: var(--muted);
+  --ui-muted-foreground: var(--muted-foreground);
+  --ui-border: var(--border);
+  --ui-input: var(--input);
+  --ui-primary: var(--primary);
+  --ui-primary-foreground: var(--primary-foreground);
+  --ui-destructive: var(--destructive);
+  /* The ViteHub focus: a 2px ring in `--ring`, 2px outside the part. Text fields turn their own frame blue instead. */
+  --ui-ring: var(--ring);
+  --ui-ring-border: var(--ring);
+  --ui-ring-width: 2px;
+  --ui-ring-offset: 2px;
+  --ui-overlay: var(--overlay);
+  /* `--radius` is the base step: 6px controls, 12px menus, popovers, and dialogs. */
+  --ui-radius: calc(var(--radius) * 1.5);
+  --ui-radius-popup: calc(var(--radius) * 3);
+  --ui-font-size: 0.875rem;
+  --ui-font-sans: var(--font-sans);
+  --ui-font-mono: var(--font-mono);
+}
+
+/* web.css has no page base. It has no specificity, so any app rule wins. */
+:where(html) {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+@layer ui-sdk {
+  /* A text field turns its own frame blue on focus: the border and a 1px shadow, with no ring outside. */
+  :is(
+    [data-slot="input"],
+    [data-slot="textarea"],
+    [data-slot="combobox-input"],
+    [data-slot="autocomplete-input"],
+    [data-slot="trigger-menu-input"],
+    [data-slot="select-trigger"],
+    [data-slot="date-picker-input"],
+    [data-slot="otp-input-slot"],
+    [data-slot="color-picker-input"],
+    [data-slot="color-picker-channel-input"],
+    [data-slot="token-input-editor"],
+    [data-slot="number-input-control"]
+  ):not([data-slot="input-group"] > *):focus-visible,
+  :is(
+    [data-slot="date-input"],
+    [data-slot="time-input"],
+    [data-slot="password-input"],
+    [data-slot="input-group"],
+    [data-slot="tags-input"]
+  ):has(:focus-visible) {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 1px var(--ring);
+    outline: none;
+  }
+
+  /* The input group draws the frame, so its input has none, and web.css's ring around the group goes. */
+  [data-slot="input-group"]:has(> [data-slot="input"]:focus-visible) {
+    outline: none;
+  }
+
+  /* An open select keeps its border; only focus turns it blue. */
+  [data-slot="select-trigger"][data-open]:not(:focus-visible) {
+    border-color: var(--ui-input);
+  }
+
+  /* A 1px line under the active tab. */
+  [data-slot="tabs-tab"] {
+    border-bottom-width: 1px;
+  }
+
+  /* Items in a list that clips its overflow keep the ring inside. */
+  :is(
+    [data-slot="tabs-tab"],
+    [data-slot="accordion-trigger"],
+    [data-slot="segmented-control-item"],
+    [data-slot="calendar-day"],
+    [data-slot="scroll-area-viewport"],
+    [data-slot="navigation-menu-content"] [data-slot="navigation-menu-link"]
+  ):focus-visible {
+    outline-offset: calc(var(--ui-ring-width) * -1);
+  }
+
+  /* Popups float on a 1px ring and a soft shadow, with no border. `--popover` is translucent over a blurred page. */
+  :is(
+    [data-slot="menu-content"],
+    [data-slot="select-content"],
+    [data-slot="combobox-content"],
+    [data-slot="autocomplete-content"],
+    [data-slot="trigger-menu-content"],
+    [data-slot="popover-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="navigation-menu-viewport"],
+    [data-slot="date-picker-content"]
+  ) {
+    border-width: 0;
+    background: var(--popover);
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-popover);
+    color: var(--popover-foreground);
+  }
+
+  :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+    border-width: 0;
+    box-shadow: var(--shadow-dialog);
+  }
+
+  [data-slot="toast"] {
+    border-width: 0;
+    box-shadow: var(--shadow-popover);
+  }
+
+  [data-slot="command-item-icon"] {
+    color: var(--ui-muted-foreground);
+  }
+
+  /* The selected tree row shows its fill only, in the normal weight. */
+  [data-slot="tree-label"]:is([data-selected], [data-current]) {
+    font-weight: inherit;
+  }
+
+  /* A toggle icon marked `data-variant="fill"`, such as a star, fills while the toggle is pressed. */
+  [data-slot="toggle"][data-pressed] [data-slot="toggle-icon"][data-variant="fill"] svg {
+    fill: currentColor;
+  }
+
+  /* Cards are 8px. */
+  [data-slot="waterfall"] {
+    border-radius: calc(var(--radius) * 2);
+  }
+
+  /* An icon-only close button in a dialog or a drawer sits in the top end corner, as in shadcn. */
+  :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="drawer-content"])
+    > :is([data-slot="dialog-close"], [data-slot="alert-dialog-close"], [data-slot="drawer-close"])[aria-label]:has(> svg:only-child) {
+    position: absolute;
+    inset-block-start: calc(var(--ui-spacing) * 3);
+    inset-inline-end: calc(var(--ui-spacing) * 3);
+    width: calc(var(--ui-spacing) * 7);
+    height: calc(var(--ui-spacing) * 7);
+    border-color: transparent;
+    background: transparent;
+    color: var(--ui-muted-foreground);
+
+    &:hover {
+      background: var(--ui-muted);
+      color: var(--ui-foreground);
+    }
+  }
+
+  [data-slot="tags-input"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--ui-spacing) * 1);
+    width: 100%;
+    min-height: calc(var(--ui-spacing) * 8);
+    padding: calc(var(--ui-spacing) * 1) calc(var(--ui-spacing) * 1.5);
+    border: 1px solid var(--ui-input);
+    border-radius: var(--ui-radius);
+    background: var(--ui-background);
+    color: var(--ui-foreground);
+    font-size: var(--ui-font-size);
+
+    &:has(:focus-visible) {
+      border-color: var(--ui-ring-border);
+      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+    }
+
+    &[data-invalid] {
+      border-color: var(--ui-destructive);
+    }
+
+    &[data-disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  [data-slot="tags-input-item"] {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--ui-spacing) * 1);
+    height: calc(var(--ui-spacing) * 5.5);
+    padding-inline: calc(var(--ui-spacing) * 1.5) 2px;
+    border: 1px solid var(--ui-input);
+    border-radius: calc(var(--ui-radius) / 2);
+    background: var(--ui-muted);
+    font-size: calc(var(--ui-font-size) - 0.0625rem);
+    white-space: nowrap;
+
+    &[data-highlighted] {
+      border-color: var(--ui-foreground);
+    }
+  }
+
+  :is([data-slot="tags-input-item-delete"], [data-slot="tags-input-clear"]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ui-muted-foreground);
+    font: inherit;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ui-foreground);
+    }
+
+    &[data-disabled] {
+      display: none;
+    }
+  }
+
+  [data-slot="tags-input-input"] {
+    flex: 1;
+    min-width: 6rem;
+    height: calc(var(--ui-spacing) * 5.5);
+    padding: 0 calc(var(--ui-spacing) * 1);
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+
+    &:focus-visible {
+      outline: none;
+    }
+
+    &::placeholder {
+      color: var(--ui-muted-foreground);
+    }
+  }
+}

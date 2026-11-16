@@ -17,7 +17,9 @@ icon: i-lucide-sliders-horizontal
 | `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons in Markdown, JSON, or YAML. Each is an instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
 | `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` with no setup. See [CMS options](/docs/cms/configure#options). Not with `workspace`. |
 | `workspace` | `string` | Your own Workspace for `collections`. Required with `collections` unless `extends` sets it. It needs retained history. |
-| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that surfaces check with `content.can()`. See [Access](#access). |
+| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
+| `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
+| `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room driver. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
@@ -36,6 +38,8 @@ Plugin options are read once. Rebuild the runtime to change them.
 | Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
 | `glob()` from `vite-hub/source` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
+
+Registered names, explicit readers, and reader factories have opaque provenance: they can read a private GitHub repository using server credentials. When enabling any generated reader, set `authorize` or `access: 'public'` for these inputs, including when wrapped in `contentSource()`. To keep a local Source public without that choice, pass its direct non-GitHub definition instead. Turning off every generated reader also avoids exposure.
 
 An item's public path is its `path`, or its key. Items need `content` or `data`. ViteHub turns structured `data` into JSON before Comark parses it.
 
@@ -101,6 +105,7 @@ export default defineContent({
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to all string fields plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies can use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json' \| 'image' \| 'file', default? }`. An `image` or `file` prop opens the Media picker of `image()` and `file()` fields, limited to `store` when set. It stores the file as a string: its served URL, or its Blob pathname if the store is not served. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | Each document's public URL, such as `'/blog/:id'`. Reads return it as `document.url`. Sitemaps and canonical links use it, and [`content.resolve(path)`](#find-the-document-of-a-page) maps a page back to its document. See [Document URLs](/docs/content/seo#document-urls). |
+| `markdown` | `(page) => string \| { markdown, footer } \| null` | The [Markdown copy](/docs/content/seo#markdown-for-agents) of each page for agents, when the page needs more than its body. Needs `url`. |
 | `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default, one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without extension: `posts/hello.md` is `hello`, `posts/2026/launch.md` is `2026/launch`. The Markdown after the frontmatter is the `body`.
@@ -360,22 +365,22 @@ A runtime can combine read-only `sources` with `collections`. They share one nam
 
 ## Access
 
-`authorize` decides what a user may do with a collection. The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()`. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
+`authorize` decides what a user may do. Every reader of published Content asks it for `read` on each request: `/api/content/**`, the [SEO routes](/docs/content/seo) except `/robots.txt`, and [preview URLs](/docs/content/preview). The [Console content editor](/docs/content/console) and the [Agent Capability](/docs/content/agent-capability) call it through `content.can()` for one collection. The Agent Capability passes the Auth user behind the Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts] fragment
 export default defineContent({
   extends: cms,
   collections: { posts },
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  authorize: ({ user, action }) => action === 'read' || user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
 | Field | Value |
 | --- | --- |
-| `user` | The signed-in Auth user, or `null`. The Console passes the Console user. An Agent passes its Actor's Auth user, or `null`. |
+| `user` | The signed-in Auth user, or `null`. The route passes the ViteHub Auth session user. The Console passes the Console user. An Agent passes its Actor's Auth user, or `null`. |
 | `actor` | The Agent Invocation's Actor when an Agent calls, such as the Agent Capability. Else `undefined`. |
-| `collection` | The collection name. |
-| `action` | `read` for drafts, `write` for save, remove, and restore, or `publish`. |
+| `action` | `read` for a request to a Content reader, such as `/api/content/**` or `/llms-full.txt`, `read-draft` to open a collection and its drafts, `write` for save, remove, and restore, or `publish`. |
+| `collection` | The collection name. `undefined` for `read`, because one request can read every Source and collection. |
 | `id` | The document, if the action targets one. |
 
 One policy covers people and Agents. Check `actor` to give Agents less than their user:
@@ -387,11 +392,24 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`. `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read` on each published document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. With a policy, the readers serve only the requests that `authorize` allows for `read`, with `Cache-Control: private, no-store`. Without one, they serve everyone, as [Public access](#public-access) explains. `read-draft` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) also checks `read-draft` on each published document it shows.
 
 ::warning
 Runtime methods, such as `save()` and `publish()`, are trusted server API and skip `authorize`. Check `content.can()` before you call them from a route that acts for a user.
 ::
+
+### Public access
+
+`/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_R0006` until you choose who reads it:
+
+```diff [server/content.ts]
+ export default defineContent({
+   sources: { handbook: github({ repo: 'acme/handbook' }) },
++  authorize: ({ user, action }) => action === 'read' && Boolean(user),
+ })
+```
+
+Set `access: 'public'` when the repository is public, or `route: false` when the app reads Content only on the server and turns on no SEO route or preview. `access: 'public'` also skips `authorize` on every reader for an app that has a policy, but `authorize` still decides `read-draft`, `write`, and `publish`. Use it for a CMS site whose visitors read `/api/content/**` or `/sitemap.xml`. To serve the SEO routes to everyone without `/api/content/**`, set `route: false` and return `true` for `action: 'read'` in `authorize`. A denied request gets `401` without a user and `403` with one. `/robots.txt` names no page, so it stays public. A preview URL that a Console preview cookie or a signed link opened does not ask `authorize`.
 
 ### Sources parsed at build
 
@@ -402,6 +420,7 @@ A server build parses each `glob()` and `files()` Source once and ships the pars
 - `list()` entries carry the metadata of a full parse, such as `readingTime`, and their `meta.partial` is `false`.
 - `refresh()` parses the Source again.
 - A `glob()` whose options are not literals reads its files from disk at run time, so the server parses it.
+- A `github()` Source is parsed at build only when the build has a GitHub token. The build ships the latest commit of its branch, and the server serves it while the head of the Source is that commit. A head that moved loads its commit from KV or GitHub.
 
 The build stores the parsed documents gzipped, and the server inflates each part on its first read. The 344 pages of the ViteHub docs add about 1.5 MB to the server bundle, or 1.1 MB with gzip.
 
@@ -409,7 +428,7 @@ The build stores the parsed documents gzipped, and the server inflates each part
 
 Content has no hosted provider. Comark Content keeps its query and search index in the database you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
 
-To add full-text search to read-only Sources, install `comark-content` for the plugin import. Pass `sqlite()` from `vite-hub/content/sqlite` as the index database. It works on every preset.
+To add full-text search to read-only Sources, install `comark-content` for the plugin import. Pass `sqlite()` from `vite-hub/content/sqlite` as the index database. It works on every host.
 
 ```bash
 pnpm add comark-content
@@ -429,13 +448,13 @@ export default defineContent({
 })
 ```
 
-`sqlite()` keeps the index in memory. Each server instance builds its own index when Content loads, so it needs no Database and no migration. On Node runtimes, such as the Node, Vercel, and Netlify presets, it uses Node SQLite. On Cloudflare Workers it uses SQLite WASM, because Node SQLite there is a stub.
+`sqlite()` keeps the index in memory. Each server instance builds its own index when Content loads, so it needs no Database and no migration. On Node runtimes, such as the Node, Vercel, and Netlify hosts, it uses Node SQLite. On Cloudflare Workers it uses SQLite WASM, because Node SQLite there is a stub.
 
 A Worker can compile WebAssembly only while it starts, and Content loads on its first request. So when `server/content.ts` imports `vite-hub/content/sqlite`, ViteHub loads SQLite WASM when the Worker starts. This adds about 0.6 MB gzip to the Worker and about 15 ms to its startup. If you import it only from another file, the first search fails with `CONTENT_R0018`.
 
 For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances. Comark's own `comark-content/database/sqlite-node` and `comark-content/database/sqlite-wasm` adapters also work on Node runtimes, but not on Cloudflare Workers.
 
-The `vitehub()` Vite plugin and the Nuxt module generate the Content route for every preset. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
+The `vitehub()` Vite plugin and the Nuxt module generate the Content route for every host. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.
 
@@ -445,7 +464,7 @@ Content bundles the Comark UI parser preset, with the HTML-only `annotate`, `dif
 
 ```vue
 <script setup lang="ts">
-import { Markdown } from "vite-hub/ui/markdown"
+import { Markdown } from "vite-hub/ui"
 
 const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </script>
@@ -455,7 +474,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the owner packages, use `@vite-hub/ui/markdown`. You need no Comark UI install, component map, or stylesheet. `components` overrides single renderers. It also takes a Markdown string and streams.
+With the owner packages, use `@vite-hub/ui`. You need no Comark UI install, component map, or stylesheet. `components` overrides single renderers. It also takes a Markdown string and streams.
 
 `markdown.plugins` extends the preset. A plugin with a preset plugin's name replaces it, so an app can set file readers, icon collections, or a private diagram service. The include plugin stays off. Badges and chips load images by URL.
 
@@ -491,7 +510,7 @@ An unknown component renders as an element with its tag name. Pass a document fr
 
 ### Migrate an existing Comark setup
 
-Replace the app's Comark renderer, component map, and stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific overrides in `components`.
+Replace the app's Comark renderer, component map, and stylesheet imports with `Markdown` from `vite-hub/ui`. Pass the parsed page as `value`. Keep only app-specific overrides in `components`.
 
 Remove Comark UI and Tiptap packages you installed only for Content. Keep packages the app imports directly, such as search plugins or custom editor extensions.
 

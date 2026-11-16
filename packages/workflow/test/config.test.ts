@@ -43,21 +43,53 @@ describe("workflow config", () => {
     })
   })
 
-  it("defaults to vercel", () => {
+  it("runs inline without a host", () => {
     expect(normalizeWorkflowOptions(undefined)).toEqual({
       driver: "vercel",
     })
   })
 
-  it("does not infer Vercel for Netlify hosting", () => {
-    expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
-    expect(normalizeWorkflowOptions({ driver: "vercel" }, { hosting: "netlify" })).toEqual({ driver: "vercel" })
+  it("infers vercel only from Vercel hosting", () => {
+    expect(normalizeWorkflowOptions({}, { hosting: "vercel" })).toEqual({ driver: "vercel" })
   })
 
-  it("does not infer openworkflow from node hosting without Postgres config", () => {
-    expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
-      driver: "vercel",
+  it.each(["node-server", "node-cluster", "node"])("infers openworkflow from %s hosting without storage config", (hosting) => {
+    expect(normalizeWorkflowOptions(undefined, { hosting })).toEqual({
+      driver: "openworkflow",
     })
+    expect(normalizeWorkflowOptions({}, { hosting })).toEqual({
+      driver: "openworkflow",
+    })
+  })
+
+  it.each([
+    ["vercel", "vercel"],
+    ["cloudflare-module", "cloudflare"],
+    [undefined, "vercel"],
+  ] as const)("keeps the %s hosting inference", (hosting, driver) => {
+    expect(normalizeWorkflowOptions({}, { hosting })).toEqual({ driver })
+  })
+
+  it.each(["cloudflare", "vercel"] as const)("keeps an explicit %s driver on node hosting", (driver) => {
+    expect(normalizeWorkflowOptions({ driver }, { hosting: "node-server" })).toEqual({ driver })
+  })
+
+  it("keeps an explicit openworkflow driver on Vercel hosting", () => {
+    expect(normalizeWorkflowOptions({ driver: "openworkflow" }, { hosting: "vercel" })).toEqual({ driver: "openworkflow" })
+  })
+
+  it("accepts remote for OpenWorkflow in vite dev", () => {
+    expect(normalizeWorkflowOptions({ remote: true }, { hosting: "node-server" })).toEqual({ driver: "openworkflow", remote: true })
+    expect(normalizeWorkflowOptions({ remote: false }, { hosting: "node-server" })).toEqual({ driver: "openworkflow" })
+    expect(() => normalizeWorkflowOptions({ remote: "yes" } as never, { hosting: "node-server" })).toThrow(/workflow\.remote/)
+  })
+
+  it("accepts worker: false to keep the server from starting the worker", () => {
+    expect(normalizeWorkflowOptions({ worker: false }, { hosting: "node-server" })).toEqual({
+      driver: "openworkflow",
+      worker: false,
+    })
+    expect(() => normalizeWorkflowOptions({ worker: true } as never, { hosting: "node-server" })).toThrow(/`workflow.worker` must be `false` or a plain object/)
   })
 
   it("infers openworkflow from node hosting with Postgres config", () => {
@@ -125,9 +157,21 @@ describe("workflow config", () => {
     expect(normalizeWorkflowOptions(options as never)).toEqual({ driver: "cloudflare" })
   })
 
-  it("does not infer openworkflow from docker hosting without Postgres config", () => {
+  it("does not infer a provider for Netlify", () => {
+    expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
+    expect(normalizeWorkflowOptions({ driver: "vercel" }, { hosting: "netlify" })).toEqual({ driver: "vercel" })
+  })
+
+  it("keeps Deno provider enforcement while allowing inline development", () => {
+    expect(() => normalizeWorkflowOptions({}, { hosting: "deno-deploy" })).toThrow(/cannot be inferred/)
+    expect(normalizeWorkflowOptions({}, { hosting: "deno-deploy", inline: true })).toEqual({ driver: "vercel" })
+    expect(normalizeWorkflowOptions({}, { hosting: "node-server", inline: true })).toEqual({ driver: "openworkflow" })
+    expect(normalizeWorkflowOptions({ sqlite: { path: ".data/workflow.sqlite" } }, { hosting: "deno-deploy" })).toEqual({ driver: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } })
+  })
+
+  it("infers openworkflow from docker hosting without storage config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
-      driver: "vercel",
+      driver: "openworkflow",
     })
   })
 

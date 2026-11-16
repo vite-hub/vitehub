@@ -28,7 +28,7 @@ it.each(["openworkflow", "vercel"] as const)("loads the cold host before reconci
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const name = "cold-replay"
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const run = vi.fn(() => "unused")
@@ -70,7 +70,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
   const channel = channelAdapter("mailbox", {
     activity: { update },
     history: {
-      collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+      collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
       key: item => item.id,
     },
     triggers: {
@@ -126,7 +126,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
   const update = vi.fn()
   const channel = channelAdapter("mailbox", {
     activity: { update },
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const runId = channelMessageRunId("mailbox", "m1")
@@ -153,7 +153,7 @@ it.each([true, false])("recovers an expired Workflow reservation only when no di
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const providerRun = vi.fn(async (payload: { invocationClaimToken?: string }, options: { id: string }) => {
@@ -274,7 +274,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, run: { runId: "reconciliation-request", annotations: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller-${index}`, index])) } }
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const providerRun = vi.fn(async (_payload: unknown, options: { id: string }) => ({ id: options.id, provider: "openworkflow", status: "queued" }))
@@ -339,7 +339,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
   const providerRun = vi.fn(async (_payload: unknown, options: { id: string }) => ({ id: options.id, provider: "openworkflow", status: "queued" }))
@@ -375,7 +375,7 @@ it.each(["provider", "preparation"] as const)("retains terminal journaling for a
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const channel = channelAdapter("mailbox", {
-    history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+    history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello", ...(failure === "preparation" ? { context: { invalid: () => {} } } : {}) } }) }) },
   })
   const providerRun = vi.fn(async () => { throw new Error("Provider rejected the run") })

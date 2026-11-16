@@ -40,6 +40,26 @@ describe("normalizeQueueOptions", () => {
   })
 
 
+  it("infers the postgres driver on Node from a Postgres Default Database", () => {
+    // The jobs use the connection of the Default Database.
+    expect(normalizeQueueOptions(undefined, { hosting: "node-server", postgresDatabase: true })).toEqual({ database: "default", driver: "postgres" })
+    expect(normalizeQueueOptions({ cache: false }, { hosting: "node-server", postgresDatabase: true })).toEqual({ cache: false, database: "default", driver: "postgres" })
+    expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", driver: "local" })
+    // `resolveQueueHosting()` passes the driver of a Node server as its hosting.
+    expect(normalizeQueueOptions(undefined, { hosting: "postgres" })).toEqual({ driver: "postgres" })
+  })
+
+  it("keeps an explicit driver over the Postgres Database", () => {
+    expect(normalizeQueueOptions({ driver: "local" }, { hosting: "node-server", postgresDatabase: true })).toEqual({ base: ".vitehub/data/queue", driver: "local" })
+    expect(normalizeQueueOptions({ driver: "postgres" }, { hosting: "node-server" })).toEqual({ driver: "postgres" })
+    expect(normalizeQueueOptions({ driver: "postgres" }, { hosting: "node-server", postgresDatabase: true })).toEqual({ database: "default", driver: "postgres" })
+  })
+
+  it("does not infer postgres on hosts with their own Queue", () => {
+    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare", postgresDatabase: true })).toEqual({ driver: "cloudflare" })
+    expect(normalizeQueueOptions(undefined, { hosting: "vercel", postgresDatabase: true })).toEqual({ driver: "vercel" })
+  })
+
   it("throws on unknown drivers", () => {
     expect(() => normalizeQueueOptions({ driver: "memory" } as never)).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_DRIVER" }))
   })

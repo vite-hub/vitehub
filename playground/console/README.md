@@ -25,7 +25,7 @@ the read-only Usage, KV, Workflow, Queue, and search responses needed by the
 Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
 routes. It also serves a synthetic Connections management API
 with three OAuth Connections, one of them with setup docs, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
-Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. Comments answers the `comments.*` operations from three synthetic threads in `comments.ts`, in memory, as a signed-in Maxi who may write, so its rows open the thread panel with replies, resolve, and `@` mentions. A restart resets the threads. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
+Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. Comments answers the `comments.*` operations from three synthetic threads in `comments.ts`, in memory, as a signed-in Maxi who may write, so its rows open the thread panel with replies, resolve, and `@` mentions. A restart resets the threads. Site access answers the `site.*` operations from `site-fixture.ts`: two member browsers, one guest, and one open invite, in memory. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader. Cache answers the `cache.*` operations with the real operation code over an in-memory `cache` mount in `cache-fixture.ts`, with Nitro 3 keys of cached functions and handlers, one of them expired.
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
@@ -40,6 +40,23 @@ CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/consol
 The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
 
 `packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
+
+`icons.html` draws every icon name of the Console sources with Nuxt UI's `UIcon` and with the Console `Icon` (`console-icon.vue`). `packages/vite-hub/test/console-icon.browser.mjs` uses the same server and checks that both give the same SVG and the same box:
+
+```bash
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-icon.browser.mjs
+```
+
+To prove that a change does not move pixels, such as a token rename, capture every Console route on the base and on your branch, and compare the captures:
+
+```bash
+pnpm exec vp run --cache -t @vite-hub/auth#build
+node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/base   # on the base commit
+node packages/vite-hub/test/console-pixels.browser.mjs capture .cache/console-pixels/head   # on your branch
+node packages/vite-hub/test/console-pixels.browser.mjs compare .cache/console-pixels/base .cache/console-pixels/head
+```
+
+`capture` reads the routes from the Console router, so a new route is captured without a change to the script. It starts this playground on port 4381 (`--port` changes it), opens each route in light and dark at 1280px and 390px, and stops the playground at the end. The browser and the playground share a fixed clock, so relative times do not change between captures. A route with a required parameter takes its value from a page that opens it, such as `/agents` opening its first session. `manifest.json` lists each shot and each route that has no shot of its own. `compare` prints the share of changed pixels per shot, writes red diff images next to the head folder, and exits with 1 when a shot is missing or changes more than `--threshold` percent (default 0.01). The Console code loads from source. `@vite-hub/ui/theme.css` loads from `packages/ui/dist`, so run `pnpm exec vp run -t @vite-hub/ui#build` on each side when the change is in that file. A shot shows each page as it opens. Panels, menus, and states that need a click are not captured.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/_vitehub/api/`, and it also matches the paths under it:

@@ -1,5 +1,8 @@
-import type { VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
+import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
+import type { SandboxTaskSizeOptions } from './size'
+
+export type { SandboxTaskSizeOptions } from './size'
 
 export type SandboxTaskDriver = 'cloudflare' | 'vercel'
 
@@ -9,21 +12,23 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskDriverOptions {
+export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
   driver: 'vercel'
   runtime?: string
   timeout?: number
-  cpu?: number
   ports?: number[]
   source?: VercelSandboxSource
+  /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Vercel also takes `subnets`. */
   networkPolicy?: VercelSandboxNetworkPolicy
   token?: string
   teamId?: string
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionDriverOptions {
+export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions {
   driver: 'cloudflare'
+  /** Maximum number of Containers that run at once. Defaults to 12. */
+  maxInstances?: number
   binding?: string
   className?: string
   migrationTag?: string
@@ -32,6 +37,8 @@ export interface CloudflareSandboxTaskDefinitionDriverOptions {
   sleepAfter?: CloudflareSandboxTaskOptions['sleepAfter']
   keepAlive?: CloudflareSandboxTaskOptions['keepAlive']
   normalizeId?: CloudflareSandboxTaskOptions['normalizeId']
+  /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Applies when the Container starts. */
+  networkPolicy?: SandboxNetworkPolicy
 }
 
 export type SandboxTaskDefinitionDriverOptions
@@ -40,7 +47,7 @@ export type SandboxTaskDefinitionDriverOptions
 
 export type AgentSandboxTaskConfig =
   | SandboxTaskDefinitionDriverOptions
-  | { driver?: undefined, name?: string }
+  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions)
 
 export interface SandboxTaskDefinitionBundle {
   entry: string

@@ -27,7 +27,7 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 
 `@openai/codex` installs one native Codex package for your OS and CPU. Without it, ViteHub uses `codex` from the host `PATH`. ViteHub downloads nothing during the build or at startup.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -35,7 +35,7 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +51,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +66,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -101,7 +101,7 @@ The Agent name `reviewer` comes from the file path. `runtime: false` runs the Ag
 
 | Option | What it does |
 | --- | --- |
-| `gateway` | Sends model requests through an [AI gateway](/docs/agents/ai-gateways). `openai()` calls the OpenAI API with your key. |
+| `gateway` | Sends model requests through an [AI gateway](/docs/gateways). `openai()` calls the OpenAI API with your key. |
 | `model` | A model ID that Codex and the gateway accept. |
 | `reasoningEffort` | A reasoning effort the model supports, such as `'low'`, `'high'`, or `'xhigh'`. Needs `model`. `reasoningSummary` takes `'auto'`, `'concise'`, `'detailed'`, or `'none'`. |
 | `instructions` | Instructions for this Agent, passed as Codex instructions. |
@@ -124,7 +124,7 @@ ViteHub forwards no other process variables, so a server `OPENAI_API_KEY` reache
 | --- | --- |
 | A ChatGPT Plus or Pro plan | `gateway: chatgpt()` from `vite-hub/gateways` and a [ChatGPT Connection](/docs/connections/chatgpt). OpenAI allows plan use only for some kinds of apps, so read that page first. |
 | A Codex `auth.json` | `credentials` with the file contents or a sealed Server Env value, and `credentialProfile` to keep one writable Codex Home. Needs a POSIX host. |
-| Another gateway | `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, `ollama()`, or `defineAiGateway()`. See [AI gateway presets](/docs/agents/ai-gateways#presets). |
+| Another gateway | `vercel()`, `openrouter()`, `litellm()`, `cliproxy()`, `ollama()`, or `defineAiGateway()`. See [AI gateway presets](/docs/gateways/configure#presets). |
 
 With neither a gateway nor `credentials`, Codex uses the host user's Codex Home. A gateway replaces `credentials` and `credentialProfile`.
 
@@ -230,7 +230,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `preset: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |
@@ -250,7 +250,7 @@ On Cloudflare Workers, use a model-backed Driver instead, also with the ChatGPT 
 ## Related pages
 
 - [Agent Drivers](/docs/agents/agent-drivers): all provider Driver options.
-- [AI gateways](/docs/agents/ai-gateways): presets, variables, and custom gateways.
+- [AI gateways](/docs/gateways): presets, variables, and custom gateways.
 - [ChatGPT Connection](/docs/connections/chatgpt): run Codex on a ChatGPT plan.
 - [Run the Claude Agent SDK with ViteHub](/docs/guides/claude-agent-sdk): the same setup for Claude Code.
 - [Sandboxes](/docs/agents/sandboxes) and [Compare AI sandbox providers](/docs/guides/sandbox-providers).

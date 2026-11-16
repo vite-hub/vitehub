@@ -75,8 +75,8 @@ describe("blob pathname validation", () => {
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(pathname)).rejects.toMatchObject(invalidPathname)
-    await expect(storage.del(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(pathname)).rejects.toMatchObject(invalidPathname)
+    await expect(storage.delete(["ok.txt", pathname])).rejects.toMatchObject(invalidPathname)
     await expect(storage.put(pathname, "x")).rejects.toMatchObject(invalidPathname)
     const served = await storage.serve(new Request("https://example.test/x"), pathname)
     expect(served.status).toBe(400)
@@ -217,7 +217,7 @@ describe("HTTP routes", () => {
 
     expect(response.status).toBe(200)
     expect(await readdir(base)).not.toContain("evil.txt")
-    expect(await readdir(join(base, "uploads"))).toEqual(["..%2Fevil.txt"])
+    expect(await readdir(join(base, "uploads"))).toEqual([expect.stringMatching(/^\.\._2Fevil-[\da-f-]{36}\.txt$/)])
   })
 })
 
@@ -232,16 +232,62 @@ describe("handleUpload pathnames", () => {
     const [error, objects] = await storage.handleUpload(formRequest(["..%2Fevil.txt"]), { put: { prefix: "uploads" } })
 
     expect(error).toBeUndefined()
-    expect(objects?.map(object => object.pathname)).toEqual(["uploads/..%2Fevil.txt"])
+    expect(objects?.map(object => object.pathname)).toEqual([expect.stringMatching(/^uploads\/\.\._2Fevil-[\da-f-]{36}\.txt$/)])
     expect(await readdir(base)).not.toContain("evil.txt")
-    expect(await readdir(join(base, "uploads"))).toEqual(["..%2Fevil.txt"])
+    expect(await readdir(join(base, "uploads"))).toEqual([expect.stringMatching(/^\.\._2Fevil-[\da-f-]{36}\.txt$/)])
   })
 
-  it("stores file names literally instead of decoding them", async () => {
-    const [error, objects] = await storage.handleUpload(formRequest(["a%2Fb.txt", "photo%201.png"]), { put: { prefix: "uploads" } })
+  it("does not decode file names and replaces the \"%\" of a %XX sequence", async () => {
+    const [error, objects] = await storage.handleUpload(formRequest(["a%2Fb.txt", "photo%201.png", "50% off.txt"]), { put: { prefix: "uploads" } })
 
     expect(error).toBeUndefined()
-    expect(objects?.map(object => object.pathname)).toEqual(["uploads/a%2Fb.txt", "uploads/photo%201.png"])
+    expect(objects?.map(object => object.pathname)).toEqual([expect.stringMatching(/^uploads\/a_2Fb-[\da-f-]{36}\.txt$/), expect.stringMatching(/^uploads\/photo_201-[\da-f-]{36}\.png$/), "uploads/50% off.txt"])
+  })
+
+  it("preserves distinct uploads and an existing replacement name", async () => {
+    await storage.put("uploads/x_41.txt", "existing")
+    const [firstError] = await storage.handleUpload(formRequest(["x%41.txt"]), { put: { prefix: "uploads" } })
+    expect(firstError).toBeUndefined()
+    expect(await (await storage.get("uploads/x_41.txt"))[1]?.text()).toBe("existing")
+    const [error, objects] = await storage.handleUpload(formRequest(["x%41.txt", "x_41.txt"]), { put: { prefix: "uploads" } })
+    expect(error).toBeUndefined()
+    expect(new Set(objects!.map(object => object.pathname)).size).toBe(2)
+    expect(await (await storage.get(objects![0]!.pathname))[1]?.text()).toBe("x%41.txt")
+    expect(await (await storage.get(objects![1]!.pathname))[1]?.text()).toBe("x_41.txt")
+
+    const [nextError, next] = await storage.handleUpload(formRequest(["x%41.txt"]), { put: { prefix: "uploads" } })
+    expect(nextError).toBeUndefined()
+    expect(next![0]!.pathname).not.toBe(objects![0]!.pathname)
+    expect(await (await storage.get("uploads/x_41.txt"))[1]?.text()).toBe("x_41.txt")
+    expect(await (await storage.get(objects![0]!.pathname))[1]?.text()).toBe("x%41.txt")
+  })
+
+  it("returns pathnames that target the same object when passed back", async () => {
+    const [error, objects] = await storage.handleUpload(formRequest(["Q3 100%25 final.pdf", "x%41.txt"]), { put: { prefix: "uploads" } })
+    expect(error).toBeUndefined()
+
+    const [, listed] = await storage.list({ prefix: "uploads/" })
+    const pathnames = listed!.blobs.map(object => object.pathname).sort()
+    expect(pathnames).toEqual(objects!.map(object => object.pathname).sort())
+    for (const pathname of pathnames) {
+      expect((await storage.head(pathname))[1]?.pathname, pathname).toBe(pathname)
+      expect(await (await storage.get(pathname))[1]?.text(), pathname).toBeDefined()
+      const [deleteError] = await storage.delete(pathname)
+      expect(deleteError).toBeUndefined()
+      expect((await storage.head(pathname))[1], pathname).toBeNull()
+    }
+    expect((await storage.list({ prefix: "uploads/" }))[1]!.blobs).toEqual([])
+  })
+
+  it("rejects a pathname that still has a percent-encoded sequence after decoding", async () => {
+    for (const pathname of ["x%2541.txt", "a/b%25%32%30c"]) {
+      await expect(storage.put(pathname, "x"), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(storage.get(pathname), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(storage.createMultipartUpload(pathname), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(storage.sign(pathname, { expiresIn: 60, method: "GET" }), pathname).rejects.toMatchObject(invalidPathname)
+      expect((await storage.serve(new Request("https://example.test/x"), pathname)).status, pathname).toBe(400)
+    }
+    await expect(storage.put("x.txt", "x", { prefix: "a%41" })).rejects.toMatchObject(invalidPathname)
   })
 
   it("rejects dot file names with a 400 error", async () => {
@@ -263,15 +309,15 @@ describe("Cloudflare R2 native signed requests", () => {
     const driver = createR2NativeDriver(options)
 
     for (const pathname of ["x/..", "../other/key", "a/./b", ""]) {
-      await expect(driver.sign!(pathname, { expiresIn: 60, method: "GET" }), pathname).rejects.toMatchObject(invalidPathname)
-      await expect(driver.sign!(pathname, { expiresIn: 60, method: "PUT" }), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(driver.sign!(pathname, { expiresIn: 60, method: "GET" }, { store: "default" }), pathname).rejects.toMatchObject(invalidPathname)
+      await expect(driver.sign!(pathname, { expiresIn: 60, method: "PUT" }, { store: "default" }), pathname).rejects.toMatchObject(invalidPathname)
     }
   })
 
   it("signs a path that stays under the bucket", async () => {
     const driver = createR2NativeDriver(options)
-    const signed = await driver.sign!("a b/%2e%2e/c?.txt", { expiresIn: 60, method: "GET" })
+    const signed = await driver.sign!("a b/50% off/c?.txt", { expiresIn: 60, method: "GET" }, { store: "default" })
 
-    expect(new URL(signed.url).pathname).toBe("/media/a%20b/%252e%252e/c%3F.txt")
+    expect(new URL(signed.url).pathname).toBe("/media/a%20b/50%25%20off/c%3F.txt")
   })
 })

@@ -13,13 +13,13 @@ import type { FollowUp } from "../types.ts"
 const removedViteKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "vitehub", "workflow", "workspace"]
 
 /** The standalone plugin that takes the options of each key as its argument. */
-const ownerPlugins: Record<string, { name: string, package: string }> = {
+const ownerPlugins: Record<string, { name: string, previousName?: string, package: string }> = {
   agent: { name: "hubAgent", package: "agent" },
   auth: { name: "hubAuth", package: "auth" },
   blob: { name: "hubBlob", package: "blob" },
   browser: { name: "hubBrowser", package: "browser" },
-  database: { name: "hubDb", package: "database" },
-  kv: { name: "hubKv", package: "kv" },
+  database: { name: "hubDatabase", previousName: "hubDb", package: "database" },
+  kv: { name: "hubKV", previousName: "hubKv", package: "kv" },
   queue: { name: "hubQueue", package: "queue" },
   rateLimit: { name: "hubRateLimit", package: "rate-limit" },
   sandboxTask: { name: "hubSandboxTask", package: "sandbox/task" },
@@ -88,12 +88,13 @@ function objectValue(node: Node | undefined): ObjectExpression | undefined {
 }
 
 /** Value imports of the expected API, checked against each call's lexical binding. */
-function importedNames(program: File, sources: readonly string[], imported: string): Map<string, Identifier> {
+function importedNames(program: File, sources: readonly string[], imported: string | readonly string[]): Map<string, Identifier> {
   const names = new Map<string, Identifier>()
+  const imports = typeof imported === "string" ? [imported] : imported
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !sources.includes(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === imported) names.set(specifier.local.name, specifier.local)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && imports.some(name => name === keyName(specifier.imported))) names.set(specifier.local.name, specifier.local)
     }
   }
   return names
@@ -309,10 +310,9 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       const value = unwrapExpression(item.value)
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
-      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.name), resolveBinding) : []
-      const frameworkOption = key !== "sandboxTask" || value.type === "BooleanLiteral"
+      const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
       // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
-      if (key !== "vitehub" && frameworkOption && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
+      if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
         insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)
       }
@@ -321,9 +321,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
         remove(item)
       }
       else {
-        follow(item, !frameworkOption
-          ? "Sandbox Task accepts only a boolean in vitehub() and vite-hub/nuxt. Move these options into hubSandboxTask() by hand, and set sandboxTask: false in the framework options if it is enabled."
-          : nuxt
+        follow(item, nuxt
           ? `vite.${key} is no longer read. Set ${key} in the vite-hub/nuxt options.`
           : `The top-level Vite ${key} key is no longer read. Move it into vitehub({ ${key} }), or pass it to the feature's plugin.`)
       }

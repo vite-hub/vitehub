@@ -6,6 +6,7 @@ import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"
 import "../src/runtime.ts"
 import registry from "#vitehub/schedule/registry"
+import type { LeaseStore } from "@vite-hub/runtime"
 import type { ProcessScheduleRuntimeOptions, ScheduleRuntimeController } from "../src/runtime/process.ts"
 import type { ScheduleProcessRuntimeOptions } from "../src/vite.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRunStore } from "../src/types.ts"
@@ -82,8 +83,11 @@ it("types the Process Schedule Runtime", () => {
     catchUpMs?: number
     concurrency?: number
     intervalMs?: number
+    leaseTtlMs?: number
+    leases?: LeaseStore
     now?: () => Date
     onError?: (error: unknown) => void
+    prefix?: string
     registry: ScheduleDefinitionRegistry
     scheduleRunStore: ScheduleRunStore
     timings?: Readonly<Record<string, { cron: string, timeZone?: string }>>
@@ -98,6 +102,7 @@ it("types generated Nitro Process Runtime options", () => {
     concurrency?: number
     driver: "process"
     intervalMs?: number
+    leaseTtlMs?: number
     prefix?: string
   }>()
   hubSchedule({ runtime: { catchUpMs: 0, concurrency: 2, driver: "process", intervalMs: 5_000, prefix: "app:schedule" } })

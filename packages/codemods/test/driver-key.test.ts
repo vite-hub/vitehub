@@ -68,6 +68,36 @@ export default defineNuxtConfig({
     expect(repeated.edits).toEqual([])
   })
 
+  it("migrates the Node drivers and the Sandbox Task options of the current plugins", async () => {
+    const result = await migrateSource("vite.config.ts", `
+import { hubDatabase } from "vite-hub/database/vite"
+import { hubKV } from "vite-hub/kv/vite"
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: "node",
+      queue: { provider: "postgres" },
+      rateLimit: { provider: "kv" },
+      realtime: { authority: "redis" },
+      sandboxTask: { provider: "vercel", cpu: 2, networkPolicy: "deny-all" },
+    }),
+    hubKV({ driver: "cloudflare-kv-binding", binding: "KV" }),
+    hubDatabase({ driver: "d1" }),
+  ],
+})
+`)
+    const after = result.edits[0]?.after
+    expect(after).toContain('queue: { driver: "postgres" }')
+    expect(after).toContain('rateLimit: { driver: "kv" }')
+    expect(after).toContain('realtime: { driver: "redis" }')
+    expect(after).toContain('sandboxTask: { driver: "vercel", cpu: 2, networkPolicy: "deny-all" }')
+    expect(after).toContain('hubKV({ driver: "cloudflare", binding: "KV" })')
+    expect(after).toContain('hubDatabase({ driver: "cloudflare" })')
+    expect(result.followUps).toEqual([])
+  })
+
   it("leaves unrelated and shadowed Nuxt module imports unchanged", async () => {
     const source = `
 import { defineNuxtConfig } from "nuxt/config"

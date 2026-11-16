@@ -1,6 +1,6 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
-import { runSchedule } from "./execute.ts"
+import { runScheduleFrom } from "./execute.ts"
 import { getScheduleRunStore } from "./state.ts"
 import { cancelSchedule, listSchedules, startSchedule } from "../started.ts"
 
@@ -136,6 +136,7 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
 
 
 /** Raised for the failures of a Schedule operation. `status` and `code` reach every surface. */
+// Internal invariant: this class already carries a code, a fix, and a status for every surface.
 class ScheduleOperationError extends Error {
   readonly code: string
   readonly fix?: string
@@ -214,7 +215,7 @@ export async function runScheduleNow(input: { at?: string, name: string }, regis
   if (!Object.hasOwn(registry, input.name)) {
     throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
   }
-  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runSchedule(input.name, { registry, scheduledAt: input.at })) }))
+  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runScheduleFrom(registry, input.name, { scheduledAt: input.at })) }))
 }
 
 /** Serializable view of one started Schedule, as `vitehub schedule list` prints it. */

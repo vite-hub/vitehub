@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
+import { createGitHubPullRequestOperations, reviewerLabeledSevere, type GitHubPullRequestOperationsOptions } from "../src/github/auto-merge.ts"
 
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
@@ -40,6 +40,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     threadFailure: undefined as "reply-result-lost" | "resolve-failed" | "resolve-result-lost" | undefined,
     merged: false,
     beforeRead: () => {},
+    compare: { status: "ahead", behind_by: 0 },
   }
   const route = (request: GitHubTestRequest): unknown => {
     switch (request.operationName) {
@@ -75,6 +76,10 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
       if (!state.protection) return { name: "main", protected: false }
       return { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: state.protection.contexts, checks: state.protection.contexts.map(context => ({ context, app_id: null })) } } }
     }
+    if (path.startsWith("/repos/acme/app/compare/")) return state.compare
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/check-runs$/.test(path)) return { total_count: 0, check_runs: [] }
+    if (/^\/repos\/acme\/app\/commits\/[a-f\d]{40}\/status(es)?$/.test(path)) return path.endsWith("statuses") ? [] : { state: "success", statuses: [], total_count: 0 }
+    if (path === "/repos/acme/app/actions/runs") return { total_count: 0, workflow_runs: [] }
     if (path === "/repos/acme/app/actions/runs/123") return state.run
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
@@ -483,19 +488,47 @@ describe("host-owned repair operations", () => {
 
   it("reads bounded failure logs only for a run at the admitted head", async () => {
     const f = await fixture()
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
-    f.state.logs = "x".repeat(200_001)
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: `## test\n${"x".repeat(200_000 - 8)}`, truncated: true })
+    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false, totalLines: 2, includedLineRanges: [[1, 2]] })
     f.state.run.head_sha = "b".repeat(40)
     await expect(f.operations.readCheckLogs(123)).rejects.toThrow("does not belong")
-    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(2)
+    expect(f.calls.filter(call => call.path === "/repos/acme/app/actions/jobs/7/logs")).toHaveLength(1)
+  })
+
+  it("returns the failure from a long colored log instead of its first 200,000 characters", async () => {
+    const f = await fixture()
+    const build = Array.from({ length: 20_000 }, (_, n) => `test\tbuild\t2026-11-01T00:00:00Z \u001b[32m✓\u001b[39m built chunk ${n}`)
+    const fetch = "test\tcheckout\t2026-11-01T00:00:00Z  * [new branch]          fix/agent-error -> origin/fix/agent-error"
+    const failure = "test\ttest\t2026-11-01T00:10:00Z \u001b[31mFAIL\u001b[39m TypeCheckError: 'details' does not exist in type"
+    f.state.logs = [fetch, ...build, failure].join("\n")
+    const excerpt = await f.operations.readCheckLogs(123)
+    expect(excerpt.truncated).toBe(true)
+    expect(excerpt.text).toContain("FAIL TypeCheckError: 'details' does not exist in type")
+    expect(excerpt.text).not.toContain("\u001b")
+    expect(excerpt.totalLines).toBe(20_002)
+    expect(excerpt.includedLineRanges.at(-1)).toEqual([19_998, 20_002])
+  })
+
+  it("reads a requested tail or line range from a failed-job log", async () => {
+    const f = await fixture()
+    const lines = Array.from({ length: 7229 }, (_, n) => `docs\tBuild docs\t2026-11-07T06:43:10Z ${n + 1} ${"build output ".repeat(8)}`)
+    lines[7135] = "docs\tBuild docs\tBroken docs links: /docs/getting-started/ai-resources links to /mcp, which has no page or file"
+    f.state.logs = lines.join("\n")
+    const log = ["## test", ...lines]
+    const tail = await f.operations.readCheckLogs(123, { tailLines: 100 })
+    expect(tail).toEqual({ text: log.slice(-100).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7131, 7230]] })
+    expect(tail.text).toContain("Broken docs links")
+    const range = await f.operations.readCheckLogs(123, { startLine: 7134, endLine: 7141 })
+    expect(range).toEqual({ text: log.slice(7133, 7141).join("\n"), truncated: true, totalLines: 7230, includedLineRanges: [[7134, 7141]], nextLine: 7142 })
+    await expect(f.operations.readCheckLogs(123, { startLine: 20, endLine: 10 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("1 to 1000") })
+    await expect(f.operations.readCheckLogs(123, { tailLines: 100, startLine: 1 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_SELECTION_INVALID", why: expect.stringContaining("Choose tailLines") })
+    await expect(f.operations.readCheckLogs(123, { startLine: 8000 })).rejects.toMatchObject({ code: "PRESETS_CHECK_LOG_START_PAST_END", why: "startLine 8000 is past the log's 7230 lines." })
   })
 
   it("accepts a synthetic merge workflow run linked to the expected PR head", async () => {
     const f = await fixture()
     f.state.run.head_sha = "b".repeat(40)
     f.state.run.pull_requests = [{ number: 12, head: { sha: head } }]
-    expect(await f.operations.readCheckLogs(123)).toEqual({ text: "## test\nCI failure", truncated: false })
+    expect(await f.operations.readCheckLogs(123)).toMatchObject({ text: "## test\nCI failure", truncated: false })
   })
 
   it("rejects thread IDs owned by another PR", async () => {
@@ -523,6 +556,53 @@ describe("host-owned repair operations", () => {
     expect(replies.map(call => (call.body as { body: string }).body)).toEqual([`${commentPrefix}<!-- vitehub-babysitter-outcome:declined -->\n**Declined.** P2: outside this PR's scope.`])
     expect(f.calls.indexOf(replies[0]!)).toBeLessThan(f.calls.findIndex(call => call.operationName === "ResolveReviewThread"))
     expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("refuses to decline a P0 or P1 finding", async () => {
+    const f = await fixture()
+    f.state.threadComments = [reviewComment]
+    for (const reason of ["P1: the review push budget is spent.", "**P0**: out of scope."]) {
+      await expect(f.operations.resolveThread("THREAD_1", { outcome: "declined", reason })).rejects.toMatchObject({ code: "PRESETS_REVIEW_SEVERE_DECLINED" })
+    }
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(0)
+    expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("posts a downgraded decline of a reviewer's P0 or P1 and leaves the thread open until a person replies", async () => {
+    const f = await fixture()
+    const codex = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Verify ownership before granting admin**"
+    f.state.threadComments = [{ ...reviewComment, body: codex, author: { login: "chatgpt-codex-connector", __typename: "Bot" } }]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    expect(f.mutations()).toHaveLength(0)
+    // A retry posts nothing new and keeps holding.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: bootstrap only." })).toEqual({ held: true })
+    expect(f.calls.filter(call => call.path.endsWith("/501/replies"))).toHaveLength(1)
+    // Any other outcome resolves it.
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("resolves a downgraded decline once a person replied in the thread", async () => {
+    const f = await fixture()
+    f.state.threadComments = [
+      { ...reviewComment, body: "**P1 · Class: lost MAIL_KEY.**", author: { login: "pullfrog", __typename: "Bot" } },
+      { ...reviewComment, databaseId: 504, body: "Fine as P2, ship it.", author: { login: "maintainer", __typename: "User" } },
+    ]
+    expect(await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: the maintainer accepted it." })).toEqual({ held: false })
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it.each([
+    ["**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Title", true],
+    ["**P0 · Class: data loss.**", true],
+    ["P1: broken contract", true],
+    ["**P2 · Class: alias.**", false],
+    ["**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Title", false],
+    ["P10 is a page size", false],
+    ["This breaks the P1 path.", false],
+  ])("reads a reviewer's severity label from %j", (body, severe) => {
+    expect(reviewerLabeledSevere(body)).toBe(severe)
   })
 
   it("requires a reason for every outcome except fixed", async () => {
@@ -650,3 +730,38 @@ it("refreshes dependencies only while the assigned PR head is current", async ()
   await expect(f.operations.refreshDependencies()).rejects.toThrow();
   expect(refreshDependencies).toHaveBeenCalledTimes(1);
 });
+
+describe("base CI evidence on a moving base", () => {
+  const assigned = "b".repeat(40)
+  const moved = "c".repeat(40)
+
+  it("reads the assigned base after the base branch moved forward from it", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${assigned}...main`)).toBe(true)
+  })
+
+  it("reads the assigned base when the PR's recorded base is older than it", async () => {
+    // A conflicted PR keeps an old baseRefOid, while a conflict repair is assigned the live branch tip.
+    const f = await fixture({ expectedBaseOid: moved })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    f.state.compare = { status: "identical", behind_by: 0 }
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(moved)
+    expect(f.calls.some(call => call.path === `/repos/acme/app/compare/${moved}...main`)).toBe(true)
+  })
+
+  it("refuses when the base no longer contains the assigned commit", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: moved })
+    f.state.compare = { status: "diverged", behind_by: 2 }
+    await expect(f.operations.readBaseCheckEvidence()).rejects.toThrow("Pull request base changed")
+  })
+
+  it("needs no comparison while the base is unchanged", async () => {
+    const f = await fixture({ expectedBaseOid: assigned })
+    Object.assign(f.pullRequest, { baseRefOid: assigned })
+    expect((await f.operations.readBaseCheckEvidence()).headSha).toBe(assigned)
+    expect(f.calls.some(call => call.path.startsWith("/repos/acme/app/compare/"))).toBe(false)
+  })
+})

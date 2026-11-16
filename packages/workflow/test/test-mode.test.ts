@@ -83,11 +83,18 @@ it("rejects unknown Definitions before starts and cancellations, and logs deferr
   expect(mode.peek("workflow")).toBeUndefined()
 })
 
-it.each(["cloudflare", "vercel"] as const)("preserves unsupported %s cancellation", async (provider) => {
-  setWorkflowRuntimeConfig({ driver: provider })
+it("preserves unsupported inline Vercel cancellation", async () => {
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const run = await startWorkflow("onboarding", {})
-  await expect(cancelWorkflow("onboarding", run.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider } })
+  await expect(cancelWorkflow("onboarding", run.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: "vercel" } })
   expect(await getWorkflowRun("onboarding", run.id)).toMatchObject({ status: "queued" })
+})
+
+it("captures Cloudflare cancellations", async () => {
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
+  const run = await startWorkflow("onboarding", {})
+  expect(await cancelWorkflow("onboarding", run.id)).toMatchObject({ provider: "cloudflare", status: "cancelled" })
+  expect(await getWorkflowRun("onboarding", run.id)).toMatchObject({ status: "cancelled" })
 })
 
 it("rejects caller run IDs for native Vercel Workflows but captures supported starts and cancellations", async () => {

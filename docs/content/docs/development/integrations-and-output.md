@@ -18,7 +18,7 @@ Your app code uses the package's documented server API, not generated internals.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', agent: true, kv: true },
+  vitehub: { host: 'node', agent: true, kv: true },
 })
 ```
 :::
@@ -31,7 +31,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, kv: true }),
+    vitehub({ host: 'node', agent: true, kv: true }),
     nitro(),
   ],
 })
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, kv: true }),
+    vitehub({ host: 'node', agent: true, kv: true }),
   ],
 })
 ```
@@ -56,7 +56,7 @@ Options that affect discovery, generated files, provider bindings, or deployment
 
 ## Use Provider Output as build evidence
 
-Inspect the output to check routes, bindings, or host wiring. Import it only when the package documents a path such as `#vitehub/env/server`.
+Inspect generated output to verify routes, bindings, or host wiring. Import it from application code only when the package documents a path such as `#vitehub/emails/<name>`.
 
 | Need | Surface |
 | --- | --- |
@@ -77,7 +77,7 @@ Set `dataDir` in the ViteHub options to pick one local storage directory on a No
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: "node",
+    host: "node",
     dataDir: "/var/lib/app",
     agent: true,
     console: { authorize: "./server/console-authorize.ts" },
@@ -98,7 +98,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       dataDir: "/var/lib/app",
       agent: true,
       console: { authorize: "./server/console-authorize.ts" },
@@ -120,7 +120,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       dataDir: "/var/lib/app",
       agent: true,
       console: { authorize: "./server/console-authorize.ts" },
@@ -137,10 +137,12 @@ export default defineConfig({
 Turned-on integrations use `agent-state.sqlite`, `agent-invocations.sqlite`, `kv/`, `blob/`, and `workspaces/` in this directory. Named local KV and Blob stores get their own subdirectories. Explicit paths and remote providers win, and disabled services stay off. Relative paths resolve from the working directory of the configuration process.
 
 ::warning
-The host must give a persistent, writable filesystem at this path. The option does not create a volume or make a temporary filesystem durable. Other presets reject it. For hosted storage, keep your provider configuration.
+The host must give a persistent, writable filesystem at this path. The option does not create a volume or make a temporary filesystem durable. Other hosts reject it. For hosted storage, keep your provider configuration.
 ::
 
 To keep an existing storage location, use `agent.providers.state.url`, `agent.invocations.databaseUrl`, or each store's path option. Runtime database URL overrides still win. Changing the directory does not move stored data.
+
+Without `dataDir`, a `file:` URL in `agent.providers.state.url` also moves the default Agent Invocation journal to `agent-invocations.sqlite` in the same directory. For example, `file:.data/agent-state.db` puts the journal at `.data/agent-invocations.sqlite`, so a Docker image needs only one writable volume. A relative path resolves from the working directory of the server, as it does for State. When `VITEHUB_AGENT_STATE_URL` replaces the State URL at runtime, the journal follows it. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` still selects another file or a libSQL endpoint.
 
 ## Public URL
 
@@ -152,7 +154,7 @@ Set `publicUrl` in the ViteHub options to your deployed app's public origin. Vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: "node",
+    host: "node",
     publicUrl: "https://agents.example.com",
   },
 })
@@ -168,7 +170,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       publicUrl: "https://agents.example.com",
     }),
     nitro(),
@@ -185,7 +187,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       publicUrl: "https://agents.example.com",
     }),
   ],
@@ -202,7 +204,7 @@ Use a function when one build serves Agents from different origins. ViteHub call
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: "node",
+    host: "node",
     publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
   },
 })
@@ -218,7 +220,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
     nitro(),
@@ -235,7 +237,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
   ],
@@ -249,8 +251,8 @@ Standalone provider bundles get the origin and app base from their own build con
 - It must be an `http(s)` origin without a path. ViteHub adds the app base path.
 - It applies to `vite build` only. In `vite dev`, Console links and Auth inside a request use the request origin.
 - GitHub activity and evlog session links have no request-origin fallback. In development, set `activity.publicUrl` on the GitHub Channel or the evlog `sessionUrl` callback.
-- Without `publicUrl`, links and Auth inside a request use the request origin. Links made outside a request are left out.
-- With the function form, Auth and Connections use the configured origin whose host matches the request host.
+- Without `publicUrl`, links and Auth inside a request use the request origin. Links made outside a request are left out. Then the host or proxy in front of the app must send only requests for your own domains to it, because the `Host` header selects the origin. Set `publicUrl` for production builds.
+- A configured origin always wins over the request Host. With the function form, request-bound code uses the origin of the Agent, else the configured origin whose host matches the request host, else the only configured origin. When the function gives several origins and the request host is none of them, Auth fails with `AUTH_R0022`, Connections returns `403` with `CONNECTIONS_ORIGIN_REJECTED`, and Console one-time links return `403`.
 
 ### Read the public URL in server code
 
@@ -270,7 +272,7 @@ When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels hist
 
 ### Serve a Cloudflare Worker on its custom domain
 
-On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and no port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid hostnames leave routing alone:
+On the `cloudflare` host, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and no port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid hostnames leave routing alone:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -278,7 +280,7 @@ On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outs
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     publicUrl: process.env.APP_URL, // https://calories.example.com
   },
 })
@@ -294,7 +296,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "cloudflare",
+      host: "cloudflare",
       publicUrl: process.env.APP_URL, // https://calories.example.com
     }),
     nitro(),
@@ -311,7 +313,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "cloudflare",
+      host: "cloudflare",
       publicUrl: process.env.APP_URL, // https://calories.example.com
     }),
   ],

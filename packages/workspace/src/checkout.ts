@@ -3,6 +3,9 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
+import { Diagnostic } from "nostics"
+
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 import { staleDerivedFiles } from "./lineage.ts"
 import { workspaceCommitRequestBytes } from "./results.ts"
 
@@ -35,11 +38,16 @@ interface WorkspaceLock {
 /** Calls one operation of the app, as `callOperationFromCli()` does. Tests pass a direct call. */
 export type WorkspaceCheckoutCall = (operation: string, input: unknown, remote: string | undefined) => Promise<{ ok: true, value: unknown } | { ok: false, code?: string, message: string, fix?: string, status?: number }>
 
-export class WorkspaceCheckoutError extends Error {
-  constructor(readonly code: string, message: string, readonly fix?: string) {
-    super(message)
-    this.name = "WorkspaceCheckoutError"
-  }
+/** A failed remote operation, with the code, message, and fix of the app's diagnostic. */
+function remoteFailure(result: { code?: string, fix?: string, message: string }): Error {
+  if (!result.code) return workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_FAILED({ message: result.message })
+  return new Diagnostic({ code: result.code, why: result.message, ...(result.fix ? { fix: result.fix } : {}) })
+}
+
+/** The code, message, and fix that the checkout commands print for a failure. */
+export function checkoutFailure(error: unknown): { code: string, fix?: string, message: string } {
+  const failure = error instanceof Diagnostic ? error : workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_FAILED({ message: error instanceof Error ? error.message : String(error) })
+  return { code: failure.code, message: failure.message, ...(failure.fix ? { fix: failure.fix } : {}) }
 }
 
 type Bytes = Uint8Array
@@ -89,7 +97,7 @@ function validateCheckoutPaths(paths: Iterable<string>, directories: Iterable<st
   const add = (path: string, directory: boolean) => {
     // Valibot record schemas omit these exact keys from workspace.commit's put map. Refuse instead of losing a put.
     if (!directory && ["__proto__", "constructor", "prototype"].includes(path)) {
-      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The top-level file name "${path}" is reserved by the operation input map.`, "Rename the file before pulling or pushing it.")
+      throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_PATH({ path, problem: "reserved" })
     }
     let key = ""
     let spelling = ""
@@ -99,14 +107,14 @@ function validateCheckoutPaths(paths: Iterable<string>, directories: Iterable<st
       if (!part || part === "." || part === ".."
         || /[. ]$|[<>:"|?*\\]/.test(part) || [...part].some(character => character.charCodeAt(0) < 32)
         || /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:[ .]|$)/.test(component)) {
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The path "${path}" has a component that is not portable between file systems.`, "Rename the path to a portable name before pulling or pushing it.")
+        throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_PATH({ path, problem: "not-portable" })
       }
       key += `/${component}`
       spelling += `${spelling ? "/" : ""}${part}`
       const isDirectory = directory || index < parts.length - 1
       const existing = nodes.get(key)
       if (existing && (existing.path !== spelling || existing.directory !== isDirectory)) {
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The checkout paths "${existing.path}" and "${spelling}" use different spellings for one file-system path, or replace a file with a directory.`, "Rename conflicting paths. For a file/directory replacement, keep local edits elsewhere, remove the lock entry, and pull into a new empty folder.")
+        throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_PATH({ other: existing.path, path: spelling, problem: "spelling" })
       }
       nodes.set(key, { path: spelling, directory: isDirectory })
     })
@@ -290,8 +298,8 @@ async function writeAtomic(target: string, bytes: Bytes | string): Promise<void>
   }
 }
 
-function lockSymlinkError(): WorkspaceCheckoutError {
-  return new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${workspaceLockFile} is a symbolic link. A checkout reads and writes only a real lock file.`, `Replace ${workspaceLockFile} with a real file, then try again.`)
+function lockSymlinkError(): Error {
+  return workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_SYMLINK({ path: workspaceLockFile })
 }
 
 async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
@@ -317,11 +325,11 @@ async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
     parsed = JSON.parse(source)
   }
   catch {
-    throw new WorkspaceCheckoutError("WORKSPACE_LOCK_INVALID", `${workspaceLockFile} is not valid JSON.`, `Fix the conflict in ${workspaceLockFile}, or delete the entry and pull again.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_LOCK_INVALID({ problem: "json" })
   }
   const workspaces: unknown = Object(parsed) === parsed ? Reflect.get(Object(parsed), "workspaces") : undefined
   if (Reflect.get(Object(parsed), "version") !== 1 || Object(workspaces) !== workspaces) {
-    throw new WorkspaceCheckoutError("WORKSPACE_LOCK_INVALID", `${workspaceLockFile} has no \`version: 1\` and \`workspaces\` object.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_LOCK_INVALID({ problem: "shape" })
   }
   const lock = parsed as WorkspaceLock
   ownRecord(lock.workspaces)
@@ -370,7 +378,7 @@ async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promis
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
       if (Date.now() - started > lockWaitMs) {
-        throw new WorkspaceCheckoutError("WORKSPACE_LOCK_BUSY", `Another vitehub command is writing ${workspaceLockFile}: ${lockMutexFile} exists.`, `Wait for that command to finish and try again. If no vitehub command runs, delete ${lockMutexFile}.`)
+        throw workspaceErrorDiagnostics.WORKSPACE_LOCK_BUSY()
       }
       await new Promise(resolve => setTimeout(resolve, 20))
     }
@@ -406,7 +414,7 @@ export function folderOf(rootDir: string, dir: string): string {
   const folder = resolve(rootDir, dir)
   const inside = relative(rootDir, folder)
   if (!inside || inside.startsWith("..") || inside.split(sep).includes("..")) {
-    throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `The checkout folder "${dir}" must be a folder inside the project, not the project root.`, "Pass --dir with a folder such as `content`.")
+    throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_DIR({ dir })
   }
   validateCheckoutPaths([], [inside.split(sep).join("/")])
   return folder
@@ -418,7 +426,7 @@ function validateCheckoutFolders(rootDir: string, lock: WorkspaceLock): void {
     const folder = folderKey(folderOf(rootDir, entry.dir))
     for (const [other, existing] of folders) {
       if (folder === existing || folder.startsWith(`${existing}${sep}`) || existing.startsWith(`${folder}${sep}`)) {
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OVERLAP", `Workspace "${workspace}" folder "${entry.dir}" overlaps Workspace "${other}" folder "${lock.workspaces[other]!.dir}".`, "Use separate checkout folders that do not contain one another.")
+        throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_OVERLAP({ dir: entry.dir, other, otherDir: lock.workspaces[other]!.dir, workspace })
       }
     }
     folders.set(workspace, folder)
@@ -442,7 +450,7 @@ async function scan(rootDir: string, folder: string, directories: string[] = [])
       if (ignoredName(entry.name)) continue
       const path = join(dir, entry.name)
       // A skipped link would look like a deleted file, and the next push would delete it on the remote.
-      if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(folder, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")
+      if (entry.isSymbolicLink()) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_SYMLINK({ path: relative(folder, path) })
       if (entry.isDirectory()) {
         directories.push(relative(folder, path).split(sep).join("/"))
         await walk(path)
@@ -469,7 +477,7 @@ export async function assertNoSymlinks(rootDir: string, target: string): Promise
       throw error
     }
     if (stat.isSymbolicLink()) {
-      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(rootDir, current)} is a symbolic link. A checkout reads and writes only real files and folders.`, "Replace the link with a real folder or file, then try again.")
+      throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_SYMLINK({ path: relative(rootDir, current) })
     }
   }
 }
@@ -479,7 +487,7 @@ async function localPath(rootDir: string, folder: string, path: string): Promise
   validateCheckoutPaths([path])
   const segments = path.split("/")
   if (segments.some(segment => !segment || segment === "." || segment === ".." || segment.includes("\\"))) {
-    throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The remote path "${path}" is not a relative Workspace path.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_PATH({ path, problem: "not-relative" })
   }
   const target = join(folder, ...segments)
   await assertNoSymlinks(rootDir, target)
@@ -566,7 +574,7 @@ interface WorkspaceCheckoutContext {
 
 async function callOrThrow<T>(context: WorkspaceCheckoutContext, remote: string | undefined, operation: string, input: unknown): Promise<T> {
   const result = await context.call(operation, input, remote)
-  if (!result.ok) throw new WorkspaceCheckoutError(result.code ?? "WORKSPACE_CHECKOUT_FAILED", result.message, result.fix)
+  if (!result.ok) throw remoteFailure(result)
   return result.value as T
 }
 
@@ -576,13 +584,12 @@ function checkoutEntry(rootDir: string, lock: WorkspaceLock, workspace: string, 
   if (existing) {
     for (const key of ["dir", "ref", "remote"] as const) {
       if (options[key] !== undefined && options[key] !== existing[key]) {
-        const fix = key === "remote" ? `Remove its ${workspaceLockFile} entry and pull into a new folder to change the remote.` : `Edit ${workspaceLockFile} to change it, or remove the entry and pull again.`
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `Workspace "${workspace}" is checked out with ${key} "${existing[key]}", not "${options[key]}".`, fix)
+        throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_OPTIONS({ actual: String(options[key]), expected: String(existing[key]), key, workspace })
       }
     }
     return existing
   }
-  if (!options.dir) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `Workspace "${workspace}" is not checked out yet.`, `Pass --dir <folder> on the first pull, such as \`vitehub pull ${workspace} --dir content\`.`)
+  if (!options.dir) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_DIR({ workspace })
   const entry: WorkspaceCheckout = { dir: options.dir, ref: options.ref ?? "main", ...(options.remote ? { remote: options.remote } : {}), head: null, files: ownRecord({}) }
   lock.workspaces[workspace] = entry
   validateCheckoutFolders(rootDir, lock)
@@ -647,11 +654,11 @@ async function applyRemote(rootDir: string, folder: string, entry: WorkspaceChec
 
 function selected(lock: WorkspaceLock, workspace: string | undefined): string[] {
   if (workspace) {
-    if (!lock.workspaces[workspace]) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`, `Run \`vitehub pull ${workspace} --dir <folder>\` first.`)
+    if (!lock.workspaces[workspace]) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_MISSING({ workspace })
     return [workspace]
   }
   const names = Object.keys(lock.workspaces).sort()
-  if (!names.length) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `${workspaceLockFile} has no checked-out Workspace.`, "Run `vitehub pull <workspace> --dir <folder>` first.")
+  if (!names.length) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_MISSING({})
   return names
 }
 
@@ -699,10 +706,10 @@ async function takeTheirs(context: WorkspaceCheckoutContext, workspace: string, 
   const local = await scan(context.rootDir, folder, directories)
   validateCheckoutPaths([...Object.keys(entry.files), ...local.keys(), ...paths], directories)
   for (const path of paths) {
-    if (ignoredPath(path)) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The path "${path}" is excluded from the checkout.`)
+    if (ignoredPath(path)) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_PATH({ path, problem: "excluded" })
     const shown = entry.head === null ? undefined : await context.call("workspace.show", { workspace, target: entry.head, path }, entry.remote)
     const file = shown?.ok ? (shown.value as WorkspaceHistoryDetails).file : undefined
-    if (shown && !shown.ok && shown.status !== 404) throw new WorkspaceCheckoutError(shown.code ?? "WORKSPACE_CHECKOUT_FAILED", shown.message, shown.fix)
+    if (shown && !shown.ok && shown.status !== 404) throw remoteFailure(shown)
     if (file) {
       const bytes = decode(file)
       await put(context.rootDir, folder, path, bytes)
@@ -751,7 +758,7 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const files = await scan(context.rootDir, folder)
     const local = localChanges(entry, files)
     if (local.conflicted.length) {
-      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_CONFLICT", `Workspace "${workspace}" has unresolved conflicts: ${local.conflicted.join(", ")}.`, "Edit each file and remove the conflict markers, or run `vitehub resolve` for a binary file. Then push again.")
+      throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_CONFLICT({ conflicted: local.conflicted.join(", "), workspace })
     }
     const pushed = [...local.added, ...local.modified, ...local.deleted].sort()
     if (!pushed.length) return { workspace, ref: entry.ref, pushed, pull }
@@ -770,7 +777,7 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     if (!called.ok) {
       // Only a moved head is worth a retry. Any other refusal, such as a held edit lease, fails the same way again.
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
-      throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
+      throw remoteFailure(called)
     }
     const { revision, normalized } = called.value as WorkspaceCommitResult
     for (const path of [...local.added, ...local.modified]) {
@@ -818,11 +825,7 @@ function assertCommitSize(workspace: string, input: object, putFiles: Record<str
     .sort((left, right) => right.bytes - left.bytes)
     .slice(0, 3)
     .map(file => `${file.path} (${formatBytes(file.bytes)})`)
-  throw new WorkspaceCheckoutError(
-    "WORKSPACE_CHECKOUT_TOO_LARGE",
-    `The push of Workspace "${workspace}" is ${formatBytes(bytes)}, over the ${formatBytes(workspaceCommitRequestBytes)} limit of one push.${largest.length ? ` Largest files: ${largest.join(", ")}.` : ""}`,
-    "A push is one revision and sends each changed file whole, with binary files in base64. Keep large media in Blob, or add new files in smaller groups with a push after each group.",
-  )
+  throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_TOO_LARGE({ largest: largest.join(", "), limit: formatBytes(workspaceCommitRequestBytes), size: formatBytes(bytes), workspace })
 }
 
 interface WorkspaceStatusOptions {
@@ -890,7 +893,7 @@ export async function localCheckoutStatus(rootDir: string): Promise<WorkspaceSta
 export async function resolveWorkspaceConflicts(rootDir: string, workspace: string, paths: readonly string[]): Promise<string[]> {
   const lock = await readWorkspaceLock(rootDir)
   const entry = lock.workspaces[workspace]
-  if (!entry) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`)
+  if (!entry) throw workspaceErrorDiagnostics.WORKSPACE_CHECKOUT_MISSING({ workspace })
   const resolved = (entry.conflicts ?? []).filter(path => !paths.length || paths.includes(path))
   entry.conflicts = (entry.conflicts ?? []).filter(path => !resolved.includes(path))
   await saveWorkspaceLock(rootDir, lock, [workspace])

@@ -21,4 +21,7 @@ export class WorkflowEntrypoint {
 }
 
 export const env = {}
+export class RpcTarget {}
+const workerExports = {}
+export { workerExports as exports }
 export const waitUntil = () => {}

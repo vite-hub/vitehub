@@ -2,6 +2,8 @@
 /// <reference path="./wasm-module.d.ts" />
 import type { File, ShOptions } from "sh-syntax"
 
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
+
 type ShellParser = (text: string, options?: ShOptions) => Promise<File>
 
 // The package compiles without the DOM lib, so declare the WebAssembly API that this module uses.
@@ -14,7 +16,11 @@ declare const WebAssembly: {
 let parser: Promise<ShellParser> | undefined
 
 export async function parseShell(text: string, options?: ShOptions): Promise<File> {
-  parser ??= loadParser()
+  // A failed load lets the next parse try again.
+  parser ??= loadParser().catch((error: unknown) => {
+    parser = undefined
+    throw error
+  })
   return (await parser)(text, options)
 }
 
@@ -23,7 +29,7 @@ async function loadParser(): Promise<ShellParser> {
   const wasm = await bundledWasmModule()
   if (!wasm) {
     // Without a bundler, sh-syntax reads main.wasm next to its own files.
-    if (!shSyntax.parse) throw new Error("[vitehub] sh-syntax cannot load its WebAssembly parser on this host.")
+    if (!shSyntax.parse) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE()
     return shSyntax.parse
   }
   // A bundled sh-syntax can't find main.wasm on disk, and Workers can't compile WebAssembly from bytes.

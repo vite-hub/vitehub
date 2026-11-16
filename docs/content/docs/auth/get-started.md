@@ -32,7 +32,7 @@ Add `auth: true` to the ViteHub options of your app. Keep the other options of y
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', auth: true },
+  vitehub: { host: 'node', auth: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true }), nitro()],
+  plugins: [vitehub({ host: 'node', auth: true }), nitro()],
 })
 ```
 ::::
@@ -55,7 +55,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', auth: true })],
+  plugins: [vitehub({ host: 'node', auth: true })],
 })
 ```
 ::::
@@ -121,7 +121,7 @@ The response has the `session`, with `expiresAt`, the time when the session ends
 
 ## What happens when you deploy
 
-The memory store of this tutorial is only for local tests. It loses all users when the server stops. Before you deploy, choose one of these:
+The memory store of this tutorial is only for local tests. It loses all users when the server stops, so a production build fails with `AUTH_C0063`. Before you deploy, choose one of these:
 
 - Keep users in your app Database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
 - Use [Sessions without a database](/docs/auth/configure#sessions-without-a-database) when people sign in only with a social account, such as GitHub.

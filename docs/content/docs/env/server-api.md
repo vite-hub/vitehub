@@ -14,18 +14,18 @@ icon: i-lucide-code-2
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
 | `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
-| `loadServerEnv` from `#vitehub/env/server` | Load one frozen Server Env snapshot, with provider values. |
-| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata. Reads no values and calls no provider. |
-| `inspectServerEnv` from `#vitehub/env/server` | Report the status of each value, never the value. |
+| `loadServerEnv` from `vite-hub/env` | Load one frozen Server Env snapshot, with provider values. |
+| `describeServerEnv` from `vite-hub/env` | List declaration metadata. Reads no values and calls no provider. |
+| `inspectServerEnv` from `vite-hub/env` | Report the status of each value, never the value. |
 | `isBlockingServerEnvEntry` from `vite-hub/env` | Check if an inspection entry makes `loadServerEnv()` fail. |
-| `usePublicEnv` from `#vitehub/env/public` | Read Public Env in browser code. |
-| `useServerEnv` from `#vitehub/env/server` | Read Server Env in server code. |
-| `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `usePublicEnv` from `vite-hub/env`, or from `#vitehub/env/public` in browser code | Read generated Public Env. |
+| `useServerEnv` from `vite-hub/env` | Read Server Env in server code. |
+| `deriveSecret` from `vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
-| `resolveServerEnv` from `vite-hub/env` | Resolve a Server Env registry yourself. |
+| `resolveServerEnv`, and the registry forms of `loadServerEnv`, `describeServerEnv`, `inspectServerEnv` from `vite-hub/env/server` | Resolve, load, or inspect an explicit Server Env registry. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
+| `typesafeEnv` from `vite-hub/env` | Server Env of the [`typesafe()` AI gateway](/docs/gateways), the default of [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
 | `parseSchema` from `vite-hub/env` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime
@@ -40,7 +40,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -109,7 +109,7 @@ export const appName = usePublicEnv().appName
 Read Server Env in server code. A secret prints hidden. Call `unseal()` to get the string for an SDK or request.
 
 ```ts [server/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export async function listIssues() {
   const { github } = useServerEnv()
@@ -124,7 +124,7 @@ export async function listIssues() {
 
 `useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING` with its path. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
 
-On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, `runWithServerEnv()`, and `deriveSecret()` take the same event.
+On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
 
 ## Read external Env storage
 
@@ -140,7 +140,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       providers: {
         credentials: './server/env/credentials.ts',
@@ -172,7 +172,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
@@ -205,7 +205,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       env: {
         providers: {
           credentials: './server/env/credentials.ts',
@@ -229,7 +229,7 @@ export default defineConfig({
 :::
 ::
 
-The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `#vitehub/env/server`.
+The provider reads all keys once. It gets a frozen snapshot of literal and host values, so a Kubernetes or Cloudflare secret can sign in to the store without a circular import of `vite-hub/env`.
 
 ```ts [server/env/credentials.ts]
 import { defineEnvProvider } from 'vite-hub/env'
@@ -254,7 +254,7 @@ export default defineEnvProvider<{
 Call `loadServerEnv()` at the start of each operation. Each call makes a new frozen snapshot, reads each key once, and caches nothing between loads. The next load sees a rotated value, while a running operation keeps its snapshot.
 
 ```ts [server/sources/private-repository.ts]
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 import { github } from 'vite-hub/workspace'
 
 export const privateRepository = github(async () => {
@@ -270,12 +270,16 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 `useServerEnv()` stays synchronous for host and literal values, but throws `ENV_ASYNC_REQUIRED` for a provider field. `loadServerEnv()` and `runWithServerEnv()` load the full snapshot.
 
-`describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, [canonical variable name](/docs/env/configure#variable-names), source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, conventional names, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
+`describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, the [variable names](/docs/env/configure#variable-names) an env declaration reads in read order, source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
 
 The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
 
-`inspectServerEnv()` loads providers the same way. It reports only paths, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
+`inspectServerEnv()` loads providers the same way. It reports only paths, variable names, the variable `name` that supplied an env value, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 
-From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/development/cli#inspect-server-env) for options. In the Console Env section, **Check status** shows the same.
+From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/development/cli#inspect-server-env) for options.
+
+To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, an overall `ok`, and the `host` that the app runs on, never values. The Console Env section runs it when it opens, for an app in the app's Console and for each linked app in a hosted Console. It shows each entry's host variable names, the name that supplied the value, its status, and a fix for blocking values, such as `vitehub env push --host cloudflare` for a missing variable. An Agent connected to the ViteHub MCP of a Console calls `run_operation` with `env.inspect`.
+
+To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, and an overall `ok`, never values.
 
 Provider reads are read-only and get the caller's abort signal. [Env Bridge](/docs/env/bridge) adds safe replacement, scoped access, and stored activity for managed credentials. Env adds no watches, leases, or caches between requests. A provider must not import the generated Server Env module. Use the `env` snapshot that `read()` gets for its first credential.

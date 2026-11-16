@@ -107,7 +107,7 @@ If reading the controller client or attach tracing fails, ViteHub releases the c
 
 For the Playwright controller on Cloudflare, install `@cloudflare/playwright` and `playwright-core`. Cloudflare builds use the `workerd` export condition and leave out the Node Playwright loader. Standalone Worker bundlers must also use `workerd`. The built-in Playwright CDP adapter needs Node.js.
 
-`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process.
+`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process. It rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Call `session.close()` when you are done.
 
 ## Live handoff
 

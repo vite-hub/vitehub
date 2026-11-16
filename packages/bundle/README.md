@@ -14,6 +14,8 @@ export default defineConfig({
 
 In Nuxt 5, set `vitehub: { bundle: true }` in `nuxt.config.ts`.
 
+Read the [Bundle docs](https://vitehub.dev/docs/bundle) for a tutorial, the checks, and the full reference.
+
 ```sh
 vite build                         # or nuxt build
 vitehub bundle                     # client and server size, startup size, largest groups

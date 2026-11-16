@@ -31,7 +31,7 @@ Add `kv: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. K
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: true },
+  vitehub: { host: 'node', kv: true },
 })
 ```
 ::::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', kv: true }), nitro()],
+  plugins: [vitehub({ host: 'node', kv: true }), nitro()],
 })
 ```
 ::::
@@ -56,13 +56,11 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', kv: true })],
+  plugins: [vitehub({ host: 'node', kv: true })],
 })
 ```
 ::::
 :::
-
-Did you choose Nuxt in Installation? Then add `kv: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 
 ::
 

@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { glob } from "tinyglobby"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { migrateViteHubOptions } from "./transform.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
@@ -34,8 +34,8 @@ const renamedTypes: Record<string, string> = {
   SandboxTaskPublicOptions: "SandboxTaskOptions",
   ScheduleVitePluginOptions: "ScheduleOptions",
   ViteHubAgentOptions: "AgentOptions",
-  ViteHubCloudflareOptions: "CloudflareOptions",
-  ViteHubConfig: "nothing: set the host in vitehub({ preset })",
+  ViteHubCloudflareOptions: "nothing: `vitehub deploy` uploads the Worker secrets",
+  ViteHubConfig: "nothing: set the host in vitehub({ host })",
   ViteHubConnectionsOptions: "ConnectionsOptions",
   WorkflowModuleOptions: "WorkflowOptions",
   WorkspaceModuleOptions: "WorkspaceOptions",
@@ -74,7 +74,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (result.changed) edits.push({ path: file, before, after: result.code })
   }
   followUps.push(...await renamedTypeReferences(cwd))
-  if (!edits.length && !followUps.length) throw new CodemodError("No vite.config or nuxt.config sets logs, contentImportBase, or a top-level env, so there is nothing to migrate.")
+  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config sets logs, contentImportBase, or a top-level env, so there is nothing to migrate.")
   return {
     summary: edits.length
       ? `Moved vite-hub options in ${edits.length} config file${edits.length === 1 ? "" : "s"}.`

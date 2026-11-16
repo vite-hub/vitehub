@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 
 import { join } from "pathe"
 
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
 
 import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
@@ -40,12 +41,15 @@ export function migrationSqlFile(migrationsDir: string, tag: string): string {
   return existsSync(folder) ? folder : join(migrationsDir, `${tag}.sql`)
 }
 
+/** Reports whether `migrationsDir` has the layout of Drizzle Kit 0.x, which `vitehub database up` converts. */
+export function hasDrizzleKit0xLayout(migrationsDir: string): boolean {
+  return existsSync(join(migrationsDir, "meta", "_journal.json"))
+}
+
 /** Reads the migration folders of `migrationsDir` in the order that Drizzle's migrator applies them. */
-export function readMigrations(migrationsDir: string): MigrationEntry[] {
+export function readMigrations(migrationsDir: string, database?: string): MigrationEntry[] {
   if (!existsSync(migrationsDir)) return []
-  if (existsSync(join(migrationsDir, "meta", "_journal.json"))) {
-    throw new Error(`${migrationsDir} uses the migrations layout of Drizzle Kit 0.x. Run \`npx drizzle-kit up\` with the Database config to convert it to one folder per migration.`)
-  }
+  if (hasDrizzleKit0xLayout(migrationsDir)) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database, dir: migrationsDir })
   return readdirSync(migrationsDir, { withFileTypes: true })
     // A generated folder without its SQL is incomplete history, even though Drizzle 1.0 silently skips it.
     .filter(entry => entry.isDirectory() && (/^\d{14}_/.test(entry.name) || existsSync(join(migrationsDir, entry.name, "migration.sql"))))

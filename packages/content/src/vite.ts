@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
+import { findContentEntry, inspectContentEntry, inspectContentModule } from "@vite-hub/source/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -46,7 +46,8 @@ const SNAPSHOT_ID_PATTERN = /^\0vitehub-content-snapshot:/
 type BuiltSnapshots = { file: string, snapshots: Record<string, BuiltContentSnapshot> }
 
 /**
- * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once. Returns each snapshot by
+ * Load `server/content.ts` in Node and parse its read-only `glob()` and `files()` Sources once, and the branch commit of
+ * each `github()` Source when the build has a GitHub token. Returns each snapshot by
  * instance name, and a warning for each Source, or the whole file, that the build could not parse.
  */
 export async function buildContentSnapshotModules(options: {
@@ -90,8 +91,6 @@ export async function buildContentSnapshotModules(options: {
   }
 }
 
-const sourceModules: ReadonlySet<string> = new Set(["@vite-hub/source", "vite-hub/source"])
-
 let lastGitHubCheck: { file: string, source: string, uses: boolean } | undefined
 
 /**
@@ -122,19 +121,13 @@ export function usesGitHubSources(input: { projectRoot: string, serverDirs?: rea
 }
 
 function importsGitHubSource(source: string, file: string, parse: typeof parseAst): boolean {
-  let program: ReturnType<typeof parseAst>
   try {
-    program = parse(source, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" })
+    // The same rule that adds the GitHub push webhook route.
+    return inspectContentModule(parse(source, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" })).github
   }
   catch {
     return false
   }
-  return program.body.some(statement => statement.type === "ImportDeclaration"
-    && statement.importKind !== "type"
-    && sourceModules.has(String(statement.source.value))
-    && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier"
-      && specifier.importKind !== "type"
-      && (specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value) === "github"))
 }
 
 /**
@@ -252,6 +245,8 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
             list: () => [{
               fields: [
                 { label: "Route", value: features.route ? "/api/content/**" : "Disabled" },
+                ...(features.github ? [{ label: "GitHub webhook", value: "POST /_vitehub/content/github" }] : []),
+                ...(features.previews ? [{ label: "Previews", value: "/tree/<branch>/-/<path>, /blob/<sha>/<path>, /pr/<number>/<path>" }] : []),
                 { label: "Collections", value: "vitehub content collections" },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),

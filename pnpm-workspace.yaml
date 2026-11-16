@@ -3,20 +3,21 @@ packages:
   - "fixtures/tutorials/chat-app"
   - "packages/*"
   - "packages/*/examples/*"
+  - "packages/docs/playground"
   - "playground/console"
   - "playground/content"
   - "playground/docs"
   - "playground/logs"
 catalog:
   "@cloudflare/vitest-plugin": ^1.3.6
-  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
   "@types/proper-lockfile": 4.1.4
   forges: 0.3.1
   proper-lockfile: 4.1.2
   comark-chat: 0.10.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
   # `@cloudflare/vitest-plugin` depends on this exact Wrangler, so CI and the docs use the same one.
-  wrangler: 4.147.0
+  wrangler: 4.157.0
 
 catalogMode: prefer
 linkWorkspacePackages: true
@@ -76,12 +77,14 @@ catalogs:
     "@chat-adapter/telegram": 4.44.0
     "@chat-adapter/web": 4.44.0
     chat: 4.44.0
-    chat-state-cloudflare-do: ^0.2.0
   database:
+    "@electric-sql/pglite": ^0.5.15
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
+    "@types/pg": ^8.15.0
     drizzle-kit: 1.0.0-rc.5
     drizzle-orm: 1.0.0-rc.5
+    pg: ^8.16.0
     postgres: ^3.4.9
   esbuild-v27:
     esbuild: ^0.27.7
@@ -99,15 +102,16 @@ catalogs:
     "@lingui/message-utils": 6.12.0
     "@lingui/vue": 6.12.0
   markdown:
-    "@comark/html": 0.9.0
+    "@comark/html": ^0.9.0
+    "@mdream/js": 2.1.0
     "@types/mdast": ^4.0.4
-    comark: 0.9.0
-  # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
+    comark: ^0.9.0
+  # Ranges, not pins: an app installs one copy of Comark and Comark UI that both it and ViteHub use.
   markdown-ui:
-    "@comark/html": 0.9.0
-    comark: 0.9.0
+    "@comark/html": ^0.9.0
+    comark: ^0.9.0
     comark-content: 0.5.1
-    comark-ui: ^0.10.0
+    comark-ui: ^0.12.0
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
   # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
   nitro-compat:
@@ -122,6 +126,7 @@ catalogs:
   realtime:
     "@tiptap/core": ^3.31.4
     "@tiptap/extension-blockquote": ^3.31.4
+    "@tiptap/extension-code": ^3.31.4
     "@tiptap/extension-collaboration": ^3.31.4
     "@tiptap/extension-collaboration-caret": 3.31.4
     "@tiptap/extension-document": ^3.31.4
@@ -155,7 +160,7 @@ catalogs:
     zod: ^4.6.7
   sandbox:
     "@cloudflare/sandbox": ^1.0.3
-    "@vercel/sandbox": ^3.9.1
+    "@vercel/sandbox": ^3.9.1 || ^4.0.0
   shell:
     just-bash: ^3.6.0
     sh-syntax: 0.8.3
@@ -167,19 +172,12 @@ catalogs:
     "@azure/identity": ^4.13.3
     "@azure/storage-blob": ^12.34.0
     "@google-cloud/storage": ^8.4.0
-    "@googleapis/drive": ^26.0.2
-    "@microsoft/microsoft-graph-client": ^3.0.7
-    "@supabase/storage-js": ^2.117.2
     "@upstash/redis": ^1.39.0
     "@vercel/blob": ^2.8.0
     aws4fetch: ^1.0.20
-    box-typescript-sdk-gen: ^1.19.1
-    dropbox: ^10.47.0
     files-sdk: ^3.1.1
-    google-auth-library: ^11.3.1
     ioredis: ^5.11.1
     unstorage: 2.0.0-beta.0
-    uploadthing: ^7.7.4
   tooling:
     "@yarnpkg/parsers": 3.1.0
     "@types/node": ^24.19.1
@@ -188,7 +186,6 @@ catalogs:
     knip: 6.39.0
     local-pkg: ^1.2.1
     oxlint: ^1.86.0
-    oxlint-tsgolint: 7.0.2003
     publint: ^0.3.25
     rollup: ^4.64.0
     typescript: ^6.0.3
@@ -201,25 +198,24 @@ catalogs:
     "@fontsource-variable/geist-mono": ^5.3.0
     "@formisch/vue": ^1.2.0
     "@iconify-json/lucide": ^1.2.139
-    "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.98
     "@iconify-json/vscode-icons": ^1.2.84
     "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
-    motion-v: ^2.5.2
     reka-ui: ^2.11.0
+    uqr: ^0.1.3
     vue: 3.5.44
   unjs:
     defu: ^6.1.7
     exsolve: ^1.1.3
-    h3: 2.0.8
+    h3: ^2.0.8
     jiti: ^2.7.0
     mlly: ^1.8.2
-    nitro: 3.0.261103-rc
-    nitropack: ^2.13.4
+    nitro: ^3.0.261103-rc
     ocache: ^0.3.1
     ofetch: ^1.5.1
     pathe: ^2.0.3
+    srvx: ^1.0.8
     unimport: ^6.5.0
   vercel:
     "@vercel/functions": ^3.9.11
@@ -276,7 +272,16 @@ packageExtensions:
       "@nuxt/devtools-kit": ^3.4.2
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
+  # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
+  # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
+  # Also 12 core bug fixes and 3 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571).
+  "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
+  "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
   # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
+# @vite-hub/kit pins ui-sdk 0.1.0-beta.5, published on 2026-11-15. Remove these after 2026-11-16T09:58Z, when the release age passes.
+minimumReleaseAgeExclude:
+  - "@ui-sdk/core@0.1.0-beta.5"
+  - "@ui-sdk/vue@0.1.0-beta.5"

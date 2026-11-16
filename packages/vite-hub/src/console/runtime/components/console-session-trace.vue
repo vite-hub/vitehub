@@ -26,6 +26,7 @@ import {
   traceStartBoundaryMs,
 } from "./console-session-trace-model";
 import ConsoleStatGrid from "./console-stat-grid.vue";
+import Icon from "./console-icon.vue";
 
 type Observation = AgentInvocationView["observations"][number];
 type SpanStatus = "cancelled" | "completed" | "failed" | "recovered" | "running";
@@ -571,7 +572,7 @@ const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, nu
                   class="session-trace__name"
                   :style="{ paddingInlineStart: `${0.75 + span.depth * 1.65}rem` }"
                 >
-                  <UIcon :name="span.icon" />
+                  <Icon :name="span.icon" />
                   <span
                     ><strong>{{ span.name }}</strong
                     ><small v-if="span.description">{{ span.description }}</small></span
@@ -600,7 +601,7 @@ const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, nu
 
     <template #resize-handle>
       <span
-        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented)"
+        class="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-(--border) transition-colors group-hover:bg-(--ui-border-accented)"
       />
     </template>
 
@@ -615,7 +616,7 @@ const selectedAttributesText = () => JSON.stringify(selectedAttributes.value, nu
         </header>
         <section class="session-trace__summary">
           <span>{{ selectedSpan.operation.replaceAll("_", " ") }} · {{ selectedSpan.status }}</span>
-          <h3><UIcon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
+          <h3><Icon :name="selectedSpan.icon" />{{ selectedSpan.name }}</h3>
           <ConsoleStatGrid :items="summaryFacts" :columns="3" label="Span summary">
             <template #value="{ item }"><span :class="item.label === 'Duration' ? '' : 'font-mono text-xs'">{{ item.value }}</span></template>
           </ConsoleStatGrid>

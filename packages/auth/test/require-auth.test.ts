@@ -7,6 +7,7 @@ import { requireAuth, requireAuthorization } from "../src/server.ts"
 import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { AuthDefinition } from "../src/types.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -46,7 +47,7 @@ describe("Auth inline guards", () => {
     providerMocks.getSession.mockReset()
     providerMocks.handler.mockReset()
     providerMocks.betterAuth.mockReturnValue({
-      api: { getSession: providerMocks.getSession },
+      api: { getSession: returnHeaders(providerMocks.getSession) },
       handler: providerMocks.handler,
     })
   })
@@ -78,7 +79,7 @@ describe("Auth inline guards", () => {
       const error = await requireAuth(new Request("https://example.com/me"), definition).catch((error: unknown) => error)
 
       expect(HTTPError.isError(error)).toBe(true)
-      expect(error).toMatchObject({ message: "Unauthorized.", status: 401 })
+      expect(error).toMatchObject({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 401, statusText: "Unauthorized" })
     })
 
     it("answers JSON 401 from H3 without running the rest of the handler", async () => {
@@ -93,7 +94,7 @@ describe("Auth inline guards", () => {
       const response = await app.fetch(new Request("https://example.com/me"))
 
       expect(response.status).toBe(401)
-      expect(await response.json()).toMatchObject({ message: "Unauthorized.", status: 401 })
+      expect(await response.json()).toEqual({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 401, statusText: "Unauthorized" })
       expect(after).not.toHaveBeenCalled()
     })
 
@@ -103,7 +104,7 @@ describe("Auth inline guards", () => {
       // The session marker reads the session cookie name from the context when a response sets cookies.
       providerMocks.betterAuth.mockReturnValue({
         $context: Promise.resolve({ authCookies: { sessionToken: { name: "session" } }, options: {} }),
-        api: { getSession: providerMocks.getSession },
+        api: { getSession: returnHeaders(providerMocks.getSession) },
         handler: providerMocks.handler,
       })
       const signIn = Response.json({ url: "https://github.com/login/oauth/authorize" })
@@ -116,6 +117,18 @@ describe("Auth inline guards", () => {
       expect(response.status).toBe(302)
       expect(response.headers.get("location")).toBe("https://github.com/login/oauth/authorize")
       expect(response.headers.getSetCookie()).toEqual(["state=1; Path=/", "verifier=2; Path=/"])
+    })
+
+    it("answers the refusal body for the text 403 after a failed sign-in", async () => {
+      const { app } = signedInApp(signInDefinition)
+      providerMocks.getSession.mockResolvedValue(null)
+
+      const response = await app.fetch(new Request("https://example.com/app?auth_error=denied", { headers: { accept: "text/html" } }))
+
+      expect(response.status).toBe(403)
+      expect(response.statusText).toBe("Forbidden")
+      expect(await response.json()).toEqual({ data: { code: "SIGNED_OUT" }, message: "Unauthorized.", status: 403, statusText: "Forbidden" })
+      expect(providerMocks.handler).not.toHaveBeenCalled()
     })
   })
 
@@ -140,7 +153,19 @@ describe("Auth inline guards", () => {
       const response = await app.fetch(new Request("https://example.com/posts/1", { method: "DELETE" }))
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toMatchObject({ message: "Forbidden.", status: 403 })
+      expect(await response.json()).toEqual({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403, statusText: "Forbidden" })
+      expect(deleted).not.toHaveBeenCalled()
+    })
+
+    it("answers the refusal body for the text 403 that an HTML request gets", async () => {
+      const { app, deleted } = authorizedApp(() => false)
+      providerMocks.getSession.mockResolvedValue(signedIn)
+
+      const response = await app.fetch(new Request("https://example.com/posts/1", { headers: { accept: "text/html" } }))
+
+      expect(response.status).toBe(403)
+      expect(response.statusText).toBe("Forbidden")
+      expect(await response.json()).toEqual({ data: { code: "FORBIDDEN" }, message: "Forbidden.", status: 403, statusText: "Forbidden" })
       expect(deleted).not.toHaveBeenCalled()
     })
 
@@ -193,6 +218,7 @@ describe("Auth inline guards", () => {
 
       expect(response.status).toBe(401)
       expect(response.headers.get("location")).toBeNull()
+      expect(await response.json()).toMatchObject({ data: { code: "SIGNED_OUT" } })
       expect(providerMocks.handler).not.toHaveBeenCalled()
     })
 

@@ -11,7 +11,7 @@ import { createTestQueueClient } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueDriverOptions, LocalQueueDriverOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueDriver, QueueSendResult, VercelQueueDriverOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueDriverOptions, LocalQueueDriverOptions, PostgresQueueDriverOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueDriver, QueueSendResult, VercelQueueDriverOptions } from "../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "../internal/runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -45,6 +45,10 @@ function toDriverOptions(name: string, config: QueueRuntimeOptions): QueueRuntim
 
   if (config.driver === "local") {
     return { ...config, queue: name } satisfies LocalQueueDriverOptions
+  }
+
+  if (config.driver === "postgres") {
+    return { ...config, queue: name } satisfies PostgresQueueDriverOptions
   }
 
   return {

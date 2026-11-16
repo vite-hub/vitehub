@@ -88,14 +88,17 @@ const codes = {
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "discovery" | "invalid-json" | "no-token" | "redirect" | "registration" | "token-request" | "verify", provider?: string, status?: number }): string => {
+      if (problem === "discovery") return `ViteHub found no ${message} for Connection "${provider}". Check its \`mcp\` URL, or set \`authorizationEndpoint\`, \`tokenEndpoint\`, and \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${provider}" did not register a client${status === undefined ? "" : ` (${status})`}.`
       if (problem === "invalid-json") return "Provider returned invalid JSON."
+      if (problem === "redirect") return `The provider answered with a redirect${status ? ` (${status})` : ""}. ViteHub does not follow redirects of token, revocation, and model requests.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
       return `Provider rejected ${action} with ${status}${message ? `: ${message}` : "."}`
     },
-    fix: "Check the provider status and the account permissions, then try again.",
+    fix: "Check the provider status and the account permissions, and use provider endpoint URLs that do not redirect. Then try again.",
   },
   CONNECTIONS_UNAVAILABLE: {
     why: ({ connection }: { connection: string }): string => `Connection "${connection}" has a token mutation in progress. Try again.`,
@@ -120,7 +123,8 @@ const codes = {
 
   // Config errors. ViteHub throws them, because the code or the deployment must change.
   CONNECTIONS_INVALID_ACTOR: {
-    why: ({ problem }: { problem: "access" | "agent" | "id" }): string => {
+    why: ({ problem }: { problem: "access" | "agent" | "id" | "missing" }): string => {
+      if (problem === "missing") return "This Connections runtime method records who made the decision, so it requires `actor`. It has no default."
       if (problem === "access") return "Connection `access` must be the Env access context of an Agent, without `actor`."
       if (problem === "agent") return "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent."
       return "Connection actor IDs must contain 1 to 512 characters and no control characters."
@@ -143,12 +147,12 @@ const codes = {
       if (problem === "request-bucket") return `Connections that share request bucket "${bucket}" use different rate intervals.`
       if (problem === "client-id") return `Provider "${provider}" has no client id.`
       if (problem === "instance") return `The Connection Definition of instance "${connection}" is invalid.`
-      if (problem === "registration") return `The authorization server of Connection "${connection}" does not register clients. Set the provider \`clientId\`.`
+      if (problem === "registration") return `The authorization server of Connection "${connection}" does not offer client registration. Set the provider \`clientId\`.`
       if (problem === "revocation") return `Provider "${provider}" does not support token revocation.`
       if (problem === "verify-result") return `The verify check of provider "${provider}" must return a boolean or { account }.`
       return "The Connection Definition is invalid."
     },
-    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
+    fix: "Default export `defineConnection({ provider, access })` from the file. An OAuth provider needs `clientId`, or an `mcp` endpoint whose authorization server registers clients; `verify` returns `true`, `false`, or `{ account }`. Connections with the same `requests.bucket` need the same `requests.rate`.",
   },
   CONNECTIONS_INVALID_NAME: {
     why: ({ file, name, problem }: { file?: string, name?: string, problem: "length" | "use-connection" | "whitespace" }): string => {
@@ -182,11 +186,12 @@ const codes = {
     fix: "Reconnect the Connection. If the error stays, check that one app version writes the Connections tables.",
   },
   CONNECTIONS_NOT_CONFIGURED: {
-    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" }): string => {
+    why: ({ missing }: { missing: "bridge-revision" | "chatgpt-runtime" | "database" | "key" | "leases" | "revisions" | "rotation" }): string => {
       if (missing === "chatgpt-runtime") return "This Connections runtime does not support ChatGPT plan usage or credential transfer."
       if (missing === "bridge-revision") return "Connection revocation requires the Env Bridge to provide the leased token revision."
-      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY with 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
+      if (missing === "key") return "Connections need VITEHUB_CONNECTIONS_KEY, or VITEHUB_CONNECTIONS_KEYS as a comma list with the current key first. Each key is 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`."
       if (missing === "database") return "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store."
+      if (missing === "rotation") return "The Connection store cannot re-encrypt stored tokens. Use createDatabaseConnectionStore() or add rotate() to the store."
       if (missing === "leases") return "The Connection store must provide atomic token mutation leases."
       return "The Connection secret store must return token revisions."
     },
@@ -276,6 +281,31 @@ const codes = {
   CONNECTIONS_STATE_MISMATCH: {
     why: "The callback has no `state` cookie of this browser, or the cookie does not match.",
     fix: "Start the connection again in this browser. Each authorization link works one time, for 10 minutes.",
+  },
+  // CLI errors. `vitehub connections` prints them with their fix. Keep these codes in alphabetical order.
+  CONNECTIONS_CLI_ARGUMENTS_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections --help` for the commands and their options, and pass the value that the message names.",
+  },
+  CONNECTIONS_CLI_CALLBACK_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Run `vitehub connections connect <name>` again, and finish the sign-in in the browser before the link expires.",
+  },
+  CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--file` a ChatGPT credential file that `vitehub connections export` wrote, of at most 60 KiB, that only your user can read (`chmod 600`).",
+  },
+  CONNECTIONS_CLI_REQUEST_FAILED: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Follow the fix of the server error that the message shows, then run the command again.",
+  },
+  CONNECTIONS_CLI_SERVER_UNREACHABLE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Start the development server with `vite dev`, or pass `--url <origin>` of an app that uses Connections. A retry helps when the server was restarting.",
+  },
+  CONNECTIONS_CLI_TRANSPORT_INSECURE: {
+    why: ({ problem }: { problem: string }): string => problem,
+    fix: "Pass `--url` an HTTPS origin or a loopback host, and send credential files from Linux or macOS, where the file can be owner-only.",
   },
 }
 

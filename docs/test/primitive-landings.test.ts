@@ -152,7 +152,7 @@ describe("Agents landing", () => {
       expect(agent.content).toContain('import { defineAgent } from "vite-hub/agent"');
       expect(agent.content).toContain("run({ prompt })");
       const config = variant.files.find((file) => file.path.endsWith(".config.ts"))!;
-      expect(config.content).toContain('preset: "node", agent: true');
+      expect(config.content).toContain('host: "node", agent: true');
       expect(variant.files.map((file) => file.content).join("\n")).not.toMatch(/definePrimitive|vite-hub\/agents|vite-hub\/vite/);
       expect(variant.files.some((file) => file.path.includes("agentss"))).toBe(false);
     }
@@ -170,7 +170,7 @@ describe("Sandbox landing projects", () => {
         expect(manifest.dependencies[dependency]).toBeTruthy();
       }
       const config = files.get(variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts");
-      expect(config).toContain('preset: "vercel", sandboxTask: true');
+      expect(config).toContain('host: "vercel", sandboxTask: true');
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).toContain("export default async function");
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).not.toContain("defineSandboxTask");
       expect(files.get("server/release-notes.ts")).toContain('runSandboxTask("release-notes", { notes: "ship it" })');
@@ -188,7 +188,7 @@ describe("Browser landing examples", () => {
     for (const variant of browser.variants) {
       expect(variant.illustrative).not.toBe(true);
       const source = variant.files.map(file => file.content).join("\n");
-      expect(source).toContain('preset: "cloudflare", browser: true');
+      expect(source).toContain('host: "cloudflare", browser: true');
       expect(source).not.toMatch(/definePrimitive|vite-hub\/vite/);
       expect(variant.files.find(file => file.path === "server/browsers/page-html.ts")?.content).toContain("defineBrowser");
       expect(source).toContain('runBrowser("page-html",');
@@ -221,7 +221,7 @@ describe("Content landing examples", () => {
         expect(route?.content).toContain("export default defineContentHandler(content)");
       } else {
         expect(route).toBeUndefined();
-        expect(variant.files.find((file) => file.path.endsWith(".config.ts"))?.content).toContain('preset: "node"');
+        expect(variant.files.find((file) => file.path.endsWith(".config.ts"))?.content).toContain('host: "node"');
       }
     }
   });

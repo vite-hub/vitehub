@@ -17,7 +17,7 @@ it.each(["node-worker", "miniflare"] as const)("writes Content declarations on t
     await mkdir(join(root, "server"))
     await writeFile(join(root, "server/content.ts"), `
       import { defineContent } from "vite-hub/content"
-      export default defineContent({ sources: {
+      export default defineContent({ access: "public", sources: {
         docs: { async items() { return [{ key: "about.md", content: "---\\ntitle: About\\n---\\n" }] } },
       } })
     `)
@@ -78,6 +78,23 @@ it("starts and closes the writer through Nitro modules as used by Nuxt", async (
     finally {
       await production.close()
     }
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("closes the writer once when Nuxt and the CLI both close Nitro", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-content-types-close-"))
+  try {
+    await mkdir(join(root, "server"))
+    await writeFile(join(root, "server/content.ts"), "export default defineContent({})")
+    const handlers = await hubSource().api.prepareSources({ projectRoot: root })
+    // SAFETY: Source contributes this Nitro config through the same boundary as Nuxt.
+    const host = await createNitro({ ...mergeGeneratedSourceNitroConfig({}, handlers) as NitroConfig, dev: true, rootDir: root, logLevel: 0 })
+    // CLI discovery closes Nitro, then `nuxt.close()` calls the Nitro close hook again.
+    await host.close()
+    await expect(host.hooks.callHook("close")).resolves.toBeUndefined()
   }
   finally {
     await rm(root, { recursive: true, force: true })

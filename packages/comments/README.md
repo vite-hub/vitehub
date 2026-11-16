@@ -69,7 +69,7 @@ export const comments = defineComments({
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
-Press `C` and click the page to start a thread, or press `B` to highlight part of the page and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
+Press `C` and click the page to start a thread, or press `B` to draw on the page with a marker, a pen, arrows, or text labels and comment with a picture of it. Press `E` to edit text that `contentField()` marks:
 
 ```vue
 <script setup lang="ts">
@@ -168,7 +168,7 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC on a development server. A browser cannot sign Console calls, so the RPC transport works only with `console: { auth: false }` or without the `console` option. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
+The Vue parts are in `@vite-hub/ui`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC on a development server. A browser cannot sign Console calls, so the RPC transport works only with `console: { auth: false }` or without the `console` option. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
 
 ## Anchors
 

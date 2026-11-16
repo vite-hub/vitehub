@@ -128,8 +128,8 @@ describe("pull request checkout", () => {
     const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
     const env = cleanEnv(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, { repository: "vite-hub/vitehub", headRepository: "contributor/vitehub" }, signal))
     expect(access.mock.calls.map(([, scope]) => scope)).toEqual([
-      { repository: "vite-hub/vitehub", signal },
-      { repository: "contributor/vitehub", signal },
+      { repository: "vite-hub/vitehub", minLifetime: 55 * 60_000, signal },
+      { repository: "contributor/vitehub", minLifetime: 55 * 60_000, signal },
     ])
     expect(env.GH_TOKEN).toBe("base-token")
     const header = async (url: string) => await git(fixture.workspace, ["config", "--get-urlmatch", "http.extraheader", url], env).catch(() => "")

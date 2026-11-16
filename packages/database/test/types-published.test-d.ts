@@ -1,13 +1,13 @@
-import { defineDatabase } from "@vite-hub/database"
-import { agentDb, chunkParameters, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
-import { hubDb } from "@vite-hub/database/nuxt"
+import { chunkParameters, db, defineDatabase, schema, useDatabase } from "@vite-hub/database"
+import { agentDb, databases } from "@vite-hub/database/runtime/registry"
+import { hubDatabase } from "@vite-hub/database/nuxt"
 import { defineRelations, defineRelationsPart } from "drizzle-orm"
 import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { Database, DatabaseNuxtIntegrationOptions, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "@vite-hub/database"
+import type { DatabaseDefinition, DatabaseNuxtIntegrationOptions, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "@vite-hub/database"
 
 const analyticsSchema = {
   events: sqliteTable("events", { name: text("name").notNull() }),
@@ -30,7 +30,7 @@ const reviewRelations = defineRelationsPart(librarySchema, r => ({
   books: { reviews: r.many.reviews({ from: r.books.id, to: r.reviews.bookId }) },
 }))
 
-declare module "@vite-hub/database/drizzle" {
+declare module "@vite-hub/database" {
   interface DatabaseRegistry {
     analytics: {
       config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig
@@ -52,7 +52,7 @@ declare module "@vite-hub/database/drizzle" {
 }
 
 describe("published package types", () => {
-  it("resolves virtual schema types from the drizzle subpath without manual ambient imports", () => {
+  it("resolves virtual schema types from the root without manual ambient imports", () => {
     expectTypeOf(schema).toMatchTypeOf<Record<string, unknown>>()
     expectTypeOf(schema.notes).toEqualTypeOf<unknown>()
     expectTypeOf(databases.default.schema).toMatchTypeOf<typeof schema>()
@@ -69,14 +69,14 @@ describe("published package types", () => {
     useDatabase()
   })
 
-  it("returns a typed runtime database from defineDatabase", () => {
+  it("returns only the Definition from defineDatabase", () => {
     const notes = sqliteTable("notes", { title: text("title").notNull() })
     const database = defineDatabase({ schema: { notes } })
 
-    expectTypeOf(database).toMatchTypeOf<Database<{ notes: typeof notes }>>()
+    expectTypeOf(database).toEqualTypeOf<DatabaseDefinition<{ notes: typeof notes }>>()
     expectTypeOf(database.schema.notes).toEqualTypeOf(notes)
-    expectTypeOf(database.select).toBeFunction()
-    expectTypeOf(database.batch).toBeFunction()
+    // @ts-expect-error A Definition is not a Drizzle database. Query `useDatabase(name).db`.
+    void database.select
     expectTypeOf(db.batch).toBeFunction()
     expectTypeOf(useDatabase("analytics").db.batch).toBeFunction()
   })
@@ -96,27 +96,13 @@ describe("published package types", () => {
     defineDatabase({ cloudflare: { http: true }, dialect: "postgresql", schema: reportsSchema })
   })
 
-  it("types `with` from the relations of defineDatabase", () => {
+  it("keeps the relations of defineDatabase on the Definition", () => {
     const database = defineDatabase({ relations: libraryRelations, schema: librarySchema })
 
-    expectTypeOf(database).toMatchTypeOf<Database<typeof librarySchema, typeof libraryRelations>>()
+    expectTypeOf(database).toEqualTypeOf<DatabaseDefinition<typeof librarySchema, typeof libraryRelations>>()
     expectTypeOf(database.relations).toEqualTypeOf(libraryRelations)
-    expectTypeOf(database.query.authors.findMany({ with: { books: true } })).resolves.toEqualTypeOf<Array<{
-      id: number
-      name: string
-      books: Array<{ id: number, authorId: number }>
-    }>>()
-    expectTypeOf(database.query.books.findFirst({ columns: { id: true }, with: { author: { columns: { name: true } } } })).resolves.toEqualTypeOf<{
-      id: number
-      author: { name: string }
-    } | undefined>()
-    // @ts-expect-error Authors have no reviews relation.
-    database.query.authors.findMany({ with: { reviews: true } })
-
-    // Without `relations`, each table has no relations, so `with` does not exist.
-    const plain = defineDatabase({ schema: librarySchema })
-    // @ts-expect-error Plain Definitions have no relations.
-    plain.query.authors.findMany({ with: { books: true } })
+    // @ts-expect-error Query the relations through `useDatabase(name).db.query`.
+    void database.query
   })
 
   it("types `with` from registry relations, as one object or as merged parts", () => {
@@ -157,6 +143,6 @@ describe("published package types", () => {
       databaseId: "content-id",
     } satisfies DatabaseNuxtIntegrationOptions
 
-    expectTypeOf(hubDb(options).getMeta().name).toEqualTypeOf<string>()
+    expectTypeOf(hubDatabase(options).getMeta().name).toEqualTypeOf<string>()
   })
 })

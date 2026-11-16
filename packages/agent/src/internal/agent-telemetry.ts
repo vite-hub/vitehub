@@ -1,4 +1,4 @@
-import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { isRuntimeRecord } from "./runtime-type.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
@@ -232,7 +232,7 @@ export async function setAgentTelemetryConfiguration(
 
 export async function updateAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
-  patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools">> & {
+  patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools" | "workspace">> & {
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
 ): Promise<void> {
@@ -274,6 +274,16 @@ export function getAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
 ): AgentTelemetryConfigurationState | undefined {
   return configurationByContext.get(context)
+}
+
+export async function observeAgentWorkspaceRevision(workspace: ReadonlyWorkspaceFacade) {
+  try {
+    return await workspace.history.head()
+  }
+  catch {
+    // Optional Console metadata must not change Invocation execution.
+    return undefined
+  }
 }
 
 export function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<string | { id: string; repository: string }> {

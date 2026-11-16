@@ -1,6 +1,6 @@
 import { defu } from "defu"
 
-import { normalizeHosting } from "@vite-hub/internal/hosting"
+import { getHostingProvider, normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
@@ -8,6 +8,7 @@ import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkflowResolutionInput {
   hosting?: string
+  inline?: boolean
 }
 
 const knownDrivers = new Set(["cloudflare", "openworkflow", "vercel"])
@@ -109,12 +110,12 @@ function normalizeOpenWorkflowSqliteOptions(value: unknown): OpenWorkflowSqliteO
   }
 }
 
-function normalizeOpenWorkflowWorkerOptions(value: unknown): OpenWorkflowWorkerOptions | undefined {
-  if (typeof value === "undefined") {
-    return undefined
+function normalizeOpenWorkflowWorkerOptions(value: unknown): false | OpenWorkflowWorkerOptions | undefined {
+  if (typeof value === "undefined" || value === false) {
+    return value
   }
   if (!isPlainObject(value)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be a plain object." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0007({ message: "`workflow.worker` must be `false` or a plain object." })
   }
 
   const concurrency = readPositiveInteger(value.concurrency, "workflow.worker.concurrency")
@@ -130,27 +131,27 @@ function isDefinedRuntimeConfigValue(value: unknown): boolean {
   return typeof value === "string" && !!value.trim() || isRuntimeEnvDeclaration(value)
 }
 
-function inferDriver(driver: unknown, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
+function inferDriver(options: Record<string, unknown>, hosting: string, inline: boolean): "cloudflare" | "openworkflow" | "vercel" {
+  const driver = options.driver
   if (driver === "cloudflare" || driver === "openworkflow" || driver === "vercel") {
     return driver
   }
-  if (hosting.includes("netlify")) {
+  const host = getHostingProvider(hosting)
+  if (host === "netlify") {
     throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.driver` cannot be inferred for Netlify hosting. Set `workflow.driver` explicitly or disable `workflow`." })
   }
-  if (hosting.includes("cloudflare")) {
-    return "cloudflare"
-  }
-  return "vercel"
+  if (host === "cloudflare") return "cloudflare"
+  if (host === "vercel") return "vercel"
+  if (hosting.includes("node") || hosting.includes("docker")) return "openworkflow"
+  if (hasOpenWorkflowStorageConfig(options)) return "openworkflow"
+  // Without a host target, or when inline runs are allowed, the Vercel adapter runs each Workflow inline.
+  if (!hosting || inline) return "vercel"
+  throw workflowErrorDiagnostics.WORKFLOW_C0020({
+    message: `\`workflow.driver\` cannot be inferred for ${JSON.stringify(hosting)} hosting. ViteHub infers Vercel Workflow only on Vercel. For durable runs, set \`workflow: { driver: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } }\`, or \`postgres: { url }\` instead of \`sqlite\`, and call \`startOpenWorkflowWorker()\` from \`@vite-hub/workflow/openworkflow\` in a long-lived process.`,
+  })
 }
 
-function inferDriverFromOptions(options: Record<string, unknown>, hosting: string): "cloudflare" | "openworkflow" | "vercel" {
-  if (typeof options.driver === "undefined" && (hosting.includes("node") || hosting.includes("docker")) && hasOpenWorkflowStorageConfig(options)) {
-    return "openworkflow"
-  }
-  return inferDriver(options.driver, hosting)
-}
-
-function resolveDriver(options: Record<string, unknown>, hosting: string): ResolvedWorkflowOptions {
+function resolveDriver(options: Record<string, unknown>, hosting: string, inline: boolean): ResolvedWorkflowOptions {
   const shared: WorkflowSharedOptions = {
     ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
     ...(typeof options.name === "string" ? { name: options.name } : {}),
@@ -161,7 +162,7 @@ function resolveDriver(options: Record<string, unknown>, hosting: string): Resol
     throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.driver\`: ${JSON.stringify(driver)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
-  const resolved = inferDriverFromOptions(options, hosting)
+  const resolved = inferDriver(options, hosting, inline)
 
   if (resolved === "cloudflare") {
     return defu(shared, { driver: "cloudflare" as const })
@@ -171,6 +172,7 @@ function resolveDriver(options: Record<string, unknown>, hosting: string): Resol
     const postgres = normalizeOpenWorkflowPostgresOptions(options.postgres)
     const sqlite = normalizeOpenWorkflowSqliteOptions(options.sqlite)
     const worker = normalizeOpenWorkflowWorkerOptions(options.worker)
+    const remote = readBoolean(options.remote, "workflow.remote")
 
     if (postgres?.url && sqlite?.path) {
       throw workflowErrorDiagnostics.WORKFLOW_C0012({ message: "`workflow.postgres.url` and `workflow.sqlite.path` cannot both configure OpenWorkflow storage." })
@@ -180,7 +182,8 @@ function resolveDriver(options: Record<string, unknown>, hosting: string): Resol
       {
         ...(postgres ? { postgres } : {}),
         ...(sqlite ? { sqlite } : {}),
-        ...(worker ? { worker } : {}),
+        ...(worker !== undefined ? { worker } : {}),
+        ...(remote === true ? { remote } : {}),
       },
       shared,
       { driver: "openworkflow" as const },
@@ -198,5 +201,5 @@ export function normalizeWorkflowOptions(options: WorkflowOptions | undefined, i
   if (options && Object.hasOwn(options, "database") && options.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_C0017({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
   }
-  return resolveDriver(options || {}, normalizeHosting(input.hosting))
+  return resolveDriver(options || {}, normalizeHosting(input.hosting), input.inline === true)
 }

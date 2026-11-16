@@ -32,7 +32,7 @@ Do not use a database that has its own migration history.
 
 ## Select Cloudflare and identify the database
 
-Set `preset: 'cloudflare'` and `database: true` in your ViteHub config. Add
+Set `host: 'cloudflare'` and `database: true` in your ViteHub config. Add
 this `cloudflare` block to the Database Definition:
 
 ```ts [server/databases/default.ts]
@@ -58,7 +58,7 @@ Set both variables before you build. The binding name alone does not identify
 the remote database.
 
 ViteHub can also create the database. Set only the name, then run
-[`vitehub provision run --provider cloudflare`](/docs/development/provisioning).
+[`vitehub provision run --host cloudflare`](/docs/development/provisioning).
 It writes the ID to `.vitehub/provision.json`, and the build reads it there.
 
 ## Generate and apply the D1 migration

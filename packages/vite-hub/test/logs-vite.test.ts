@@ -40,7 +40,7 @@ async function configure(
 describe("Logs host integration", () => {
   it("has one owner for request error logging", () => {
     const names = (observability: NonNullable<Parameters<typeof vitehub>[0]>["observability"]) =>
-      vitehub({ preset: "node", observability }).flatMap((plugin) =>
+      vitehub({ host: "node", observability }).flatMap((plugin) =>
         plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
       );
     expect(names({ logs: true })).not.toContain("vite-hub/error-log");
@@ -50,7 +50,7 @@ describe("Logs host integration", () => {
   });
   it("starts no logger for a source without a service", () => {
     const names = (observability: NonNullable<Parameters<typeof vitehub>[0]>["observability"]) =>
-      vitehub({ preset: "node", observability }).flatMap((plugin) =>
+      vitehub({ host: "node", observability }).flatMap((plugin) =>
         plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
       );
     expect(names({ logs: { source: "./server/logs.ts" } })).not.toContain("vite-hub/observability");
@@ -110,7 +110,7 @@ describe("Logs host integration", () => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
       const plugins = vitehub({
-        preset: "node",
+        host: "node",
         observability: { logs: true, evlog: { redact: true } },
       }).flatMap((plugin) => plugin && typeof plugin === "object" && "name" in plugin ? [plugin] : []);
       const input: LogsConfig = {

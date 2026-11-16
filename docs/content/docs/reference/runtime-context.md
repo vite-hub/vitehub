@@ -88,7 +88,7 @@ import { defineEventHandler, readValidatedBody } from 'h3'
 import { useRuntimeConfig } from 'nitro/runtime-config'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
-import { getRuntimeContext } from 'vite-hub/runtime/h3'
+import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
@@ -108,7 +108,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The adapter accepts any event with [Standard Context](#standard-context), which includes H3 1 and H3 2 events in a ViteHub app. It reads the request, Cloudflare bindings, and the host's `waitUntil` from `event["~standard"]`, and gives the invocation a new memo cache.
+The adapter accepts any event with [Standard Context](#standard-context), which includes H3 2 events in a ViteHub app. It reads the request, Cloudflare bindings, and the host's `waitUntil` from `event["~standard"]`, and gives the invocation a new memo cache.
 
 - Options can set `runtime`, `runtimeConfig`, `capabilities`, provider context, `request`, `memo`, or `waitUntil`.
 - Request data and provider resources stay in Runtime Context, not in invocation input.
@@ -129,10 +129,9 @@ ViteHub reads request events through [Standard Context](https://github.com/stand
 | `runtime` | `cloudflare.env`, `cloudflare.context`, and `clientAddress` when the host provides them. |
 | `waitUntil` | The host lifetime method, if the host has one. |
 
-H3 does not set `~standard` yet, so a ViteHub Nitro `request` hook sets it on each H3 1 and H3 2 event and adds it to the `H3Event` type. A value that the host sets stays.
+H3 does not set `~standard` yet, so a ViteHub Nitro `request` hook sets it on each H3 2 event and adds it to the `H3Event` type. A value that the host sets stays.
 
 - Each property is computed on first read and kept for the request. A route that never reads `~standard` does no extra work.
-- On H3 1, ViteHub builds the `Request` on the first read of `req`.
 - H3 sends the handler's return value as the body, so setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]
@@ -144,11 +143,12 @@ export default defineEventHandler((event) => {
 })
 ```
 
-For an event that Nitro did not create, such as in a test, call `installStandardContext(event)` from `vite-hub/runtime/h3` first.
-
-`getStandardContext(event)` from `vite-hub/runtime/h3` also accepts a `Request`. It returns `event["~standard"]` and sets it first if it is missing. Primitives such as `requireRateLimit()` and `useServerEnv()` use it, so they work in an H3 app without the ViteHub Vite plugin.
-
-The `ViteHubContext` type comes from `vite-hub/runtime` and does not load H3 types. In a ViteHub app, the generated `.vitehub/types.d.ts` adds `~standard` to `H3Event`. Without the ViteHub Vite plugin, add it with `import type {} from 'vite-hub/runtime/h3'`.
+`getStandardContext(event)` from `vite-hub/runtime` returns `event["~standard"]`.
+It also accepts a `Request`. A value that is neither throws `RUNTIME_R0015`.
+ViteHub primitives such as `requireRateLimit()` and `useServerEnv()` set
+`~standard` themselves when it is missing, such as for an event in a test. The
+`ViteHubContext` type comes from `vite-hub/runtime` and does not load H3 types. In
+a ViteHub app, the generated `.vitehub/types.d.ts` adds `~standard` to `H3Event`.
 
 ### Background work and cleanup
 

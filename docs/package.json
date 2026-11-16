@@ -45,14 +45,13 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
-    "@better-auth/cimd": "1.7.15",
+    "@better-auth/cimd": "catalog:auth",
     "@chat-adapter/slack": "catalog:chat",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
     "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
-    "comark-chips": "^0.10.1",
     "playwright-core": "catalog:browser",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

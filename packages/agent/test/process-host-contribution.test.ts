@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { env } from "@vite-hub/env"
 import { defineAgent } from "../src/index.ts"
 import { withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
 import { usesProcessHostPreset } from "../src/discovery.ts"
@@ -130,6 +131,19 @@ describe("generated process hosts", () => {
     await expect(stat(join(root, ".vitehub/agent/process-hosts.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("reads a declared State auth token from its env variable at runtime", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await project(workerSource)
+    const authToken = env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", authToken, url: "libsql://state.example.test" } } })
+    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    await plugin.configResolved.call({} as never, { command: "build", root } as never)
+    const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+    expect(route).toContain(`(process.env["TURSO_AUTH_TOKEN"]) ? { authToken: process.env["TURSO_AUTH_TOKEN"] } : {}`)
+    expect(route).not.toContain("authToken\":")
+  })
+
   it("registers the plugin and host routes, and rejects hosts that cannot run a process", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await project(workerSource)
@@ -137,7 +151,7 @@ describe("generated process hosts", () => {
       const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } })
       if (typeof plugin.config !== "function") throw new TypeError("Expected Agent config hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const options = { root, ...(preset ? { preset } : {}), nitro: {} } as never
+      const options = { root, ...(preset ? { vitehub: { host: preset } } : {}), nitro: {} } as never
       plugin.config.call({} as never, options, { command: "build", mode: "production" } as never)
       return options as { nitro: { plugins?: string[], handlers?: { route: string }[] } }
     }

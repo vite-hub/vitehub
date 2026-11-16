@@ -29,6 +29,7 @@ describe("workspace inventory", () => {
       "forms",
       "gateways",
       "i18n",
+      "kit",
       "kv",
       "markdown-template",
       "mcp",

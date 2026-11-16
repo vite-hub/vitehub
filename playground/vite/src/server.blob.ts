@@ -36,7 +36,7 @@ app.put("/api/blob", async (event) => {
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  const [error] = await blob.del(body.pathname)
+  const [error] = await blob.delete(body.pathname)
   if (error) throw error
   return { ok: true }
 })

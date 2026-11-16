@@ -8,6 +8,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
+import { emailDeploymentEnv } from "./deployment-env.ts"
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -17,6 +18,7 @@ import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -92,6 +94,8 @@ export interface EmailOptions {
 }
 
 export interface EmailVitePluginAPI {
+  /** The variables of the provider options in `server/email.ts`. See `emailDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getDefinition: () => GeneratedEmailDefinition | undefined
   prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>>
 }
@@ -493,6 +497,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
     name: EMAIL_VITE_PLUGIN_NAME,
     enforce: "pre",
     api: {
+      deploymentEnv: () => emailDeploymentEnv(definition?.options),
       getDefinition: () => definition,
       prepareTypes,
     },

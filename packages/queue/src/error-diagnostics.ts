@@ -19,7 +19,9 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_UNSUPPORTED_OPTION: {
       why: ({ options, provider }: { options: string, provider: QueueDriver }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
-      fix: "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
+      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("`id`")
+        ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
+        : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
@@ -39,7 +41,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",
-      fix: "Add `hubQueue()` to the Vite config and do not set `queue: false`.",
+      fix: "In `vitehub()`, set `queue.driver` to the driver of the host, or remove `driver`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `driver` that matches the host.",
+    },
+    QUEUE_DRIVER_MISMATCH: {
+      why: ({ driver, expected }: { driver: QueueDriver, expected: QueueDriver }) => `The ${expected} Queue runtime received the ${driver} driver.`,
+      fix: "Set `queue.driver` to the driver of the deployment preset, and build again.",
     },
     QUEUE_INVALID_BINDING: {
       why: "The Cloudflare queue binding does not have `send()` and `sendBatch()`.",
@@ -61,13 +67,23 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "A direct Vercel queue client needs a `topic`.",
       fix: "Pass `topic` to `createQueueClient()`, or use `useQueue()` for a discovered Queue Definition.",
     },
-    QUEUE_DRIVER_MISMATCH: {
-      why: ({ driver, expected }: { driver: QueueDriver, expected: QueueDriver }) => `The ${expected} Queue runtime received the ${driver} driver.`,
-      fix: "Set `queue.driver` to the driver of the deployment preset, and build again.",
+    QUEUE_POSTGRES_CLOSING: {
+      why: "The Postgres Queue runtime is shutting down and cannot accept more jobs or connections.",
+      fix: "Send jobs before server shutdown starts, or send them from another running instance.",
+    },
+    QUEUE_POSTGRES_INVALID_URL: {
+      why: ({ variable }: { variable: string }) => `${variable} is set, and its value is not a \`postgres://\` or \`postgresql://\` URL.`,
+      fix: "Set `QUEUE_POSTGRES_URL` to the Postgres URL of the jobs, or remove it to use the connection of the Default Database.",
+    },
+    QUEUE_POSTGRES_MISSING_CONNECTION: {
+      why: ({ database }: { database?: string }) => database
+        ? `The postgres queue provider uses the connection of the Database "${database}", and that Database has no Postgres client in this runtime.`
+        : "The postgres queue provider has no connection: the build found no Postgres Default Database, and `QUEUE_POSTGRES_URL` is not set.",
+      fix: "Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server to the Postgres URL of the jobs.",
     },
     QUEUE_RUNTIME_NOT_INSTALLED: {
       why: "The Queue runtime has no client factory. The generated server output installs it.",
-      fix: "Add `hubQueue()` to the Vite config, build the app, and run the built server.",
+      fix: "Set `queue` in `vitehub()`, or add `hubQueue()` to the Vite plugins when you use `@vite-hub/queue` alone. Then build the app and run the built server.",
     },
     QUEUE_VERCEL_SDK_INVALID: {
       why: "`@vercel/queue` does not have the client API that ViteHub uses.",
@@ -99,13 +115,13 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`defineQueue()` needs a handler function.",
       fix: "Pass the handler as the first argument, for example `defineQueue(async (job) => { ... })`.",
     },
+    QUEUE_INVALID_DRIVER: {
+      why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
+      fix: "Set `queue.driver` to \"cloudflare\", \"vercel\", \"local\", or \"postgres\".",
+    },
     QUEUE_INVALID_NAME: {
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
-    },
-    QUEUE_INVALID_DRIVER: {
-      why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
-      fix: "Set `queue.driver` to \"cloudflare\", \"vercel\", or \"local\".",
     },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,
@@ -121,7 +137,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_PROVISION_FAILED: {
       why: "Cloudflare returned an invalid queue list during provisioning.",
-      fix: "Run `vitehub provision run --provider cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+      fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
   },
 })

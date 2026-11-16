@@ -3,7 +3,7 @@ import { desc, sql } from "drizzle-orm"
 import * as v from "valibot"
 
 import { blob } from "@vite-hub/blob"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
 import { deferQueue, sendQueue } from "@vite-hub/queue"
@@ -147,7 +147,7 @@ app.put("/api/blob", async (event) => {
 
 app.delete("/api/blob", async (event) => {
   const body = await readValidatedBody(event, blobDeleteBody)
-  const [error] = await blob.del(body.pathname)
+  const [error] = await blob.delete(body.pathname)
   if (error) throw error
   return { ok: true }
 })
