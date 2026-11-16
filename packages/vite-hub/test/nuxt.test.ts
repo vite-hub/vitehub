@@ -4400,7 +4400,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "#app", name: "useAppConfig" },
       ...names("vite-hub/blob", "blob"),
       ...names("vite-hub/database", "db", "schema", "useDatabase"),
-      ...names("vite-hub/env", "useServerEnv"),
+      ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
@@ -4420,7 +4420,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ host: "node" }, defaults.nuxt)
     const defaultConfig: Record<string, unknown> = { imports: { imports: [] } }
     await defaults.runNitroConfigHook(defaultConfig)
-    expect(defaultConfig).toHaveProperty("imports.imports", [{ from: "vite-hub/env", name: "useServerEnv", priority: -1 }])
+    expect(defaultConfig).toHaveProperty("imports.imports", [
+      { from: "vite-hub/env", name: "checkServiceToken", priority: -1 },
+      { from: "vite-hub/env", name: "requireServiceToken", priority: -1 },
+      { from: "vite-hub/env", name: "useServerEnv", priority: -1 },
+    ])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.
     const netlify = createNuxt()
