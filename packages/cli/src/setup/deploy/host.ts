@@ -151,7 +151,7 @@ export type ListDeployments = (context: DeploymentsContext, options: { limit: nu
 
 /** Replaces every value in `secrets` with `<redacted>`. */
 export function redact(text: string, secrets: readonly string[]): string {
-  return secrets.reduce((result, secret) => secret ? result.replaceAll(secret, "<redacted>") : result, text)
+  return [...secrets].sort((a, b) => b.length - a.length).reduce((result, secret) => secret ? result.replaceAll(secret, "<redacted>") : result, text)
 }
 
 /**
@@ -176,20 +176,6 @@ export async function untilInterrupted<T>(work: (signal: AbortSignal) => Promise
     process.off("SIGTERM", stop)
     if (received) process.exit(128 + constants.signals[received])
   }
-}
-
-/** Where the end of `text` could be the start of a secret: the output after it waits for the next chunk. */
-function secretStart(text: string, secrets: readonly string[]): number {
-  let start = text.length
-  for (const secret of secrets) {
-    for (let index = Math.max(0, text.length - secret.length + 1); index < start; index++) {
-      if (text[index] === secret[0] && secret.startsWith(text.slice(index))) {
-        start = index
-        break
-      }
-    }
-  }
-  return start
 }
 
 /**
@@ -223,15 +209,28 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
 
     function run(stdinFd?: number): Promise<DeployRunResult> {
       return new Promise((resolve, reject) => {
-        const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: [stdinFd ?? "pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
+        const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: [stdinFd ?? "pipe", "pipe", "pipe"], detached: process.platform !== "win32" })
         const output = { stderr: "", stdout: "" }
         const pending = { stderr: "", stdout: "" }
+        const lines = { stderr: "", stdout: "" }
+        const values = [...new Set(secrets.filter(Boolean))].sort((a, b) => b.length - a.length)
         const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
           if (!options.show) return
-          const text = redact(pending[stream] + chunk, secrets)
-          const end = flush ? text.length : Math.min(text.lastIndexOf("\n") + 1, secretStart(text, secrets))
-          pending[stream] = text.slice(end)
-          if (end) stderr.write(text.slice(0, end))
+          const text = pending[stream] + chunk
+          let index = 0
+          let ready = ""
+          while (index < text.length) {
+            const rest = text.slice(index)
+            if (!flush && values.some(value => value.length > rest.length && value.startsWith(rest))) break
+            const match = values.find(value => rest.startsWith(value))
+            ready += match ? "<redacted>" : text[index]
+            index += match?.length ?? 1
+          }
+          pending[stream] = text.slice(index)
+          lines[stream] += ready
+          const end = flush ? lines[stream].length : lines[stream].lastIndexOf("\n") + 1
+          if (end) stderr.write(lines[stream].slice(0, end))
+          lines[stream] = lines[stream].slice(end)
         }
         for (const stream of ["stdout", "stderr"] as const) {
           const outputStream = child[stream]
@@ -242,18 +241,68 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
             show(stream, chunk)
           })
         }
-        // An abort kills the child: wait until it has closed, so that the caller removes its files after it.
+        // A separate process group includes npm's shell and the host CLI it launches.
+        // Escalate even if the immediate child exits first: descendants may retain its pipes.
         let failure: unknown
-        child.on("error", (error) => {
-          failure = error
-          if (child.pid === undefined) reject(error)
-        })
-        child.on("close", (exitCode) => {
+        let finished = false
+        let stopping = false
+        let closed = false
+        let code: number | null = null
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const finish = () => {
+          if (finished) return
+          finished = true
+          if (timeout) clearTimeout(timeout)
+          options.signal?.removeEventListener("abort", abort)
           if (failure !== undefined) return reject(failure)
           show("stdout", "", true)
           show("stderr", "", true)
-          resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
+          resolve({ exitCode: stopping ? null : code, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
+        }
+        const killTree = (signal: NodeJS.Signals) => {
+          if (!child.pid) return
+          if (process.platform === "win32") {
+            const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+            killer.on("error", () => { child.kill(signal) })
+          }
+          else {
+            try { process.kill(-child.pid, signal) }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal)
+            }
+          }
+        }
+        const stop = () => {
+          if (stopping) return
+          stopping = true
+          killTree("SIGTERM")
+          setTimeout(() => {
+            killTree("SIGKILL")
+            // Pipes held outside the process group must not indefinitely delay secret cleanup.
+            setTimeout(() => {
+              child.stdin?.destroy()
+              child.stdout?.destroy()
+              child.stderr?.destroy()
+              finish()
+            }, closed ? 0 : 500)
+          }, 500)
+        }
+        const abort = () => {
+          failure = Object.assign(new Error("The operation was aborted"), { name: "AbortError" })
+          stop()
+        }
+        child.on("error", (error) => {
+          failure = error
+          if (!stopping) finish()
         })
+        child.on("close", (exitCode) => {
+          closed = true
+          code = exitCode
+          if (!stopping) finish()
+        })
+        options.signal?.addEventListener("abort", abort, { once: true })
+        if (options.timeoutMs) timeout = setTimeout(stop, options.timeoutMs)
+        if (options.signal?.aborted) abort()
         // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
         child.stdin?.on("error", () => {})
         child.stdin?.end(options.stdin ?? "")

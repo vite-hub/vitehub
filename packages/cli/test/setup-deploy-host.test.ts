@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import process from "node:process"
 
@@ -93,3 +94,45 @@ it.skipIf(process.platform === "win32")("lets file-reading CLIs reopen stdin wit
   expect(result.exitCode, result.stderr).toBe(0)
   expect(result.stdout).toBe("transport-proof")
 })
+
+it.each([false, true])("keeps a shorter secret pending when it can become a longer secret (reverse: %s)", async (reverse) => {
+  const root = await createProject()
+  let shown = ""
+  const secrets = ["shared-prefix-private-suffix", "shared-prefix"]
+  if (reverse) secrets.reverse()
+  const result = await createDeployRun({ write: chunk => { shown += chunk } }, secrets)(process.execPath, ["-e", `
+    process.stdout.write("shared-prefix")
+    setTimeout(() => process.stdout.write("-private-suffix\\n"), 50)
+  `], { cwd: root, env: {}, show: true })
+  expect(shown).toBe("<redacted>\n")
+  expect(result.stdout).toBe(shown)
+})
+
+it.skipIf(process.platform === "win32")("aborts an execution tree even when a descendant ignores SIGTERM", async () => {
+  const root = await createProject()
+  const controller = new AbortController()
+  let pid = 0
+  const run = createDeployRun({ write(chunk) {
+    pid = Number(chunk.trim())
+    controller.abort()
+  } }, [])
+  const result = run(process.execPath, ["-e", `
+    require("node:child_process").spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); console.log(process.pid); setInterval(() => {}, 1000);'], { stdio: ["ignore", "inherit", "inherit"] });
+    setInterval(() => {}, 1000);
+  `], { cwd: root, env: {}, show: true, signal: controller.signal })
+  try {
+    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    expect(pid).toBeGreaterThan(0)
+    if (process.platform === "linux") {
+      // A killed orphan can remain a zombie until the system reaps it.
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "")
+      expect(stat === "" || stat.includes(") Z ")).toBe(true)
+    }
+    else {
+      expect(() => process.kill(pid, 0)).toThrow()
+    }
+  }
+  finally {
+    if (pid) { try { process.kill(pid, "SIGKILL") } catch {} }
+  }
+}, 5000)
