@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createEntrySource } from "../../src/task/runtime/entry-script.ts"
+import { createEntrySource } from "../../src/task/runtime/entry-script.injected.ts"
 import { decodeSandboxTaskValue, SANDBOX_VALUE_MARKER } from "../../src/task/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []

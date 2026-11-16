@@ -106,11 +106,11 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
   const channels = agentChannelOptions(agent)
   const definition = Object.hasOwn(channels, channel) ? channels[channel] : undefined
   if (!definition) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Agent has no Channel "${channel}".` })
+    throw agentDiagnostics.AGENT_CHANNEL_NOT_FOUND({ channel })
   }
   const history = definition.history
   if (!history) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no history. Add history to its defineChannel() or channelAdapter() options.` })
+    throw agentDiagnostics.AGENT_CHANNEL_HISTORY_MISSING({ channel })
   }
   const triggerNames = Object.keys(definition.triggers || {})
   const triggerName = history.trigger
@@ -119,7 +119,7 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
     return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerNames[0]}`, triggerName: triggerNames[0]! }
   }
   if (typeof triggerName !== "string" || !triggerNames.includes(triggerName)) {
-    throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] Channel "${channel}" history trigger must name one of the Channel triggers: ${triggerNames.join(", ") || "none"}.` })
+    throw agentDiagnostics.AGENT_CHANNEL_HISTORY_TRIGGER_UNKNOWN({ channel, triggers: triggerNames.join(", ") || "none" })
   }
   return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerName}`, triggerName }
 }
@@ -267,7 +267,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     const resolved = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
     // Replay records each item in the replaying Agent's Invocation journal, so it cannot start another Agent's Invocation.
     if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.agent && resolved.agent !== run.agent) {
-      throw new Error(`Task "${resolved.task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`)
+      throw agentDiagnostics.AGENT_REPLAY_TASK_OTHER_AGENT({ task: resolved.task })
     }
     // Preparation and task callbacks must use the same run ID as execution.
     const replayInvocation = isResolvedAgentTriggerHandledInvocation(resolved)
@@ -281,10 +281,10 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
       ...(run.label !== undefined ? { triggeredBy: run.label } : {}),
     } }
     if (reservation && !await reservation.setRunMetadata({ ...runMetadata, annotations: pendingAgentInvocationAnnotations(runMetadata.annotations) })) {
-      throw new Error("Could not persist the claimed Invocation run metadata.")
+      throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "persist the claimed Invocation run metadata" })
     }
     const token = await reservation?.handoffClaim()
-    if (reservation && !token) throw new Error("Could not transfer the Invocation execution claim.")
+    if (reservation && !token) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "transfer the Invocation execution claim" })
     const output = await runAgentWithContext(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
       ...invocation.input,
       ...(run.invoker ? { context: { ...invocation.input.context, invoker: run.invoker } } : {}),
@@ -403,7 +403,7 @@ export async function dispatchChannelItems<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<ReplayChannelResult> {
   const definition = agentChannelOptions(agent)[channel]
   if (!definition?.triggers || !Object.hasOwn(definition.triggers, options.trigger)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `[vitehub] Channel "${channel}" has no trigger "${options.trigger}" to dispatch to.` })
+    throw agentDiagnostics.AGENT_DISPATCH_TRIGGER_UNKNOWN({ channel, trigger: options.trigger })
   }
   // Items do not inherit the webhook request, its delivery record, or its run.
   const base: AgentRuntimeContext<TRuntimeConfig> = {
@@ -449,7 +449,9 @@ export interface ChannelReplayRequestOptions<TRuntimeConfig extends AgentRuntime
 
 const replayRequestKeys = new Set(["channel", "cursor", "describe", "dryRun", "force", "label", "limit", "query"])
 const replayErrorStatus: Record<string, number> = {
-  AGENT_R0931: 404,
+  AGENT_CHANNEL_HISTORY_MISSING: 404,
+  AGENT_CHANNEL_NOT_FOUND: 404,
+  AGENT_DISPATCH_TRIGGER_UNKNOWN: 404,
   AGENT_R0932: 409,
   AGENT_R0934: 400,
   AGENT_R0935: 400,

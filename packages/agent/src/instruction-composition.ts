@@ -54,13 +54,13 @@ export async function composeInstructionDocument(content: string, options: Compo
   const customInCode = instructionTokensInCode(customTree.nodes, customPrefix)
   for (const index of rawHtmlCodeSlotIndexes(content, customPattern)) customInCode.add(index)
   if (customInstructions !== undefined && typeof customInstructions !== "string") {
-    throw new TypeError("[vitehub] context.customInstructions must be a string.")
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_NOT_STRING()
   }
   if (hasExecutableCustomInstructionReference(content)) {
-    throw new TypeError("[vitehub] context.customInstructions is available only through the authored {{{ context.customInstructions }}} slot.")
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_REFERENCE_INVALID()
   }
   if (customInstructions && customCount === customInCode.size) {
-    throw new TypeError("[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.")
+    throw agentDiagnostics.AGENT_CUSTOM_INSTRUCTIONS_SLOT_MISSING()
   }
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(customMasked, coverageMarker)
@@ -190,7 +190,7 @@ export async function fillInstructionSlot(template: string, content: string): Pr
   const tree = await parseInstructionTemplate(masked)
   const inCode = instructionTokensInCode(tree.nodes, prefix)
   if (count - inCode.size !== 1) {
-    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
+    throw agentDiagnostics.AGENT_INSTRUCTION_SLOT_INVALID()
   }
   let index = 0
   return template.replace(pattern, match => inCode.has(index++) ? match : content)

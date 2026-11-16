@@ -42,6 +42,7 @@ interface ParsedArgs {
   url: string
 }
 
+// Internal invariant: usage error of the Connections CLI. The CLI prints its message.
 class CliError extends Error {}
 
 const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
@@ -491,6 +492,14 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         page.approvals.length ? page.approvals.map(describeApproval).join("\n") : "No approvals.",
         ...(page.nextCursor ? [`Next page: repeat this command with --before ${page.nextCursor}.`] : []),
       ].join("\n"))
+    },
+  },
+  "rotate-key": {
+    description: "Re-encrypt stored tokens with the current key of VITEHUB_CONNECTIONS_KEYS.",
+    usage: "vitehub connections rotate-key [--url <app>] [--json]",
+    async run(parsed, context, options) {
+      const { rotation } = await request(parsed, options, { action: "rotate-key" }, v.object({ rotation: v.object({ rotated: v.number(), skipped: v.number() }) }))
+      write(context, parsed, rotation, () => `Re-encrypted ${rotation.rotated} stored ${rotation.rotated === 1 ? "value" : "values"} with the current key. ${rotation.skipped} already used it. When the deployed app runs without errors, remove the previous key from VITEHUB_CONNECTIONS_KEYS.`)
     },
   },
   revoke: {

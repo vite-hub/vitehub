@@ -1,3 +1,5 @@
+// Source text of the Sandbox Task entry script. It runs in the Sandbox without ViteHub packages, so its errors are
+// plain. The host reads the error that it writes to the output file.
 export const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
 
 export function createEntrySource(definitionPath: string, execution: 'definition' | 'module' = 'definition') {

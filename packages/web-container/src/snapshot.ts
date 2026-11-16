@@ -4,7 +4,9 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
 import { encode } from "@msgpack/msgpack"
+import { invariant } from "@vite-hub/internal/invariant"
 
+import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { snapshotLinksFile, type SnapshotLinks } from "./links.ts"
 import { aliasName, lockedAliases, sameRecord, withoutAliases, withoutTarballIntegrity } from "./lockfile.ts"
 import { readTree } from "./tree.ts"
@@ -51,6 +53,7 @@ export interface NodeModulesSnapshot {
 }
 
 /** A supplied lockfile is out of sync with the app's dependencies or required wasm aliases. */
+// Internal invariant: public error class. Callers check it with instanceof and pass frozenLockfile: false.
 export class SnapshotLockfileMismatchError extends Error {
   override name = "SnapshotLockfileMismatchError"
 }
@@ -65,7 +68,7 @@ export class SnapshotLockfileMismatchError extends Error {
  * Creation requires a POSIX host (Linux, macOS, or WSL); Windows npm shims cannot be restored as POSIX bin links.
  */
 export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<NodeModulesSnapshot> {
-  if (process.platform === "win32") throw new Error("createNodeModulesSnapshot requires a POSIX host (Linux, macOS, or WSL).")
+  if (process.platform === "win32") throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_POSIX_REQUIRED()
   const { dir } = options
   const modules = join(dir, "node_modules")
   const manifestPath = join(dir, "package.json")
@@ -101,7 +104,7 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
       const needed = await neededAliases(modules)
       if (sameRecord(needed, aliases)) break
       if (frozen) throw new SnapshotLockfileMismatchError("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
-      if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
+      invariant(round <= 1, "the second install pins every wasm alias, so the wasm builds settle on one set of versions")
       aliases = needed
     }
 
@@ -154,7 +157,7 @@ async function neededAliases(modules: string): Promise<Record<string, string>> {
  */
 export function packSnapshot(data: Uint8Array, options: { partBytes?: number } = {}): Uint8Array[] {
   const partBytes = options.partBytes ?? 20 * 2 ** 20
-  if (!Number.isSafeInteger(partBytes) || partBytes <= 0) throw new RangeError("partBytes must be a positive safe integer.")
+  if (!Number.isSafeInteger(partBytes) || partBytes <= 0) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID()
   const compressed = gzipSync(data, { level: 9 })
   const parts: Uint8Array[] = []
   for (let offset = 0; offset < compressed.byteLength; offset += partBytes) parts.push(compressed.subarray(offset, offset + partBytes))
@@ -164,7 +167,7 @@ export function packSnapshot(data: Uint8Array, options: { partBytes?: number } =
 async function packageVersion(path: string): Promise<string> {
   const manifest: unknown = JSON.parse(await readFile(join(path, "package.json"), "utf8"))
   const version = manifest && typeof manifest === "object" && "version" in manifest ? manifest.version : undefined
-  if (typeof version !== "string") throw new Error(`${path}/package.json has no version.`)
+  invariant(typeof version === "string", `npm writes a version into every installed package.json, but ${path}/package.json has none`)
   return version
 }
 

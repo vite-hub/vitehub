@@ -11,6 +11,7 @@ import type { BlobImagesOptions, BlobImageTransformer, BlobImageTransformerName 
 /** `blob.images` after defaults. `transformer` may also be a custom transformer in programmatic setups. */
 export interface ResolvedBlobImages {
   binding: string
+  maxPixels?: number
   quality: number
   sizes: readonly number[]
   transformer: BlobImageTransformer | BlobImageTransformerName
@@ -31,6 +32,7 @@ export function resolveBlobImages(options: BlobImagesOptions | BlobImageTransfor
   if (options && "transform" in options) return { binding: "IMAGES", quality: defaultImageQuality, sizes: defaultImageSizes, transformer: options }
   return {
     binding: options?.binding ?? "IMAGES",
+    ...(options?.maxPixels === undefined ? {} : { maxPixels: options.maxPixels }),
     quality: options?.quality ?? defaultImageQuality,
     sizes: options?.sizes?.length ? [...options.sizes].sort((left, right) => left - right) : defaultImageSizes,
     transformer: options?.transformer ?? "auto",
@@ -96,7 +98,7 @@ async function loadSharp(): Promise<SharpLike | undefined> {
 }
 
 const sharpTransformer = createSharpImageTransformer()
-const photonTransformer = createPhotonImageTransformer()
+const photonTransformers = new Map<number | undefined, BlobImageTransformer>()
 
 /**
  * Picks the transformer for one request. `auto` uses the Cloudflare Images binding when the Worker has it, then sharp
@@ -108,7 +110,11 @@ export async function selectImageTransformer(images: ResolvedBlobImages): Promis
   if (transformer === "passthrough") return undefined
   if (transformer === "cloudflare-images") return createCloudflareImagesTransformer(images.binding)
   if (transformer === "sharp") return sharpTransformer
-  if (transformer === "photon") return photonTransformer
+  if (transformer === "photon") {
+    let photon = photonTransformers.get(images.maxPixels)
+    if (!photon) photonTransformers.set(images.maxPixels, photon = createPhotonImageTransformer({ maxPixels: images.maxPixels }))
+    return photon
+  }
   if (transformer !== "auto") return transformer
   if (getActiveCloudflareBinding(images.binding)) return createCloudflareImagesTransformer(images.binding)
   return await loadSharp() ? sharpTransformer : undefined

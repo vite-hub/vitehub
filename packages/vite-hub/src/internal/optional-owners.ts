@@ -190,11 +190,15 @@ function readViteHubManifest(): unknown {
   return JSON.parse(readFileSync(fileURLToPath(import.meta.resolve("vite-hub/package.json")), "utf8"))
 }
 
-/** The error for enabled features whose packages the app did not install. It lists one install command for all. */
+/**
+ * The error for enabled features whose packages the app did not install. It lists one install command for every package
+ * that it names. A package that another dependency happens to provide is still an optional peer of `vite-hub`, so the
+ * app installs it too.
+ */
 export function missingFeaturePackagesError(features: readonly OptionalFeature[]) {
   const lines = features.map(feature => `The ${feature} feature needs ${optionalFeaturePackages[feature].join(", ")}.`)
-  const missing = [...new Set(features.flatMap(feature => optionalFeaturePackages[feature]))].filter(name => !isPackageInstalled(name))
-  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install the missing packages in your app with: pnpm add ${installArguments(missing).join(" ")}` })
+  const packages = [...new Set(features.flatMap(feature => optionalFeaturePackages[feature]))]
+  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install them in your app with: pnpm add ${installArguments(packages).join(" ")}` })
 }
 
 /** Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range. */

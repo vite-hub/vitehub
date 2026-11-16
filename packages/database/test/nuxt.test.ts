@@ -896,7 +896,11 @@ describe("Database Nuxt integration", () => {
       })
       await hubDatabase({ driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" })(undefined, nuxt)
       const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
-      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toMatchObject({
+        code: "DATABASE_D1_MIGRATIONS_DIR_OVERLAP",
+        fix: expect.stringContaining("migrations_dir"),
+        message: expect.stringContaining("D1 migration directories overlap"),
+      })
       expect(nitroConfig).not.toHaveProperty("modules")
     }
     finally {
@@ -952,31 +956,33 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it.each([
-    ["no cloudflare options", {}],
-    ["only a databaseId", { databaseId: "configured-id" }],
-    ["only a databaseName", { databaseName: "configured-db" }],
-  ])("writes types for a D1 Definition with %s in nuxt prepare and keeps the build check", async (_case, cloudflare) => {
-    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-prepare-d1-"))
-    try {
-      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
-      await mkdir(join(rootDir, "server/databases"), { recursive: true })
-      await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
-      const prepare = createNuxt({ _prepare: true, dev: false, rootDir, vite: {} })
-      await hubDatabase({ driver: "d1" })(undefined, prepare.nuxt)
+  describe.each(["prepare", "discovery"])("D1 config loading during %s", (phase) => {
+    it.each([
+      ["no cloudflare options", {}],
+      ["only a databaseId", { databaseId: "configured-id" }],
+      ["only a databaseName", { databaseName: "configured-db" }],
+    ])("writes types for a D1 Definition with %s before resources exist and keeps the build check", async (_case, cloudflare) => {
+      const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-prepare-d1-"))
+      try {
+        await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+        await mkdir(join(rootDir, "server/databases"), { recursive: true })
+        await writeFile(join(rootDir, "server/databases/default.ts"), `export default defineDatabase({ cloudflare: ${JSON.stringify(cloudflare)}, schema: {} })\n`)
+        const prepare = createNuxt({ _prepare: phase === "prepare", vitehubCliDiscovery: phase === "discovery", dev: false, rootDir, vite: {} })
+        await hubDatabase({ driver: "d1" })(undefined, prepare.nuxt)
 
-      await expect(callHook(prepare.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).resolves.toBeUndefined()
-      await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain("@vite-hub/database")
-      // `tsconfig.server.json` points `@vite-hub/database/runtime/registry` to this module.
-      await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).resolves.toContain("createHostedDrizzleDb")
+        await expect(callHook(prepare.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).resolves.toBeUndefined()
+        await expect(readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain("@vite-hub/database")
+        // `tsconfig.server.json` points `@vite-hub/database/runtime/registry` to this module.
+        await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).resolves.toContain("createHostedDrizzleDb")
 
-      const build = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDatabase({ driver: "d1" })(undefined, build.nuxt)
-      await expect(callHook(build.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
-    }
-    finally {
-      await rm(rootDir, { recursive: true, force: true })
-    }
+        const build = createNuxt({ dev: false, rootDir, vite: {} })
+        await hubDatabase({ driver: "d1" })(undefined, build.nuxt)
+        await expect(callHook(build.hooks, "nitro:config", { alias: {}, preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+      }
+      finally {
+        await rm(rootDir, { recursive: true, force: true })
+      }
+    })
   })
 
   it.each([
@@ -2151,4 +2157,18 @@ describe("Database Nuxt integration", () => {
     expect(options).not.toHaveProperty("binding")
     expect(options).not.toHaveProperty("driver")
   })
+})
+
+it("discovers a production named D1 resource before provisioning but validates the real build", async () => {
+  const rootDir = await mkdtemp(join(tmp, "discovery-"))
+  const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {}, vitehubCliDiscovery: true })
+  await hubDatabase({ driver: "d1", databaseName: "first-deploy" })(undefined, nuxt)
+  await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
+  nuxt.options.vitehubCliDiscovery = false
+  await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+  await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+  await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1Nuxt: { "first-deploy": "created-id" } } }))
+  const build = createNuxt({ dev: false, rootDir, vite: {} })
+  await hubDatabase({ driver: "d1", databaseName: "first-deploy" })(undefined, build.nuxt)
+  await expect(callHook(build.hooks, "nitro:config", { preset: "cloudflare_module" })).resolves.toBeUndefined()
 })

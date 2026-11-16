@@ -8,6 +8,7 @@ describe("removed vitehub() options", () => {
     ["devtools", false, "Remove `devtools`."],
     ["logs", true, "Move it to `observability: { logs: ... }`."],
     ["contentImportBase", "vite-hub/content", "Remove `contentImportBase`."],
+    ["cloudflare", { secretsFile: ".env" }, "Remove `cloudflare`."],
   ])("fails on `%s` instead of ignoring it", (key, value, fix) => {
     // SAFETY: the test passes an option that ViteHubOptions no longer declares, as an old config does.
     const options = { host: "node", env: false, [key]: value } as ViteHubOptions

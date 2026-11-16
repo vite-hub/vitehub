@@ -83,6 +83,16 @@ describe("Console error fixes", () => {
     }))
   })
 
+  it("tells a CLI call to a runtime without the Console journal how to turn the Console on", async () => {
+    vi.resetModules()
+    const { getConsoleInvocations } = await import("../src/console/runtime/server/invocations.ts")
+    expect(() => getConsoleInvocations()).toThrow(expect.objectContaining({
+      code: "VITE_HUB_R0063",
+      fix: expect.stringContaining("`console: true`"),
+      message: expect.stringContaining("The Console is off"),
+    }))
+  })
+
   it("answers every malformed invocations.list cursor with VITE_HUB_R0058 and its fix", async () => {
     for (const cursor of ["[]", "{}", "{\"done\":1}", "not json"]) {
       await expect(listConsoleInvocations({ cursor })).rejects.toMatchObject({
