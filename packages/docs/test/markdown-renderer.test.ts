@@ -128,6 +128,19 @@ describe("DocsMarkdown", () => {
     expect(compare).toContain("The after toolbar.")
   })
 
+  it("keeps the HTML of a chart with a note, whose Vue component draws no marks", async () => {
+    const document = await parseMarkdown("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n:::annotation{at=\"tue\" mark=\"circle\"}\nRelease day.\n:::\n::\n")
+    const fallback = vue.defineComponent({
+      props: ["html", "block"],
+      setup: props => () => vue.h("div", { "data-block": props.block, innerHTML: props.html }),
+    })
+    const html = await renderToString(vue.createSSRApp(renderer({}, { ComarkHtml: fallback }), { document }))
+
+    expect(html).toContain('data-block="chart"')
+    expect(html).toContain("cch-marked")
+    expect(html).toContain("Release day.")
+  })
+
   it("renders the same HTML when each block loads on first use", async () => {
     const document = await parseMarkdown("# Page\n\n::tabs\n:::tabs-item{label=One}\n```ts [one.ts]\nconst one = 1\n```\n:::\n:::tabs-item{label=Two}\nSecond\n:::\n::\n\n::note\nA note.\n::\n")
     const lazy = Object.fromEntries(Object.entries(blocks).map(([tag, block]) => [tag, vue.defineAsyncComponent(async () => block)]))
