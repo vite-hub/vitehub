@@ -323,6 +323,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: 'Set merge to "direct" or { strategy: "direct" }, or set repairStackChildren to false.',
     },
     // Babysitter pass and inbox errors. The agent's tool input, the repair Sandbox, the host data directory, or GitHub caused them.
+    PRESETS_BABYSITTER_ADMISSION_CHECK_INVALID: {
+      why: "Invalid admission.check result. Expected undefined or { reason, detail, retryAt }.",
+      fix: "Return undefined from the Babysitter admission.check function, or a pause object with a non-empty reason string, an optional detail string, and an optional retryAt timestamp in milliseconds.",
+    },
     PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED: {
       why: ({ path }: { path: string }) => `[vitehub] Refusing to clean replaced Babysitter checkout pool: ${path}`,
       fix: "Stop every other process that uses the Babysitter data directory, remove the directory that the message names, and start the Babysitter again.",
@@ -342,6 +346,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
     PRESETS_BABYSITTER_GITHUB_QUERY_FAILED: {
       why: ({ query, errors }: { query: "review thread" | "open pull request", errors: string }) => `GitHub ${query} query failed: ${errors}`,
       fix: "Read the GitHub error in the message and check that the GitHub App has Pull requests: read permission on the repository. The Babysitter retries on its next pass.",
+    },
+    PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE: {
+      why: ({ program, problem }: { program: string, problem: string }) => `The host executable ${program} ${problem}.`,
+      fix: "Install the executable that the message names in the PATH of the trusted host service. A script must start with an interpreter line, such as #!/usr/bin/env node. Model passes wait until this check succeeds.",
     },
     PRESETS_BABYSITTER_INBOX_STORAGE_MISSING: {
       why: "PullRequestInbox requires exactly one of path or storage.",

@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import type { AgentInvocations } from "@vite-hub/agent";
 import type { Snapshot } from "./inbox/store.ts";
@@ -125,15 +127,13 @@ export function babysitterAdmissionDecision(state: BabysitterAdmissionState, lim
 }
 
 async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "list" | "get"> | undefined, since: number) {
-  // Internal invariant: the admission controller reads token usage only after the runtime assigns the invocation journal.
-  if (!invocations) throw new Error("No invocation journal is assigned.");
+  invariant(invocations, "the admission controller reads token usage only after the runtime assigns the invocation journal");
   const usage: Array<{ id: string; updatedAt: string; tokens: number }> = [];
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   do {
     const page = await invocations.list({ cursor, limit: 100, status: ["pending", "running", "completed", "failed", "cancelled"], updatedSince: new Date(since).toISOString() });
-    // Internal invariant: the Agent Invocation store returns a new cursor for each page; a repeat is a store bug.
-    if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+    invariant(!page.cursor || !seenCursors.has(page.cursor), "the Agent Invocation store returns a new pagination cursor for each page");
     if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {
       if (Date.parse(summary.updatedAt) < since) continue;
@@ -168,8 +168,7 @@ function normalizeAdmissionPause(value: unknown): BabysitterAdmissionPause | und
   if (!isRuntimeRecord(value) || !hasRuntimeType(value.reason, "string") || !value.reason.trim()
     || value.detail !== undefined && !hasRuntimeType(value.detail, "string")
     || value.retryAt !== undefined && !(hasRuntimeType(value.retryAt, "number") && Number.isFinite(value.retryAt) && value.retryAt >= 0)) {
-    // Internal invariant: the admission controller catches it and reports the message in the admission state errors.
-    throw new TypeError("Invalid admission.check result. Expected undefined or { reason, detail, retryAt }.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ADMISSION_CHECK_INVALID();
   }
   const pause: BabysitterAdmissionPause = { reason: value.reason };
   if (value.detail !== undefined) pause.detail = value.detail;

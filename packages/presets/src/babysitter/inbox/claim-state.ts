@@ -1,3 +1,4 @@
+import { invariantError } from '@vite-hub/internal/invariant'
 import { hasRuntimeType } from '../../internal/runtime-type.ts'
 import type { PullRequest } from '../../github/index.ts'
 import type { Claim, Snapshot } from './store.ts'
@@ -5,8 +6,7 @@ import type { Claim, Snapshot } from './store.ts'
 /** REST fields are authoritative; older persisted GraphQL aliases may be stale. */
 export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
   const pr = snapshot.pr
-  // Internal invariant: the inbox claims only hydrated snapshots, which have a head and a base.
-  if (!pr?.head?.sha || !pr.head.ref || !pr.base?.ref) throw new Error(`Incomplete PR snapshot for ${snapshot.repository}#${snapshot.number}`)
+  if (!pr?.head?.sha || !pr.head.ref || !pr.base?.ref) throw invariantError(`the inbox claims only hydrated snapshots, which have a head and a base (${snapshot.repository}#${snapshot.number})`)
   return {
     ...pr,
     number: snapshot.number,

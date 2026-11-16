@@ -1,3 +1,4 @@
+import { invariant } from '@vite-hub/internal/invariant'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { SQLInputValue } from 'node:sqlite'
@@ -55,13 +56,11 @@ export function createNodeSqliteInboxStorage(path: string): PullRequestInboxStor
     tablePrefix: 'vitehub_babysitter_',
     // One connection: a read must not observe another caller's open transaction.
     execute: async (sql, args) => {
-      // Internal invariant: the runtime closes the inbox storage only at shutdown, after its last pass.
-      if (closed) throw new Error('Inbox storage is closed.')
+      invariant(!closed, 'the runtime closes the inbox storage only at shutdown, after its last pass')
       return await serialize(async () => await runStatement(sql, args))
     },
     transaction: async run => {
-      // Internal invariant: the runtime closes the inbox storage only at shutdown, after its last pass.
-      if (closed) throw new Error('Inbox storage is closed.')
+      invariant(!closed, 'the runtime closes the inbox storage only at shutdown, after its last pass')
       return await serialize(async () => {
       const db = await open()
       for (let delay = 1, waited = 0; ; delay = Math.min(delay * 2, 50)) {

@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant";
 import { createHash } from "node:crypto";
 import type { Check, Page } from "@vite-hub/forge";
 import type { GitHubEvidence } from "./inbox/types.ts";
@@ -365,8 +366,7 @@ export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPoli
 export function checksDependencyEvidence(checks: Page<Check>): string {
   if (checks.warnings?.length) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_CHECKS_INCOMPLETE({ warnings: checks.warnings.map(warning => warning.message).join("; ") });
   const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
-    // Internal invariant: forges keeps the GitHub JSON object of each check as raw.
-    if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
+    invariant(isRuntimeRecord(check.raw), "Forge keeps the GitHub JSON object of each check as raw");
     return check.raw;
   }).filter(check => !isBabysitterCheckRun(check));
   return hash({
