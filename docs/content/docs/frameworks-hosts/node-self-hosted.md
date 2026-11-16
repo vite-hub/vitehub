@@ -352,9 +352,9 @@ uses it for per-client rate limiting and `session.ipAddress`.
 
 A plain Web `Request` has no peer address. Without the host context, those
 requests share one rate-limit bucket. Requests from srvx already carry the
-host address as `ip`. Behind a trusted proxy, configure
-[`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
-Do not import a generated Nitro route.
+host address as `ip`. Behind a proxy you run, pass the last
+`X-Forwarded-For` value, which the proxy adds, as `clientAddress`. Values
+before it come from the client. Do not import a generated Nitro route.
 
 ## Durability and instances
 
