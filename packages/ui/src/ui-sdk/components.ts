@@ -7,7 +7,7 @@ import { cloneVNode, type Component, computed, defineComponent, h, isVNode, next
 
 import { useViteHubUIIcons } from "../config.ts";
 import { lucideStroke } from "../internal/icon-shapes.ts";
-import type { ViteHubUIComponents } from "../internal/nuxt-ui.ts";
+import { useUIComponent, type ViteHubUIComponents } from "../internal/nuxt-ui.ts";
 import { uiSdkIcons } from "./icons.ts";
 
 /**
@@ -68,6 +68,7 @@ const UButton = defineComponent({
     variant: { default: "solid", type: String as PropType<ButtonVariant> },
   },
   setup(props, { attrs, slots }) {
+    const UIcon = useUIComponent("UIcon");
     return () => {
       const shared = {
         ...attrs,
@@ -157,6 +158,7 @@ const UModal = defineComponent({
   },
   emits: { "update:open": (_open: boolean) => true },
   setup(props, { emit, slots }) {
+    const UIcon = useUIComponent("UIcon");
     const icons = useViteHubUIIcons();
     const inner = ref(false);
     const open = computed(() => props.open ?? inner.value);
@@ -194,6 +196,7 @@ const UTabs = defineComponent({
   },
   emits: { "update:modelValue": (_value: string | number) => true },
   setup(props, { attrs, emit }) {
+    const UIcon = useUIComponent("UIcon");
     return () => {
       const { "aria-label": label, ...root } = attrs;
       return h(Tabs, {
@@ -224,6 +227,7 @@ const UDropdownMenu = defineComponent({
     ui: { default: () => ({}), type: Object as PropType<{ content?: string }> },
   },
   setup(props, { slots }) {
+    const UIcon = useUIComponent("UIcon");
     const entry = (item: MenuEntry, index: number) => {
       if (item.type === "label") return h(MenuGroupLabel, { key: index }, () => item.label);
       if (item.type === "separator") return h(MenuSeparator, { key: index });
