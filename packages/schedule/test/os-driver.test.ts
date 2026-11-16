@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { osScheduleErrors } from "../src/os/errors.ts"
-import { generatedHeader } from "../src/os/host.ts"
+import { createNodeHost, generatedHeader } from "../src/os/host.ts"
 import { createOsSchedules } from "../src/os/schedules.ts"
 import { userUnitDirectory } from "../src/os/systemd.ts"
 
@@ -724,5 +728,30 @@ describe("a name that ViteHub did not install", () => {
     expect((await osScheduleStatus("skync", { scope }))[1]).toEqual({ name: "skync", platform: "win32", scope, installed: false, running: false })
     expect(machine.scripts.some(script => /\b(?:Unr|R)egister-ScheduledTask\b/.test(script))).toBe(false)
     expect(machine.files.size).toBe(0)
+  })
+})
+
+describe.skipIf(process.platform === "win32")("node host", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("reads the home folder on each call", () => {
+    const host = createNodeHost()
+    vi.stubEnv("HOME", "/tmp/another-home")
+    expect(host.homedir).toBe("/tmp/another-home")
+  })
+
+  it("resolves symbolic links, also in a path that does not exist yet", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitehub-os-host-"))
+    try {
+      await mkdir(join(dir, "real"))
+      await symlink(join(dir, "real"), join(dir, "link"), "dir")
+      const real = join(await realpath(dir), "real", "Library", "skync.plist")
+      expect(await createNodeHost().fs.realpath(join(dir, "link", "Library", "skync.plist"))).toBe(real)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
