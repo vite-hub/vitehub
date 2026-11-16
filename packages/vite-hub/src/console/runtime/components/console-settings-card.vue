@@ -36,8 +36,8 @@ const id = props.headingId ?? generated;
 
 <style>
 .vitehub-settings-card {
-  background: var(--ui-bg);
-  border: 1px solid var(--ui-border);
+  background: var(--background);
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
 }
 
@@ -49,8 +49,8 @@ const id = props.headingId ?? generated;
   align-items: center;
   background: var(--ui-bg-muted);
   border-radius: 0 0 0.5rem 0.5rem;
-  border-top: 1px solid var(--ui-border);
-  color: var(--ui-text-muted);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.8125rem;
   gap: 0.75rem;
@@ -60,17 +60,17 @@ const id = props.headingId ?? generated;
 }
 
 .vitehub-settings-card__footer code {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.78125rem;
 }
 
 .vitehub-settings-card[data-danger] {
-  border-color: color-mix(in oklab, var(--ui-error) 35%, var(--ui-border));
+  border-color: color-mix(in oklab, var(--ui-error) 35%, var(--border));
 }
 
 .vitehub-settings-card[data-danger] .vitehub-settings-card__footer {
-  background: color-mix(in oklab, var(--ui-error) 5%, var(--ui-bg));
-  border-top-color: color-mix(in oklab, var(--ui-error) 25%, var(--ui-border));
+  background: color-mix(in oklab, var(--ui-error) 5%, var(--background));
+  border-top-color: color-mix(in oklab, var(--ui-error) 25%, var(--border));
 }
 </style>
