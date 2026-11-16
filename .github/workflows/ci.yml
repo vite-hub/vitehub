@@ -331,7 +331,7 @@ jobs:
           fi
           files="$(git diff --name-only "$BASE_REF"...HEAD)"
           if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/parity|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
-            || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -qE '^[-+].*@ui-sdk/'; then
+            || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -E '^[-+].*@ui-sdk/' > /dev/null; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "This change does not touch ui-sdk, the kit styles or the browser checks."
