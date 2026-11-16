@@ -1,8 +1,8 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
-import type { McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+import type { McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
-export type { McpContentBlock, McpIcon, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+export type { McpContentBlock, McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 
 declare global {
   namespace ViteHub {
@@ -53,14 +53,25 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
   input?: TInput
   annotations?: McpToolAnnotations
   /**
-   * Also serve the tool at `mcp.publicRoute`, where anyone may call it without sign-in. There, `caller` is `undefined`.
-   * Set it only with `mcp.publicRoute`. Without one, the server fails with `MCP_R0001`.
+   * What `tools/list` shows in the `_meta` of the tool. With MCP Apps, `{ ui: { resourceUri: "ui://…" } }` names the
+   * resource whose HTML the client shows for the result.
+   */
+  _meta?: McpMeta
+  /**
+   * Let anyone call the tool without sign-in: on `mcp.route` with `mcp.auth: "optional"`, else on `mcp.publicRoute`.
+   * Without a token, `caller` is `undefined`. Set it only with one of them; else the server fails with `MCP_R0001`.
    */
   public?: boolean
   /**
+   * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. `tools/list` shows them in
+   * `securitySchemes`. With `auth: true`, a caller without them does not see the tool and a call answers `403` with an
+   * `insufficient_scope` challenge. With `auth: "optional"`, a call returns a tool error with that challenge.
+   */
+  scopes?: readonly string[]
+  /**
    * Runs the call. A string becomes one text block. Another value becomes JSON text, and an object is also the
    * `structuredContent`. An object with a `content` array of blocks, such as `{ content: [{ type: "image", ... }] }`, is
-   * sent as the MCP tool result.
+   * sent as the MCP tool result, with its `structuredContent`, `isError`, and `_meta`.
    */
   handler: (
     input: TInput extends McpToolInput ? StandardSchemaV1.InferOutput<TInput> : Record<string, never>,
@@ -159,7 +170,7 @@ export interface McpPromptDefinition<TInput extends McpPromptInput | undefined =
    * description, and the server checks the arguments with the schema before the handler runs.
    */
   input?: TInput
-  /** Also serve the prompt at `mcp.publicRoute`, where `caller` is `undefined`. */
+  /** Let anyone get the prompt without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
   public?: boolean
   /**
    * Makes the messages. A string becomes one user message. An array is the messages. An object with `messages` is the
@@ -213,9 +224,14 @@ interface McpResourceFields {
   /** A short name for people, such as "Changelog". */
   title?: string
   description?: string
-  /** The MIME type of the contents, such as `text/markdown`. */
+  /** The MIME type of the contents, such as `text/markdown`, or `text/html;profile=mcp-app` for the HTML of an MCP App. */
   mimeType?: string
-  /** Also serve the resource at `mcp.publicRoute`, where `caller` is `undefined`. */
+  /**
+   * The `_meta` of the resource in `resources/list` and of the contents that a string or `Uint8Array` handler returns,
+   * such as `{ ui: { csp, prefersBorder } }` of MCP Apps.
+   */
+  _meta?: McpMeta
+  /** Let anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
   public?: boolean
   /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
   handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
@@ -272,12 +288,14 @@ export interface McpOptions {
   route?: string
   /**
    * Require an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`. Defaults to `true`, and then the app needs
-   * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler.
+   * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler. Set `"optional"` to serve
+   * one route to everyone: anyone may list the tools and call those with `public: true`, and a call to another tool
+   * without a token returns a tool error with an `mcp/www_authenticate` challenge, so ChatGPT asks the person to sign in.
    */
-  auth?: boolean
+  auth?: boolean | "optional"
   /**
    * A second route, such as `/mcp`, that serves only the tools with `public: true`, with no sign-in. MCP clients do not
-   * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth`.
+   * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth: true`.
    */
   publicRoute?: string
   /** What `initialize` tells the Agent about the server, such as which tool to call first. Defaults to a short generic text. */

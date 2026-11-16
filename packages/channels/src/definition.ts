@@ -42,7 +42,7 @@ export function validateChannelDefinition(value: unknown): asserts value is Chan
   }
   const adapter = value.adapter
   if (!isObject(adapter) || typeof adapter.kind !== "string" || !adapter.kind.trim()) {
-    throw channelsErrorDiagnostics.CHANNELS_C0007({ message: "`defineChannel()` needs an `adapter` with a non-empty `kind`, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`." })
+    throw channelsErrorDiagnostics.CHANNELS_C0007({ message: "`defineChannel()` needs an `adapter` with a non-empty `kind`, such as `stripe()` or `webhook()` from `vite-hub/channels`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`." })
   }
   if (adapter.send !== undefined && typeof adapter.send !== "function") {
     throw channelsErrorDiagnostics.CHANNELS_C0008({ message: `The "${adapter.kind}" adapter \`send\` must be a function.` })

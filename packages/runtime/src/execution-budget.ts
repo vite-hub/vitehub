@@ -1,3 +1,7 @@
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
+import type { Diagnostic } from "nostics"
+
 /** Counters that an Invocation can spend while it runs. */
 export type ExecutionBudgetCounter = "inputBytes" | "outputBytes" | "retries" | "toolCalls"
 
@@ -34,16 +38,16 @@ export interface ExecutionBudgetOptions extends ExecutionBudgetLimits {
   signal?: AbortSignal
 }
 
-export class ExecutionBudgetExceededError extends Error {
-  readonly counter: ExecutionBudgetCounter | "deadline"
-  readonly limit?: number
+/** `RUNTIME_EXECUTION_BUDGET_EXCEEDED`, with the counter and the limit that ran out. Agents read them. */
+export type ExecutionBudgetExceededError = Diagnostic & { counter: ExecutionBudgetCounter, limit?: number }
 
-  constructor(counter: ExecutionBudgetCounter | "deadline", limit?: number) {
-    super(`[vitehub] Execution budget exhausted${counter === "deadline" ? " at the deadline" : ` for ${counter}`}.`)
-    this.name = "ExecutionBudgetExceededError"
-    this.counter = counter
-    this.limit = limit
-  }
+function executionBudgetExceededError(counter: ExecutionBudgetCounter, limit?: number): ExecutionBudgetExceededError {
+  return Object.assign(runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_EXCEEDED({ counter }), { counter, limit })
+}
+
+/** Whether `error` is the error of an execution budget that ran out. */
+export function isExecutionBudgetExceededError(error: unknown): error is ExecutionBudgetExceededError {
+  return error instanceof Error && Reflect.get(error, "code") === "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
 }
 
 export interface ExecutionBudget {
@@ -166,29 +170,29 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
     const sharedReason = state.sharedController.signal.reason
-    if (state.controller.signal.aborted && !(stateReason instanceof ExecutionBudgetExceededError)) state.controller.signal.throwIfAborted()
-    if (controller.signal.aborted && !(controllerReason instanceof ExecutionBudgetExceededError)) controller.signal.throwIfAborted()
+    if (state.controller.signal.aborted && !isExecutionBudgetExceededError(stateReason)) state.controller.signal.throwIfAborted()
+    if (controller.signal.aborted && !isExecutionBudgetExceededError(controllerReason)) controller.signal.throwIfAborted()
     // A child created after its parent was disposed is inert: it must not
     // observe a caller signal that was supplied after disposal.
-    if (!node.disposed && externalSignal?.aborted && !(externalSignal.reason instanceof ExecutionBudgetExceededError)) externalSignal.throwIfAborted()
+    if (!node.disposed && externalSignal?.aborted && !isExecutionBudgetExceededError(externalSignal.reason)) externalSignal.throwIfAborted()
     if (state.sharedController.signal.aborted) {
-      if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
+      if (isExecutionBudgetExceededError(sharedReason)) throw sharedReason
       state.sharedController.signal.throwIfAborted()
     }
     if (!node.disposed && limits.deadlineAt !== undefined && Date.now() >= limits.deadlineAt) {
       deadlineController.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
       deadlineController.signal.throwIfAborted()
     }
-    if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
+    if (!Number.isFinite(amount) || amount < 0) throw runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID({ counter })
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
     if (limit !== undefined && next > limit) {
-      const error = new ExecutionBudgetExceededError(counter, limit)
+      const error = executionBudgetExceededError(counter, limit)
       state.sharedController.abort(error)
       throw error
     }
-    if (stateReason instanceof ExecutionBudgetExceededError) throw stateReason
-    if (controllerReason instanceof ExecutionBudgetExceededError) throw controllerReason
+    if (isExecutionBudgetExceededError(stateReason)) throw stateReason
+    if (isExecutionBudgetExceededError(controllerReason)) throw controllerReason
   }
 
   function consume(counter: ExecutionBudgetCounter, amount = 1) {
@@ -288,7 +292,7 @@ function minDefined(left: number | undefined, right: number | undefined) {
 function normalizeLimits(options: ExecutionBudgetOptions): ExecutionBudgetLimits {
   const normalize = (value: number | undefined) => {
     if (value === undefined) return undefined
-    if (!Number.isFinite(value) || value < 0) throw new RangeError("[vitehub] Execution budget limits must be finite non-negative numbers.")
+    if (!Number.isFinite(value) || value < 0) throw runtimeErrorDiagnostics.RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID()
     return Math.floor(value)
   }
   return {

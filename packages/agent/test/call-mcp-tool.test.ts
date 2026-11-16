@@ -348,6 +348,6 @@ describe("callMcpTool", () => {
   })
 
   it.each([-1, 1.5, Number.NaN])("rejects invalid retries (%s)", async (retries) => {
-    await expect(callMcpTool({ close: async () => undefined, tools: async () => ({}) }, "lookup", {}, { retries })).rejects.toThrow(TypeError)
+    await expect(callMcpTool({ close: async () => undefined, tools: async () => ({}) }, "lookup", {}, { retries })).rejects.toMatchObject({ code: "AGENT_MCP_RETRIES_INVALID" })
   })
 })

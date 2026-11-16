@@ -34,8 +34,11 @@ export interface D1Ledger {
   table: string
 }
 
-/** Sends SQL to the Cloudflare D1 HTTP API or a configured proxy. Returns the rows of the last statement. */
-export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetch): D1Query {
+/**
+ * Sends SQL to the Cloudflare D1 HTTP API or a configured proxy. Returns the rows of the last statement.
+ * `fail` makes the caller's error for a problem, so each command throws its own code.
+ */
+export function createD1Query(target: D1HttpTarget, fail: (problem: string) => Error, request: typeof fetch = fetch): D1Query {
   const missing = (target.proxy ? [
     !target.proxy.url && "`cloudflare.http.url`",
     !target.proxy.token && "`cloudflare.http.authToken`",
@@ -44,11 +47,11 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     !target.token && "`CLOUDFLARE_API_TOKEN`",
     !target.databaseId && "a value for `cloudflare.databaseId`",
   ]).filter(Boolean)
-  if (missing.length) throw new Error(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
+  if (missing.length) throw fail(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
   const url = target.proxy
     ? target.proxy.url!
     : `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
-  if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
+  if (!["http:", "https:"].includes(new URL(url).protocol)) throw fail("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
   const token = target.proxy ? target.proxy.token : target.token
   return async (sql, params = []) => {
     const response = await request(url, {
@@ -58,7 +61,7 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     })
     const payload: unknown = await response.json().catch(() => undefined)
     const rows = readD1Rows(payload)
-    if (!response.ok || !rows) throw new Error(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
+    if (!response.ok || !rows) throw fail(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
     return rows
   }
 }

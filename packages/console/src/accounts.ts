@@ -1,4 +1,12 @@
+import { asc, eq } from "drizzle-orm"
+import { authSqliteSchema } from "vite-hub/auth/schema"
+
+import { listConsoleProjects } from "./projects.ts"
+
 import type { GenericEndpointContext } from "better-auth"
+import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
+
+const { member, organization } = authSqliteSchema
 
 /**
  * People who sign up with only a passkey have no email address. Better Auth needs one, so the Console gives them an
@@ -8,6 +16,53 @@ export const passkeyEmailDomain = "passkey.invalid"
 
 export function isPasskeyEmail(email: string): boolean {
   return email.toLowerCase().endsWith(`@${passkeyEmailDomain}`)
+}
+
+/** What `GET /api/account` answers: everything the Console page needs before its first view. */
+export interface ConsoleAccountAnswer {
+  user: { id: string, name: string, email: string, image: string | null }
+  /** `false` for an account that signed up with a passkey and has no email address. */
+  hasEmail: boolean
+  /** The teams of the person, the oldest membership first. */
+  teams: { id: string, name: string, slug: string }[]
+  /** The team that the session opens. Not set when the session has no team, or the person left it. */
+  teamId?: string
+  /** The roles of the person in that team, such as `owner`. */
+  roles: string[]
+  /** The linked projects of that team. */
+  projects: ConsoleProject[]
+}
+
+/**
+ * The account of a signed-in person: their teams, their roles in the session's team, and its projects. The caller
+ * checked the session once and passes its user. The two reads run at the same time, so the page waits for one database
+ * round trip.
+ */
+export async function readConsoleAccount(
+  db: ConsoleDatabase,
+  user: { id: string, name?: unknown, email?: unknown, image?: unknown },
+  sessionTeam: string | undefined,
+): Promise<ConsoleAccountAnswer> {
+  const [memberships, projects] = await Promise.all([
+    db.select({ id: organization.id, name: organization.name, slug: organization.slug, role: member.role })
+      .from(member)
+      .innerJoin(organization, eq(organization.id, member.organizationId))
+      .where(eq(member.userId, user.id))
+      .orderBy(asc(member.createdAt), asc(organization.id)),
+    sessionTeam ? listConsoleProjects(db, sessionTeam) : [],
+  ])
+  const teams = memberships.map(team => ({ id: String(team.id), name: String(team.name), slug: String(team.slug), role: String(team.role) }))
+  // Projects belong to a team, so a person who left the session's team sees none of them.
+  const active = teams.find(team => team.id === sessionTeam)
+  const email = String(user.email ?? "")
+  return {
+    user: { id: user.id, name: String(user.name ?? ""), email, image: typeof user.image === "string" ? user.image : null },
+    hasEmail: !isPasskeyEmail(email),
+    teams: teams.map(({ id, name, slug }) => ({ id, name, slug })),
+    ...(active ? { teamId: active.id } : {}),
+    roles: active ? active.role.split(",").map(role => role.trim()).filter(Boolean) : [],
+    projects: active ? projects : [],
+  }
 }
 
 /** The name of a new account, from the `context` that the sign-up page sends. Empty names get a default. */

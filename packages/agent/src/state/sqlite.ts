@@ -510,7 +510,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         const now = Date.now()
         for (const lock of writes.locks) {
           const held = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? AND token = ? AND expires_at > ?`, [lock.threadId, lock.token, now])
-          if (held.length === 0) throw new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
+          if (held.length === 0) throw agentDiagnostics.AGENT_STATE_LOCK_EXPIRED({ key: lock.threadId })
         }
         const queued = writes.delivery ? await this.insertWebhookDelivery(tx, writes.delivery) : true
         if (queued) {
@@ -725,6 +725,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const value: unknown = JSON.parse(String(row.value))
       return parse(value)
     })
+  }
+
+  /** Reads up to `limit` values of a list after row `after`, oldest first. Each `cursor` is the row's position. */
+  async getListPage(key: string, after: number, limit: number): Promise<Array<{ cursor: number; value: unknown }>> {
+    await this.cleanupExpiredStateIfDue()
+    const now = Date.now()
+    const valueRows = await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
+      return await execute(tx, `SELECT id, value FROM ${this.tables.lists} WHERE key = ? AND id > ? ORDER BY id ASC LIMIT ?`, [key, after, limit])
+    })
+    return valueRows.map(row => ({ cursor: Number(row.id), value: JSON.parse(String(row.value)) as unknown }))
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
