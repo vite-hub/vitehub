@@ -13,6 +13,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
@@ -183,7 +184,7 @@ async function link(): Promise<void> {
               </span>
             </span>
             <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
-            <UIcon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+            <Icon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           </a>
           <UTooltip :text="`Open ${consoleProjectHost(app)} with your tools`">
             <UButton class="shrink-0" icon="i-lucide-external-link" color="neutral" variant="ghost" size="sm" :href="siteEntry(app)" target="_blank" rel="noopener" :aria-label="`Open ${consoleProjectHost(app)} with your tools`" />
@@ -200,7 +201,7 @@ async function link(): Promise<void> {
       <ol class="vitehub-account-steps">
         <li class="vitehub-account-step" data-done>
           <div class="vitehub-account-step__track" aria-hidden="true">
-            <span class="vitehub-account-step__mark"><UIcon name="i-lucide-check" class="size-3.5" /></span>
+            <span class="vitehub-account-step__mark"><Icon name="i-lucide-check" class="size-3.5" /></span>
             <span class="vitehub-account-step__line" />
           </div>
           <div class="vitehub-account-step__body">
@@ -210,7 +211,7 @@ async function link(): Promise<void> {
 
         <li class="vitehub-account-step" :data-done="steps[1].done || undefined" :data-active="active === 'link' || undefined" :aria-current="active === 'link' ? 'step' : undefined">
           <div class="vitehub-account-step__track" aria-hidden="true">
-            <span class="vitehub-account-step__mark"><UIcon v-if="steps[1].done" name="i-lucide-check" class="size-3.5" /><template v-else>2</template></span>
+            <span class="vitehub-account-step__mark"><Icon v-if="steps[1].done" name="i-lucide-check" class="size-3.5" /><template v-else>2</template></span>
             <span class="vitehub-account-step__line" />
           </div>
           <div class="vitehub-account-step__body">
@@ -234,7 +235,7 @@ async function link(): Promise<void> {
 
         <li class="vitehub-account-step" :data-done="steps[2].done || undefined" :data-active="active === 'connect' || undefined" :aria-current="active === 'connect' ? 'step' : undefined">
           <div class="vitehub-account-step__track" aria-hidden="true">
-            <span class="vitehub-account-step__mark"><UIcon v-if="steps[2].done" name="i-lucide-check" class="size-3.5" /><template v-else>3</template></span>
+            <span class="vitehub-account-step__mark"><Icon v-if="steps[2].done" name="i-lucide-check" class="size-3.5" /><template v-else>3</template></span>
           </div>
           <div class="vitehub-account-step__body">
             <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(2, steps[2].done) }} </span>Connect your app</h3>
@@ -249,7 +250,7 @@ async function link(): Promise<void> {
       </ol>
 
       <div v-if="!shared" class="vitehub-account-invite">
-        <UIcon name="i-lucide-user-plus" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+        <Icon name="i-lucide-user-plus" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
         <p class="min-w-0 flex-1 text-[13px] leading-5 text-muted"><span class="font-medium text-highlighted">Invite your team.</span> Optional. People in {{ teamName }} open the same apps.</p>
         <UButton size="sm" color="neutral" variant="outline" label="Invite people" @click="showConsoleAccountPage('team')" />
       </div>

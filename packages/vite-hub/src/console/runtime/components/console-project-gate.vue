@@ -7,6 +7,7 @@ import { canManageConsoleProjects, forgetConsoleProject, openConsoleProject, swi
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
+import Icon from "./console-icon.vue";
 
 // Only an `account` Console shows these, so they load with the Better Auth client. The page loads the view of its first
 // paint before it mounts.
@@ -84,7 +85,7 @@ onMounted(() => {
     <div class="vitehub-console-boot__panel">
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
-        <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+        <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
         {{ host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
