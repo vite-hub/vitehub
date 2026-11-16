@@ -59,7 +59,10 @@ interface SharedRead {
   maxAge: number
   /** The account of an answer, for the read that says who is signed in. */
   account: ((value: unknown) => string | null) | undefined
-  /** While the read is held, what `refresh()` returns: it resolves when the call after the hold ends, or the read goes. */
+  /**
+   * While the read is held, what `refresh()` returns. It resolves when the latest call after the hold ends, or when the
+   * read goes.
+   */
   heldUntil: { promise: Promise<void>, resolve: () => void } | undefined
 }
 
@@ -146,8 +149,6 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     }
     return read.heldUntil.promise
   }
-  const waited = read.heldUntil
-  read.heldUntil = undefined
   const controller = new AbortController()
   read.controller = controller
   if (read.account) identifying.add(read)
@@ -157,29 +158,32 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     // A newer call, the release of the read, or a change of the epoch came first.
     if (controller.signal.aborted || device.epoch() !== since) return
     const account = read.account?.(value)
-    if (read.account) {
-      checkAccount(account)
-      // The naming waits for the copies of the disk, also when `openDevice()` starts while it waits. A change of the
-      // epoch meanwhile, such as a message of another tab or a naming of this page, decides instead, and the read starts
-      // over. From the last check to the claim, nothing waits, so the device cannot start to open in between.
+    if (account === undefined) {
+      publish(read, value)
+      return device.write(read.key, value, read.maxAge, since)
+    }
+    checkAccount(account)
+    // The answer names the account before it shows, so no code that watches it runs between the check and the naming.
+    // The naming waits for the copies of the disk, also when `openDevice()` starts while it waits. A change of the epoch
+    // meanwhile, such as a message of another tab or a naming that the event of this one started, decides instead, and
+    // the read starts over.
+    for (;;) {
       while (device.loading()) {
         await device.whenOpen()
         if (controller.signal.aborted || device.epoch() !== since) return
       }
+      claiming = { read, epoch: since + 1 }
+      let claimed: boolean
+      try {
+        claimed = device.claim(read.key, value, read.maxAge, since, account)
+      }
+      finally {
+        claiming = undefined
+      }
+      if (claimed) break
+      if (controller.signal.aborted || device.epoch() !== since || !device.loading()) return
     }
-    read.answered = true
-    read.data.value = value
-    read.storedAt.value = undefined
-    read.error.value = undefined
-    read.status.value = "success"
-    if (account === undefined) return device.write(read.key, value, read.maxAge, since)
-    claiming = { read, epoch: since + 1 }
-    try {
-      device.claim(read.key, value, read.maxAge, since, account)
-    }
-    finally {
-      claiming = undefined
-    }
+    publish(read, value)
   }
   catch (error) {
     if (controller.signal.aborted || device.epoch() !== since) return
@@ -187,9 +191,21 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     read.status.value = "error"
   }
   finally {
-    waited?.resolve()
-    if (read.controller === controller && identifying.delete(read)) startHeld(device)
+    if (read.controller === controller) {
+      read.heldUntil?.resolve()
+      read.heldUntil = undefined
+      if (identifying.delete(read)) startHeld(device)
+    }
   }
+}
+
+/** Shows an answer of the loader in the read. */
+function publish(read: SharedRead, value: unknown): void {
+  read.answered = true
+  read.data.value = value
+  read.storedAt.value = undefined
+  read.error.value = undefined
+  read.status.value = "success"
 }
 
 /** Returns the shared read of `key`. A new read calls its loader at once, unless `start` is `false`: then it stays `idle`. */

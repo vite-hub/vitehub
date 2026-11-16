@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createApp, createSSRApp, defineComponent, h, ref } from "vue"
+import { createApp, createSSRApp, defineComponent, h, ref, watch } from "vue"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeBrowser, createFakeDisk } from "./support.ts"
@@ -656,6 +656,43 @@ describe("the read that says who is signed in, and the reads it holds", () => {
     expect(page.inspectDevice().account).toBe("bob")
     expect(list.root.textContent).not.toContain("p1")
     expect(browser.disk.meta).toMatchObject({ account: "bob" })
+  })
+
+  it("names the account before the session answer shows, also when code that watches it opens the device", async () => {
+    await visitBoth()
+    const page = await openPage()
+    const list = mount(() => page.useStoredData("projects", async () => new Promise<string[]>(() => undefined), { default: () => [] }))
+    const shown = mount(() => page.useStoredData("session", async (): Promise<Session> => ({ user: { id: "bob" } }), { account: accountOf }))
+    watch(shown.read.data, () => void page.openDevice(), { flush: "sync", once: true })
+    for (let index = 0; index < 5; index++) await tick()
+    expect(page.inspectDevice().account).toBe("bob")
+    expect(list.root.textContent).not.toContain("p1")
+    expect(browser.disk.meta).toMatchObject({ account: "bob" })
+  })
+
+  it("resolves refresh() of a held read when the read goes, also while its loader ignores the abort", async () => {
+    await visitBoth()
+    const page = await openPage()
+    await page.openDevice()
+    const session = deferredLoader<Session>()
+    mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
+    const app = createApp(defineComponent({
+      setup() {
+        const projects = page.useStoredData("projects", () => new Promise<string[]>(() => undefined))
+        void projects.refresh().then(() => {
+          refreshed = true
+        })
+        return () => h("p", String(projects.status.value))
+      },
+    }))
+    let refreshed = false
+    app.mount(document.createElement("div"))
+    session.calls[0]!.resolve({ user: { id: "ada" } })
+    await tick()
+    expect(refreshed).toBe(false)
+    app.unmount()
+    await tick()
+    expect(refreshed).toBe(true)
   })
 
   it("stops starting held reads when a loader that starts calls the session read again", async () => {
