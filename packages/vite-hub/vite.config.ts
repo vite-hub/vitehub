@@ -68,6 +68,7 @@ const runtimeEntries = [
   // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.
   "src/internal/test-loader.ts",
   "src/internal/test-server.ts",
+  "src/_internal/runtime/redirects.ts",
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
