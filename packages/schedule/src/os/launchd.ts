@@ -196,7 +196,8 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     const loadedFrom = job?.output.match(/^\tpath = (.+)$/m)?.[1]?.trim()
     let foreign: string | undefined
     if (plist !== undefined && !plist.includes(marker)) foreign = path
-    else if (job && loadedFrom !== path) foreign = loadedFrom ?? `${job.domain}/${name}`
+    // launchd prints the real path of the plist: /private/var/... for a home folder under /var, which links there.
+    else if (job && (loadedFrom === undefined || (loadedFrom !== path && await host.fs.realpath(loadedFrom) !== await host.fs.realpath(path)))) foreign = loadedFrom ?? `${job.domain}/${name}`
     return { ...(plist === undefined ? {} : { plist }), ...(job ? { job } : {}), ...(foreign ? { foreign } : {}) }
   }
 

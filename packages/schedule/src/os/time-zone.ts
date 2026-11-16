@@ -137,6 +137,7 @@ export function machineCronFields(fields: CronFields, timeZone: string, machineT
 
 /** The cron in the machine time zone of `host`, or the error that says why the OS cannot run it there. */
 export function machineFieldsOrError(platform: "darwin" | "win32", spec: OsTimerSpec, host: OsHost): Result<CronFields, OsScheduleErrorCode> {
+  if (spec.timeZone === "local") return [undefined, spec.fields]
   const fields = machineCronFields(spec.fields, spec.timeZone, host.machineTimeZone, host.now())
   return fields ? [undefined, fields] : [osScheduleErrors.SCHEDULE_OS_TIME_ZONE_UNSUPPORTED({ platform, timeZone: spec.timeZone, machineTimeZone: host.machineTimeZone }), undefined]
 }

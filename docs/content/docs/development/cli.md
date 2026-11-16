@@ -675,7 +675,7 @@ Deploy reads the deployment that serves production before it uploads, with the c
 
 ### Tell search engines about new pages
 
-`deploy: { indexNow: true }` sends the URLs of your sitemap to [IndexNow](https://www.indexnow.org) after each production deploy that passes its checks. Bing, Yandex, Seznam, Naver, and Yep then crawl the pages again. It needs a string `publicUrl`, and a `/sitemap.xml` on that site.
+`deploy: { indexNow: true }` sends the URLs of your sitemap to [IndexNow](https://www.indexnow.org) after each production deploy that passes its checks. Bing, Yandex, Seznam, Naver, and Yep then crawl the pages again. It needs a string `publicUrl`, and a `/sitemap.xml` on that site: [`seo: { sitemap: true }`](/docs/frameworks-hosts/sitemap) serves one.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
