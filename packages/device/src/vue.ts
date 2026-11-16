@@ -1,6 +1,7 @@
 import { computed, getCurrentInstance, getCurrentScope, onMounted, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
 import { checkAccount, checkKey, checkMaxAge, currentDevice } from "./device.ts"
+import { deviceErrors } from "./errors.ts"
 
 import type { MaybeRefOrGetter, Ref, ShallowRef } from "vue"
 import type { Device } from "./device.ts"
@@ -42,6 +43,20 @@ export interface UseStoredDataReturn<TData, TDefault> {
   refresh: () => Promise<void>
 }
 
+/** The query of `useStoredFetch()`. A `null` or `undefined` value is left out. */
+export type StoredFetchQuery = Record<string, string | number | boolean | null | undefined>
+
+export interface UseStoredFetchOptions<TData, TDefault> extends UseStoredDataOptions<TData, TDefault> {
+  /** Joins the query of the URL. A ref or a getter makes it reactive: a new query is a new read. */
+  query?: MaybeRefOrGetter<StoredFetchQuery>
+}
+
+/**
+ * A loader with the key of the read that calls it. A read keeps the loader of its last call, and that loader can belong
+ * to a component that moved to another key, so a loader must not find its URL from component state.
+ */
+type Loader = (context: StoredDataContext, key: string) => Promise<unknown>
+
 /** The state of one key, which every read of that key shares. */
 interface SharedRead {
   key: string
@@ -54,7 +69,7 @@ interface SharedRead {
   users: number
   controller: AbortController | undefined
   /** The loader of the last call, which a reset of the device or the naming of the account calls again. */
-  loader: (context: StoredDataContext) => Promise<unknown>
+  loader: Loader
   fallback: () => unknown
   maxAge: number
   /** The account of an answer, for the read that says who is signed in. */
@@ -135,7 +150,7 @@ function show(read: SharedRead, device: Device): void {
   read.storedAt.value = new Date(stored.storedAt)
 }
 
-async function load(read: SharedRead, loader: (context: StoredDataContext) => Promise<unknown>, device: Device): Promise<void> {
+async function load(read: SharedRead, loader: Loader, device: Device): Promise<void> {
   // No component shows a released read, and its answer must not replace the answer of a newer read of the key.
   if (!read.users) return
   read.controller?.abort()
@@ -159,7 +174,7 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
   if (read.account) identifying.add(read)
   const since = device.epoch()
   try {
-    const value = await loader({ signal: controller.signal })
+    const value = await loader({ signal: controller.signal }, read.key)
     // A newer call, the release of the read, or a change of the epoch came first.
     if (controller.signal.aborted || device.epoch() !== since) return
     const account = read.account?.(value)
@@ -216,7 +231,7 @@ function publish(read: SharedRead, value: unknown): void {
 }
 
 /** Returns the shared read of `key`. A new read calls its loader at once, unless `start` is `false`: then it stays `idle`. */
-function acquire(key: string, loader: (context: StoredDataContext) => Promise<unknown>, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, start = true): SharedRead {
+function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, start = true): SharedRead {
   const existing = reads.get(key)
   if (existing) {
     existing.users++
@@ -278,6 +293,71 @@ export function useStoredData<TData, TDefault = undefined>(
   key: MaybeRefOrGetter<string>,
   loader: (context: StoredDataContext) => Promise<TData>,
   options: UseStoredDataOptions<TData, TDefault> = {},
+): UseStoredDataReturn<TData, TDefault> {
+  return useRead(key, context => loader(context), options)
+}
+
+/**
+ * A GET request for JSON with `useStoredData()`: the last answer at once from the device, then the answer of the
+ * server. The key of the read is the URL, so reads of the same URL and query share one state and one request. A
+ * status that is not 2xx goes to `error` with `DEVICE_FETCH_FAILED`, and the device never stores it.
+ *
+ * ```vue
+ * <script setup lang="ts">
+ * import { useStoredFetch } from 'vite-hub/device/vue'
+ *
+ * const { data: projects } = useStoredFetch<Project[]>('/api/projects', { query: { team: 't1' }, default: () => [] })
+ * </script>
+ * ```
+ */
+export function useStoredFetch<TData = unknown>(
+  url: MaybeRefOrGetter<string>,
+  // With `<Project[]>` in the call, the default takes the type of the data, such as `() => []`.
+  options: UseStoredFetchOptions<TData, TData> & { default: () => NoInfer<TData> },
+): UseStoredDataReturn<TData, TData>
+export function useStoredFetch<TData = unknown, TDefault = undefined>(
+  url: MaybeRefOrGetter<string>,
+  options?: UseStoredFetchOptions<TData, TDefault>,
+): UseStoredDataReturn<TData, TDefault>
+export function useStoredFetch<TData, TDefault>(
+  url: MaybeRefOrGetter<string>,
+  options: UseStoredFetchOptions<TData, TDefault> = {},
+): UseStoredDataReturn<TData, TDefault> {
+  const { query, ...read } = options
+  return useRead(() => fetchKey(toValue(url), toValue(query)), fetchJSON, read)
+}
+
+/**
+ * The key of a `useStoredFetch()` read, which is also the URL that it requests: the path and the query of a URL on the
+ * origin of the page, or the whole URL on another origin. The query is sorted by name, so the order in the code does
+ * not make another key. The hash goes.
+ */
+function fetchKey(url: string, query: StoredFetchQuery | undefined): string {
+  // `fetch()` reads a relative URL from the base URL of the document. The server has no document, and its key only has
+  // to be valid, because the server reads nothing.
+  const page = typeof document === "undefined" ? "http://localhost/" : document.baseURI
+  const target = new URL(url, page)
+  for (const [name, value] of Object.entries(query ?? {})) {
+    if (value !== null && value !== undefined) target.searchParams.append(name, String(value))
+  }
+  target.searchParams.sort()
+  target.hash = ""
+  return target.origin === new URL(page).origin ? target.pathname + target.search : target.href
+}
+
+/** Asks for the JSON at `key`. An answer that is not 2xx throws, so the device never stores an error body. */
+async function fetchJSON({ signal }: StoredDataContext, key: string): Promise<unknown> {
+  const response = await fetch(key, { signal, headers: { accept: "application/json" } })
+  if (!response.ok) throw deviceErrors.DEVICE_FETCH_FAILED({ url: key, status: response.status })
+  const value: unknown = await response.json()
+  return value
+}
+
+/** The shared read of `key` for one component, or the server render of it. */
+function useRead<TData, TDefault>(
+  key: MaybeRefOrGetter<string>,
+  loader: Loader,
+  options: UseStoredDataOptions<TData, TDefault>,
 ): UseStoredDataReturn<TData, TDefault> {
   const maxAge = checkMaxAge(options.maxAge ?? week)
   const fallback: () => unknown = options.default ?? (() => undefined)

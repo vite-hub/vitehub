@@ -760,3 +760,132 @@ describe("the read that says who is signed in, and the reads it holds", () => {
     expect(list.read.status.value).toBe("success")
   })
 })
+
+describe("useStoredFetch", () => {
+  /** A server for `fetch()`: each request waits until the test answers it. */
+  function fakeServer() {
+    const requests: { url: string, init: RequestInit, answer: (status: number, body: unknown) => void }[] = []
+    vi.stubGlobal("fetch", (url: string, init: RequestInit) => new Promise<Response>((resolve) => {
+      requests.push({ url, init, answer: (status, body) => resolve(Response.json(body, { status })) })
+    }))
+    return requests
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("asks for the path with the query sorted by name, and stores the answer under that key", async () => {
+    const requests = fakeServer()
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { root } = mount(() => page.useStoredFetch<string[]>("/api/projects?sort=name#top", { query: { team: "t1", archived: null, page: 2, open: true, owner: undefined }, default: () => [] }))
+    expect(requests.map(request => request.url)).toEqual(["/api/projects?open=true&page=2&sort=name&team=t1"])
+    expect(requests[0]!.init.signal).toBeInstanceOf(AbortSignal)
+    expect(new Headers(requests[0]!.init.headers).get("accept")).toBe("application/json")
+    requests[0]!.answer(200, ["p1"])
+    await tick()
+    await tick()
+    expect(root.textContent).toBe("[\"p1\"] success")
+    expect(browser.disk.keys).toEqual(["/api/projects?open=true&page=2&sort=name&team=t1"])
+
+    // The next page load shows the copy in its first render, for a URL written with another order and an absolute URL on
+    // the origin of the page.
+    const next = await openPage()
+    await next.openDevice()
+    const again = mount(() => next.useStoredFetch<string[]>(`${location.origin}/api/projects?team=t1`, { query: { page: 2, sort: "name", open: true }, default: () => [] }))
+    expect(again.root.textContent).toBe("[\"p1\"] pending stored")
+  })
+
+  it("keeps the origin in the key of a URL on another origin", async () => {
+    const requests = fakeServer()
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    mount(() => page.useStoredFetch("https://api.example.com/projects?b=2&a=1"))
+    requests[0]!.answer(200, ["p1"])
+    await tick()
+    await tick()
+    expect(requests[0]!.url).toBe("https://api.example.com/projects?a=1&b=2")
+    expect(browser.disk.keys).toEqual(["https://api.example.com/projects?a=1&b=2"])
+  })
+
+  it("puts an answer that is not 2xx in error with DEVICE_FETCH_FAILED, keeps the stored copy, and stores nothing", async () => {
+    const requests = fakeServer()
+    const first = await openPage()
+    await first.openDevice()
+    await first.setDeviceAccount("ada")
+    mount(() => first.useStoredFetch<string[]>("/api/projects", { default: () => [] }))
+    requests[0]!.answer(200, ["p1"])
+    await tick()
+    await tick()
+    for (const unmount of unmounts.splice(0)) unmount()
+
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const { root, read } = mount(() => page.useStoredFetch<string[]>("/api/projects", { default: () => [] }))
+    requests[1]!.answer(500, { error: "Database down" })
+    await tick()
+    await tick()
+    expect(root.textContent).toBe("[\"p1\"] error stored")
+    expect(read.error.value).toMatchObject({ code: "DEVICE_FETCH_FAILED", why: expect.stringContaining("GET /api/projects answered 500") })
+    expect(browser.disk.entry("/api/projects")?.json).toBe("[\"p1\"]")
+  })
+
+  it("names no account from an error answer of the read that says who is signed in", async () => {
+    await visit()
+    const requests = fakeServer()
+    const page = await openPage()
+    await page.openDevice()
+    const { read } = mount(() => page.useStoredFetch<{ user: { id: string } | null }>("/api/session", { account: session => session.user?.id ?? null }))
+    // A JSON error body with `user: null` must not sign the person out of the device.
+    requests[0]!.answer(401, { user: null })
+    await tick()
+    await tick()
+    expect(read.status.value).toBe("error")
+    expect(page.inspectDevice().account).toBe("ada")
+    expect(browser.disk.keys).toEqual(["projects"])
+  })
+
+  it("moves to a new key when the query changes, and aborts the request of the previous key", async () => {
+    const requests = fakeServer()
+    const page = await openPage()
+    await page.openDevice()
+    const team = ref("t1")
+    const { root } = mount(() => page.useStoredFetch<string[]>("/api/projects", { query: () => ({ team: team.value }), default: () => [] }))
+    team.value = "t2"
+    await tick()
+    expect(requests.map(request => request.url)).toEqual(["/api/projects?team=t1", "/api/projects?team=t2"])
+    expect(requests[0]!.init.signal!.aborted).toBe(true)
+    requests[1]!.answer(200, ["t2 project"])
+    await tick()
+    expect(root.textContent).toBe("[\"t2 project\"] success")
+  })
+
+  it("asks for the URL of its own key when it starts again, also after the component that called it last moved", async () => {
+    const requests = fakeServer()
+    const page = await openPage()
+    await page.openDevice()
+    await page.setDeviceAccount("ada")
+    const team = ref("t1")
+    const stays = mount(() => page.useStoredFetch<string[]>("/api/projects", { query: { team: "t1" } }))
+    const moves = mount(() => page.useStoredFetch<string[]>("/api/projects", { query: () => ({ team: team.value }) }))
+    // The component that moves calls the shared read of t1 last, then moves to t2.
+    void moves.read.refresh()
+    team.value = "t2"
+    await tick()
+    // A clear starts every read over: the read of t1 must ask for t1 again.
+    await page.clearDevice()
+    await tick()
+    expect(requests.map(request => request.url)).toEqual([
+      "/api/projects?team=t1",
+      "/api/projects?team=t1",
+      "/api/projects?team=t2",
+      "/api/projects?team=t1",
+      "/api/projects?team=t2",
+    ])
+    expect(stays.root.textContent).toBe("undefined pending")
+  })
+})
