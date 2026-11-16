@@ -42,13 +42,13 @@ describe("defineCollectionHandler", () => {
     it("requires authorize on a routed Collection", () => {
       // @ts-expect-error A routed Collection must set authorize or route: false.
       expect(() => defineCollection(load, { cursor: item => item.id, cursorSchema: v.number() }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
     })
 
     it("fails closed for a Collection object without authorize", () => {
       const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
       const { route: _route, ...routed } = collection
-      expect(() => defineCollectionHandler(routed)).toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+      expect(() => defineCollectionHandler(routed)).toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
     })
 
     it("serves access: \"public\" without Auth", async () => {
@@ -64,17 +64,17 @@ describe("defineCollectionHandler", () => {
     it("refuses authorize: false with a fix that names access: \"public\"", () => {
       // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
       expect(() => defineCollection(load, { authorize: false as never, cursor: item => item.id, cursorSchema: v.number() }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0037", fix: expect.stringContaining('access: "public"') }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_AUTHORIZE_FALSE", fix: expect.stringContaining('access: "public"') }))
       const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), route: false })
       const { route: _route, ...routed } = collection
       expect(() => defineCollectionHandler({ ...routed, authorize: false as never }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0037" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_AUTHORIZE_FALSE" }))
     })
 
     it("refuses access: \"public\" together with authorize", () => {
       // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
       expect(() => defineCollection(load, { access: "public", authorize: true as never, cursor: item => item.id, cursorSchema: v.number() }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0038" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_CONFLICT" }))
       // SAFETY: Same as above.
       expect(() => defineCollection(load, { access: "everyone" as never, cursor: item => item.id, cursorSchema: v.number() }))
         .toThrow(expect.objectContaining({ code: "SOURCE_R0024" }))

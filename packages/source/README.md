@@ -267,9 +267,9 @@ ViteHub discovers modules in `server/collections` and generates the collection
 registry and GET handler. The module must export a Collection with the same name
 as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
 Each routed Collection must set `authorize` or `access: "public"`, or
-`defineCollection()` throws `SOURCE_R0035`. `access: "public"` makes the route
-public. `authorize: false` throws `SOURCE_R0037`, and `access: "public"` with
-`authorize` throws `SOURCE_R0038`. `authorize: true`
+`defineCollection()` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`. `access: "public"` makes the route
+public. `authorize: false` throws `SOURCE_COLLECTION_AUTHORIZE_FALSE`, and `access: "public"` with
+`authorize` throws `SOURCE_COLLECTION_ACCESS_CONFLICT`. `authorize: true`
 requires a signed-in `@vite-hub/auth` session, and a callback receives
 `{ request, session, user }` and returns `true`, `false` for `403`, or a
 `Response`. The route checks access before it parses the query. Without a session
@@ -327,7 +327,7 @@ from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
 `vite-hub/source/drizzle`. `table()` selects every column. A public Collection
 over it must set `transform` to return only the public fields, or
-`defineCollection()` throws `SOURCE_R0036`:
+`defineCollection()` throws `SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED`:
 
 ```ts fragment
 export const authors = defineCollection({

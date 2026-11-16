@@ -196,7 +196,7 @@ export const articles = defineCollection({
 
 `column` and `tieBreaker` must be non-null columns, and `tieBreaker` unique. `table()` applies `where` before the cursor condition, orders both columns the same way, fetches one extra row, and hides the cursor from clients. Omit `querySchema` and `where` without filters.
 
-`table()` selects every column. A public Collection (`access: 'public'`) over it must set `transform` and return only the public fields. Without `transform`, `defineCollection()` throws `SOURCE_R0036`, so a column such as a password hash never reaches the route.
+`table()` selects every column. A public Collection (`access: 'public'`) over it must set `transform` and return only the public fields. Without `transform`, `defineCollection()` throws `SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED`, so a column such as a password hash never reaches the route.
 
 Pass a loader function to `defineCollection` when the data is not one Drizzle table, such as a Source reader, SDK, HTTP API, or joined query. The loader then handles its own cursor.
 
@@ -233,7 +233,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 | `defaultLimit`, `maxLimit` | Page size without `limit` (default `50`), and the largest `limit` (default `100`). |
 | `querySchema` | Standard Schema for filter input. Its output type goes to the loader. |
 | `transform` | Maps a server row to the client item, and sets the client item type. |
-| `authorize` | Required unless `access: 'public'` or `route: false`. `true` or an Auth access callback ([Protect a Collection](#protect-a-collection)). `false` throws `SOURCE_R0037`. |
+| `authorize` | Required unless `access: 'public'` or `route: false`. `true` or an Auth access callback ([Protect a Collection](#protect-a-collection)). `false` throws `SOURCE_COLLECTION_AUTHORIZE_FALSE`. |
 | `access` | `'public'` lets anyone read the route without sign-in. Do not set it with `authorize`. |
 
 The Collection asks the loader for one extra row, enforces the limits, and turns the last row into a cursor. Only `transform()` output reaches the client, so private columns and provider objects stay out.
@@ -284,7 +284,7 @@ ViteHub finds modules in `server/collections` and generates their types and read
 - Export a Collection named like the file: `articles.ts` exports `articles` and serves `/api/articles`. Do not add a matching `server/api` handler.
 - Nuxt auto-imports `useCollection`. Elsewhere, import it from `vite-hub/source/client`.
 - Restart Nuxt after you add, remove, or rename a Collection, so Nitro rebuilds its handler list.
-- Each routed Collection must set `authorize` or `access: 'public'`. Without one, `defineCollection()` throws `SOURCE_R0035`.
+- Each routed Collection must set `authorize` or `access: 'public'`. Without one, `defineCollection()` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
 - Set `route: false` to keep a Collection server-only. Then neither is needed. Write it as a literal in the exported call, for example `export const drafts = defineCollection({ source, route: false })`. The build reads the file and does not run it. For any other form, it still writes the route, and the route answers `404`.
 
 To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
@@ -296,7 +296,7 @@ import { articles } from '../collections/articles'
 export default defineCollectionHandler(articles)
 ```
 
-A Collection with `authorize: true` or a callback also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`. A Collection object without `authorize` or `access: 'public'` throws `SOURCE_R0035`.
+A Collection with `authorize: true` or a callback also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`. A Collection object without `authorize` or `access: 'public'` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
 
 `useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` moves the cursor. For a small Collection, `all: true` fetches every page in the background. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when present.
 

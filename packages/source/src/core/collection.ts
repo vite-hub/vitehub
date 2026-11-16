@@ -630,7 +630,7 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
   }
   if (source.rawRows === true && access === "public" && route !== false && transform === undefined) {
-    throw sourceErrorDiagnostics.SOURCE_R0036()
+    throw sourceErrorDiagnostics.SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED()
   }
   const shared = {
     access,
@@ -657,7 +657,7 @@ export function assertCollectionAccess(definition: { access?: unknown; authorize
 } {
   const { access, authorize } = definition
   // `false` reads as "deny" to most readers, so it is not a public opt-in.
-  if (authorize === false) throw sourceErrorDiagnostics.SOURCE_R0037()
+  if (authorize === false) throw sourceErrorDiagnostics.SOURCE_COLLECTION_AUTHORIZE_FALSE()
   // Cross-realm functions do not pass an `instanceof Function` check.
   // `typeof` accepts callbacks created by another JavaScript realm while
   // still rejecting non-callable values at runtime.
@@ -667,11 +667,11 @@ export function assertCollectionAccess(definition: { access?: unknown; authorize
   if (access !== undefined && access !== "public") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection access must be \"public\" when it is set." })
   }
-  if (access === "public" && authorize !== undefined) throw sourceErrorDiagnostics.SOURCE_R0038()
-  if (access === undefined && authorize === undefined && definition.route !== false) throw sourceErrorDiagnostics.SOURCE_R0035()
+  if (access === "public" && authorize !== undefined) throw sourceErrorDiagnostics.SOURCE_COLLECTION_ACCESS_CONFLICT()
+  if (access === undefined && authorize === undefined && definition.route !== false) throw sourceErrorDiagnostics.SOURCE_COLLECTION_ACCESS_REQUIRED()
   if (access === "public" && definition.route !== false && typeof definition.page === "function"
     && Reflect.get(definition.page, untransformedTableRows) === true) {
-    throw sourceErrorDiagnostics.SOURCE_R0036()
+    throw sourceErrorDiagnostics.SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED()
   }
   // SAFETY: The checks above narrow authorize to true or a callable access rule.
   return { access, authorize: authorize as AccessAuthorizeOption | undefined }

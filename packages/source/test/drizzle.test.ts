@@ -102,20 +102,20 @@ describe("@vite-hub/source/drizzle", () => {
       // A users table with password hashes was served to anyone at /api/users.
       // @ts-expect-error A routed Collection must set authorize.
       expect(() => defineCollectionHandler(defineCollection({ source: usersSource() })))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0035" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
     })
 
     it("refuses a public table Collection without transform", () => {
       // @ts-expect-error A public Collection over table() must pick its fields with transform.
       expect(() => defineCollection({ access: "public", source: usersSource() }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED" }))
     })
 
     it("refuses public handlers composed from untransformed table Collections", () => {
       const collection = defineCollection({ authorize: true, source: usersSource() })
       const { authorize: _authorize, ...reader } = collection
       expect(() => defineCollectionHandler({ ...reader, access: "public" }))
-        .toThrow(expect.objectContaining({ code: "SOURCE_R0036" }))
+        .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED" }))
     })
 
     it("serves transformed table Collections through composed public handlers", async () => {

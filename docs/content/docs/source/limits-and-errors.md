@@ -26,27 +26,3 @@ icon: i-lucide-circle-alert
 The default `useCollection()` requester received an unsuccessful HTTP status. The error keeps the status in `status` and identifies the Collection endpoint in `why`.
 
 Check the Collection route and server logs for that status, correct the request or server error, then refresh the Collection. HTTP `401` and `403` still become `CollectionAccessError` with `SOURCE_R0026`.
-
-## SOURCE_R0035
-
-A Collection has a route but no `authorize` and no `access`. Such a route would serve every item to anyone, so `defineCollection()` and `defineCollectionHandler()` throw.
-
-Set `authorize: true` to require a signed-in session, a callback to decide each request, or `access: 'public'` for a public route. Set `route: false` to keep the Collection server-only.
-
-## SOURCE_R0036
-
-A Collection over `table()` sets `access: 'public'` without `transform`. `table()` selects every column, so the route would serve columns such as password hashes or emails.
-
-Add `transform` that returns only the public fields, or replace `access: 'public'` with `authorize: true` or a callback.
-
-## SOURCE_R0037
-
-A Collection sets `authorize: false`. `false` reads as "deny", so it does not make a route public, and `defineCollection()` and `defineCollectionHandler()` throw.
-
-Replace `authorize: false` with `access: 'public'` to let anyone read the route. Use `authorize: true` or a callback to require sign-in.
-
-## SOURCE_R0038
-
-A Collection sets both `access: 'public'` and `authorize`. A public route checks nobody, so the two contradict each other.
-
-Keep `access: 'public'` to let anyone read the route, or keep `authorize` to check each request. Remove the other.
