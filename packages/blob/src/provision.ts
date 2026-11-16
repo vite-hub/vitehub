@@ -2,7 +2,7 @@ import {
   createCloudflareProvisionClient,
   createVercelProvisionClient,
   isShellSafeProvisionValue,
-  ProvisionRequestError,
+  isProvisionRequestError,
   resolveCloudflareProvisionConfig,
   resolveVercelProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -105,7 +105,7 @@ async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, { j
     await request("/r2/buckets", { method: "POST", body: { name: bucketName }, headers })
   }
   catch (error) {
-    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
+    if (!isProvisionRequestError(error) || error.kind !== "conflict") throw error
     const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
       headers,
       parse: parseCloudflareBucket,
@@ -231,7 +231,7 @@ async function ensureVercelBlobConnection(
   catch (error) {
     // Vercel does not document the code of an existing connection, so a rejected input also reads
     // the store again. The read decides: an equivalent connection is success, anything else fails.
-    if (!(error instanceof ProvisionRequestError) || (error.kind !== "conflict" && error.kind !== "invalid")) throw error
+    if (!isProvisionRequestError(error) || (error.kind !== "conflict" && error.kind !== "invalid")) throw error
     const current = vercelConnectionState(await readVercelBlobStore(request, storeId), projectId)
     if (current === "equivalent") return
     if (current === "mismatched") {

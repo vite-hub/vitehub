@@ -3,6 +3,7 @@ import * as v from "valibot"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
+import { invariantError } from "@vite-hub/internal/invariant";
 import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
 import type { GitHubHost } from "./host.ts";
 
@@ -89,8 +90,7 @@ const pullRequestSchema = v.pipe(v.object({
 
 function repositoryParts(repository: string) {
   const [owner, name, extra] = repository.split("/");
-  // Internal invariant: the Babysitter reads repositories from its GitHub App installations and checks filter.repository.allow, so each is owner/name.
-  if (!owner || !name || extra !== undefined) throw new Error("Expected a GitHub owner/repository.");
+  if (!owner || !name || extra !== undefined) throw invariantError("the Babysitter reads repositories in owner/name form from its GitHub App installations")
   return { owner, name };
 }
 
