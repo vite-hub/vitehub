@@ -6,18 +6,18 @@
 // It writes one CLI sign-in code, which expires after 15 minutes. scripts/host-smoke.mjs starts a host build and runs it.
 import { pathToFileURL } from "node:url"
 
-class SmokeError extends Error {}
+export class SmokeError extends Error {}
 
-function check(condition, message) {
+export function check(condition, message) {
   if (!condition) throw new SmokeError(message)
 }
 
-async function request(base, path, init = {}) {
+export async function request(base, path, init = {}) {
   const response = await fetch(new URL(path, base), { redirect: "manual", signal: AbortSignal.timeout(30_000), ...init })
   return { response, text: await response.text() }
 }
 
-function json(text, path) {
+export function json(text, path) {
   try {
     return JSON.parse(text)
   }
@@ -26,7 +26,7 @@ function json(text, path) {
   }
 }
 
-const post = (base, path, body, headers = {}) => request(base, path, {
+export const post = (base, path, body, headers = {}) => request(base, path, {
   method: "POST",
   headers: { "content-type": "application/json", origin: new URL(base).origin, ...headers },
   body: JSON.stringify(body),
@@ -83,11 +83,16 @@ const checks = [
 ]
 
 /** Runs every check against `base` and returns the failures. Prints one line for each check. */
-export async function smoke(base, log = console.log) {
+export function smoke(base, log = console.log) {
+  return runChecks(checks, [base], log)
+}
+
+/** Runs each `[name, check]` with `args` in order and returns the names that failed. Prints one line for each check. */
+export async function runChecks(list, args, log = console.log) {
   const failures = []
-  for (const [name, run] of checks) {
+  for (const [name, run] of list) {
     try {
-      await run(base)
+      await run(...args)
       log(`ok    ${name}`)
     }
     catch (error) {
