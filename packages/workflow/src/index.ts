@@ -1,5 +1,6 @@
 export { defineWorkflow } from "./definition.ts"
 export {
+  NonRetryableError,
   type WorkflowErrorCode,
   type WorkflowErrorDetails,
   type WorkflowOperationName,
@@ -35,6 +36,7 @@ export type {
   WorkflowProvider,
   WorkflowProviderOptions,
   WorkflowRun,
+  WorkflowRunError,
   WorkflowRunStep,
   WorkflowRunStatus,
   WorkflowSignalResult,
@@ -44,5 +46,6 @@ export type {
   WorkflowStep,
   WorkflowStepRegistry,
   WorkflowSteps,
+  WorkflowStartDelay,
   WorkflowStartOptions,
 } from "./types.ts"

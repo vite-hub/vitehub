@@ -17,42 +17,55 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
 
     // Published numbered errors.
     CONTENT_R0001: {
+      fix: "Use a relative path inside the Content Source root, as a string, without `.` or `..` segments, absolute or drive paths, or a first segment of `.git` or `.vitehub`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0002: {
+      fix: "Give each item of the `contentSource()` input that the message names a `content` string or bytes, or `data` that JSON can store.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0003: {
+      fix: "Give each item of the `contentSource()` input its own path, so no two items map to the path that the message names.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0004: {
+      fix: "Pass an id or path that exists in the collection or Source that the message names on that ref. The `list()` method of the collection shows its ids.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0006: {
+      fix: "Change the option that the message names in `defineContent()`, `contentSource()`, `seo()`, or the Content preset in `server/content.ts`, as the message says.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0007: {
+      fix: "Use the Blob + Database Store for the Workspace that the message names, because Content collections need its retained history.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0008: {
+      fix: "Change the argument of the Content call that the message names, such as `content.history()`, `content.preview.sign()`, or `content.sources.pin()`, as the message says.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0009: {
+      fix: "Change the options of `content.publish()` as the message says, for example one `expect` entry `{ collection, id, digest }` for each document and no `collection` or `ids` next to it.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0010: {
+      fix: "Set `VITEHUB_CONTENT_KEY` in the Server Env to 32 random bytes as base64 or hex, such as from `openssl rand -base64 32`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0011: {
+      fix: "Change the options of `content.schedule()`, or the `--at` option of `vitehub content`, as the message says, for example an ISO `at` time in the future with a time zone.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0012: {
+      fix: "Use the Blob + Database Store for the Workspace that the message names, and add `contentSessionsSchema` from `vite-hub/content/database` to its Database.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0013: {
+      fix: "Remove the document from the draft with `remove()`, then publish the deletion with `content.publish()`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0014: {
+      fix: "Run `vitehub content <command> --help`, then pass the option or argument that the message names with a valid value.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0015: {
@@ -60,9 +73,11 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0016: {
+      fix: "Use the Blob + Database Store for the Workspace that the message names, or publish now with `content.publish()`.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0017: {
+      fix: "Merge or close the open pull request that the message names, then publish again.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0018: {

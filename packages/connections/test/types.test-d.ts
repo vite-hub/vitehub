@@ -221,3 +221,10 @@ describe("Connection types", () => {
     expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>>()
   })
 })
+
+it("needs a client id and endpoints, or an MCP endpoint to discover them from", () => {
+  expectTypeOf<{ id: "portal", mcp: string }>().toMatchTypeOf<ConnectionProvider>()
+  expectTypeOf<{ id: "portal", mcp: string, clientName: string }>().toMatchTypeOf<ConnectionProvider>()
+  expectTypeOf<{ id: "crm", authorizationEndpoint: string, tokenEndpoint: string }>().not.toMatchTypeOf<ConnectionProvider>()
+  expectTypeOf<{ id: "crm", authorizationEndpoint: string, tokenEndpoint: string, clientId: string, clientName: string }>().not.toMatchTypeOf<ConnectionProvider>()
+})

@@ -27,7 +27,6 @@ type StoredScheduleRunAttemptRecord = Omit<ScheduleRunAttemptRecord, "completedA
 // usable index, while indexed records continue to support complete queries.
 const maxLegacyHistoryRecords = 1000
 
-
 function trimPrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "")
 }
