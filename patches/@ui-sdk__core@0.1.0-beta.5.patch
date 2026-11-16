@@ -83,7 +83,7 @@ index 87dd500bb6c7859189f6dcef46cea58dee0c847a..cf4da267c9e45af2847da313fd9f5e61
    }),
    arrow: slot(arrowPart()),
 diff --git a/dist/components/date-input/date-input-parts.js b/dist/components/date-input/date-input-parts.js
-index d6f18d1cecae29d15a827dea3185179409d5c9ba..e37edf4e54e2b33c27d39b6445f9f8aeecabc34f 100644
+index d6f18d1cecae29d15a827dea3185179409d5c9ba..eb8eadbefbc6a0b9c356bd31aee6dbe18ddc2167 100644
 --- a/dist/components/date-input/date-input-parts.js
 +++ b/dist/components/date-input/date-input-parts.js
 @@ -6,6 +6,7 @@ import {
@@ -98,7 +98,7 @@ index d6f18d1cecae29d15a827dea3185179409d5c9ba..e37edf4e54e2b33c27d39b6445f9f8ae
        input.addEventListener("input", onInput);
        input.addEventListener("focus", select);
        const unsubscribe = store.subscribe(write);
-+      const release = bindFieldPart(input);
++      const release = bindFieldPart(input, store);
        return () => {
          unsubscribe();
 +        release();
@@ -672,14 +672,14 @@ index 1d0c5fe41fc57ee25a92b824fe10dc8bed716725..204452971b19c1254285bb26882619f7
    isTabbable,
    nextTabbable,
 diff --git a/dist/foundation/forms/form.js b/dist/foundation/forms/form.js
-index 86bdee3c42edcd97bb8e13b58fe56d981e75b0cf..3e3fcd172fbd355ca9d7298171c34c9756de23df 100644
+index 86bdee3c42edcd97bb8e13b58fe56d981e75b0cf..66c39fd910e3e4528bb2b7b665ae5904320c0f56 100644
 --- a/dist/foundation/forms/form.js
 +++ b/dist/foundation/forms/form.js
-@@ -100,27 +100,56 @@ var blocksImplicitSubmission = /* @__PURE__ */ new Set([
+@@ -100,27 +100,61 @@ var blocksImplicitSubmission = /* @__PURE__ */ new Set([
    "datetime-local",
    "number"
  ]);
-+var fieldParts = /* @__PURE__ */ new WeakSet();
++var fieldParts = /* @__PURE__ */ new WeakMap();
 +var partsListening = /* @__PURE__ */ new Map();
 +var blocksSubmission = (el) => el instanceof HTMLInputElement && blocksImplicitSubmission.has(el.type) && !fieldParts.has(el);
 +var isSubmitButton = (el) => el instanceof HTMLButtonElement && el.type === "submit" || el instanceof HTMLInputElement && (el.type === "submit" || el.type === "image");
@@ -702,29 +702,34 @@ index 86bdee3c42edcd97bb8e13b58fe56d981e75b0cf..3e3fcd172fbd355ca9d7298171c34c97
 -    (el) => el instanceof HTMLInputElement && blocksImplicitSubmission.has(el.type)
 -  );
 -  if (blocking.length <= 1) {
-+  if (elements.filter(blocksSubmission).length <= 1) {
++  if (submissionBlockers(elements) <= 1) {
      form.requestSubmit();
    }
  }
++function submissionBlockers(elements) {
++  return elements.filter(blocksSubmission).length + new Set(
++    elements.filter((el) => fieldParts.has(el)).map((el) => fieldParts.get(el))
++  ).size;
++}
 +function submitPastParts(event) {
 +  const field = event.target;
-+  if (event.key !== "Enter" || event.defaultPrevented || event.isComposing || !(field instanceof HTMLInputElement) || !field.form || !blocksSubmission(field)) {
++  if (event.key !== "Enter" || event.defaultPrevented || event.isComposing || !(field instanceof HTMLInputElement) || !field.form || !(fieldParts.has(field) || blocksSubmission(field))) {
 +    return;
 +  }
 +  const elements = Array.from(field.form.elements);
-+  if (elements.some((el) => fieldParts.has(el)) && !elements.some(isSubmitButton) && elements.filter(blocksSubmission).length === 1) {
++  if (elements.some((el) => fieldParts.has(el)) && !elements.some(isSubmitButton) && submissionBlockers(elements) <= 1) {
 +    event.preventDefault();
 +    field.form.requestSubmit();
 +  }
 +}
-+function bindFieldPart(input) {
++function bindFieldPart(input, group = input) {
 +  const doc = input.ownerDocument;
 +  const count = partsListening.get(doc) ?? 0;
 +  if (!count) {
 +    doc.addEventListener("keydown", submitPastParts);
 +  }
 +  partsListening.set(doc, count + 1);
-+  fieldParts.add(input);
++  fieldParts.set(input, group);
 +  return () => {
 +    fieldParts.delete(input);
 +    const left = partsListening.get(doc) - 1;
@@ -739,7 +744,7 @@ index 86bdee3c42edcd97bb8e13b58fe56d981e75b0cf..3e3fcd172fbd355ca9d7298171c34c97
  function dispatchChange(el, types = ["input", "change"]) {
    if (!el || writingFromScript(el)) {
      return;
-@@ -332,6 +361,7 @@ function labelledBy(el, findLabels, watch = el) {
+@@ -332,6 +366,7 @@ function labelledBy(el, findLabels, watch = el) {
  export {
    associate,
    attachFormInternals,
@@ -1071,7 +1076,7 @@ index eab2beaa42b085f926aaec23c80926950fc2d0d3..3af3f600c9afc33fbbcc610873020e41
        if (typeof setting === "function") {
          return setting() ?? content;
 diff --git a/dist/foundation/popups/popup.js b/dist/foundation/popups/popup.js
-index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..f211ae0b4f666ee14b7782601e34f95c2305971f 100644
+index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..a6d34cfa1fcaa9cc72418dea3e35b9d09d1b1ff7 100644
 --- a/dist/foundation/popups/popup.js
 +++ b/dist/foundation/popups/popup.js
 @@ -35,11 +35,61 @@ import {
@@ -1105,8 +1110,8 @@ index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..f211ae0b4f666ee14b7782601e34f95c
 +    doc.defaultView ?? window,
 +    "blur",
 +    () => setTimeout(() => {
-+      const active = doc.activeElement;
-+      if (guards.length || !trapping() || !(active instanceof HTMLIFrameElement) || !popup.contains(active)) {
++      const active = activeElement(doc);
++      if (guards.length || !trapping() || !(active instanceof HTMLIFrameElement) || !composedContains(popup, active)) {
 +        return;
 +      }
 +      frame = active;
@@ -1116,13 +1121,13 @@ index 3a2af834fa6094bc7ce052d0c1530ccfffceb4fb..f211ae0b4f666ee14b7782601e34f95c
 +    })
 +  );
 +  const offFocus = on(doc, "focusin", (event) => {
-+    const side = guards.indexOf(event.target);
++    const side = guards.indexOf(event.composedPath()[0]);
 +    const from = frame;
 +    remove();
 +    if (side < 0 || !from) {
 +      return;
 +    }
-+    const stops = tabbables(popup);
++    const stops = composedTabbables(popup);
 +    const step = side === 0 ? -1 : 1;
 +    const next = stops.at((stops.indexOf(from) + step) % stops.length);
 +    (next ?? popup).focus({ preventScroll: true });
