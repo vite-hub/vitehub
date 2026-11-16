@@ -4,7 +4,7 @@ import { BranchMovedError } from "forges"
 import type { BaseOptions, CommitFilesInput, FileChange, ForgeProvider, RepoRef } from "forges"
 
 import { forgeDiagnostics } from "../error-diagnostics.ts"
-import { forgeErrorStatus, ForgeResponseError } from "../provider.ts"
+import { forgeErrorStatus, forgeResponseError } from "../provider.ts"
 
 /** Git file modes: a regular file, an executable file and a symlink. The content of a symlink is its target. */
 export type ForgeFileMode = "100644" | "100755" | "120000"
@@ -71,6 +71,6 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
 function sha(value: unknown, key: "object" | "tree" | undefined, description: string): string {
   const target: unknown = key && value instanceof Object && key in value ? Reflect.get(value, key) : value
   const result: unknown = target instanceof Object && "sha" in target ? target.sha : undefined
-  if (typeof result !== "string" || !result) throw new ForgeResponseError(`GitHub returned a malformed ${description} response.`)
+  if (typeof result !== "string" || !result) throw forgeResponseError(`GitHub returned a malformed ${description} response.`)
   return result
 }

@@ -4,7 +4,6 @@ import { fixtureFetch } from "forges/testing"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  ForgeResponseError,
   forgeErrorStatus,
   forgeProvider,
   githubAppCredentials,
@@ -130,7 +129,7 @@ describe("internal Forge client", () => {
     const error: unknown = await failed.installationToken(8).catch((reason: unknown) => reason)
     expect(forgeErrorStatus(error)).toBe(401)
     const empty = githubAppCredentials({ appId: 988, privateKey: key, fetch: async () => Response.json({ expires_at: new Date(Date.now() + 3_600_000).toISOString() }) })
-    await expect(empty.installationToken(8)).rejects.toBeInstanceOf(ForgeResponseError)
+    await expect(empty.installationToken(8)).rejects.toMatchObject({ code: "FORGE_RESPONSE_INVALID", fix: expect.stringContaining("GitHub App") })
   })
 
   it.each(["pkcs1", "pkcs8"] as const)("signs %s private keys", async type => {
