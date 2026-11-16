@@ -207,6 +207,7 @@ function openSync<TName extends SyncName>(name: TName, options: SyncOptions<Sync
  * Forgets every Sync row and queued write in this browser, in every tab, also the writes that wait for another
  * account. Call it on sign-out, so the next person on the device does not see them. Writes that wait reject with
  * `SYNC_CLEARED`.
+ * Active stores stay paused until an explicit `refresh()` after the identity transition.
  * @experimental
  */
 async function clearSync(): Promise<void> {
@@ -215,7 +216,6 @@ async function clearSync(): Promise<void> {
   for (const store of draining.keys()) store.forget()
   await Promise.all([memoryStorage?.clear(), indexedDBStorage?.clear()])
   postClear()
-  for (const { store } of shared.values()) void store.refresh()
 }
 
 export { clearSync, openSync }

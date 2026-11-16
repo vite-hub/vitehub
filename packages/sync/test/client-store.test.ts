@@ -1611,3 +1611,43 @@ describe("freshness", () => {
     expect(browser.timers).toEqual([])
   })
 })
+
+describe("startup scope and paged acknowledgments", () => {
+  it.each(["insert", "update", "delete"] as const)("binds an immediate %s to the cached account", async (op) => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
+    const first = h.open().store
+    await first.refresh()
+    first.destroy()
+    h.server.offline = true
+    const { store } = h.open()
+    const write = op === "insert" ? store.insert({ title: "Eggs" }) : op === "update" ? store.update("a", { title: "Eggs" }) : store.delete("a")
+    await store.refresh()
+    h.server.user = "bob"
+    h.server.offline = false
+    await store.refresh()
+    expect(write.state).toBe("queued")
+    expect(store.getState().queued).toBe(0)
+    expect(posts(h)).toHaveLength(0)
+    h.server.user = "ada"
+    await store.refresh()
+    await write
+    expect(h.server.applied).toHaveLength(1)
+  })
+
+  it.each(["insert", "update", "delete"] as const)("keeps a paged %s optimistic until its confirmed result arrives", async (op) => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
+    const { store } = h.open()
+    await store.refresh()
+    for (let i = 0; i < 500; i++) h.server.write({ id: `remote-${i}`, ownerId: "ada", title: "Remote" })
+    const write = op === "insert" ? store.insert({ title: "Eggs" }) : op === "update" ? store.update("a", { title: "Eggs" }) : store.delete("a")
+    const observed: unknown[] = []
+    const stop = store.subscribe(() => observed.push(store.get(write.key)?.title))
+    const row = await write
+    stop()
+    expect(row?.title).toBe(op === "delete" ? undefined : "Eggs")
+    expect(observed.every(title => title === (op === "delete" ? undefined : "Eggs"))).toBe(true)
+    expect(pulls(h).length).toBeGreaterThan(1)
+  })
+})
