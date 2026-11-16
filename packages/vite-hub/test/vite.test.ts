@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
@@ -1030,9 +1030,9 @@ describe("vitehub", () => {
     [{ host: "netlify", agent: { invocations: false }, workflow: false }, ["agent"]],
     [{ host: "netlify", agent: { invocations: false }, workflow: true }, ["agent", "workflow"]],
     [{ host: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
-  ] as const)("checks the owner packages of %j", (options, features, hostPackages = {}) => {
+  ] as const)("checks the owner packages of %j", (options, features, hostPackages?: FeatureHostPackages) => {
     vitehub({ host: "node", ...options } as ViteHubOptions)
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features, hostPackages)
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features, hostPackages ?? {})
   })
 
   it.each([undefined, false] as const)("keeps Netlify Agents inline without the Workflow peer (%s)", (workflow) => {
