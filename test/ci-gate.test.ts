@@ -39,7 +39,7 @@ describe("CI merge gate", () => {
       const after = join(directory, "after.yaml")
       writeFileSync(before, lockfile)
       writeFileSync(after, lockfile.replaceAll("0.1.0-beta.2", "0.1.0-beta.3"))
-      const diff = spawnSync("git", ["diff", "--no-index", "--unified=1000", before, after], { encoding: "utf8" })
+      const diff = spawnSync("git", ["diff", "--no-index", "--exit-code", "--unified=1000", before, after], { encoding: "utf8" })
       expect(diff.status, diff.stderr).toBe(1)
       // Keep the real lockfile diff larger than a pipe buffer to expose early reader exits.
       expect(diff.stdout.length).toBeGreaterThan(65_536)
