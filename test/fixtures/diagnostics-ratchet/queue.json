@@ -1,10 +1,7 @@
 {
-  "rawErrors": {
-    "packages/queue/src/providers/local.ts": 7,
-    "packages/queue/src/providers/postgres.ts": 1,
-    "packages/queue/src/providers/vercel.ts": 2,
-    "packages/queue/src/runtime/operations.ts": 1
-  },
+  "rawErrors": {},
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/queue/src/providers/postgres.ts": 1
+  }
 }

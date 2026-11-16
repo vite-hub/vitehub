@@ -20,6 +20,7 @@ Import each part from its own entry. There is no root entry.
 | `@vite-hub/kit/nuxt` | The Nuxt module for the parts above |
 | `@vite-hub/kit/styles/tokens.css` | The tokens: the CSS variables of shadcn/ui with the ViteHub values, light, dark, and system dark. The values are those of `@vite-hub/ui/theme.css`. |
 | `@vite-hub/kit/styles/default.css` | The `default` style family: ui-sdk's `web.css` on the tokens above, and the rules for the kit parts. Only for apps without Nuxt UI. |
+| `@vite-hub/kit/styles/tailwind.css` | The Tailwind bridge: Nuxt UI's semantic utilities, such as `text-muted` and `bg-elevated`, on the tokens above. See [Tailwind](#tailwind). |
 | `@vite-hub/kit/styles/default.scoped.css` | The `default` family under a `.ui-sdk` root, for apps that still render Nuxt UI. See [Next to Nuxt UI](#next-to-nuxt-ui). |
 
 ## Migrate from `@vite-hub/kit/<name>`
@@ -152,7 +153,39 @@ The parts have no styles until you load a style family. A family is CSS that sty
 - **Variants** are attributes: `data-variant="solid"` for the main action and `data-variant="destructive"`. To change web.css itself, set its `--ui-*` variables, such as `--ui-font-size` (14px here), after the import.
 - **Buttons** also take `data-variant="soft"`, `"ghost"`, and `"link"`, and `data-size="xs"` (24px) and `"sm"` (28px). An icon with `data-slot="spinner"` turns. `data-slot="dialog-footer"` lines up a dialog's actions at the end, and `menu-item-description` and `tabs-tab-badge` are small muted text. `uiSdkComponents` of `@vite-hub/ui` uses them.
 
-### Next to Nuxt UI
+## Tailwind
+
+`@vite-hub/kit/styles/tailwind.css` keeps the semantic utilities of Nuxt UI 4.12 working without Nuxt UI. An app that removes `@import "@nuxt/ui"` keeps its classes:
+
+```css
+/* The app's global stylesheet. */
+@import "tailwindcss";
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/tailwind.css";
+```
+
+It is one `@theme inline` block that registers the names in the namespaces that Nuxt UI uses:
+
+| Utilities | Token |
+| --- | --- |
+| `text-highlighted`, `text-muted`, `text-inverted` | `--foreground`, `--muted-foreground`, `--background` |
+| `text-default`, `text-toned`, `text-dimmed` | `--ui-text`, `--ui-text-toned`, `--ui-text-dimmed` |
+| `bg-default`, `bg-elevated`, `bg-inverted`, `bg-border` | `--background`, `--muted`, `--foreground`, `--border` |
+| `bg-muted`, `bg-accented` | `--ui-bg-muted`, `--ui-bg-accented` |
+| `border-*`, `ring-*`, `ring-offset-*`, `divide-*`: `default`, `muted`, `accented`, `inverted`, `bg` | `--border`, `--ui-border-muted`, `--ui-border-accented`, `--foreground`, `--background` |
+| `outline-default`, `outline-inverted`, `fill-*` and `stroke-*`: `bg`, `default`, `inverted` | `--border`, `--foreground`, `--background` |
+| `*-primary`, such as `bg-primary` | `--primary` |
+| `*-error`, `*-warning`, `*-success`, `*-info`, such as `bg-error/10` | `--ui-error`, `--ui-warning`, `--ui-success`, `--ui-info` |
+| `text-error`, `text-warning`, `text-success`, `text-info` | `--vh-text-error`, ... (the darker text shades) |
+| `rounded-xs` to `rounded-3xl` | multiples of `--radius`, as in Nuxt UI |
+
+- The steps that shadcn has no name for, and the status colors, keep their Nuxt UI (`--ui-*`) and `theme.css` (`--vh-*`) names in `tokens.css`. `@vite-hub/ui/theme.css` sets the same variables with the same values, so the bridge changes nothing in an app that still loads Nuxt UI and theme.css. The Console loads it after `@nuxt/ui` today.
+- As in theme.css, only the plain `text-error` class takes the darker text shade. `text-error/80` and `hover:text-error` use the fill shade, as with Nuxt UI.
+- The bridge also sets the `dark` and `light` variants on `.dark`, `.light`, and `data-theme`, and the page text and background of Nuxt UI on `body`.
+- Nuxt UI 4.12 has no `decoration-default` or `border-highlighted`. Those classes draw nothing with Nuxt UI, and the bridge keeps it that way.
+- `pnpm --filter @vite-hub/ui test:bridge` renders every utility of Nuxt UI and every semantic utility in the repository on two Tailwind 4 pages, one with Nuxt UI and theme.css and one with the kit tokens and the bridge, and fails when a color, border, ring, or radius differs in light or dark.
+
+## Next to Nuxt UI
 
 `default.scoped.css` is `default.css` with every rule under `:where(.ui-sdk)`. It styles only the elements inside an element with the `ui-sdk` class, the scope root. An app that still renders Nuxt UI loads it and moves to ui-sdk one page or one part at a time.
 

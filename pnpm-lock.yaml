@@ -3902,9 +3902,6 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      nanotar:
-        specifier: ^0.3.0
-        version: 0.3.0
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
@@ -4107,6 +4104,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/kit':
+        specifier: workspace:*
+        version: link:../kit
       '@vite-hub/kv':
         specifier: workspace:*
         version: link:../kv
@@ -4206,6 +4206,9 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      tar:
+        specifier: ^7.5.22
+        version: 7.5.22
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
