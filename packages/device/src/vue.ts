@@ -188,6 +188,8 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
       if (claimed) break
       if (controller.signal.aborted || device.epoch() !== since || !device.loading()) return
     }
+    // A loader that the naming started can call this read again, and then the newer call shows its answer.
+    if (controller.signal.aborted) return
     publish(read, value)
   }
   catch (error) {
