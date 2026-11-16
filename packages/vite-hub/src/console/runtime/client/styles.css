@@ -1,7 +1,19 @@
+/*
+ * The layer order comes first. Tailwind and Nuxt UI use theme, base, components, and utilities. ui-sdk's web.css and
+ * the kit rules use ui-sdk: after base, so Preflight does not reset the parts, and before utilities, so classes win.
+ * Without this line, the first sheet that names ui-sdk puts it last.
+ */
+@layer theme, base, ui-sdk, components, utilities;
 @import "tailwindcss";
 @import "@nuxt/ui";
 @import "@vite-hub/kit/styles/tailwind.css";
 @import "@vite-hub/ui/theme.css";
+/*
+ * The kit style family under a `.ui-sdk` scope root. Parts move from Nuxt UI to ui-sdk one by one inside a scope root,
+ * and a scope root holds no Nuxt UI component (see "Move a part to ui-sdk" in playground/console/README.md). The tokens
+ * stay those of theme.css, which has the same values as the kit's tokens.css.
+ */
+@import "@vite-hub/kit/styles/default.scoped.css";
 @source "../components";
 @source "../../app.config.ts";
 
