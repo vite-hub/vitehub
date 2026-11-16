@@ -1,3 +1,4 @@
+// Internal invariant: caught in this module, which then leaves the value out.
 class UnsupportedValueError extends Error {}
 
 function isUint8Array(value: unknown): value is Uint8Array {

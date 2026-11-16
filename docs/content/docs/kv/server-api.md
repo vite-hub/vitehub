@@ -208,8 +208,8 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getMany<T>(keys, { type? })` | Reads many keys in one call. Returns one value or `null` per key, in the order of `keys`. See [Read and write many keys](#read-and-write-many-keys). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
-| `kv.set<T>(key, value, { ttl? })` | Writes a value. The driver applies `ttl` in seconds. `fs-lite`, the local store of `vite dev`, ignores it, so the key stays until you delete it. |
-| `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries. Not atomic. |
+| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, every driver expires the value after that many seconds. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
+| `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries, with the options of `kv.set()`. Not atomic. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |

@@ -36,8 +36,8 @@ interface Selected {
   bottom: number
 }
 
-/** The names of the CSS highlights of commented text. `documentStyles` colors them. */
-export const highlightNames = { open: "vitehub-comment", resolved: "vitehub-comment-resolved", active: "vitehub-comment-active" } as const
+/** The names of the CSS highlights of commented text. `@vite-hub/ui/comment-marks.css` colors them. */
+export const highlightNames = { open: "vh-comment", resolved: "vh-comment-resolved", active: "vh-comment-active", draft: "vh-comment-draft" } as const
 
 interface Toast {
   text: string
@@ -632,7 +632,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const highlights = typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function"
   function paintHighlights() {
     if (!highlights) return
-    const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[] }
+    const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[], draft: [] as Range[] }
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
     const threads = state.threads.value.filter(thread => state.isShown(thread.id))
     for (const thread of threads) {
@@ -644,7 +644,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const draft = state.draft.value?.anchor
     if (draft?.kind === "text") {
       const range = anchorRange(toRaw(draft))
-      if (range) groups.active.push(range)
+      if (range) groups.draft.push(range)
     }
     for (const [group, name] of Object.entries(highlightNames)) CSS.highlights.set(name, new Highlight(...groups[group as keyof typeof groups]))
   }
@@ -916,27 +916,32 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
-  /** The outlines of the areas that threads point at, and of the one being written. Resolved ones are dashed. */
+  /**
+   * The areas that threads point at, and the one being written, as `comment-mark-area` of
+   * `@vite-hub/ui/comment-marks.css`: the open or hovered one is active, and resolved ones are dashed.
+   */
   function areas(): VNode[] {
     const nodes: VNode[] = []
-    const box = (key: string, kind: CommentAnchor["kind"], status: string) => {
+    const box = (key: string, kind: CommentAnchor["kind"], marks: { status?: string, active?: boolean, draft?: boolean }) => {
       const position = state.positions.value.get(key)
       if (!position || position.detached || position.clipped || (kind !== "area" && kind !== "image") || !position.width || !position.height) return
       // While comments are hidden, only the ones that still show, and for a moment the ones that stop showing.
       const leaving = key !== "draft" && state.leaving.value.has(key)
       if (key !== "draft" && !leaving && !state.isShown(key)) return
       nodes.push(h("div", {
-        class: "area",
         key,
         "data-leaving": leaving ? "true" : undefined,
-        "data-status": status,
+        "data-active": marks.active ? "true" : undefined,
+        "data-draft": marks.draft ? "true" : undefined,
+        "data-slot": "comment-mark-area",
+        "data-status": marks.status,
         style: { left: `${position.x}px`, top: `${position.y}px`, width: `${position.width}px`, height: `${position.height}px` },
       }))
     }
     const active = new Set([state.openId.value, state.hoverId.value])
-    for (const thread of state.threads.value) box(thread.id, thread.anchor.kind, active.has(thread.id) ? "active" : thread.status)
+    for (const thread of state.threads.value) box(thread.id, thread.anchor.kind, { status: thread.status, active: active.has(thread.id) })
     const draft = state.draft.value
-    if (draft) box("draft", draft.anchor.kind, "active")
+    if (draft) box("draft", draft.anchor.kind, { draft: true })
     return nodes
   }
 

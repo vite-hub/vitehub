@@ -1,5 +1,8 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
+import { workspaceConflict } from "../core/errors.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
+
 import { normalizeHistoryPath } from "../core/history.ts"
 import { contentToBytes } from "../core/path.ts"
 import { useWorkspaceFiles } from "../core/use.ts"
@@ -24,17 +27,20 @@ import type {
 // Invalid paths, refs, cursors, and limits.
 const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
 
-/** A history read failure with its HTTP status. */
-class WorkspaceOperationError extends Error {
-  readonly details?: Record<string, unknown>
-  readonly fix?: string
+/** Gives an operation error the HTTP status and the redacted message that the CLI and the Console report. */
+function withStatus<TError extends Error>(error: TError, status: number, message = error.message): TError {
+  return Object.defineProperties(error, {
+    status: { configurable: true, enumerable: false, value: status, writable: true },
+    statusMessage: { configurable: true, enumerable: false, value: redactInspectionText(message), writable: true },
+  })
+}
 
-  constructor(readonly code: string, readonly status: number, message: string, options: { details?: Record<string, unknown>, fix?: string } = {}) {
-    super(message)
-    this.name = "WorkspaceOperationError"
-    if (options.details) this.details = options.details
-    if (options.fix) this.fix = options.fix
-  }
+/** The status of each Workspace code that the operations throw. A failure that sets its own client status keeps it. */
+const operationStatus: Readonly<Record<string, number>> = {
+  WORKSPACE_CONFLICT: 409,
+  WORKSPACE_FORBIDDEN: 403,
+  WORKSPACE_HISTORY_INVALID: 400,
+  WORKSPACE_NOT_FOUND: 404,
 }
 
 /** Reads the code of a ViteHub error or a Workspace diagnostic. */
@@ -117,7 +123,7 @@ async function showRevision(workspace: string, history: WorkspaceHistoryReader, 
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_NOT_FOUND") throw error
-    throw new WorkspaceOperationError("WORKSPACE_NOT_FOUND", 404, `Workspace "${workspace}" has no ref or revision "${request.target}". Run \`vitehub workspace refs ${workspace}\` to list refs.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_NOT_FOUND({ id: request.target, problem: "target", workspace, cause: error })
   }
   const revision = describeRevision(view.revision)
   if (request.path === undefined) {
@@ -130,7 +136,7 @@ async function showRevision(workspace: string, history: WorkspaceHistoryReader, 
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_NOT_FOUND") throw error
-    throw new WorkspaceOperationError("WORKSPACE_NOT_FOUND", 404, `Revision ${revision.id} has no path "${request.path}".`)
+    throw workspaceErrorDiagnostics.WORKSPACE_NOT_FOUND({ id: revision.id, path: request.path, problem: "path", workspace, cause: error })
   }
   if (stat.type === "directory") {
     const files = (await view.list(stat.path, { recursive: true })).filter(entry => entry.type === "file").map(describeFile)
@@ -209,7 +215,7 @@ async function openOrMissing(history: WorkspaceHistoryReader, id: string): Promi
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_NOT_FOUND") throw error
-    throw new WorkspaceOperationError("WORKSPACE_NOT_FOUND", 404, `The Workspace has no revision "${id}". Pull again without a base revision.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_NOT_FOUND({ id, problem: "revision", workspace: "", cause: error })
   }
 }
 
@@ -265,11 +271,9 @@ function modelSurface(context: OperationContext): boolean {
 
 async function commitChanges(workspace: string, request: WorkspaceCommitInput, context: OperationContext): Promise<WorkspaceCommitResult> {
   const remove = request.delete ?? []
-  if (!Object.keys(request.put ?? {}).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
+  if (!Object.keys(request.put ?? {}).length && !remove.length) throw workspaceErrorDiagnostics.WORKSPACE_HISTORY_INVALID({ problem: "empty-commit" })
   if (request.lease === "override" && modelSurface(context) && !context.overrideLeases) {
-    throw new WorkspaceOperationError("WORKSPACE_FORBIDDEN", 403, "An Agent may not write past an edit lease that a person holds.", {
-      fix: "Tell the person you work for who is editing the files, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true }).",
-    })
+    throw workspaceErrorDiagnostics.WORKSPACE_FORBIDDEN()
   }
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
   const ref = request.ref ?? "main"
@@ -300,7 +304,7 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_CONFLICT") throw error
-    throw new WorkspaceOperationError("WORKSPACE_CONFLICT", 409, `Ref "${request.ref ?? "main"}" of Workspace "${workspace}" moved after revision ${request.ifHead ?? "(none)"}. Pull, then push again.`)
+    throw workspaceConflict(`Ref "${request.ref ?? "main"}" of Workspace "${workspace}" moved after revision ${request.ifHead ?? "(none)"}. Pull, then push again.`, { cause: error })
   }
 }
 
@@ -359,7 +363,7 @@ export async function runWorkspaceOperation(operation: "show", input: WorkspaceS
 export async function runWorkspaceOperation(operation: "history" | "refs" | "show", input: WorkspaceHistoryInput | WorkspaceShowInput): Promise<WorkspaceHistoryDetails | WorkspaceHistoryList | WorkspaceHistoryRefs> {
   try {
     if (operation === "history" && "cursor" in input && input.cursor !== undefined && input.ref === undefined) {
-      throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The cursor belongs to one ref. Pass the same ref.")
+      throw workspaceErrorDiagnostics.WORKSPACE_HISTORY_INVALID({ problem: "cursor-ref" })
     }
     const { history } = useWorkspaceFiles(input.workspace)
     if (operation === "refs") {
@@ -374,27 +378,19 @@ export async function runWorkspaceOperation(operation: "history" | "refs" | "sho
   }
 }
 
-function describeFailure(workspace: string, error: unknown): WorkspaceOperationError {
-  if (error instanceof WorkspaceOperationError) return new WorkspaceOperationError(error.code, error.status, redactInspectionText(error.message), { ...(error.details ? { details: error.details } : {}), ...(error.fix ? { fix: error.fix } : {}) })
+function describeFailure(workspace: string, error: unknown): Error {
   const code = errorCode(error)
+  if (!(error instanceof Error) || !code) return withStatus(workspaceErrorDiagnostics.WORKSPACE_HISTORY_FAILED({ workspace, cause: error }), 500, error instanceof Error ? error.message : String(error))
   if (code === "WORKSPACE_R0069") {
-    return new WorkspaceOperationError(code, 409, `Workspace "${workspace}" has no retained history because its Store does not keep revisions. Use the Blob + Database Store, createBlobDatabaseWorkspaceStore() from @vite-hub/workspace/blob-database, to keep refs and revisions.`)
+    return withStatus(error, 409, `Workspace "${workspace}" has no retained history because its Store does not keep revisions. Use the Blob + Database Store, createBlobDatabaseWorkspaceStore() from @vite-hub/workspace/blob-database, to keep refs and revisions.`)
   }
   // A Workspace that is not registered fails before any history read.
-  if (code === "WORKSPACE_NOT_FOUND" && error instanceof Error && error.message.includes(`Workspace "${workspace}" is not registered.`)) {
-    return new WorkspaceOperationError(code, 404, `Unknown Workspace: ${workspace}.`)
+  if (code === "WORKSPACE_NOT_FOUND" && error.message.includes(`Workspace "${workspace}" is not registered.`)) {
+    return withStatus(workspaceErrorDiagnostics.WORKSPACE_NOT_FOUND({ problem: "workspace", workspace, cause: error }), 404)
   }
-  const message = redactInspectionText(error instanceof Error ? error.message : String(error))
   // A plugin hook that refuses the write, such as a held edit lease, sets its own client status, fix, and details.
-  const own: unknown = Object(error) === error ? Reflect.get(Object(error), "status") : undefined
-  if (code && typeof own === "number" && own >= 400 && own < 500) {
-    const fix: unknown = Reflect.get(Object(error), "fix")
-    const details: unknown = Reflect.get(Object(error), "details")
-    return new WorkspaceOperationError(code, own, message, {
-      ...(typeof fix === "string" && fix ? { fix } : {}),
-      ...(Object(details) === details && !Array.isArray(details) ? { details: { ...Object(details) } } : {}),
-    })
-  }
-  const status = code === "WORKSPACE_NOT_FOUND" ? 404 : code === "WORKSPACE_CONFLICT" ? 409 : code && invalidRequestCodes.has(code) ? 400 : 500
-  return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, message)
+  const own: unknown = Reflect.get(error, "status")
+  if (typeof own === "number" && own >= 400 && own < 500) return withStatus(error, own)
+  const status = operationStatus[code] ?? (invalidRequestCodes.has(code) ? 400 : 500)
+  return withStatus(error, status)
 }

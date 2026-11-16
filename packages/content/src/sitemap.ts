@@ -8,7 +8,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AnyContentCollection } from "./collections-types.ts"
 import { titleCase } from "./title-case.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
-import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentDocumentMarkdownPage, ContentDocumentUrl } from "./documents.ts"
 import type { ContentMcpOptions } from "./mcp.ts"
 import type { ContentSourceSeo } from "./content-source.ts"
 import type { ContentLlmsSection } from "./llms.ts"
@@ -408,7 +408,7 @@ async function routedMarkdown(collections: Iterable<AnyContentCollection>, page:
  * The Markdown copy of the published document that a path plus `.md` names, or null. It starts with the document's
  * title, unless the body has its own, and its description as a quote.
  */
-export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined): Promise<string | null> {
+export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined, render: ContentDocumentCopyRenderer = defaultDocumentCopy): Promise<string | null> {
   const page = contentMarkdownCopyPage(path)
   if (page === undefined) return null
   let resolved = await runtime.resolve(page, { ref: "published" })
@@ -422,20 +422,30 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
   const description = stringField(seo, "description") ?? stringField(document.data, "description")
-  return await renderMarkdownCopy({ title, description, body: document.body }, site)
+  return await render({ collection: collection.name, id: document.id, path: String(document.url) === document.url ? document.url : page, ...document.locale === undefined ? {} : { locale: document.locale }, data: document.data, body: document.body, ...title ? { title } : {}, ...description ? { description } : {}, ...site ? { site } : {} }, true)
 }
 
+/** A published document with a page, as the Markdown copy of its page renders it. */
+export type ContentDocumentCopyPage = ContentDocumentMarkdownPage & { collection: string }
+
+/** Render the Markdown copy of a document page. `footer` adds the end that only the `.md` copy has. */
+export type ContentDocumentCopyRenderer = (page: ContentDocumentCopyPage, footer: boolean) => Promise<string | null>
+
+const defaultDocumentCopy: ContentDocumentCopyRenderer = async page => await renderMarkdownCopy(page, page.site)
+
 /**
- * Whether the published document that a path plus `.md` names has a Markdown copy, without reading its body. A path
- * that `resolve()` misses checks the singletons only: every other document with a URL is in its index.
+ * Whether the published document that a path plus `.md` names has a Markdown copy. `available` checks custom
+ * renderers; otherwise this does not read the body. A path that `resolve()` misses checks the singletons only:
+ * every other document with a URL is in its index.
  */
-export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string): Promise<boolean> {
+export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, available?: (collection: string) => Promise<boolean>): Promise<boolean> {
   const page = contentMarkdownCopyPage(path)
   if (page === undefined) return false
   const resolved = await runtime.resolve(page, { ref: "published" })
   const collection = resolved ? runtime.collection(resolved.collection) : undefined
-  if (collection?.routable && collection.format === "markdown") return true
-  return await routedMarkdown(runtime.collections.values(), page, !resolved) !== null
+  if (collection?.routable && collection.format === "markdown") return available ? await available(collection.name) : true
+  const routed = await routedMarkdown(runtime.collections.values(), page, !resolved)
+  return routed !== null && (available ? await available(routed.collection) : true)
 }
 
 /**

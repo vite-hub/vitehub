@@ -23,6 +23,7 @@ const workflowOperationNames = [
   "cancellation",
   "connect",
   "create",
+  "delay",
   "get",
   "get-run",
   "import",
@@ -69,4 +70,23 @@ export function createWorkflowError<TCode extends WorkflowErrorCode>(
   options: WorkflowErrorOptions<TCode>,
 ): ViteHubError<TCode, WorkflowErrorDetails<TCode>> {
   return new ViteHubError(options.code, workflowErrorMessages[options.code], options)
+}
+
+/**
+ * Throw it from a step or a handler to fail the run at once, with no more attempts, on every provider. Cloudflare reads
+ * `isRetryable`, Workflow DevKit reads `fatal`, and ViteHub stops OpenWorkflow retries itself.
+ */
+// Internal invariant: the developer throws this class with their own message. ViteHub never throws it, and providers read its fields.
+export class NonRetryableError extends Error {
+  override name = "NonRetryableError"
+  readonly isRetryable = false
+  readonly fatal = true
+}
+
+/** Reads the fields, not the class, so an error from another bundle or realm also matches. */
+export function isNonRetryableError(error: unknown): error is Error {
+  if (typeof error !== "object" || error === null) return false
+  const message: unknown = Reflect.get(error, "message")
+  return typeof message === "string"
+    && (Reflect.get(error, "isRetryable") === false || Reflect.get(error, "name") === "NonRetryableError")
 }

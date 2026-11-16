@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -52,11 +52,11 @@ function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
-/** Actions that read the journal file without --url, or the file from --database. */
+/** Actions that can read the journal file selected by --database. */
 const fileActions = new Set<string | undefined>(["export", "list", "show", "tail", "wait-idle"])
 
 function readsJournalFile(parsed: ParsedArgs): boolean {
-  return fileActions.has(parsed.action) && (parsed.database !== undefined || !parsed.urlSet)
+  return fileActions.has(parsed.action) && parsed.database !== undefined
 }
 
 interface ParsedArgs {
@@ -149,15 +149,17 @@ function usage(context: AgentInvocationsCliContext): void {
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
-    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app.",
-    "Without --url, list, show, tail, export, and wait-idle read the local SQLite journal file read-only, without the app,",
-    "and cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
+    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
+    "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
+    "With --database, list, show, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
     "Options:",
     "  --url <url>               App URL, such as https://app.example.com or http://localhost:3000, as in every",
     "                            vitehub command. Uses the Console RPC endpoint under it. Set",
     "                            VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the calls to a deployment.",
+    "                            Without --url, the commands use the dev server of this project",
+    "                            (.vitehub/dev-server.json) and its Console.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
     "                            Defaults to 30m.",
@@ -208,7 +210,7 @@ function positiveInteger(value: string, flag: string): number {
 
 function duration(value: string, flag: string): number {
   const result = parseRetentionDuration(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_DURATION_INVALID({ flag })
   return result
 }
 
@@ -216,7 +218,7 @@ function size(value: string, flag: string): RetentionSizeLimit {
   // A bare integer is a number of bytes, as in the maxSize option.
   const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
   const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
+  if (result === undefined) throw agentDiagnostics.AGENT_INVOCATIONS_SIZE_INVALID({ flag })
   return result
 }
 
@@ -272,7 +274,8 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     observations: false,
     server: false,
     staleAfter: waitIdleDefaults.staleAfter,
-    url: resolveViteHubDevServerUrl(env),
+    // Without --url or this variable, useProjectDevServer() reads the dev server of the project.
+    url: env.VITEHUB_AGENT_INVOCATIONS_URL || "",
     urlSet: false,
     waitTimeout: waitIdleDefaults.timeout,
   }
@@ -384,6 +387,9 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
   if (!parsed.help && parsed.action === "undo" && !parsed.console) {
     throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000/_vitehub." })
+  }
+  if (!parsed.urlSet && !env.VITEHUB_AGENT_INVOCATIONS_URL && parsed.database === undefined && fileActions.has(parsed.action)) {
+    parsed.database = env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim() || undefined
   }
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
     throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
@@ -666,11 +672,10 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_NOT_FILE()
   }
   if (!existsSync(database.path)) {
-    const hint = parsed.database === undefined ? " Pass --database with the journal file, or --url with the app URL." : ""
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.${hint}` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, ...(parsed.database === undefined ? { hint: "Pass --database with the journal file, or --url with the app URL." } : {}) })
   }
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
   return {
@@ -680,7 +685,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
     close: file.close,
     detail: async (id) => {
       const detail = file.get(id)
-      if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
+      if (!detail) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location: database.label })
       return parseInvocationDetail(detail)
     },
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
@@ -899,7 +904,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
       location = new URL(configured)
     }
     catch {
-      throw agentDiagnostics.AGENT_R0931({ message: "The Agent Invocation journal database URL is invalid." })
+      throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_URL_INVALID()
     }
     for (const value of [location.username, location.password]) {
       if (value) secrets.push(value, safeDecode(value))
@@ -926,7 +931,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
 async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>, retention: AgentRetentionPolicy = {}): Promise<T> {
   const database = journalDatabase(parsed, context)
   if (database.path !== undefined && !existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal URL.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal URL." })
   }
   const [{ createClient }, { createLibsqlAgentInvocationStore }] = await Promise.all([
     import("@libsql/client"),
@@ -944,7 +949,7 @@ async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocations
     const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, ...retention, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     return await use(store)
   }
@@ -962,7 +967,7 @@ function redactedJournalError(error: unknown, database: JournalDatabase): unknow
   let message = error.message.split(database.url).join(database.label)
   for (const secret of database.secrets) message = message.split(secret).join("[redacted]")
   if (message === error.message) return error
-  return agentDiagnostics.AGENT_R0931({ message })
+  return agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_FAILED({ message })
 }
 
 async function deleteInvocation(parsed: ParsedArgs, context: AgentInvocationsCliContext, id: string): Promise<number> {
@@ -983,7 +988,7 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   const olderThanMs = parsed.olderThanMs ?? defaultPruneAgeMs
   const cutoff = new Date(Date.now() - olderThanMs)
   if (Number.isNaN(cutoff.getTime())) {
-    throw agentDiagnostics.AGENT_R0930({ message: "--older-than must produce a cutoff within JavaScript's Date range." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID()
   }
   const updatedBefore = cutoff.toISOString()
   const result = await withJournalStore(parsed, context, async store => await store.prune!({ ...(parsed.dryRun ? { dryRun: true } : {}), updatedBefore }))
@@ -1146,13 +1151,13 @@ const defaultCompactBusyTimeoutMs = 5_000
 async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, options: AgentInvocationsCliOptions): Promise<number> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: `compact rebuilds a local SQLite file. ${database.label} is a remote libSQL database, which manages its own storage. Pass --database with a local file path.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({ remote: database.label })
   }
   if (basename(database.path) === ":memory:" || /[?&]mode=memory(?:&|$)/i.test(database.url)) {
-    throw agentDiagnostics.AGENT_R0931({ message: "compact rebuilds a local SQLite file. An in-memory database has no file to compact. Pass --database with a local file path." })
+    throw agentDiagnostics.AGENT_INVOCATIONS_COMPACT_FILE_REQUIRED({})
   }
   if (!existsSync(database.path)) {
-    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal file.` })
+    throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_MISSING({ location: database.label, hint: "Pass --database with the journal file." })
   }
   const { createClient } = await import("@libsql/client")
   const client = createClient({ url: database.url })
@@ -1161,7 +1166,7 @@ async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsC
     const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
-      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+      throw agentDiagnostics.AGENT_INVOCATIONS_JOURNAL_TABLE_MISSING({ table, location: database.label })
     }
     result = await compactJournalFile({
       busyTimeoutMs: options.compactBusyTimeoutMs ?? defaultCompactBusyTimeoutMs,
@@ -1219,6 +1224,28 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
   return { ...result.invocation, observations: result.observations }
 }
 
+/**
+ * Without --url, --server, or --database, list, show, tail, export, wait-idle, and cancel use the dev server that wrote
+ * `.vitehub/dev-server.json` in this project, as every `vitehub` command does. Reads go through its Console. It never
+ * guesses a port, since another project may use it. Returns false when no dev server runs for a read.
+ */
+function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
+  if (parsed.urlSet || (parsed.database !== undefined && fileActions.has(parsed.action))) return true
+  if (parsed.action !== "cancel" && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
+  const rootDir = context.rootDir ?? process.cwd()
+  const found = findViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], context.env)
+  // cancel keeps the Vite Development Server default for hosts that do not write the file.
+  if (parsed.action === "cancel") {
+    parsed.url = found ?? resolveViteHubDevServerUrl(context.env)
+    return true
+  }
+  const app = found ? appUrl(found) : undefined
+  if (!found || !app) return false
+  parsed.url = found
+  parsed.console = app.base
+  return true
+}
+
 export async function runAgentInvocationsCli(
   args: string[],
   context: AgentInvocationsCliContext,
@@ -1236,6 +1263,10 @@ export async function runAgentInvocationsCli(
   if (parsed.help) {
     usage(context)
     return 0
+  }
+  if (!useProjectDevServer(parsed, context)) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_INVOCATIONS_NO_DEV_SERVER({ root: context.rootDir ?? process.cwd() }))}\n`)
+    return 1
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000

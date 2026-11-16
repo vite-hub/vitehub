@@ -60,7 +60,7 @@ export default defineContent({
 })
 ```
 
-A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but Source reads do not return `document.url`. `content.resolve()`, Markdown copies, and `seo()` fields work only with collections.
+A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt) and gives them [Markdown copies](#markdown-for-agents), but Source reads do not return `document.url`. `content.resolve()` and `seo()` fields work only with collections.
 
 ## SEO fields
 
@@ -316,6 +316,40 @@ export default defineContent({
   seo: { site: 'https://example.com', llms: { title: 'Example' } },
 })
 ```
+
+### Write the copy yourself
+
+A page can hold blocks that mean nothing outside the browser, such as a booking form, or a component that reads its words from the app, such as a `::phrases` table. Pass `markdown` to `documents()` or `singleton()` to write the copy that agents read:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+const phrases = [['Hello', 'สวัสดี'], ['Thank you', 'ขอบคุณ']]
+const phrasesTable = () => ['| Meaning | Thai |', '| --- | --- |', ...phrases.map(([meaning, thai]) => `| ${meaning} | ${thai} |`)].join('\n')
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    guide: documents({
+      path: 'guide/*.md',
+      url: '/guide/:id',
+      fields: { title: z.string(), description: z.string().optional() },
+      markdown: ({ title, description, body }) => [
+        `# ${title}`,
+        description && `> ${description}`,
+        body.replace(/^::phrases\n::$/m, phrasesTable()).replace(/^::booking-form\n::\n?/m, ''),
+      ].filter(Boolean).join('\n\n'),
+    }),
+  },
+  seo: { site: 'https://example.com', llms: { title: 'Trip guide' } },
+})
+```
+
+The function gets `{ id, path, locale, data, body, title, description, site }` of the published document. `title` and `description` come from its `seo()` field, else from its fields. Return a string, or `{ markdown, footer }`: only the `.md` copy ends with `footer`, and `llms-full.txt` and `get-page` leave it out. Return `null` for a page without a copy. Content uses the result as it is, so make links absolute yourself if agents need them. The `.md` copy, the `Accept: text/markdown` answer, `llms-full.txt`, and the MCP `get-page` tool all use it. A Source takes the same function in `contentSource(input, { markdown })`, with the whole file as `text`.
+
+To keep the copies and the llms files out of search results, such as for an unlisted site, add an `X-Robots-Tag` header with [route rules](https://nuxt.com/docs/guide/concepts/rendering#route-rules): `routeRules: { '/raw/**': { headers: { 'x-robots-tag': 'noindex' } } }`.
 
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 

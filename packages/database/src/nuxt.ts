@@ -275,7 +275,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         // `nuxt prepare` writes the same output as the build, so the types match, but it skips the checks that only
         // a deployable build needs. An app runs it in `postinstall`, before it has D1 resources.
-        const building = !nuxtOptions.dev && !nuxtOptions._prepare
+        // CLI discovery also runs readiness hooks before its Provision Steps can create those resources.
+        const building = !nuxtOptions.dev && !nuxtOptions._prepare && !nuxtOptions.vitehubCliDiscovery
         if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
             throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
@@ -390,7 +391,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
               for (const other of targets.slice(index + 1)) {
                 if (!managedTargets.has(target.path) && !managedTargets.has(other.path)) continue
                 if (target.path === other.path || target.path.startsWith(`${other.path}${sep}`) || other.path.startsWith(`${target.path}${sep}`)) {
-                  throw new Error(`D1 migration directories overlap for bindings ${target.binding} and ${other.binding}; configure an exclusive migrations_dir for each binding.`)
+                  throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_OVERLAP({ first: target.binding, second: other.binding })
                 }
               }
             }
@@ -408,7 +409,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const database = content && isRecord(content.database) ? content.database : undefined
             const bindingName = database?.type === "d1" && typeof database.bindingName === "string" ? database.bindingName : "DB"
             if ((!database || database.type === "sqlite" || database.type === "d1") && !findCompleteNitroConfigD1Binding(config, bindingName)) {
-              throw new Error("Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.")
+              throw databaseErrorDiagnostics.DATABASE_NUXT_CONTENT_D1_MISSING()
             }
           }
         }
@@ -867,7 +868,7 @@ async function installNitroMigrateOnStart(config: Record<string, unknown>, root:
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {
   const normalizedTarget = relative(resolve("."), resolve(targetDir))
   if (isAbsolute(targetDir) || normalizedTarget === "" || normalizedTarget === ".." || normalizedTarget.startsWith(`..${sep}`)) {
-    throw new Error("D1 migrations_dir must be a relative directory inside Nitro's server output.")
+    throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_INVALID()
   }
   const modules = Array.isArray(config.modules) ? [...config.modules] : []
   modules.push((nitro: {

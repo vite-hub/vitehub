@@ -31,6 +31,7 @@ export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions) 
     resolveSandbox: async (requirements: readonly string[]) => await resolveCloudflareSandbox(
       {
         namespace: namespace as CloudflareSandboxOptions['namespace'],
+        networkPolicy: options.provider.networkPolicy,
         sandboxId: options.provider.sandboxId,
         cloudflare: {
           sleepAfter: options.provider.sleepAfter ?? '5m',

@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process"
 import { existsSync, realpathSync } from "node:fs"
-import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
@@ -76,6 +76,123 @@ it("copies published sources into deployment artifacts and rewrites their runtim
     .resolves.toBe("deployed\n")
   await expect(readFile(bundleFile, "utf8")).resolves.toContain("./.vitehub/workflow/sources/0/server/agents/review/workspace")
   await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
+})
+
+it.each(["json", "single", "template", "file-url"] as const)("publishes Workspace paths containing spaces (%s)", async (form) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-spaced-provider-sources-"))
+  tempDirs.push(rootDir)
+  const publishedSourcesDir = join(rootDir, "sources")
+  const workspaceDir = join(publishedSourcesDir, "0", "My App", "My Workspace")
+  const deployedSourcesDir = join(rootDir, "deployed")
+  const bundleFile = join(rootDir, "index.mjs")
+  await mkdir(workspaceDir, { recursive: true })
+  await writeFile(join(workspaceDir, "context.md"), "deployed\n")
+  const literals = {
+    "file-url": JSON.stringify(pathToFileURL(workspaceDir).href),
+    "json": JSON.stringify(workspaceDir),
+    "single": `'${workspaceDir}'`,
+    "template": `\`${workspaceDir}/\${name}\``,
+  }
+  const literal = literals[form]
+  await writeFile(bundleFile, `const workspace = ${literal}\n`)
+
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{ files: [bundleFile], runtimeSourcesDir: "./deployed", sourcesDir: deployedSourcesDir }],
+    publishedSourcesDir,
+  })
+
+  await expect(readFile(join(deployedSourcesDir, "0", "My App", "My Workspace", "context.md"), "utf8"))
+    .resolves.toBe("deployed\n")
+  await expect(readFile(bundleFile, "utf8")).resolves.not.toContain(publishedSourcesDir)
+})
+
+it("copies only the published sources that deployment files name, without dotenv files", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deployed-provider-source-files-"))
+  tempDirs.push(rootDir)
+  const publishedSourcesDir = join(rootDir, ".vitehub", "workflow", "sources")
+  const appDir = join(publishedSourcesDir, "0", "app")
+  const workspaceDir = join(appDir, "server", "agents", "review", "workspace")
+  const deployedSourcesDir = join(rootDir, "deployment", ".vitehub", "workflow", "sources")
+  const bundleFile = join(rootDir, "deployment", "index.mjs")
+  const fileUrlBundleFile = join(rootDir, "deployment", "worker.mjs")
+  await Promise.all([mkdir(workspaceDir, { recursive: true }), mkdir(join(appDir, "notes"), { recursive: true }), mkdir(dirname(bundleFile), { recursive: true })])
+  await Promise.all([
+    writeFile(join(appDir, ".env"), "APP_SECRET=fake-test-value\n"),
+    writeFile(join(appDir, ".env.local"), "VERCEL_OIDC_TOKEN=fake-test-value\n"),
+    writeFile(join(appDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n"),
+    writeFile(join(appDir, "notes", "private.txt"), "not part of the app\n"),
+    writeFile(join(appDir, "server", "agents", "review", "agent.ts"), "export default {}\n"),
+    writeFile(join(workspaceDir, "context.md"), "deployed\n"),
+    writeFile(join(workspaceDir, ".env"), "WORKSPACE_SECRET=fake-test-value\n"),
+    writeFile(join(appDir, "template.md"), "template\n"),
+  ])
+  await writeFile(bundleFile, [
+    `const sourceRootDir = ${JSON.stringify(workspaceDir)}`,
+    `const dotenv = ${JSON.stringify(join(appDir, ".env.local"))}`,
+    `const computed = \`${appDir}/server/\${name}\``,
+    "",
+  ].join("\n"))
+  await writeFile(fileUrlBundleFile, `const template = new URL(${JSON.stringify(pathToFileURL(join(appDir, "template.md")).href)})\n`)
+
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{
+      files: [bundleFile, fileUrlBundleFile],
+      runtimeSourcesDir: "./.vitehub/workflow/sources",
+      sourcesDir: deployedSourcesDir,
+    }],
+    publishedSourcesDir,
+  })
+
+  const deployed = (await readdir(deployedSourcesDir, { recursive: true })).map(path => path.split(sep).join("/")).sort()
+  expect(deployed).toEqual([
+    "0",
+    "0/app",
+    "0/app/server",
+    "0/app/server/agents",
+    "0/app/server/agents/review",
+    "0/app/server/agents/review/agent.ts",
+    "0/app/server/agents/review/workspace",
+    "0/app/server/agents/review/workspace/context.md",
+    "0/app/template.md",
+  ])
+  await expect(readFile(bundleFile, "utf8")).resolves.toContain("./.vitehub/workflow/sources/0/app/server/agents/review/workspace")
+
+  // A bundle that names the whole app root still does not deploy dotenv files.
+  const rootBundleFile = join(rootDir, "root-deployment", "index.mjs")
+  const rootSourcesDir = join(rootDir, "root-deployment", "sources")
+  await mkdir(dirname(rootBundleFile), { recursive: true })
+  await writeFile(rootBundleFile, `const sourceRootDir = ${JSON.stringify(appDir)}\n`)
+  await publishProviderSourcesToDeploymentOutputs({
+    destinations: [{ files: [rootBundleFile], runtimeSourcesDir: "./sources", sourcesDir: rootSourcesDir }],
+    publishedSourcesDir,
+  })
+  const rootSources = (await readdir(rootSourcesDir, { recursive: true })).map(path => path.split(sep).join("/"))
+  expect(rootSources).toContain("0/app/notes/private.txt")
+  expect(rootSources.filter(path => path.split("/").at(-1)!.startsWith(".env"))).toEqual([])
+})
+
+it("leaves local secret files out of the retained source snapshot", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-retained-provider-dotenv-"))
+  tempDirs.push(rootDir)
+  const entry = join(rootDir, "server", "entry.mjs")
+  await mkdir(dirname(entry), { recursive: true })
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"type":"module"}\n'),
+    writeFile(entry, 'export const value = "retained"\n'),
+    writeFile(join(rootDir, ".env"), "APP_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, ".env.local"), "VERCEL_OIDC_TOKEN=fake-test-value\n"),
+    writeFile(join(rootDir, ".dev.vars"), "WRANGLER_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, "server", ".env.production"), "SERVER_SECRET=fake-test-value\n"),
+    writeFile(join(rootDir, ".npmrc"), "//registry.example.test/:_authToken=fake-test-value\n"),
+  ])
+  const artifactDir = join(rootDir, ".vitehub", "workflow", "sources")
+
+  const retained = await retainProviderOutputSources({ artifactDir, paths: [entry], roots: [rootDir] })
+
+  const snapshot = (await readdir(artifactDir, { recursive: true })).map(path => path.split(sep).join("/").split("/").at(-1)!)
+  expect(snapshot).toContain("entry.mjs")
+  expect(snapshot.filter(name => name.startsWith(".env") || name.startsWith(".dev.vars") || name === ".npmrc")).toEqual([])
+  await expect(import(pathToFileURL(retained.resolve(entry)).href)).resolves.toMatchObject({ value: "retained" })
 })
 
 it("rebases published dependency links before retained generation cleanup", async () => {
@@ -843,9 +960,12 @@ it.each([false, true])("publishes external pnpm runtime imports without the work
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "one", "sources")
   const retained = await retainProviderOutputSources({ artifactDir, paths: [entry], roots: [rootDir] })
   const deployedEntry = join(deployment, relative(artifactDir, retained.resolve(entry)))
+  const bundleFile = join(await mkdtemp(join(tmpdir(), "vitehub-provider-pnpm-bundle-")), "index.mjs")
+  tempDirs.push(dirname(bundleFile))
+  await writeFile(bundleFile, `const sources = ${JSON.stringify(join(artifactDir, "0"))}\n`)
   await publishProviderSourcesToDeploymentOutputs({
     publishedSourcesDir: artifactDir,
-    destinations: [{ files: [], runtimeSourcesDir: "./sources", sourcesDir: deployment }],
+    destinations: [{ files: [bundleFile], runtimeSourcesDir: "./sources", sourcesDir: deployment }],
   })
   await rm(workspace, { recursive: true, force: true })
   await expect(import(pathToFileURL(deployedEntry).href)).resolves.toMatchObject({ value: "retained" })
