@@ -8,7 +8,7 @@ navigation.kind: Guides
 icon: i-lucide-copy
 ---
 
-Reuse an Agent Definition (what `defineAgent()` returns) when several Agents share behavior but need different settings. First learn to [define](/docs/agents/agent-definitions) and [run](/docs/agents/invocations) one Agent. For a published workflow, choose a [ready-made Agent preset](/docs/agents/presets).
+Reuse an Agent Definition (what `defineAgent()` returns) when several Agents share behavior but need different settings. First learn to [define](/docs/agents/agent-definitions) and [run](/docs/agents/invocations) one Agent. For a published workflow, choose a [ready-made Agent preset](/docs/presets).
 
 ## Extend an Agent
 
@@ -91,7 +91,7 @@ A discovered child Agent with its own `skills/` folder also keeps the colocated 
 
 ## Presets from a package
 
-Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+Use [Agent presets](/docs/presets) to choose a built-in workflow and follow its setup guide.
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 
