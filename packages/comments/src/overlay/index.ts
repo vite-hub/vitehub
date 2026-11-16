@@ -1,4 +1,5 @@
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
+import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
 import { normalizeCommentPage } from "../page.ts"
@@ -23,7 +24,11 @@ function style(text: string): HTMLStyleElement {
 class CommentsOverlay extends HTMLElement {
   /** The page tools context that started the overlay. */
   context?: ViteHubPageToolContext
-  private readonly documentStyle = style(documentStyles)
+  /**
+   * The highlights of commented text, and edit mode. The marks stay in the components layer, as `@vite-hub/ui/styles.css`
+   * puts them, so the page's own rules win over them.
+   */
+  private readonly documentStyle = style(`@layer components {\n${commentMarks}\n}\n${documentStyles}`)
   /** The areas of threads, under the page's floating controls. See `areaStyles`. */
   private readonly areas = document.createElement("vitehub-comment-areas")
   private readonly toolbar = document.createElement("div")
@@ -57,14 +62,14 @@ class CommentsOverlay extends HTMLElement {
       segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles), this.toolbar)
       this.toolbar.replaceChildren(busy)
     }
-    this.followTheme()
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
     const areaRoot = this.areas.shadowRoot ?? this.areas.attachShadow({ mode: "open" })
-    areaRoot.replaceChildren(style(areaStyles))
+    areaRoot.replaceChildren(style(commentMarks + areaStyles))
     this.areas.setAttribute("data-comments-ui", "")
     document.documentElement.append(this.areas)
     this.cleanups.push(() => this.areas.remove())
+    this.followTheme()
 
     const [error, session] = await api.session(normalizeCommentPage(location.pathname))
     const allowed = this.active && !error && session.can.read
@@ -118,6 +123,11 @@ class CommentsOverlay extends HTMLElement {
       this.classList.toggle("dark", dark)
       this.areas.classList.toggle("dark", dark)
       this.dataset.theme = dark ? "dark" : "light"
+      // The page can select a scheme with CSS alone. Give document highlights the same default as the area host,
+      // while keeping the page's comment and theme token overrides. No host page attributes need to change.
+      const ink = getComputedStyle(this.areas).getPropertyValue("--vh-comment-default-ink").trim()
+      const text = `@layer components {\n${commentMarks}\n:root { --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, ${ink})); }\n}\n${documentStyles}`
+      if (this.documentStyle.textContent !== text) this.documentStyle.textContent = text
     }
     apply()
     const classes = new MutationObserver(apply)

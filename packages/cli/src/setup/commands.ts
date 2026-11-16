@@ -7,6 +7,7 @@ import { parseArgs } from "node:util"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { addCommand } from "./add.ts"
 import { setupCatalog } from "./catalog.ts"
+import { loginCommand, logoutCommand, whoamiCommand } from "./console-auth.ts"
 import { deployCommand } from "./deploy.ts"
 import { deploymentsCommand, liveLabel, readSetupLive, STATUS_HOST_TIMEOUT_MS } from "./deployments.ts"
 import { readSetupArgs, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -258,4 +259,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand, deploymentsCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand, deploymentsCommand, loginCommand, logoutCommand, whoamiCommand]
