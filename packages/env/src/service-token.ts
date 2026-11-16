@@ -5,7 +5,9 @@ import { HTTPError } from "h3"
 
 import { runtimeEnv } from "./internal/runtime-env.ts"
 
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
+// From the H3 entry, so the declarations load its `~standard` field on H3 events and an H3 event type-checks.
+import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 
 const serviceTokenErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
