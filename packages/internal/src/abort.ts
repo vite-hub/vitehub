@@ -35,7 +35,6 @@ export function abortable<T>(
 
 function abortReason(signal: AbortSignal | undefined, message: string): unknown {
   if (signal?.reason !== undefined) return signal.reason
-  const error = internalErrorDiagnostics.INTERNAL_R0003({ message })
-  error.name = "AbortError"
-  return error
+  // Callers detect aborts by `name === "AbortError"`. Nostics types `name` as the code, so it is set with `Object.assign`.
+  return Object.assign(internalErrorDiagnostics.INTERNAL_R0003({ message }), { name: "AbortError" })
 }

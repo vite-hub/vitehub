@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProblem } from "../src/console/runtime/client/problem.ts"
 import { consoleFieldIssues, consoleInvalidDocument, consoleLeaseHolder, consolePublishedConflicts, consolePublishMismatches, isConsoleConflict } from "../src/console/runtime/client/documents.ts"
-import { ConsoleNetworkError, ConsoleRequestError, isRetryableConsoleRequestError, requestConsole } from "../src/console/runtime/client/request.ts"
+import { consoleNetworkError, ConsoleRequestError, isRetryableConsoleRequestError, requestConsole } from "../src/console/runtime/client/request.ts"
 import {
   consoleDiagnosticAction,
   consoleDiagnosticBody,
@@ -96,6 +96,8 @@ describe("Console diagnostic catalog", () => {
   it("rejects unknown codes", () => {
     expect(isConsoleDiagnosticCode("CONNECTION_FORBIDDEN")).toBe(false)
     expect(isConsoleDiagnosticCode(undefined)).toBe(false)
+    // The registry's own `is` guard is not a code.
+    expect(isConsoleDiagnosticCode("is")).toBe(false)
   })
 })
 
@@ -139,7 +141,7 @@ describe("Console problems", () => {
   })
 
   it("treats a network failure as a transient failure", () => {
-    expect(consoleProblem(new ConsoleNetworkError(new TypeError("Failed to fetch")))).toMatchObject({ action: "retry", code: "CONSOLE_UNAVAILABLE" })
+    expect(consoleProblem(consoleNetworkError(new TypeError("Failed to fetch")))).toMatchObject({ action: "retry", code: "CONSOLE_UNAVAILABLE" })
   })
 
   it("keeps the code and guidance of a thrown diagnostic", () => {

@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
+import { loadMarkdown } from "./markdown.ts";
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation cancellation", () => {
   it("names a cancelled run in the work summary", () => {

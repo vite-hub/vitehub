@@ -9,6 +9,8 @@ export interface ConsoleCallOptions {
   surface?: "mcp"
   /** The person agreed to this destructive call. Only for `surface: "mcp"`. */
   confirmed?: boolean
+  /** The app runs only operations that read, and refuses a write or destructive call. */
+  readOnly?: boolean
 }
 
 /**
@@ -22,6 +24,7 @@ export function consoleCallerOf(caller: { user: ConsoleCallerUser, teamId: strin
     user: caller.user,
     via: "console",
     ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
+    ...(options.readOnly ? { readOnly: true } : {}),
   }
 }
 

@@ -122,8 +122,8 @@ Every direct limiter exposes its resolved `policy` and the provider features tha
 `kvRateLimitDriver()` counts in a KV store instead, so every process that uses the store shares the counts. The store needs an atomic `increment`: the `redis`, `database`, and `upstash` KV drivers have one.
 
 ```ts
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { kvRateLimitDriver } from '@vite-hub/rate-limit/drivers/kv'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { kvRateLimitDriver } from 'vite-hub/rate-limit/drivers/kv'
 import { kv } from 'vite-hub/kv'
 
 const limiter = createRateLimiter({

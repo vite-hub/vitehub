@@ -2,19 +2,19 @@ import { defineDiagnostics, Diagnostic } from "nostics"
 
 import type { DiagnosticCallParams, DiagnosticDefinition, DiagnosticJSON, Diagnostics } from "nostics"
 
+import { isRuntimeDiagnostic } from "./diagnostics.ts"
+
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
  *
- * - `code` names the failure, for example `KV_INVALID_CURSOR`.
+ * - `code` names the failure, for example `KV_INVALID_CURSOR`. `name` has the same code.
  * - `why` tells what went wrong. `message` has the same text.
  * - `fix` tells what to do next.
  * - `docs` links to the code on vitehub.dev.
  * - `cause` keeps the lower-level error, for example the provider error.
  * - `data` keeps catalog metadata in memory. Its type is inferred by `defineErrors()`.
  */
-export interface ResultError<TCode extends string = string, TData = unknown> extends Diagnostic<TData> {
-  readonly code: TCode
-  readonly name: TCode
+export interface ResultError<TCode extends string = string, TData = unknown> extends Diagnostic<TData, TCode> {
   /** Retains the Nostics serializer type for compatibility; runtime JSON is redacted. */
   toJSON(): DiagnosticJSON<TData> & {
     code: TCode
@@ -33,9 +33,40 @@ export type Result<TData, TCode extends string = string> =
   | [error: ResultError<TCode>, data: undefined]
   | [error: undefined, data: TData]
 
-/** Error catalog of one package. Each code creates a `ResultError` with that code. */
+/** Code map that `defineErrors()` accepts. `is` is reserved for `ErrorCatalog.is`. */
+export type ErrorCodes = Record<string, DiagnosticDefinition> & { is?: never }
+
+type CatalogCode<TCodes> = Exclude<keyof TCodes, "is"> & string
+
+type CatalogHandles<TCodes extends Record<string, DiagnosticDefinition>> = Diagnostics<TCodes, []>
+
+type CatalogData<TCodes extends Record<string, DiagnosticDefinition>, TCode extends CatalogCode<TCodes>> =
+  ReturnType<CatalogHandles<TCodes>[TCode]>["data"]
+
+/** One code of an error catalog. Call it to create the error, or use `is` to check an error. */
+export interface ErrorHandle<TArgs extends unknown[], TCode extends string, TData> {
+  (...args: TArgs): ResultError<TCode, TData>
+  /**
+   * Checks if `error` is a live Nostics error with this code, and narrows its `data`.
+   * It reads `code`, so it also accepts an error from another copy of the package or another realm.
+   * Safe to pass unbound, for example `errors.filter(catalog.CODE.is)`.
+   */
+  is: (error: unknown) => error is ResultError<TCode, TData>
+}
+
+/**
+ * Error catalog of one package. Each code creates a `ResultError` with that code.
+ * `is` checks if an error has a code of this catalog. `is` is not enumerable, so `Object.keys()` gives only the codes.
+ * Use `InferDiagnosticCodes<typeof catalog>` from `nostics` for the union of the codes.
+ */
 export type ErrorCatalog<TCodes extends Record<string, DiagnosticDefinition>> = {
-  [TCode in keyof TCodes & string]: (...args: Parameters<Diagnostics<TCodes, []>[TCode]>) => ResultError<TCode, ReturnType<Diagnostics<TCodes, []>[TCode]>["data"]>
+  /**
+   * Checks if `error` is a live Nostics error with a code of this catalog, and narrows its `code` and `data`.
+   * It reads `code`, so it also accepts an error from another copy of the package or another realm.
+   */
+  is: (error: unknown) => error is { [TCode in CatalogCode<TCodes>]: ResultError<TCode, CatalogData<TCodes, TCode>> }[CatalogCode<TCodes>]
+} & {
+  [TCode in CatalogCode<TCodes>]: ErrorHandle<Parameters<CatalogHandles<TCodes>[TCode]>, TCode, CatalogData<TCodes, TCode>>
 }
 
 export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDefinition>> {
@@ -83,21 +114,20 @@ export function toResultError<TCode extends string, TData>(
  * Defines the error catalog of a package with Nostics.
  * Return runtime errors as `[error, undefined]`. Throw definition and config errors.
  */
-export function defineErrors<const TCodes extends Record<string, DiagnosticDefinition>>(
-  options: DefineErrorsOptions<TCodes>,
-): ErrorCatalog<TCodes> {
-  type Create = (params?: DiagnosticCallParams) => Diagnostic<unknown>
-  // SAFETY: Each Nostics handle takes one optional params object and returns a Diagnostic.
-  const diagnostics = defineDiagnostics({
-    codes: options.codes,
-    docsBase: options.docs,
-  }) as Record<string, Create>
-  const catalog: Record<string, unknown> = {}
-  for (const [code, create] of Object.entries(diagnostics)) {
-    catalog[code] = (params?: DiagnosticCallParams) => toResultError(create(params))
+export function defineErrors<const TCodes extends ErrorCodes>(options: DefineErrorsOptions<TCodes>): ErrorCatalog<TCodes>
+// The loop cannot build the mapped catalog type, so the overload above states it.
+// Each code gets the Nostics handle for that code wrapped by `toResultError`, plus `is`.
+export function defineErrors(options: DefineErrorsOptions<ErrorCodes>): object {
+  const diagnostics = defineDiagnostics({ codes: options.codes, docsBase: options.docs })
+  const codes = new Set(Object.keys(options.codes))
+  const catalog: Record<string, unknown> = Object.defineProperty({}, "is", {
+    value: (error: unknown) => isRuntimeDiagnostic(error) && codes.has(error.code),
+  })
+  for (const code of codes) {
+    const create = diagnostics[code]
+    catalog[code] = Object.assign((params?: DiagnosticCallParams) => toResultError(create(params)), {
+      is: (error: unknown) => isRuntimeDiagnostic(error) && error.code === code,
+    })
   }
-  // SAFETY: Nostics sets the `code` and `name` of each diagnostic to its catalog key.
-  // It preserves per-code data, and toResultError establishes the name and public serializer.
-  // doctor-disable-next-line typescript/evidence/no-widen-then-assert -- Nostics types `code` as `string`; this narrows it to the catalog key.
-  return catalog as ErrorCatalog<TCodes>
+  return catalog
 }
