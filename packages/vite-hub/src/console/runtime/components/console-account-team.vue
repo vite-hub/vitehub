@@ -5,6 +5,7 @@ import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
 import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import Icon from "./console-icon.vue";
 
 /** The Members page of an `account` Console: the people and the pending invitations. Team settings has the team name. */
 const projects = useConsoleProjects();
@@ -159,7 +160,7 @@ async function copy(link: string): Promise<void> {
       <h2 id="vitehub-team-invitations" tabindex="-1" class="text-sm font-semibold text-highlighted outline-none">Pending invitations</h2>
       <ul class="vitehub-account-list">
         <li v-for="invitation in details.invitations" :key="invitation.id" class="vitehub-account-list__row">
-          <span class="grid size-7 shrink-0 place-items-center rounded-full border border-dashed border-accented text-muted" aria-hidden="true"><UIcon name="i-lucide-mail" class="size-3.5" /></span>
+          <span class="grid size-7 shrink-0 place-items-center rounded-full border border-dashed border-accented text-muted" aria-hidden="true"><Icon name="i-lucide-mail" class="size-3.5" /></span>
           <span class="grid min-w-0 flex-1">
             <span class="truncate text-sm text-highlighted">{{ invitation.email }}</span>
             <span class="text-xs text-muted">{{ expires(invitation.expiresAt) }}</span>

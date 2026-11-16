@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { consoleItemTitle, consoleSchemaItemValue } from "../client/schema-form";
 
 import type { ConsoleSchemaField } from "../client/schema-form";
+import Icon from "./console-icon.vue";
 
 /**
  * The items of a list field, such as the links of a navigation menu. An item that is an object is one row with its
@@ -125,7 +126,7 @@ function toggle(index: number): void {
             :aria-controls="`${itemId(index)}-fields`"
             @click="toggle(index)"
           >
-            <UIcon name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" :class="open.has(keys[index]!) ? 'rotate-90' : ''" aria-hidden="true" />
+            <Icon name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" :class="open.has(keys[index]!) ? 'rotate-90' : ''" aria-hidden="true" />
             <span class="truncate text-highlighted">{{ title(value, index).title }}</span>
             <span v-if="title(value, index).detail" class="min-w-0 truncate text-dimmed">{{ title(value, index).detail }}</span>
           </button>
