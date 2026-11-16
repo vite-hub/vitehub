@@ -56,25 +56,45 @@ describe("Console signatures", () => {
     await expect(verifyConsoleSignature({ headers, keys, method: "PUT", now, origin: "https://app.example.com", url })).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_INVALID" })
   })
 
+  it("names the caller header when the app does not know the caller", async () => {
+    const { privateKey, publicKey } = await createConsoleKeyPair()
+    const headers = new Headers(await signConsoleRequest({ body, caller: { user: { id: "u" }, via: "console" }, key: { name: "CI", privateKey }, method: "POST", now, url }))
+    // A newer Console sends a surface that this app has no rules for. The caller check runs before the signature check.
+    headers.set(consoleCallerHeader, Buffer.from(JSON.stringify({ surface: "agent", user: { id: "u" }, via: "console" })).toString("base64url"))
+    const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CI: publicKey })
+    if (!(keys instanceof Map)) throw new Error(keys.message)
+    await expect(verifyConsoleSignature({ headers, keys, method: "POST", now, origin: "https://app.example.com", url })).resolves.toMatchObject({
+      code: "CONSOLE_SIGNATURE_INVALID",
+      message: expect.stringContaining("upgrade vite-hub in the app"),
+    })
+  })
+
   it.each([
     ["a CLI caller", { via: "cli" }],
     ["a Console caller without a team", { user: { id: "u" }, via: "console" }],
     ["a call of the Console MCP", { surface: "mcp", team: { id: "t" }, user: { id: "u" }, via: "console" }],
     ["a confirmed call of the Console MCP", { confirmed: true, surface: "mcp", user: { id: "u" }, via: "console" }],
+    ["a read-only call of the Console MCP", { readOnly: true, surface: "mcp", user: { id: "u" }, via: "console" }],
   ])("reads %s", (_name, caller) => {
     expect(decodeConsoleCaller(Buffer.from(JSON.stringify(caller)).toString("base64url"))).toEqual(caller)
+  })
+
+  it("ignores the fields of a newer Console that it does not know", () => {
+    const newer = { protocol: 2, surface: "mcp", team: { id: "t", plan: "pro", role: "owner" }, user: { avatar: "a.png", id: "u" }, via: "console" }
+    expect(decodeConsoleCaller(Buffer.from(JSON.stringify(newer)).toString("base64url"))).toEqual({ surface: "mcp", team: { id: "t", role: "owner" }, user: { id: "u" }, via: "console" })
+    expect(decodeConsoleCaller(Buffer.from(JSON.stringify({ protocol: 2, via: "cli" })).toString("base64url"))).toEqual({ via: "cli" })
   })
 
   it.each([
     ["a CLI caller with a user", { user: { id: "u" }, via: "cli" }],
     ["a Console caller without a user", { via: "console" }],
     ["an empty user id", { user: { id: "" }, via: "console" }],
-    ["an extra field", { admin: true, user: { id: "u" }, via: "console" }],
     ["an unknown via", { via: "agent" }],
     ["a role that is not text", { team: { id: "t", role: 1 }, user: { id: "u" }, via: "console" }],
     ["an unknown surface", { surface: "cli", user: { id: "u" }, via: "console" }],
     ["a confirmation without the MCP surface", { confirmed: true, user: { id: "u" }, via: "console" }],
     ["a confirmation that is not true", { confirmed: "yes", surface: "mcp", user: { id: "u" }, via: "console" }],
+    ["a read-only flag that is not true", { readOnly: false, user: { id: "u" }, via: "console" }],
   ])("refuses %s", (_name, caller) => {
     expect(decodeConsoleCaller(Buffer.from(JSON.stringify(caller)).toString("base64url"))).toBeUndefined()
   })

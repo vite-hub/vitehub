@@ -1,12 +1,13 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createAgentDatabase, type AgentDatabaseHandle } from "../src/runtime/agent.ts"
 
-type DatabaseCatalogCode = keyof typeof databaseErrorDiagnostics
+type DatabaseCatalogCode = InferDiagnosticCodes<typeof databaseErrorDiagnostics>
 
 describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {

@@ -80,12 +80,18 @@ describe("@vite-hub/kit package contract", () => {
   }, 60_000);
 });
 
-/** The selector matches the scope root or an element inside it: a compound with `.ui-sdk`, then only `>` or descendant combinators. */
+/**
+ * The selector matches the scope root or an element inside it: a compound with `.ui-sdk`, then a `>` or descendant
+ * combinator. After that step, a sibling combinator (`+`, `~`) stays inside the root, as in `.ui-sdk a + b`.
+ */
 function onScopeRoot(selector: SelectorPart): boolean {
   let scoped = false;
+  let inside = false;
   for (const node of selector.nodes ?? []) {
     if (node.type === "combinator") {
-      if (scoped && node.value.trim() !== "" && node.value.trim() !== ">") return false;
+      const value = node.value.trim();
+      if (scoped && !inside && value !== "" && value !== ">") return false;
+      if (scoped) inside = true;
       continue;
     }
     const scopeClass = (node.type === "class" && node.value === "ui-sdk") || (node.type === "pseudo" && node.value === ":where" && node.toString().trim() === ":where(.ui-sdk)");

@@ -169,6 +169,92 @@
     }
   }
 
+  /*
+   * The Nuxt UI looks that the ui-sdk set of `@vite-hub/ui` (`uiSdkComponents`) asks for: `soft`, `ghost`, and `link`
+   * buttons, the `xs` and `sm` sizes, a spinner, a dialog footer, a menu item description, and a tab badge.
+   */
+  [data-slot="button"] {
+    &:is([data-variant="soft"], [data-variant="ghost"], [data-variant="link"]) {
+      border-color: transparent;
+    }
+
+    &[data-variant="soft"] {
+      background: var(--ui-muted);
+
+      &:hover:not([data-disabled]) {
+        background: color-mix(in oklab, var(--ui-muted), var(--ui-foreground) 8%);
+      }
+    }
+
+    &:is([data-variant="ghost"], [data-variant="link"]) {
+      background: transparent;
+    }
+
+    &[data-variant="link"] {
+      height: auto;
+      padding-inline: 0;
+      color: var(--ui-muted-foreground);
+
+      &:hover:not([data-disabled]) {
+        background: transparent;
+        color: var(--ui-foreground);
+      }
+    }
+
+    &[data-size="xs"] {
+      gap: calc(var(--ui-spacing) * 1);
+      height: calc(var(--ui-spacing) * 6);
+      padding-inline: calc(var(--ui-spacing) * 2);
+      font-size: 0.75rem;
+    }
+
+    &[data-size="sm"] {
+      height: calc(var(--ui-spacing) * 7);
+      padding-inline: calc(var(--ui-spacing) * 2.5);
+    }
+
+    &[aria-label]:has(> svg:only-child, > [data-slot$="-icon"]:only-child) {
+      &[data-size="xs"] {
+        width: calc(var(--ui-spacing) * 6);
+      }
+
+      &[data-size="sm"] {
+        width: calc(var(--ui-spacing) * 7);
+      }
+    }
+  }
+
+  [data-slot="spinner"] {
+    animation: kit-spin 1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="spinner"] {
+      animation-duration: 3s;
+    }
+  }
+
+  @keyframes kit-spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+
+  [data-slot="dialog-footer"] {
+    display: flex;
+    justify-content: flex-end;
+    gap: calc(var(--ui-spacing) * 2);
+  }
+
+  :is([data-slot="menu-item-description"], [data-slot="tabs-tab-badge"]) {
+    color: var(--ui-muted-foreground);
+    font-size: 0.75rem;
+  }
+
+  [data-slot="menu-item-description"] {
+    display: block;
+  }
+
   [data-slot="tags-input"] {
     display: flex;
     flex-wrap: wrap;

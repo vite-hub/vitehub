@@ -26,8 +26,8 @@ The package installs the binary `vitehub-codemods`. It requires Node.js 22.18 or
 
 | Code | When |
 | --- | --- |
-| `0` | Every codemod completed, also when it reported follow-ups. |
-| `1` | A codemod could not migrate, no codemod applies and the app has no `nuxt.config`, the directory does not exist, or an argument is unknown. |
+| `0` | Every codemod completed, also when it reported follow-ups, or no codemod applies. |
+| `1` | A codemod could not migrate, the directory has neither `package.json` nor `nuxt.config`, `nuxt.config` does not parse, the directory does not exist, or an argument is unknown. |
 
 ### How a migration runs
 
@@ -52,12 +52,12 @@ console.log(formatMigrationReport(migration))
 
 | Export | Description |
 | --- | --- |
-| `runMigration({ cwd?, dryRun? })` | Detects and runs every codemod that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
+| `runMigration({ cwd?, dryRun?, codemods? })` | Detects and runs every codemod of `codemods` (default: all) that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings, supported }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
 | `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CODEMODS_BLOCKED`, or `CODEMODS_UNKNOWN` for an unknown name, when it cannot migrate. |
-| `detectCodemods(cwd)` | The codemods that apply to the app, each with the reason. |
-| `formatReport(run)`, `formatMigrationReport(migration)` | The text report that the CLI prints. |
+| `detectCodemods(cwd, candidates?)` | The codemods that apply to the app, each with the reason. |
+| `formatReport(run)`, `formatMigrationReport(migration, nextSteps?)` | The text report that the CLI prints. `nextSteps` adds steps after those of the codemods. |
 | `formatDiff({ edits })` | The edits as unified diffs. |
-| `codemods`, `findCodemod(name)` | Every codemod, and one by name. |
+| `codemods`, `upgradeCodemods`, `findCodemod(name)` | Every codemod, the ones that `vitehub migrate` runs, and one by name. |
 | `runCli(argv)` | Runs the CLI with the arguments after the binary name, and resolves with the exit code. |
 | `isCodemodError(error)` | Whether the error is a codemod that cannot migrate the app. |
 

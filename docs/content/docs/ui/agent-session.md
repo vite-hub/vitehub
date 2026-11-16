@@ -16,8 +16,8 @@ icon: i-ph-layout-light
 Import the components and package styles as described in [Installation](/docs/ui/installation):
 
 ```ts
-import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "@vite-hub/ui";
-import "@vite-hub/ui/styles.css";
+import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "vite-hub/ui";
+import "vite-hub/ui/styles.css";
 ```
 
 The same components are available at `vite-hub/ui`.
