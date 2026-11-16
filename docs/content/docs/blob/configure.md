@@ -454,6 +454,7 @@ export default defineConfig({
 | `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
 | `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
 | `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |
+| `maxPixels` | `number` | Largest source that `photon` decodes, in pixels. Defaults to 4,000,000. Only with `transformer: 'photon'`. See [Photon on Workers and Node](/docs/blob/media#photon-on-workers-and-node). |
 
 Set `images: false` to always serve originals. `images` applies to every store.
 

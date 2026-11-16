@@ -1,6 +1,6 @@
 ---
 description: "Fix DOCS_REDIRECTS_BROKEN in @vite-hub/docs. A redirect route rule goes to no docs page, or hides one."
-seo.title: "DOCS_REDIRECTS_BROKEN: a redirect breaks docs links"
+seo.title: "DOCS_REDIRECTS_BROKEN: fix broken redirects"
 ---
 
 A redirect route rule breaks a link. With the link checker on, a production build stops. The message lists each rule with its fix:

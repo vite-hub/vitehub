@@ -335,7 +335,7 @@ Content owns the address format, `<collection>[:<id>]#<field.path>`. Comments on
 | --- | --- |
 | `contentField(collection, field)` | Returns `{ 'data-content-field': 'about#hero.title' }` for a singleton. |
 | `contentField(collection, id, field)` | Returns `{ 'data-content-field': 'customers:acme#name' }` for a document in a `documents()` collection. |
-| `formatContentField({ collection, id?, field })` | Returns the address string. Throws a `TypeError` for a collection name, id, or field path the format cannot hold. |
+| `formatContentField({ collection, id?, field })` | Returns the address string. Throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a collection name, id, or field path the format cannot hold. |
 | `parseContentField(value)` | Returns `{ collection, id?, field }`, or `undefined` for any other string. |
 
 Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An id cannot contain `#`. See [Mark Content fields](/docs/comments/configure#mark-content-fields).

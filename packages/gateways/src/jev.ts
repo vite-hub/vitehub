@@ -401,13 +401,13 @@ function jevQuestionBatches(state: AdvocaatEntry, wire: Record<string, AdvocaatQ
   const sharedSize = jevInputSize(state) + 2048
   const maxRequestSize = 60_000
   const maxQuestionSize = 30_000
-  if (sharedSize >= maxQuestionSize) throw new RangeError("[vitehub] Jev shared state exceeds the safe per-question input budget.")
+  if (sharedSize >= maxQuestionSize) throw gatewayDiagnostics.GATEWAYS_JEV_INPUT_TOO_LARGE({})
   const batches: Record<string, AdvocaatQuestion>[] = []
   let batch: Record<string, AdvocaatQuestion> = Object.create(null)
   let size = sharedSize
   for (const [name, question] of Object.entries(wire)) {
     const questionSize = jevInputSize({ [name]: question }) + 128
-    if (sharedSize + questionSize > maxQuestionSize) throw new RangeError(`[vitehub] Jev question "${name}" exceeds the safe per-question input budget.`)
+    if (sharedSize + questionSize > maxQuestionSize) throw gatewayDiagnostics.GATEWAYS_JEV_INPUT_TOO_LARGE({ question: name })
     if (size + questionSize > maxRequestSize && Object.keys(batch).length) {
       batches.push(batch)
       batch = Object.create(null)
@@ -448,11 +448,11 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
       if (usage) context.recordUsage?.(usage)
       context.abortSignal?.throwIfAborted()
       for (const name of Object.keys(batch)) {
-        if (!Object.hasOwn(response.answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)
+        if (!Object.hasOwn(response.answers, name)) throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "missing" })
         const answer = response.answers[name]
         const question = questions[name]
         if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) {
-          throw new Error(`[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`)
+          throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "choice" })
         }
         const scoreAnswer: Record<string, unknown> | undefined = isObject(answer) && answer.type === "score" ? answer : undefined
         output[name] = question?.type === "score" && scoreAnswer

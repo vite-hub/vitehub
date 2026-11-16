@@ -12,7 +12,7 @@
     "vitehub",
     "vue"
   ],
-  "homepage": "https://vitehub.dev/docs/ui",
+  "homepage": "https://vitehub.dev/docs/ui/ai-components",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -27,6 +27,7 @@
   ],
   "type": "module",
   "sideEffects": [
+    "./dist/comment-marks.css",
     "./dist/styles.css",
     "./dist/theme.css"
   ],
@@ -73,6 +74,7 @@
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json",
+    "./comment-marks.css": "./dist/comment-marks.css",
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css"
   },
@@ -93,8 +95,8 @@
     "@shikijs/themes": "4.5.0",
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
-    "@ui-sdk/core": "0.1.0-beta.2",
-    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/vue": "0.1.0-beta.5",
     "nostics": "catalog:runtime",
     "katex": "^0.19.1",
     "shiki": "^4.5.0",
@@ -126,6 +128,7 @@
     "@pierre/trees": "1.0.0-beta.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vite-hub/icons": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "3.5.44",
     "@vue/test-utils": "2.5.1",

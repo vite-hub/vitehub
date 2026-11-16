@@ -1,5 +1,6 @@
 // The `.zip` of a playground or a tutorial starter. The files are a few kilobytes of text, so the
 // archive stores them without compression and needs no library. It runs in browsers and in Node.
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { isProjectPath } from "./paths.ts";
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -16,8 +17,7 @@ function crc32(data: Uint8Array): number {
 
 /** A stored `.zip` of text files under `folder/`, with the same bytes for the same files. */
 export function zipFiles(files: Record<string, string>, folder: string): Uint8Array<ArrayBuffer> {
-  // Internal invariant: runs in the browser, where @vite-hub/ui does not load nostics. The page shows the message.
-  if (!isProjectPath(folder) || !Object.keys(files).every(isProjectPath)) throw new Error("ZIP files must use safe project-relative paths.");
+  if (!isProjectPath(folder) || !Object.keys(files).every(isProjectPath)) throw uiErrorDiagnostics.UI_ZIP_PATH_UNSAFE();
   const encoder = new TextEncoder();
   const local: Uint8Array[] = [];
   const central: Uint8Array[] = [];

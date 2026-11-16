@@ -10,7 +10,7 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
@@ -211,7 +211,8 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
     }
     catch (error) {
       const problem = error instanceof Error ? error.message : String(error)
-      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem }))}\n`)
+      const failure = isRuntimeDiagnostic(error) && error.code === "DATABASE_EXPORT_FAILED" ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
+      context.stderr.write(`${formatRuntimeDiagnosticError(failure)}\n`)
       return 1
     }
   }
@@ -657,7 +658,9 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
     name => context.stdout.write(`[vitehub] Database "${database.name}": applied ${name}.\n`),
   )
   if (problem) {
-    context.stderr.write(`[vitehub] D1 migration failed for the database "${database.name}". ${problem}\n`)
+    context.stderr.write(isRuntimeDiagnostic(problem)
+      ? `${formatRuntimeDiagnosticError(problem)}\n`
+      : `[vitehub] D1 migration failed for the database "${database.name}". ${problem instanceof Error ? problem.message : String(problem)}\n`)
     return 1
   }
   context.stdout.write(`[vitehub] Database "${database.name}": D1 migrations are up to date.\n`)

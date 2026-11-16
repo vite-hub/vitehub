@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
+import { renderDatabaseLookup } from "./database-lookup.injected.ts"
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
 import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
 
@@ -405,26 +406,6 @@ export interface CmsWorkspaceImports {
 export const cmsWorkspaceExport = "contentWorkspace"
 
 /**
- * Reads the Database of the plan. The build loads the generated module without the app's Databases, and
- * `useDatabase()` throws for a missing one, so the module keeps the error and throws it on first use.
- */
-function renderDatabaseLookup(plan: CmsPresetPlan): string[] {
-  const missing = `[vitehub] The Content cms preset needs Database ${JSON.stringify(plan.database)}, but it is not configured at runtime. Enable database in vitehub() and keep its Database Definition.`
-  return [
-    "let database",
-    `try { database = useDatabase(${JSON.stringify(plan.database)}).db }`,
-    "catch (error) {",
-    "  database = new Proxy({}, {",
-    "    get() {",
-    // Internal invariant: generated module source. It throws on first use of a Database that the runtime does not have.
-    `      throw new Error(${JSON.stringify(missing)}, { cause: error })`,
-    "    },",
-    "  })",
-    "}",
-  ]
-}
-
-/**
  * The generated Workspace Definition module. It only reads the Database registry and creates a lazy store when it
  * loads, so the build can load it to bundle Workspace assets. The GitHub store reads its token on first use.
  */
@@ -437,7 +418,7 @@ export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: CmsWorksp
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     `import { createBlobDatabaseWorkspaceStore } from ${JSON.stringify(imports.blobDatabase)}`,
     "",
-    ...renderDatabaseLookup(plan),
+    ...renderDatabaseLookup(plan.database),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: createBlobDatabaseWorkspaceStore({",
@@ -457,7 +438,7 @@ function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan,
     `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
     "",
     "// The Database holds editor sessions only. Documents and their history live in the repository.",
-    ...renderDatabaseLookup(plan),
+    ...renderDatabaseLookup(plan.database),
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: {",
