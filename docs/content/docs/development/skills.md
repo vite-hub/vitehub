@@ -84,6 +84,8 @@ The v0.1.0 index lists each skill's files and a `version`: the first 12 characte
 
 A path under the two folders that names no skill or file gets `404`. Methods other than `GET` and `HEAD` get `405`.
 
+`serveSkills()` sends each file with its exact bytes, as `text/markdown` for a `.md` file and `text/plain` for every other file, with `Content-Security-Policy: default-src 'none'; sandbox`. A skill file, such as an `.html` or `.svg` file, never runs as a page on your origin, so you can serve skills that other people wrote.
+
 ## Change the list at runtime
 
 Pass a function instead of a list. Each request calls it, so the function can read a setting, such as the skills of the signed-in team. These excerpts replace the earlier list and middleware, using your app's `teamSkillNames()` helper and the middleware imports above:

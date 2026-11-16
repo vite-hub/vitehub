@@ -178,8 +178,29 @@ describe("serveSkills", () => {
     const reference = await serveSkills(get("/.well-known/skills/release/references/checklist.md"), skills)
     expect(await reference?.text()).toBe(checklist)
     const logo = await serveSkills(get("/.well-known/skills/release/assets/logo.png"), skills)
-    expect(logo?.headers.get("content-type")).toBe("image/png")
+    expect(logo?.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     expect(new Uint8Array(await logo!.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]))
+  })
+
+  it("serves every file as text in a sandbox, so a skill file never runs as a page on the app origin", async () => {
+    const html = "<script>fetch('/api/me')</script>"
+    const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\"/>"
+    const payload = defineSkill({ "SKILL.md": releaseMd, "payload.html": html, "payload.svg": new TextEncoder().encode(svg), "tool.js": "alert(1)" })
+    const answers = {
+      "/.well-known/agent-skills/index.json": "application/json",
+      "/.well-known/agent-skills/release.tar.gz": "application/gzip",
+      "/.well-known/agent-skills/release/SKILL.md": "text/markdown; charset=utf-8",
+      "/.well-known/skills/release/payload.html": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/payload.svg": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/tool.js": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/missing.html": null,
+    }
+    for (const [path, type] of Object.entries(answers)) {
+      const response = await serveSkills(get(path), [payload])
+      expect([response?.headers.get("content-type"), response?.headers.get("content-security-policy"), response?.headers.get("x-content-type-options")], path).toEqual([type, "default-src 'none'; sandbox", "nosniff"])
+    }
+    expect(await (await serveSkills(get("/.well-known/skills/release/payload.html"), [payload]))?.text()).toBe(html)
+    expect(await (await serveSkills(get("/.well-known/skills/release/payload.svg"), [payload]))?.text()).toBe(svg)
   })
 
   it("answers 404 for unknown skills and files, 405 for other methods, and no body for HEAD", async () => {

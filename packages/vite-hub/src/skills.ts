@@ -308,7 +308,8 @@ export async function serveSkills(request: Request, skills: SkillList, options: 
   const v2 = pathname.startsWith(`${base}${discoveryV2}`)
   if (!v2 && !pathname.startsWith(`${base}${discoveryV1}`)) return undefined
 
-  const headers = { "cache-control": options.cacheControl ?? "public, max-age=60", "x-content-type-options": "nosniff" }
+  // Skill files can come from people other than the app's authors. Never let a browser run one as a page on this origin.
+  const headers = { "cache-control": options.cacheControl ?? "public, max-age=60", "content-security-policy": "default-src 'none'; sandbox", "x-content-type-options": "nosniff" }
   const head = request.method === "HEAD"
   const respond = (body: string | Uint8Array<ArrayBuffer>, type: string) => new Response(head ? null : body, { headers: { ...headers, "content-type": type } })
   if (request.method !== "GET" && !head) return new Response(null, { headers: { ...headers, allow: "GET, HEAD" }, status: 405 })
@@ -355,7 +356,8 @@ export async function serveSkills(request: Request, skills: SkillList, options: 
   const name = path.slice(0, slash)
   const file = slash > 0 ? list.find(skill => skill.name === name)?.files.find(entry => entry.path === path.slice(slash + 1)) : undefined
   if (!file) return new Response(null, { headers, status: 404 })
-  return respond(file.bytes, file.text === undefined ? file.mimeType : `${file.mimeType}; charset=utf-8`)
+  // Installers write the bytes as they are, so the type only tells a browser to show text, not to run HTML or SVG.
+  return respond(file.bytes, file.mimeType === "text/markdown" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8")
 }
 
 /** A skill in `skills/list` and `skills/get` of the MCP Skills extension. */
