@@ -199,6 +199,7 @@ describe("CI merge gate", () => {
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "ui-sdk",
     "service-tests",
     "docs",
     "docs-snippets",
