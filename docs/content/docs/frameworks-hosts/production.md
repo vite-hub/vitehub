@@ -130,6 +130,7 @@ export default defineConfig({
 - A route that sets one of these headers keeps its own value.
 - Static files get the same headers. On Cloudflare and Netlify, ViteHub adds a rule to `_headers`; on Vercel, it adds a route for static files to the Build Output config. A header that `_headers` or `routeRules` already sets for any path is left out of that rule, because the host would join the two values.
 - `maxBodySize` takes bytes or a size such as `'500kb'` or `'1mb'` (1kb is 1024 bytes). A larger body gets `413` with `data.code` set to `VITE_HUB_REQUEST_BODY_TOO_LARGE`. The limit applies to every route, so raise it when the app takes file uploads.
+- On Node, security uses the srvx Fetch bridge for native Node handlers so they receive the same headers and body limit. With a body limit, Node request bodies are buffered up to that limit before middleware runs.
 - `security` adds no Content Security Policy. Set a `Content-Security-Policy` header in `headers` or in `routeRules` when your app needs one.
 
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.

@@ -1,5 +1,6 @@
 import { HTTPError } from "nitro/h3"
 import { defineDiagnostics } from "nostics"
+import type { ServerRequest } from "srvx"
 import { limitRequestBody } from "srvx/body-limit"
 
 /** The resolved `vitehub({ security })` options that the generated Nitro plugin passes. */
@@ -65,7 +66,8 @@ export function addSecurityHeaders(response: Response, headers: SecurityPolicy["
  * Installs `vitehub({ security })` on a Nitro app. It wraps `nitroApp.fetch`, the entry of every preset, so it covers
  * every route, middleware, error page, and static file that Nitro serves. A body whose `Content-Length` is over
  * `maxBodySize` gets 413 before any middleware or route runs. A body without `Content-Length` is counted while a route
- * reads it, and the read fails with a 413 `HTTPError` when it passes the limit.
+ * reads it, and the read fails with a 413 `HTTPError` when it passes the limit. Node bodies are checked before
+ * dispatch through the Fetch bridge, which also keeps native handlers behind these controls.
  */
 export function installSecurity(nitroApp: NitroAppLike, policy: SecurityPolicy): void {
   const fetch = nitroApp.fetch
@@ -76,6 +78,37 @@ export function installSecurity(nitroApp: NitroAppLike, policy: SecurityPolicy):
     if (maxBodySize !== undefined) {
       if (declaredLength(request) > maxBodySize) return addSecurityHeaders(bodyTooLargeResponse(maxBodySize), headers)
       input = limitRequestBody(request, maxBodySize, { createError: bodyTooLargeError })
+    }
+    if ((request as Partial<ServerRequest>).runtime?.node) {
+      // Native Node handlers otherwise read and write the original socket, bypassing both Fetch controls.
+      // Use srvx's Fetch-to-Node bridge instead. Buffer the bounded body first, since the bridge turns
+      // body read errors into a generic 500 rather than the diagnostic 413.
+      let body: ArrayBuffer | null = null
+      if (maxBodySize !== undefined && input.body) {
+        try {
+          body = await input.arrayBuffer()
+        }
+        catch (error) {
+          if (error instanceof HTTPError && error.status === 413) return addSecurityHeaders(bodyTooLargeResponse(maxBodySize), headers)
+          throw error
+        }
+      }
+      const source = input as ServerRequest
+      input = Object.assign(new Request(source.url, {
+        method: source.method,
+        headers: source.headers,
+        signal: source.signal,
+        body: body ?? source.body,
+        duplex: "half",
+      } as RequestInit), {
+        _url: source._url,
+        runtime: { ...source.runtime, node: undefined },
+        context: source.context,
+        ip: source.ip,
+        waitUntil: source.waitUntil,
+      })
+      // Keep the shared URL used by Nitro request hooks such as trustProxy.
+      Object.defineProperty(input, "url", { get: () => source.url })
     }
     const response: Response = await Reflect.apply(fetch, nitroApp, [input, ...rest])
     return headers.length > 0 ? addSecurityHeaders(response, headers) : response
