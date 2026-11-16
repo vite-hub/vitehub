@@ -16,6 +16,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleCodeText from "./console-code-text.vue";
+import Icon from "./console-icon.vue";
 
 const descriptionSchema = v.object({
   entries: v.array(
@@ -283,14 +284,14 @@ onBeforeUnmount(() => request?.abort());
                     <span v-else class="truncate text-[13px] text-muted">Undisclosed name</span>
                     <span v-if="row.entry.required" class="hidden shrink-0 text-xs text-muted sm:inline">Required</span>
                     <span v-if="row.entry.secret" class="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
-                      <UIcon name="i-lucide-lock" class="size-3" aria-hidden="true" />Secret
+                      <Icon name="i-lucide-lock" class="size-3" aria-hidden="true" />Secret
                     </span>
                   </span>
                   <span class="flex items-center gap-4 text-xs">
                     <Status v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
                     <span class="hidden w-24 truncate text-end font-mono text-dimmed md:block" :title="row.entry.type">{{ row.entry.type }}</span>
                     <span class="hidden w-36 truncate text-muted sm:block">{{ sourceLabel(row.entry) }}</span>
-                    <UIcon name="i-lucide-chevron-right" class="size-3.5 text-dimmed group-hover:text-muted" aria-hidden="true" />
+                    <Icon name="i-lucide-chevron-right" class="size-3.5 text-dimmed group-hover:text-muted" aria-hidden="true" />
                   </span>
                   <!-- The host variable names in read order. The name that supplied the value is highlighted. -->
                   <span v-if="row.entry.names?.length" class="col-span-2 flex min-w-0 flex-wrap gap-x-2 font-mono text-xs text-dimmed">
