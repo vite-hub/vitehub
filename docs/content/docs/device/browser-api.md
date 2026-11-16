@@ -63,7 +63,7 @@ Gives the state of the device of this tab:
 | Field | Holds |
 | --- | --- |
 | `account` | The account that the page named. Before that, the account of the copies from the last visit. `null` when there is none. |
-| `persisted` | `true` when new copies go to IndexedDB. `false` before the page names an account, after `null`, and in memory mode. |
+| `persisted` | `true` when new copies go to IndexedDB. `false` before the page names an account, after `null`, in memory mode, and when another tab changed the disk while this tab named its account, such as a tab of another version. The next `setDeviceAccount()` call makes it `true` again. |
 | `storage` | `indexeddb`, or `memory` when IndexedDB failed or `openDevice()` was not called. |
 | `entries` | `{ key, storedAt, bytes }` for each copy, by key. `bytes` is the size of the JSON. |
 

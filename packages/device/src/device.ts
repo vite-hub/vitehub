@@ -238,9 +238,10 @@ export function createDevice(options: DeviceOptions): Device {
     // A tab without IndexedDB named the account of this page: the disk did not change.
     if (message.type === "account" && !message.meta && message.account === named) return
     // Another tab cleared the device, started it over, or named another account. Everything of this tab is old: its
-    // copies, its answers, and the loader calls that run. After another account, it stores again only after it names one.
-    if (message.meta) meta = message.meta
+    // copies, its answers, and the loader calls that run. Another account is newer than the naming of this page, as the
+    // session can have changed since, so the tab stores again only after the page names an account.
     if (message.type === "account" && message.account !== named) named = undefined
+    if (message.meta) return adopt(message.meta)
     invalidate()
   }
 
@@ -328,12 +329,13 @@ export function createDevice(options: DeviceOptions): Device {
    * goes and the disk gets a new generation, and the other tabs hear of it. Runs in the queue. In this tab it is not a
    * reset: the tab raised the epoch when it named the account, and holds no copy of another account or version.
    *
-   * The reset applies only when the disk still has the generation that this tab knows. When another tab changed the
-   * disk and this tab missed its message, an account that the page named (`fromPage`) tries again on the new disk while
-   * the disk holds that same account. Another account on the disk, or an account that came from the disk at open, is
-   * newer than what this tab knows, so the tab takes the disk as it is.
+   * One naming, one reset attempt. The reset applies only on the generation that this tab knew when the task started.
+   * On any other generation, the tab takes the disk as it is and does not write the meta again until the page names an
+   * account.
    */
   async function ensure(account: string | null, announce: boolean, fromPage: boolean): Promise<StorageResult> {
+    // A later naming replaced this one, or the tab found another account and dropped it. The disk stays as it is.
+    if (fromPage && named !== account) return ok
     const target = storage
     if (!target) {
       if (announce) options.channel.post({ type: "account", account, meta: undefined })
@@ -352,20 +354,9 @@ export function createDevice(options: DeviceOptions): Device {
         return [deviceErrors.DEVICE_STORAGE_FAILED({ action: "delete the copies of the previous account", cause }), undefined]
       }
       if (found?.generation !== expected?.generation) {
-        // Another tab changed the disk. When its message came in the meantime, `meta` has it already.
-        if (meta === expected) {
-          // Another account on the disk is newer than what this tab knows, also than an account that the page named: the
-          // session can have changed meanwhile. The tab stores again only after the page names an account.
-          if (!fromPage || (found !== undefined && found.account !== account)) {
-            adopt(found)
-            return ok
-          }
-          meta = found
-          invalidate()
-        }
-        // The disk still holds `account`, after a clear or in another version, and the page still names it. The tab tries
-        // again on the disk as it is now.
-        return fromPage && named === account ? ensure(account, announce, fromPage) : ok
+        // Another tab changed the disk. When its message came in the meantime, the tab took its meta already.
+        if (meta === expected) adopt(found)
+        return ok
       }
       meta = next
       options.channel.post({ type: "account", account, meta: next })
