@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createCloudflareProvisionClient, createVercelProvisionClient, listCloudflarePages, planProvisionSteps, ProvisionRequestError } from "../src/provision.ts"
+import { createCloudflareProvisionClient, createVercelProvisionClient, listCloudflarePages, planProvisionSteps } from "../src/provision.ts"
 import type { ProvisionAction, ProvisionContext, ProvisionStep } from "../src/provision.ts"
 
 describe("provision planning", () => {
@@ -128,7 +128,7 @@ describe("provision request errors", () => {
 
     const error = await request("/v1/storage/connections", { method: "POST" }).catch(error => error)
 
-    expect(error).toBeInstanceOf(ProvisionRequestError)
+    expect(error).toMatchObject({ code: "INTERNAL_R0013" })
     expect(error).toMatchObject({ codes: ["invalid_connection_type"], status: 400 })
     expect(error.message).toBe("Provision request failed: POST /v1/storage/connections (400). Provider code: invalid_connection_type.")
     expect(error.message).not.toContain("provider-secret")

@@ -64,7 +64,7 @@ const serverOnlyModules = new Set([
   "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
-  "schedule", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
+  "schedule", "schedule/os", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
   "workflow", "workspace", "workspace/runtime",
 ])
 const clientAppDirs = ["components", "composables", "layouts", "middleware", "pages", "plugins", "stores", "utils"]

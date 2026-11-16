@@ -19,7 +19,7 @@ const shadcn = (tokens: Map<string, string>) => [...tokens.keys()].filter(name =
 // @vite-hub/docs keeps an app's own values for them (packages/docs/src/theme-css.ts).
 describe("the shadcn/ui tokens of theme.css", () => {
   it("sets the documented names, and the radius once", () => {
-    expect(shadcn(light)).toEqual(["--background", "--border", "--foreground", "--muted", "--muted-foreground", "--popover", "--primary", "--radius", "--ring"]);
+    expect(shadcn(light)).toEqual(["--background", "--border", "--destructive", "--foreground", "--input", "--muted", "--muted-foreground", "--overlay", "--popover", "--popover-foreground", "--primary", "--primary-foreground", "--radius", "--ring", "--shadow-dialog", "--shadow-popover"]);
     expect(shadcn(dark)).toEqual(shadcn(light).filter(name => name !== "--radius"));
   });
 
@@ -27,9 +27,11 @@ describe("the shadcn/ui tokens of theme.css", () => {
     expect(systemDark).toEqual(dark);
   });
 
-  it.each([["light", light], ["dark", dark]] as const)("feeds every name into a token that reads it in the same %s block", (_mode, tokens) => {
+  it.each([["light", light], ["dark", dark]] as const)("feeds every name into a token that reads it in the same %s block", async (_mode, tokens) => {
+    // The scoped kit aliases consume the additional tokens without replacing Nuxt UI aliases.
+    const kit = await readFile(new URL("../../kit/src/styles/default.css", import.meta.url), "utf8");
     const reads = [...tokens.values()].flatMap(value => [...value.matchAll(/var\((--[\w-]+)\)/g)].map(([, name]) => name!));
-    for (const name of shadcn(tokens)) expect(reads, name).toContain(name);
+    for (const name of shadcn(tokens)) expect(reads.includes(name) || kit.includes(`var(${name})`), name).toBe(true);
     expect(reads.filter(name => !/^--(?:ui|vh)-/.test(name) && !tokens.has(name))).toEqual([]);
   });
 
