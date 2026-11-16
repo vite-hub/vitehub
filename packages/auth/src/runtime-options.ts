@@ -24,6 +24,7 @@ import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
+import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -112,6 +113,7 @@ function readProviderEnvironment(options: AuthRuntimeOptions & Record<string, un
   const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
   return {
     admins: readAdmins(event),
+    members: readMembers(event),
     adminClaim: options.adminClaim === false ? undefined : readAdminClaim(event),
     // Presence is significant here: Better Auth must validate an explicitly empty secret
     // instead of silently replacing it with the ViteHub-derived fallback.
@@ -169,7 +171,9 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const { admins, adminClaim } = environment
+  const { admins, adminClaim, members } = environment
+  assertMembersSessionStore(members, Boolean(storage.database || storage.secondaryStorage))
+  const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
   const plugins = [
@@ -177,7 +181,7 @@ function stripViteHubOptions(
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
-    ...(policy ? [createAccessPolicyPlugin(policy)] : []),
+    ...(policy || membersGate ? [createAccessPolicyPlugin({ policy, members: membersGate })] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
@@ -189,6 +193,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(membersGate ? { socialProviders: withMemberScopes(members, rest.socialProviders) } : {}),
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
