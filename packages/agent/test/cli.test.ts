@@ -1832,7 +1832,7 @@ describe("agent CLI", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const exitCode = await runAgentInvocationsCli(["cancel", "invocation-1"], { env: {}, rootDir, stderr, stdout: stream() }, { fetch: fetchCancel as never })
       expect(exitCode).toBe(1)
-      expect(stderr.output()).toBe("No Agent invocation journal is configured.\n")
+      expect(stderr.output()).toMatch(/^\[AGENT_R0972\] No Agent invocation journal is configured\.\n.*fix: /s)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
