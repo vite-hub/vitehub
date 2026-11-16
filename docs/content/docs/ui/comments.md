@@ -11,9 +11,9 @@ icon: i-lucide-message-circle
 
 The parts show state and call a transport. They do not store data or check access. The transport talks to the server:
 
-- `createMemoryTransport()` from `@vite-hub/comments/testing` is for tests and examples.
-- `createRestTransport()` from `@vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
-- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
+- `createMemoryTransport()` from `vite-hub/comments/testing` is for tests and examples.
+- `createRestTransport()` from `vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
+- `createRpcTransport()` from `vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
 
 The built-in live-site overlay uses a different thread and anchor format.
 
@@ -28,17 +28,17 @@ Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add 
 pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
-`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { CommentLayer } from "@vite-hub/ui";
+import { CommentLayer } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
-import { createMemoryTransport } from "@vite-hub/comments/testing";
+import { createCommentsClient } from "vite-hub/comments/client";
+import { createMemoryTransport } from "vite-hub/comments/testing";
 
 const user = { id: "ana", name: "Ana Ruiz" };
 const client = createCommentsClient({ transport: createMemoryTransport({ user }), user });
@@ -98,7 +98,7 @@ CommentPanel
 └── CommentComposer (a comment on the whole page)
 ```
 
-Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so utility classes override them.
+Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Build your own layout
 
@@ -115,10 +115,10 @@ Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `
 </template>
 ```
 
-Without the layer, call `useComments()` from `@vite-hub/ui/headless`. It needs no Nuxt UI. Pass the state it returns as the `comments` prop:
+Without the layer, call `useComments()` from `vite-hub/ui/headless`. It needs no Nuxt UI. Pass the state it returns as the `comments` prop:
 
 ```ts fragment
-import { useComments } from "@vite-hub/ui/headless";
+import { useComments } from "vite-hub/ui/headless";
 
 const comments = useComments({ client, subject: { kind: "page", id: "/pricing" } });
 comments.pageThreads.value; // The threads of this page, after the filters.
@@ -156,7 +156,7 @@ A reader can hide the comments on the page and still write them. Set `visibility
 Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
 
 ```ts fragment
-import { useComments } from "@vite-hub/ui/headless";
+import { useComments } from "vite-hub/ui/headless";
 import { ref, watch } from "vue";
 
 const visibility = ref(localStorage.getItem("comments") === "hidden" ? "hidden" : "all");
@@ -175,7 +175,7 @@ comments.flash(id); // Show a thread for a moment. send(), create(), and reply()
 To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
 
 ```ts fragment
-import { createCommentVisibility } from "@vite-hub/ui/headless";
+import { createCommentVisibility } from "vite-hub/ui/headless";
 
 const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500 });
 visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
@@ -350,7 +350,7 @@ The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui
 
 ## Comment marks without Vue
 
-`@vite-hub/ui/comment-marks.css` draws the pins, the areas, and the text highlights of comments with plain CSS. `styles.css` includes it, so `CommentLayer` needs nothing more. A page or a frame without Vue loads it on its own and sets data attributes. It works in the page and in a shadow root:
+`@vite-hub/ui/comment-marks.css` draws the pins, the areas, and the text highlights of comments with plain CSS. `styles.css` includes it, so `CommentLayer` needs nothing more. A page or a frame without Vue loads it on its own and sets data attributes. It works in the page and in a shadow root. Import it from `@vite-hub/ui`, because `?raw` reads the file itself and `vite-hub` has no copy of it:
 
 ```ts
 import marks from "@vite-hub/ui/comment-marks.css?raw";
