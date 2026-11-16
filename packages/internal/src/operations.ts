@@ -387,7 +387,7 @@ export async function signedOperationHeaders(env: Record<string, string | undefi
 
 function unreachable(message: string, status = 503): OperationResult {
   const error = internalErrorDiagnostics.INTERNAL_R0024({ message })
-  return { ok: false, code: "INTERNAL_R0024", fix: Reflect.get(error, "fix") as string, message, status }
+  return { ok: false, code: error.code, fix: error.fix, message, status }
 }
 
 function hasCredentials(env: Record<string, string | undefined>): boolean {
@@ -460,7 +460,7 @@ export async function callOperation(target: OperationTarget, name: string, input
     if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
       const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
       const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
-      return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
+      return { ok: false, code: error.code, fix: error.fix, message, status: 409 }
     }
     if (outcome.ok) return { ok: true, value: outcome.value }
     // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.

@@ -1,5 +1,4 @@
-import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { Diagnostic } from "nostics"
+import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { workspaceNotFoundError } from "./errors.ts"
 import type { Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
@@ -76,7 +75,7 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
  * Workspace catalog, so its own failures and the errors of the Definition module get a code here. A coded error passes.
  */
 export function workspaceRegistryLoadError(workspace: string, error: unknown): unknown {
-  if (error instanceof Diagnostic || getViteHubErrorShape(error)) return error
+  if (isRuntimeDiagnostic(error) || getViteHubErrorShape(error)) return error
   const reason = error instanceof Error ? error.message : String(error)
   return workspaceErrorDiagnostics.WORKSPACE_REGISTRY_LOAD_FAILED({ reason, workspace, cause: error })
 }
