@@ -57,6 +57,16 @@ describe("env.inspect", () => {
     expect(JSON.stringify(result)).not.toContain(canary)
   })
 
+  it("names the host that the app runs on", async () => {
+    vi.stubEnv("VITEHUB_HOST", "cloudflare")
+    try {
+      expect(await call({})).toMatchObject({ ok: true, value: { host: "cloudflare" } })
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("answers only to a call whose access includes the env section", async () => {
     expect(await call({}, ["kv"])).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
     expect(await call({}, ["env:read"])).toMatchObject({ ok: true })

@@ -1,7 +1,7 @@
 // A fake wrangler, vercel, netlify, and deno for `vitehub deploy` tests. It never reaches a host.
 // Each run appends `{ name, argv, stdin, cwd }` to FAKE_HOST_LOG and keeps its state in FAKE_HOST_STATE.
 // FAKE_HOST_FAIL names a step that exits 1, such as "wrangler secret list". FAKE_HOST_ECHO_STDIN prints stdin then.
-const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs")
+const { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs")
 const { dirname, join, resolve } = require("node:path")
 
 const name = process.env.FAKE_HOST_NAME
@@ -28,7 +28,12 @@ const usesStdin = /secret put|env add|env load/u.test(argv.join(" "))
 const stdin = name === "deno" && argv[2] === "load" ? readFileSync(argv[3], "utf8") : usesStdin ? readStdin() : ""
 const config = name === "wrangler" ? flag("--config") : name === "vercel" && argv[0] === "deploy" ? ".vercel/output/functions/__server.func/.vc-config.json" : undefined
 const generated = config ? JSON.parse(readFileSync(resolve(config), "utf8")) : undefined
-appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin, generated, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
+// `--secrets-file` of `wrangler deploy` and `wrangler versions upload`: its mode and values while the run lasts.
+const secretsPath = name === "wrangler" ? flag("--secrets-file") : undefined
+const secretsFile = secretsPath && existsSync(resolve(secretsPath))
+  ? { path: resolve(secretsPath), mode: statSync(resolve(secretsPath)).mode & 0o777, values: JSON.parse(readFileSync(resolve(secretsPath), "utf8")) }
+  : secretsPath ? { path: resolve(secretsPath), missing: true } : undefined
+appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin, generated, secretsFile, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
 if (process.env.FAKE_HOST_ECHO_TOKEN) {
   const token = process.env.CLOUDFLARE_API_TOKEN ?? process.env.VERCEL_TOKEN ?? process.env.NETLIFY_AUTH_TOKEN ?? process.env.DENO_DEPLOY_TOKEN
   process.stdout.write(`stdout token: ${token}\n`)
@@ -44,12 +49,13 @@ if ((process.env.FAKE_HOST_FAIL ?? "").split(",").includes(step)) {
 function wrangler() {
   if (argv[0] === "secret" && argv[1] === "put") {
     state.secrets[argv[2]] = stdin
+    state.uploadedSecrets = { ...state.secrets }
     save()
     process.stdout.write(`Success! Uploaded secret ${argv[2]}\n`)
     return
   }
   if (argv[0] === "secret" && argv[1] === "list") {
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ name: key, type: "secret_text" }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ name: key, type: "secret_text" }))))
     return
   }
   if (argv[0] === "d1" && argv[1] === "migrations" && argv[2] === "apply") {
@@ -64,6 +70,9 @@ function wrangler() {
   if (argv.includes("--temporary")) {
     process.stderr.write("Temporary account ready:\n  Account: temp (created)\n  Claim within: 59 minutes\n  Claim URL: https://dash.cloudflare.com/claim/abc123\n")
   }
+  // Inheritance uses the latest uploaded version, even if that version was never deployed.
+  state.uploadedSecrets = { ...(state.uploadedSecrets ?? state.secrets), ...secretsFile?.values }
+  if (!preview) state.secrets = { ...state.uploadedSecrets }
   state.deploys++
   save()
   const url = `https://${config.name}.example.workers.dev`
@@ -146,7 +155,7 @@ function deno() {
       process.stderr.write(JSON.stringify({ error: { code: "NOT_FOUND", message: "app not found" } }))
       process.exit(4)
     }
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ key, isSecret: true, value: null }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ key, isSecret: true, value: null }))))
     return
   }
   if (argv[0] === "deploy" && argv[1] === "create") {

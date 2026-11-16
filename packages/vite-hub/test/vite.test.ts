@@ -1702,40 +1702,6 @@ describe("vitehub", () => {
     ])
   })
 
-  it.each([".env", "config/prod secrets.env"])("uploads the Cloudflare secrets file %s through the prebuilt deploy command", async secretsFile => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-secrets-file-"))
-    try {
-      await mkdir(join(root, "config"))
-      await writeFile(join(root, secretsFile), "API_TOKEN=secret\n")
-      const { commands } = await cloudflareCommands(
-        { cloudflare: { secretsFile }, host: "cloudflare", sandboxTask: true },
-        {},
-        join(root, ".output/server"),
-        root,
-      )
-      // Apply Nitro's deploy --prebuilt rewrite, then run the command from the project root as Nitro does.
-      const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
-      const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { cwd: root, encoding: "utf8" })
-
-      expect(result.status).toBe(0)
-      expect(result.stdout.trim().split("\n")).toEqual([
-        "wrangler", "deploy", "--config", ".output/server/wrangler.json", "--secrets-file", `.output/../${secretsFile}`, "--containers-rollout=gradual",
-      ])
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("leaves the secrets file out of the Cloudflare deploy command when the file is missing at build time", async () => {
-    const { commands } = await cloudflareCommands(
-      { cloudflare: { secretsFile: ".env" }, host: "cloudflare" },
-      {},
-    )
-
-    expect(commands.deploy).toBe("npx wrangler deploy --config ./server/wrangler.json")
-  })
-
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
     const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
       nitro.options.commands.deploy = "node ./deploy.mjs"
@@ -2168,9 +2134,14 @@ describe("vitehub", () => {
     await expect(applyDeploymentConfig({ host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
     })
+    // ViteHub selected kv, so a KV store that cannot share counts falls back to memory with a warning.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: true }, {}, "build")).resolves.toMatchObject({
-      [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } },
+      [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true, provider: "kv" } },
     })
+    // An explicit kv provider gets no fallback, so the Rate Limit build fails on such a store.
+    const explicit = await applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "kv" } }, {}, "build")
+    expect(explicit).toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { provider: "kv" } } })
+    expect(explicit).not.toMatchObject({ [VITEHUB_FEATURES]: { rateLimit: { memoryFallback: true } } })
     // An explicit provider wins, and the dev server counts in memory.
     await expect(applyDeploymentConfig({ kv: true, host: "node", rateLimit: { provider: "memory" } }, {}, "build")).resolves.toMatchObject({
       [VITEHUB_FEATURES]: { rateLimit: { provider: "memory" } },
@@ -2186,7 +2157,7 @@ describe("vitehub", () => {
 
     integrationMocks.hubRateLimit.mockClear()
     vitehub({ kv: true, host: "node", rateLimit: true })
-    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", provider: "kv" }))
+    expect(integrationMocks.hubRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({ kvImport: "vite-hub/kv", memoryFallback: true, provider: "kv" }))
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

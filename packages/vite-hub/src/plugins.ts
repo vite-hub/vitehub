@@ -427,16 +427,6 @@ export interface AgentOptions extends AgentPluginOptions {
   invocations?: AgentInvocationsDefault
 }
 
-/** Cloudflare options of `vitehub()`. */
-export interface CloudflareOptions {
-  /**
-   * A `.env` or JSON file, relative to the project root, whose values `nitro deploy --prebuilt` uploads as Worker secrets.
-   * ViteHub adds `--secrets-file` to the generated deploy command only when the file exists at build time.
-   * It never reads the file.
-   */
-  secretsFile?: string
-}
-
 /** `connections` options of `vitehub()`. */
 export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" | "databaseName" | "importBase"> & {
   /** The Database that stores grants, approvals, and activity, such as `"users"`. Defaults to `default`. */
@@ -498,8 +488,6 @@ export interface ViteHubOptions {
    */
   cache?: boolean | CacheOptions
   channels?: boolean | ChannelsOptions
-  /** Options for the `cloudflare` host. Other hosts ignore them. */
-  cloudflare?: CloudflareOptions
   /** Options for the `node` host. Other hosts ignore them. */
   node?: ViteHubNodeOptions
   /**
@@ -776,7 +764,6 @@ function deploymentNitroModule(
   services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxTaskRequested: boolean,
-  secretsFilePath: string | undefined,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
@@ -795,10 +782,7 @@ function deploymentNitroModule(
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
       const config = outputRelativeArgument(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json"))
-      // A Workers Builds or Deploy button build has no local secrets file, so its command must not name one.
-      const secretsFile = secretsFilePath && resolve(nitro.options.rootDir, secretsFilePath)
-      const secrets = secretsFile && existsSync(secretsFile) ? ` --secrets-file ${outputRelativeArgument(nitro.options.output.dir, secretsFile)}` : ""
-      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${secrets}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
+      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
     let serverPackages: DenoServerPackages | undefined
     if (plan.output.packaging === "deno-node-modules") {
@@ -865,21 +849,21 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 
 /**
  * The Rate Limit provider of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
- * or a Postgres Database that every instance shares. KV selects that driver at build time, so the Rate Limit
- * runtime checks the configured driver at boot and counts in memory, with a warning, when the store cannot share counts.
+ * or a Postgres Database that every instance shares. When ViteHub selects `kv` itself, a store that cannot share counts
+ * falls back to memory with a warning. An explicit `provider: "kv"` on such a store fails the build.
  */
-function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): "cloudflare" | "kv" | "memory" {
+function buildRateLimitProvider(plan: DeploymentPlan, options: ViteHubOptions): { memoryFallback?: true, provider: "cloudflare" | "kv" | "memory" } {
   const configured = options.rateLimit && options.rateLimit !== true ? options.rateLimit.provider : undefined
   // Only Node has a KV store with a shared atomic increment that ViteHub selects. Cloudflare KV has none.
   if (configured === "kv" && plan.host !== "node") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0144({ message: `[vitehub] rateLimit.provider "kv" works with the "node" preset only. The "${plan.host}" preset uses its own Rate Limit. Remove rateLimit.provider, or use the "node" preset.` })
   }
   const policy = plan.services.rateLimit
-  if (!policy.supported) return "memory"
-  if (plan.host !== "node") return policy.adapter
-  if (configured === "kv" || configured === "memory") return configured
+  if (!policy.supported) return { provider: "memory" }
+  if (plan.host !== "node") return { provider: policy.adapter }
+  if (configured === "kv" || configured === "memory") return { provider: configured }
   const kvEnabled = options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")
-  return kvEnabled ? "kv" : "memory"
+  return kvEnabled ? { memoryFallback: true, provider: "kv" } : { provider: "memory" }
 }
 
 function deploymentPlugins(
@@ -1004,7 +988,7 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              provider: building ? buildRateLimitProvider(plan, options) : "memory",
+              ...building ? buildRateLimitProvider(plan, options) : { provider: "memory" },
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1090,7 +1074,7 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1675,7 +1659,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // SAFETY: ViteHub adds its KV re-export path to the public Rate Limit options for generated imports.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      provider: buildRateLimitProvider(plan, options),
+      ...buildRateLimitProvider(plan, options),
       kvImport: "vite-hub/kv",
     } as RateLimitOptions)))
   }
