@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tailwind.css";
 @import "@vite-hub/ui/theme.css";
 @source "../components";
 @source "../../app.config.ts";

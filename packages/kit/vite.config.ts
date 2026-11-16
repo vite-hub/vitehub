@@ -38,6 +38,7 @@ export default defineConfig({
       customExports: (exports) => ({
         ...packDefaults.exports.customExports(exports),
         "./styles/default.css": "./dist/styles/default.css",
+        "./styles/tailwind.css": "./dist/styles/tailwind.css",
         "./styles/tokens.css": "./dist/styles/tokens.css",
       }),
     },

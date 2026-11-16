@@ -949,6 +949,7 @@
     "@vite-hub/internal": "workspace:*",
     "@ui-sdk/core": "0.1.0-beta.2",
     "@ui-sdk/vue": "0.1.0-beta.2",
+    "@vite-hub/kit": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/mcp": "workspace:*",

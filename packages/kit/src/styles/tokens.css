@@ -9,8 +9,8 @@
  * Dark mode applies under `.dark` or `[data-theme="dark"]` on any ancestor, usually `<html>`. Before the app sets one,
  * the page follows the system, unless `<html>` has `.light` or `data-theme`.
  *
- * The variables after the shadcn set are the few that shadcn does not have. A style family such as `default.css` reads
- * only these variables, and this file is the only place with color values.
+ * The variables after the shadcn set are the few that shadcn does not have. A style family such as `default.css` and the
+ * Tailwind bridge `tailwind.css` read only these variables, and this file is the only place with color values.
  */
 
 :root {
@@ -53,6 +53,29 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.588 0.158 241.966);
+
+  /*
+   * The steps and status colors that shadcn has no name for. They keep the names of Nuxt UI (`--ui-*`) and of
+   * `@vite-hub/ui/theme.css` (`--vh-*`), so the Tailwind bridge (`tailwind.css`) reads the same variables with or without
+   * Nuxt UI. Body text, secondary text, and meta text sit between `--foreground` and `--muted-foreground`.
+   */
+  --ui-text: oklch(0.371 0 0);
+  --ui-text-toned: oklch(0.439 0 0);
+  --ui-text-dimmed: oklch(0.52 0 0);
+  --ui-bg-muted: oklch(0.985 0 0);
+  --ui-bg-accented: oklch(0.94 0 0);
+  --ui-border-muted: oklch(0.96 0 0);
+  --ui-border-accented: oklch(0.87 0 0);
+  /* Status fills and dots: Tailwind red, amber, emerald, and sky 500, as Nuxt UI draws them. */
+  --ui-error: oklch(0.637 0.237 25.331);
+  --ui-warning: oklch(0.769 0.188 70.08);
+  --ui-success: oklch(0.696 0.17 162.48);
+  --ui-info: oklch(0.685 0.169 237.323);
+  /* Status text: the 700 shades (800 for amber) keep 4.5:1 on the page and on a 10% tint of the same color. */
+  --vh-text-error: oklch(0.505 0.213 27.518);
+  --vh-text-warning: oklch(0.473 0.137 46.201);
+  --vh-text-success: oklch(0.508 0.118 165.612);
+  --vh-text-info: oklch(0.5 0.134 242.749);
 
   /* The app loads the fonts. Without Geist, the system font takes over. */
   --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -112,6 +135,23 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.746 0.16 232.661);
 
+  --ui-text: oklch(0.87 0 0);
+  --ui-text-toned: oklch(0.8 0 0);
+  --ui-text-dimmed: oklch(0.62 0 0);
+  --ui-bg-muted: oklch(0.178 0 0);
+  --ui-bg-accented: rgb(255 255 255 / 8%);
+  --ui-border-muted: rgb(255 255 255 / 5%);
+  --ui-border-accented: rgb(255 255 255 / 16%);
+  /* The 400 shades, for fills and text alike. */
+  --ui-error: oklch(0.704 0.191 22.216);
+  --ui-warning: oklch(0.828 0.189 84.429);
+  --ui-success: oklch(0.765 0.177 163.223);
+  --ui-info: oklch(0.746 0.16 232.661);
+  --vh-text-error: oklch(0.704 0.191 22.216);
+  --vh-text-warning: oklch(0.828 0.189 84.429);
+  --vh-text-success: oklch(0.765 0.177 163.223);
+  --vh-text-info: oklch(0.746 0.16 232.661);
+
   --shadow-popover: 0 0 0 1px var(--border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
   --shadow-dialog: 0 0 0 1px var(--border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
   --overlay: oklch(0 0 0 / 60%);
@@ -158,6 +198,23 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.746 0.16 232.661);
+
+    --ui-text: oklch(0.87 0 0);
+    --ui-text-toned: oklch(0.8 0 0);
+    --ui-text-dimmed: oklch(0.62 0 0);
+    --ui-bg-muted: oklch(0.178 0 0);
+    --ui-bg-accented: rgb(255 255 255 / 8%);
+    --ui-border-muted: rgb(255 255 255 / 5%);
+    --ui-border-accented: rgb(255 255 255 / 16%);
+    /* The 400 shades, for fills and text alike. */
+    --ui-error: oklch(0.704 0.191 22.216);
+    --ui-warning: oklch(0.828 0.189 84.429);
+    --ui-success: oklch(0.765 0.177 163.223);
+    --ui-info: oklch(0.746 0.16 232.661);
+    --vh-text-error: oklch(0.704 0.191 22.216);
+    --vh-text-warning: oklch(0.828 0.189 84.429);
+    --vh-text-success: oklch(0.765 0.177 163.223);
+    --vh-text-info: oklch(0.746 0.16 232.661);
 
     --shadow-popover: 0 0 0 1px var(--border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
     --shadow-dialog: 0 0 0 1px var(--border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);

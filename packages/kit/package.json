@@ -28,6 +28,7 @@
   "type": "module",
   "sideEffects": [
     "./dist/styles/default.css",
+    "./dist/styles/tailwind.css",
     "./dist/styles/tokens.css"
   ],
   "exports": {
@@ -43,6 +44,7 @@
     },
     "./package.json": "./package.json",
     "./styles/default.css": "./dist/styles/default.css",
+    "./styles/tailwind.css": "./dist/styles/tailwind.css",
     "./styles/tokens.css": "./dist/styles/tokens.css"
   },
   "scripts": {
