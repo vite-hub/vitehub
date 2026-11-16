@@ -7,6 +7,7 @@ import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { LocalQueueClient, LocalQueueDeliveryRules, LocalQueueJob, LocalQueueRules, LocalQueueStatus, QueueDefinition, QueueDeliveryErrorDetails, QueueEnqueueOptions, QueueJobStore } from "../types.ts"
 
@@ -156,12 +157,10 @@ function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?:
 export function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
   if (delaySeconds === undefined) return 0
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`\`delaySeconds\` must be a number of seconds from 0, got ${String(delaySeconds)}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "delay", provider: providerNames[rules.rules], value: String(delaySeconds) })
   }
   if (rules.maxDelaySeconds !== undefined && delaySeconds > rules.maxDelaySeconds) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`${providerNames[rules.rules]} accepts \`delaySeconds\` up to ${rules.maxDelaySeconds}, got ${delaySeconds}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "delay-max", max: rules.maxDelaySeconds, provider: providerNames[rules.rules], value: delaySeconds })
   }
   return delaySeconds * 1000
 }
@@ -171,32 +170,27 @@ function retentionMs(retentionSeconds: number | undefined, rules: LocalQueueDeli
   if (!retention) return undefined
   const seconds = retentionSeconds ?? retention.defaultSeconds
   if (!Number.isFinite(seconds) || seconds < retention.minSeconds || seconds > retention.maxSeconds) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`${providerNames[rules.rules]} accepts \`retentionSeconds\` from ${retention.minSeconds} to ${retention.maxSeconds}, got ${String(seconds)}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "retention", max: retention.maxSeconds, min: retention.minSeconds, provider: providerNames[rules.rules], value: String(seconds) })
   }
   return seconds * 1000
 }
 
 function checkPayloadSize(bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.maxPayloadBytes !== undefined && bytes > rules.maxPayloadBytes) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`${providerNames[rules.rules]} accepts a payload of up to ${rules.maxPayloadBytes} bytes, got ${bytes} bytes of JSON.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "payload", max: rules.maxPayloadBytes, provider: providerNames[rules.rules], value: bytes })
   }
 }
 
 function checkBatch(entries: readonly LocalQueueEntry[], bytes: number, rules: LocalQueueDeliveryRules) {
   if (rules.rules === "vercel" && entries.length === 0) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError("Vercel requires at least one job in a `sendBatch()`.")
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-empty", provider: providerNames[rules.rules], value: 0 })
   }
   if (entries.length < 2) return
   if (rules.maxBatchJobs !== undefined && entries.length > rules.maxBatchJobs) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchJobs} jobs in one \`sendBatch()\`, got ${entries.length}.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-jobs", max: rules.maxBatchJobs, provider: providerNames[rules.rules], value: entries.length })
   }
   if (rules.maxBatchBytes !== undefined && bytes > rules.maxBatchBytes) {
-    // Internal invariant: the local provider mirrors a provider limit. send() and sendBatch() return it as QUEUE_PROVIDER_FAILED with this RangeError as the cause.
-    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchBytes} bytes in one \`sendBatch()\`, got ${bytes} bytes of JSON.`)
+    throw queueErrorDiagnostics.QUEUE_LOCAL_LIMIT_EXCEEDED({ limit: "batch-bytes", max: rules.maxBatchBytes, provider: providerNames[rules.rules], value: bytes })
   }
 }
 

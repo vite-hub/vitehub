@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { contentRefTokenParameter } from "./preview-parameters.ts"
@@ -402,9 +403,8 @@ export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHo
         const loaded = await load()
         return await loaded.sources.route(request, async (next) => {
           const response: unknown = await call(next)
-          if (response instanceof Response) return response
-          // Internal invariant: the fetch entry of Nitro 3 always resolves to a Response.
-          throw new TypeError("[vitehub] Nitro's fetch entry did not return a Response.")
+          invariant(response instanceof Response, "the fetch entry of Nitro 3 resolves to a Response")
+          return response
         }, options)
       })()
     }

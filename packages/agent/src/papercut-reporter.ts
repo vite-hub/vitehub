@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import * as v from "valibot"
 import { agentInvocationId, type AgentInvocations } from "./invocations.ts"
 import { withExportDeadline } from "./internal/export-deadline.ts"
@@ -47,9 +48,9 @@ export interface PapercutReporter {
 export function createPapercutReporter(options: PapercutReporterOptions): PapercutReporter {
   const prefix = options.eventPrefix || "agent.papercut"
   const intervalMs = options.intervalMs ?? 60_000
-  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1 || intervalMs > 2_147_483_647) throw new TypeError("[vitehub] Papercut replay interval must be a positive timer duration.")
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1 || intervalMs > 2_147_483_647) throw agentDiagnostics.AGENT_TIMER_DURATION_INVALID({ option: "Papercut replay interval" })
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] Papercut deliveryTimeoutMs must be a positive timer duration.")
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw agentDiagnostics.AGENT_TIMER_DURATION_INVALID({ option: "Papercut deliveryTimeoutMs" })
   let closing = false
   const reports = new Set<Promise<void>>()
   const pendingEvent = `${prefix}.pending`
@@ -94,7 +95,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
         attributes: { "capability.id": "papercuts", "papercut.uuid": delivery.uuid },
       }, { id: `papercut-delivered:${delivery.uuid}` })
       if (!acknowledged?.observations.some(item => item.name === deliveredEvent && item.attributes?.["papercut.uuid"] === delivery.uuid)) {
-        throw new Error("[vitehub] Papercut delivery acknowledgement was not persisted.")
+        throw agentDiagnostics.AGENT_PAPERCUT_NOT_PERSISTED({ step: "acknowledgement" })
       }
       counts.delivered++
     })().catch((error: unknown) => { counts.failed++; throw error }).finally(() => active.delete(delivery.uuid))
@@ -103,7 +104,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
   }
 
   async function persist(delivery: PapercutDelivery) {
-    if (!parse(JSON.stringify(delivery))) throw new TypeError("[vitehub] Invalid papercut delivery envelope.")
+    if (!parse(JSON.stringify(delivery))) throw agentDiagnostics.AGENT_PAPERCUT_DELIVERY_INVALID()
     const journal = await options.invocations()
     const record = await journal.appendObservation(delivery.properties.invocation_id, {
       name: pendingEvent, type: "capability", timestamp: delivery.timestamp,
@@ -112,7 +113,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
     }, { id: `papercut-pending:${delivery.uuid}` })
     if (!record?.observations.some(item => item.name === pendingEvent
       && parse(item.payload?.visibility === "public" ? item.payload.value : item.attributes?.["papercut.envelope"])?.uuid === delivery.uuid)) {
-      throw new Error("[vitehub] Papercut must be persisted before delivery.")
+      throw agentDiagnostics.AGENT_PAPERCUT_NOT_PERSISTED({ step: "report" })
     }
     return deliver(delivery, journal)
   }
@@ -162,7 +163,7 @@ export function createPapercutReporter(options: PapercutReporterOptions): Paperc
       void task.finally(() => reports.delete(task)).catch(() => {})
       return task
     },
-    start() { if (closing) throw new Error("[vitehub] Papercut reporter is closed."); if (!running) { running = true; schedule(0) } },
+    start() { if (closing) throw agentDiagnostics.AGENT_PAPERCUT_REPORTER_CLOSED(); if (!running) { running = true; schedule(0) } },
     status() {
       const known = index.list()
       return { running, pending: active.size, ...counts, known: known.length, repeats: known.reduce((total, item) => total + item.count - 1, 0) }
@@ -185,11 +186,11 @@ export async function createPapercutDelivery(event: PapercutReportEvent, options
   const { papercut, context } = event
   const message = papercut.message?.trim()
   if (!papercut.id?.trim() || !message || message.length > 1000 || !Number.isFinite(Date.parse(papercut.createdAt))) {
-    throw new TypeError("[vitehub] A papercut requires an ID, timestamp and message of 1–1000 characters.")
+    throw agentDiagnostics.AGENT_PAPERCUT_INVALID()
   }
   const agentName = papercut.agent?.name || context.agentIdentity?.name
   const run = papercut.run || context.run
-  if (!agentName || !run?.runId) throw new TypeError("[vitehub] Papercut reporting requires a persistent invocation identity.")
+  if (!agentName || !run?.runId) throw agentDiagnostics.AGENT_PAPERCUT_IDENTITY_MISSING()
   const invocationId = await agentInvocationId(run.runId, agentName)
   const bytes = (await sha256(`${options.uuidNamespace || "agent.papercut.v1"}:${papercut.id}`)).slice(0, 16)
   bytes[6] = (bytes[6]! & 0x0f) | 0x50

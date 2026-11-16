@@ -1,5 +1,4 @@
 import { afterAll, beforeEach, expect, it } from "vitest"
-import type { InferDiagnosticCodes } from "nostics"
 
 import { normalizeBlobOptions } from "../src/config.ts"
 import { blobErrorDiagnostics } from "../src/error-diagnostics.ts"
@@ -15,9 +14,9 @@ afterAll(() => {
 })
 
 it("gives each Blob code a fix and its own docs page", () => {
-  for (const code of Object.keys(blobErrorDiagnostics) as InferDiagnosticCodes<typeof blobErrorDiagnostics>[]) {
-    const create = blobErrorDiagnostics[code]
-    const error = create({ message: "message" })
+  // The named codes take typed params. error-fixes-classes.test.ts checks them.
+  for (const [code, create] of Object.entries(blobErrorDiagnostics).filter(([code]) => /_[BCR]\d{4}$/.test(code))) {
+    const error: { docs?: string, fix?: string } = Reflect.apply(create, undefined, [{ message: "message" }])
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/blob/diagnostics/${code.toLowerCase()}`)
   }

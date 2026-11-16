@@ -1,0 +1,7 @@
+{
+  "rawErrors": {
+    "packages/cli/src/setup/envelope.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}
