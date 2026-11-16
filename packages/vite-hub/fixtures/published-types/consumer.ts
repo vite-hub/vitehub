@@ -20,6 +20,7 @@ import { useDatabase } from "vite-hub/database"
 import { defineEnvProvider, env, type SecretEnv } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
+import * as scheduleOs from "vite-hub/schedule/os"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
@@ -41,6 +42,7 @@ export const appFacingModules = [
   agentSqliteState,
   authAgent,
   markdownTemplate,
+  scheduleOs,
   scheduleProcess,
   justBashShell,
   cloudflareWorkspace,

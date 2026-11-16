@@ -128,6 +128,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "happy-dom": "21.0.3",
     "linkedom": "^0.18.13",
     "nitro": "catalog:unjs",
     "publint": "catalog:tooling",

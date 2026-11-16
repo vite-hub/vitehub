@@ -182,6 +182,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   // The generated Durable Object imports it, and the tests build that output.
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
+  // The OS timer tests check the generated files with the OS tools, when the machine has them.
+  schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
@@ -190,6 +192,11 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@shikijs/langs",
       "@shikijs/themes",
       "vega-loader",
+      // `test/browser/kit-parts.browser.mjs` aliases these to the copies of Nuxt UI and `@vite-hub/kit`, which the
+      // two sides of the check must share.
+      "@iconify/vue",
+      "@fontsource-variable/geist",
+      "@fontsource-variable/geist-mono",
     ],
   },
   "vite-hub": {
@@ -305,6 +312,8 @@ const config: KnipConfiguration = {
     },
     // A type contract that `tsc` checks. Nothing imports it.
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
+    // `icons.html` loads `icons.ts`, the icon parity page that `packages/vite-hub/test/console-icon.browser.mjs` opens.
+    "playground/console": { entry: ["icons.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
       entry: appEntries("playground/content"),

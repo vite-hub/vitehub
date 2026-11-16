@@ -16,7 +16,7 @@ import { createDeployRun, readDeployCommit } from "./deploy/host.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
 import { provisionForDeploy } from "./deploy/provision.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { checkDeployEnv } from "./env.ts"
 import { addSetupLink, ensureViteHubGitignore, hostRequired, readSetupLinks, selectSetupLink, writeSeparateResourcesNote } from "./link.ts"
 import { readSetupProject } from "./project.ts"
@@ -120,7 +120,7 @@ function rerunCommand(args: SetupDeployArgs, extra: { provision?: boolean, tempo
 
 function supportedHost(host: string): DeployHost {
   const found = deployHosts.find(item => item === host)
-  if (!found) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (!found) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
   return found
 }
 
@@ -139,7 +139,7 @@ function deployTarget(project: SetupProject, links: SetupLinks, option: string |
 }
 
 function temporaryUnsupported(reason: string): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
 }
 
 /** Cloudflare: Wrangler refuses `--temporary` with a login. Vercel: the CLI refuses it in CI and in a linked folder. */
@@ -158,7 +158,7 @@ function credentialsMissing(host: DeployHost, credentials: Extract<HostCredentia
   const offer = temporary
     ? ` Or deploy without an account: run \`${rerunCommand(args, { temporary: true })}\`${host === "cloudflare" ? " and claim the Worker within 60 minutes" : " and claim the deployment with the link that it prints"}.`
     : ""
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
     missing: credentials.missing.map(field => ({ field })),
     ...(temporary ? { rerun: rerunCommand(args, { temporary: true }) } : {}),
   })
@@ -216,7 +216,7 @@ async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOu
   }
   catch (error: unknown) {
     const failure = checkoutPushError(error)
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
       data: { ...deployed, checkouts: { error: failure } },
       rerun: "vitehub push",
     })
@@ -227,7 +227,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const project = await readSetupProject(context.rootDir, context.env)
   const links = await readSetupLinks(project.root)
   const { host, link } = deployTarget(project, links, args.host, context.env)
-  if (args.preview && host === "deno") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (args.preview && host === "deno") throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
   const credentials = await resolveHostCredentials(host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   const vercelLogin = host === "vercel" && !credentials.ok && await hasVercelLogin(project.root, context)
   if (args.temporary && vercelLogin) throw temporaryUnsupported("It is for a machine without a vercel login, and a saved CLI login was found.")
@@ -237,10 +237,10 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
     if (!interactive) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
     }
     if (!await confirmDeploy(link?.project.name ?? basename(project.root), host, args.preview)) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
     }
   }
 
@@ -257,16 +257,18 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (args.build) await build(project, host, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
-  if (!projectName) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
+  if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
   // After provisioning and the build, the Env gate runs before runtime host writes: `env.apply()` and the D1 migrations of `adapter.deploy()` come after it.
   const env = await checkDeployEnv({
     context,
     entries: output.env,
+    envDir: output.envDir,
     host,
     interactive,
     link: args.temporary ? undefined : link,
+    outputDir: output.outputDir,
     preview: args.preview,
     pushEnv: args.pushEnv,
     root: project.root,

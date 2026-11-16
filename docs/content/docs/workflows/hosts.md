@@ -34,7 +34,7 @@ All Vercel Workflow definitions, including plain inline handlers, require `@verc
 pnpm add @vercel/functions
 ```
 
-For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. Plain inline handlers do not need these two packages.
+For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. A Workflow folder is native too. Plain inline handlers do not need these two packages. When a native definition misses them, the build stops with `WORKFLOW_R0006` and prints the install command.
 
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6

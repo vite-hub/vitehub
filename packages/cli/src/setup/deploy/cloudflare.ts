@@ -5,7 +5,7 @@ import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupFailure, setupExitCodes } from "../envelope.ts"
 import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, optionalString, parseCommitMessage, splitManifestCommand, untilInterrupted } from "./host.ts"
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
@@ -34,10 +34,10 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
     manifest = JSON.parse(await readFile(join(outputDir, "nitro.json"), "utf8"))
   }
   catch {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(outputDir, "nitro.json") }), setupExitCodes.error)
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(outputDir, "nitro.json") }), setupExitCodes.error)
   }
   const command = isRecord(manifest) && isRecord(manifest.commands) ? optionalString(manifest.commands.deploy) : undefined
-  if (!command) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: `commands.deploy in ${join(outputDir, "nitro.json")}` }), setupExitCodes.error)
+  if (!command) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: `commands.deploy in ${join(outputDir, "nitro.json")}` }), setupExitCodes.error)
   const steps = command.split(" && ").map(step => splitManifestCommand(step))
   const words = steps.pop()!
   if (words[0] !== "npx" || words[1] !== "wrangler" || words[2] !== "deploy") throw commandRejected(command)
@@ -62,6 +62,23 @@ async function readWranglerCommand(outputDir: string): Promise<WranglerCommand> 
     return binding
   })
   return { args, config, migrations }
+}
+
+/**
+ * The plain vars of the Wrangler config that the build writes (`vars` in the `--config` file of `commands.deploy`). The
+ * deploy sets them with the version, so the Worker has them at runtime even though `wrangler secret list` omits them.
+ */
+export async function wranglerVarNames(outputDir: string): Promise<string[]> {
+  const { config } = await readWranglerCommand(outputDir)
+  const file = join(outputDir, config)
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(file, "utf8"))
+  }
+  catch {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
+  }
+  return isRecord(value) && isRecord(value.vars) ? Object.keys(value.vars) : []
 }
 
 interface WranglerOutputEntry {
@@ -131,7 +148,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           const args = context.preview
             ? ["versions", "upload", ...command.args.filter(arg => !plainFlags.has(arg))]
             : ["deploy", ...command.args]
-          args.push(...target)
+          args.push(...target, "--keep-vars")
           if (context.temporary) args.push("--temporary")
           if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
           if (context.upload && Object.keys(context.upload).length) {
@@ -276,7 +293,7 @@ async function optional<T>(request: Promise<T>): Promise<T | undefined> {
  */
 export const listCloudflareDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const accountId = context.link.account?.id ?? context.credentials.accountId
-  if (!accountId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
+  if (!accountId) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
   const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
   const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
   const [deployments, versions, subdomain, settings] = await Promise.all([

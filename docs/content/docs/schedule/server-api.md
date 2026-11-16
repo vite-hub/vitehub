@@ -21,6 +21,7 @@ icon: i-lucide-code-2
 | `installStartedSchedules`, `runStartedSchedules`, `createKVStartedScheduleStore`, `createMemoryStartedScheduleStore` from `vite-hub/schedule/runtime` | Wire the store and the tick of started Schedules yourself. The generated Nitro plugin does it for you. |
 | `discoverScheduleDefinitions`, `discoverStartableScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
+| `installOsSchedule`, `osScheduleStatus`, `uninstallOsSchedule` from `@vite-hub/schedule/os` | [Run a Schedule from an OS timer](/docs/schedule/os-timers) on Linux, macOS, or Windows. |
 
 `vite-hub/schedule` exports the Definition, Run, and Store types. Framework apps import runtime helpers from `vite-hub/schedule/runtime`. The main entry does not load file discovery or its build dependencies.
 
@@ -132,7 +133,7 @@ The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it y
 
 ```ts [server/schedule-runtime.ts]
 import registry from '#vitehub/schedule/registry'
-import { createSqlLeaseStore } from '@vite-hub/runtime'
+import { createSqlLeaseStore } from 'vite-hub/runtime'
 import { createKVScheduleRunStore } from 'vite-hub/schedule/runtime'
 import { scheduleKVStorage } from 'vite-hub/schedule/runtime/kv'
 import { installProcessScheduleRuntime } from 'vite-hub/schedule/runtime/process'

@@ -38,10 +38,17 @@ export type ConsoleProjectGate =
   | { kind: "setup", project: ConsoleAccountProject }
   /** A page of an `account` Console that belongs to no project: the onboarding, the team, or the account settings. */
   | { kind: "home", page: ConsoleAccountPage }
+  /**
+   * An `/open` link from `GET /_vitehub` of an app: the Console asks the app for a Site access link and goes back to
+   * `page` of the app, signed in.
+   */
+  | { kind: "site", page: string, state: string }
+  /** The Console could not sign the browser in to the app of a `/_vitehub` link. `linked` is false for an app of no team project. */
+  | { kind: "site-refused", url: string, page: string, linked: boolean, message?: string }
   | { kind: "ready" }
 
 /** The pages of an `account` Console outside the projects. Each one has its own path, such as `/team`. */
-export const consoleAccountPages = ["home", "team", "team-settings", "settings"] as const
+export const consoleAccountPages = ["home", "team", "team-settings", "env", "settings"] as const
 export type ConsoleAccountPage = typeof consoleAccountPages[number]
 
 function accountPageOf(pathname: string): ConsoleAccountPage | undefined {
@@ -382,6 +389,20 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
 }
 
 /**
+ * The app page and state of an `/open` link from `GET /_vitehub`, `/open?project=<app URL>&site=<page>&state=<state>`,
+ * or `undefined` for another link. `page` is a path of the app below its base, such as `/runs/42`.
+ */
+export function consoleSiteLink(search: string): { url: string, page: string, state: string } | undefined {
+  const query = new URLSearchParams(search)
+  const url = comparableProjectUrl(query.get("project") ?? "")
+  const page = query.get("site")
+  const state = query.get("state") ?? ""
+  if (!url || page === null || !/^[\w-]{43}$/.test(state)) return undefined
+  if (!page.startsWith("/") || page.startsWith("//") || page.includes("\\")) return undefined
+  return { url, page, state }
+}
+
+/**
  * The address of an `/open` link that the Console opens again after a sign-in, such as
  * `/open?project=https%3A%2F%2Fapp.example.com&path=%2Fkv`. It keeps only the project and the path of the link.
  * `undefined` when the link names no project URL or a path that is not a Console page.
@@ -391,7 +412,9 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   const project = query.get("project") ?? ""
   const path = query.get("path") ?? "/"
   if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
-  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+  const site = consoleSiteLink(search)
+  const back = site ? `&site=${encodeURIComponent(site.page)}&state=${site.state}` : ""
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}`
 }
 
 /** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */
@@ -416,6 +439,18 @@ export async function loadConsoleAccount(): Promise<ConsoleAccount | undefined> 
 }
 
 /**
+ * The query of an `/open` link with the hash of the address in its `site` page. A browser keeps the hash of
+ * `<app>/_vitehub/<page>#<hash>` through the redirects to the Console, and a page of the app reads its hash itself.
+ */
+function withSiteHash(search: string, hash: string): string {
+  const query = new URLSearchParams(search)
+  const site = query.get("site")
+  if (!hash || hash === "#" || site === null || site.includes("#")) return search
+  query.set("site", `${site}${hash}`)
+  return `?${query}`
+}
+
+/**
  * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
  * `/open` link, or `undefined` to keep the address.
  */
@@ -425,6 +460,8 @@ export async function startConsoleAccount(options: {
   pageOrigin: string
   pathname: string
   search?: string
+  /** The hash of the address. A `/_vitehub` redirect keeps the hash of the app page here, and it goes back with the page. */
+  hash?: string
   showPath: (path: string) => void
   /** The first paint of the page, which the Console server picked from the path and the cookies. */
   boot?: string
@@ -440,17 +477,24 @@ export async function startConsoleAccount(options: {
   const storage = memoryProjectStorage()
   let missingApp = false
   let address: string | undefined
+  const openPath = options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
+  const search = openPath ? withSiteHash(options.search ?? "", options.hash ?? "") : options.search ?? ""
+  const site = openPath ? consoleSiteLink(search) : undefined
+  let siteGate: ConsoleProjectGate | undefined
   if (account) {
     // A link to one app, `/?app=<id>`, opens that app. `/open?project=<URL>&path=<page>` opens a page of the app with
     // that URL. Other links open the app that this browser used last.
     const home = options.home.replace(/\/+$/, "")
     const openLink = options.pathname.replace(/\/+$/, "") === `${home}/open`
-    const opened = openLink ? consoleOpenLink(options.search ?? "", account.projects) : undefined
-    if (opened) address = `${home}${opened.path}`
+    const opened = openLink ? consoleOpenLink(search, account.projects) : undefined
+    if (opened && !site) address = `${home}${opened.path}`
     const requested = opened?.id ?? new URLSearchParams(options.search ?? "").get("app") ?? undefined
     if (requested && account.projects.some(project => project.id === requested)) rememberAccountProject(account.teamId, requested)
+    // A `/_vitehub` link of an app that is no project of the team says so, with the way back to the app.
+    else if (site) siteGate = { kind: "site-refused", url: site.url, page: site.page, linked: false }
     // An app of another team, or one that is gone, opens Home instead of another app.
     else if (requested || openLink) missingApp = true
+    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state }
     const remembered = rememberedAccountProject(account.teamId)
     const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
     storage.setItem(consoleProjectsStorageKey, JSON.stringify({
@@ -465,14 +509,63 @@ export async function startConsoleAccount(options: {
   const page = accountPageOf(options.pathname)
   // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
   const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
-    ? consoleOpenReturnPath(options.home, options.search ?? "")
+    ? consoleOpenReturnPath(options.home, search)
     : undefined
   if (!account || invitation) started.gate.value = { kind: "account", ...(invitation ? { invitation } : {}), ...(returnTo ? { returnTo } : {}) }
+  else if (siteGate) started.gate.value = siteGate
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
   // A guess for another app, or a boot that opens no app, leaves the early answer unread. A later open asks again.
   if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) earlyProbe = undefined
   return address ?? (missingApp ? options.home : undefined)
+}
+
+/**
+ * The ticket link of a `site.link` answer, or `undefined` when it is not `<app>/_vitehub/rpc?ticket=vt1_...` of the app
+ * that the Console opened. The Console sends the browser to it, so a linked app must not pick another site.
+ */
+export function siteTicketUrl(value: unknown, projectUrl: string): string | undefined {
+  const app = comparableProjectUrl(projectUrl)
+  if (typeof value !== "string" || !app) return undefined
+  let url: URL
+  try {
+    url = new URL(value)
+  }
+  catch {
+    return undefined
+  }
+  if (`${url.origin}${url.pathname}` !== `${app}/_vitehub/rpc` || !/^vt1_[\w-]{43}$/.test(url.searchParams.get("ticket") ?? "")) return undefined
+  return url.href
+}
+
+/**
+ * Sign the browser in to the app of a `/_vitehub` link: ask the app for a Site access link bound to the state of that
+ * route, and replace this page with it, so Back does not open the used link again. A refusal shows why.
+ */
+export async function openConsoleSite(): Promise<void> {
+  const projects = useState()
+  const gate = projects.gate.value
+  const current = projects.current.value
+  if (gate.kind !== "site" || !current) return
+  const refuse = (message: string) => {
+    projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message }
+  }
+  let answer: unknown
+  try {
+    const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
+    answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
+  }
+  catch (error) {
+    refuse(error instanceof Error ? error.message : "Try again.")
+    return
+  }
+  const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
+  if (!url) {
+    refuse("The app did not return a sign-in link of its own.")
+    return
+  }
+  const location: unknown = Reflect.get(globalThis, "location")
+  Reflect.apply(Reflect.get(Object(location), "replace"), location, [url])
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */

@@ -49,6 +49,14 @@ process.exit(0)
       plugins: [{
         name: "resolve-external-packages",
         setup(build) {
+          // The registry prefers built entries when they exist. Use the same source
+          // modules as this worker so both share the State resolver singleton.
+          build.onResolve({ filter: /[/\\]dist[/\\]/ }, (args) => {
+            const dist = resolve(source, "../dist")
+            if (args.path.startsWith(`${dist}/`)) {
+              return { path: args.path.replace(dist, source).replace(/\.js$/, ".ts") }
+            }
+          })
           // Resolve from each source owner before moving the bundle outside the workspace.
           // Workspace exports can resolve to TypeScript; compile those into the bundle
           // because the fresh Node process cannot execute non-erasable TS syntax.

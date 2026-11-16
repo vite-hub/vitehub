@@ -47,6 +47,7 @@ export default defineConfig({
       "src/presets.ts",
       "src/secret.ts",
       "src/standard-schema.ts",
+      "src/systemd.ts",
       "src/valibot.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",

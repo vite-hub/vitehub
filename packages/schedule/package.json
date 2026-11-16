@@ -41,6 +41,11 @@
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
     },
+    "./os": {
+      "types": "./dist/os.d.ts",
+      "import": "./dist/os.js",
+      "default": "./dist/os.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",

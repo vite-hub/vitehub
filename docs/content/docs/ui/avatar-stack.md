@@ -13,16 +13,16 @@ icon: i-lucide-users
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { AvatarStack } from "@vite-hub/ui";
+import { AvatarStack } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { AvatarStack } from "@vite-hub/ui";
+import { AvatarStack } from "vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
 const { people } = useRealtimeTiptap("docs", "guides/welcome.md");
@@ -50,7 +50,7 @@ AvatarStack
 - `outline` rings each avatar in the person's presence color, to match their caret.
 - Hover an avatar to see the name. Hover the count to list hidden names.
 - Pass only the people who are here now. The stack has no away state: someone who left or went idle drops out.
-- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`.
+- Default styles sit in the `components` layer of `vite-hub/ui/styles.css`.
 
 ## Outline
 

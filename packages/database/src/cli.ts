@@ -27,7 +27,7 @@ interface ViteHubCliContext {
   env?: NodeJS.ProcessEnv
   fetch?: typeof fetch
   rootDir: string
-  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
+  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdin?: "ignore" | "inherit", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null, stdout?: string }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -57,6 +57,11 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
     "                     of the previous one, for SQL that changes only data.",
     "  --schema-snapshot  With --custom, write the snapshot of the current Database",
     "                     Definitions instead, for SQL that changes the tables to them.",
+    "  --hints <json>     Answer the rename or create questions of Drizzle Kit ahead of",
+    "                     time, as a JSON array. --hints-file <file> reads it from a file.",
+    "  --non-interactive  Never ask. Without a terminal, or with CI set, this is the default.",
+    "                     A question that has no hint fails with",
+    "                     DATABASE_GENERATE_AMBIGUOUS_CHANGE and exit code 2.",
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
@@ -143,7 +148,7 @@ function writeSeedUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]]"
+const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]] [--hints <json> | --hints-file <file>] [--non-interactive]"
 
 const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
 
@@ -267,7 +272,7 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
   })
 }
 
-const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--schema-snapshot"])
+const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--non-interactive", "--schema-snapshot"])
 
 function forwardDrizzleArgs(args: string[]) {
   return args.filter(arg => arg !== "-h" && arg !== "--help" && !viteHubFlags.has(arg))
@@ -434,7 +439,7 @@ async function runDrizzleKit(
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
     const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
-    const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
+    const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), database: run.database?.name ?? "default", projectRoot })
     if (result !== 0) return result
     if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && run.database.cloudflare) {
       // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
@@ -714,11 +719,57 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
+// Drizzle Kit asks rename-or-create questions only when its stdin is a terminal.
+function generateCanAsk(args: string[], env: NodeJS.ProcessEnv): boolean {
+  if (args.includes("--non-interactive")) return false
+  if (env.CI && env.CI !== "0" && env.CI !== "false") return false
+  return !!process.stdin.isTTY
+}
+
+function generateRetry(args: string[]): { command: string, hints: unknown[], hintsFile?: string } {
+  const command = ["vitehub database generate"]
+  let hints: unknown[] = []
+  let hintsFile: string | undefined
+  for (let index = 0; index < args.length; index++) {
+    const [, option, inline] = /^(--hints(?:-file)?)(?:=(.*))?$/s.exec(args[index]!) ?? []
+    if (!option) {
+      const arg = args[index]!
+      command.push(/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`)
+      continue
+    }
+    const value = inline ?? args[++index] ?? ""
+    if (option === "--hints-file") hintsFile = value
+    else hints = JSON.parse(value) as unknown[]
+  }
+  return { command: command.join(" "), hints, ...(hintsFile ? { hintsFile } : {}) }
+}
+
+const drizzleKitMissingHintsExitCode = 2
+
+// `--explain --output json` writes no migration and prints the unanswered questions as JSON.
+async function readAmbiguousChanges(
+  args: string[],
+  context: ViteHubCliContext,
+  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+): Promise<Array<{ entity: string[], kind: string }>> {
+  const result = await context.spawn(process.execPath, [bin, "generate", "--config", configFile, ...forwardDrizzleArgs(args), "--explain", "--output", "json"], {
+    cwd: projectRoot,
+    env: context.env ?? process.env,
+    stderr: "pipe",
+    stdin: "ignore",
+    stdout: "pipe",
+  })
+  const line = result.stdout?.split("\n").findLast(line => line.startsWith("{"))
+  if (!line) return []
+  const output = JSON.parse(line) as { status?: string, unresolved?: Array<{ entity?: string[], kind?: string, type?: string }> }
+  return (output.unresolved ?? []).flatMap(item => item.type === "rename_or_create" && item.kind && item.entity ? [{ entity: item.entity, kind: item.kind }] : [])
+}
+
 async function runDrizzleKitWithConfig(
   feature: "generate" | "migrate",
   args: string[],
   context: ViteHubCliContext,
-  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+  { bin, configFile, database, projectRoot }: { bin: string, configFile: string, database: string, projectRoot: string },
 ): Promise<number> {
   const drizzleArgs = [
     bin,
@@ -732,9 +783,15 @@ async function runDrizzleKitWithConfig(
     cwd: projectRoot,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
     stderr: "inherit",
+    ...(feature === "generate" && !generateCanAsk(args, env) ? { stdin: "ignore" as const } : {}),
     stdout: "inherit",
   })
   const exitCode = result.exitCode ?? 1
+  if (feature === "generate" && exitCode === drizzleKitMissingHintsExitCode) {
+    const changes = await readAmbiguousChanges(args, context, { bin, configFile, projectRoot })
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_GENERATE_AMBIGUOUS_CHANGE({ changes, database, ...generateRetry(args) }))}\n`)
+    return exitCode
+  }
   if (exitCode !== 0) {
     context.stderr.write(`[vitehub] drizzle-kit ${feature} failed for ${configFile} (exit code ${exitCode}). See the drizzle-kit output above.\n`)
   }
