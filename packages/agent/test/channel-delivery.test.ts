@@ -72,7 +72,10 @@ function stateAdapter(): StateAdapter {
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
     get: async (key: string) => values.get(key) ?? null,
     getList: async (key: string) => [...(lists.get(key) || [])],
-    delete: async (key: string) => void values.delete(key),
+    delete: async (key: string) => {
+      values.delete(key)
+      lists.delete(key)
+    },
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
     setIfNotExists: async (key: string, value: unknown) => {
@@ -402,6 +405,28 @@ describe("Agent Channel delivery journal", () => {
     expect(ids?.at(-1)).toBe(newest.delivery.id)
     info.mockRestore()
   }, 10_000)
+
+  it("deletes the records of a delivery that leaves the index", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support" }
+    const first = await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })
+    await first.event({ type: "completed" })
+    let second: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    for (let index = 1; index <= 10_000; index++) {
+      const delivery = await openAgentChannelDelivery(state, { ...input, sourceId: `delivery-${index}` })
+      if (index === 1) second = delivery
+    }
+
+    expect(await state.getList("deliveries:index")).not.toContain(first.delivery.id)
+    expect(await state.get(`deliveries:${first.delivery.id}`)).toBeNull()
+    expect(await state.getList(`deliveries:${first.delivery.id}:events`)).toEqual([])
+    expect(await resumeAgentChannelDelivery(state, first.delivery.id)).toBeUndefined()
+    expect(await state.get(`deliveries:${second!.delivery.id}`)).toMatchObject({ id: second!.delivery.id })
+    // The source is free again, so a new admission of the same event is not a duplicate.
+    expect((await openAgentChannelDelivery(state, { ...input, sourceId: "delivery-0" })).duplicate).toBe(false)
+    info.mockRestore()
+  }, 20_000)
 
   it("de-duplicates concurrent admission references during inspection", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)

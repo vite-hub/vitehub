@@ -194,10 +194,30 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
 }
 
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+  const before = await state.getList<string>(indexKey)
   await state.appendToList(indexKey, deliveryId, {
     maxLength: maximumDeliveries,
     ttlMs: retentionMs,
   })
+  // Below the limit, the append trims nothing.
+  if (before.length < maximumDeliveries) return
+  // No read can reach a delivery that leaves the index, so delete its records instead of keeping them for the full retention.
+  // An id that is still in the index, such as one admitted again as a duplicate, keeps its records.
+  const kept = new Set(await state.getList<string>(indexKey))
+  for (const id of new Set(before)) {
+    if (!kept.has(id)) await deleteDeliveryRecords(state, id)
+  }
+}
+
+async function deleteDeliveryRecords(state: StateAdapter, deliveryId: string): Promise<void> {
+  const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
+  if (delivery) {
+    // A later delivery can own the same source after this record expired, so delete the source only while it points here.
+    const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
+    if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+  }
+  await state.delete(deliveryEventsKey(deliveryId))
+  await state.delete(deliveryRecordKey(deliveryId))
 }
 
 function advanceDeliveryStatus(
