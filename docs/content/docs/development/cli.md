@@ -591,6 +591,35 @@ A `--preview` deploy does not push, so a preview never writes the shared Workspa
 
 Set `deploy.check` in `vitehub()` to the paths that must work after each deploy. With `health`, deploy checks the health route first.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
@@ -602,6 +631,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 After the upload, deploy requests each path on the deployed URL. A path must answer with a `2xx` status, after redirects. Deploy tries each path 4 times in 7 seconds, because a new version can take a few seconds to reach every location.
 
@@ -646,6 +677,35 @@ Deploy reads the deployment that serves production before it uploads, with the c
 
 `deploy: { indexNow: true }` sends the URLs of your sitemap to [IndexNow](https://www.indexnow.org) after each production deploy that passes its checks. Bing, Yandex, Seznam, Naver, and Yep then crawl the pages again. It needs a string `publicUrl`, and a `/sitemap.xml` on that site.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
@@ -657,6 +717,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 - The build serves the IndexNow key at `/<key>.txt`. The key comes from `publicUrl`, so each build serves the same key and you keep no file. The key is public: it only lets a sender submit URLs of your site.
 - Deploy reads `<publicUrl>/sitemap.xml`, and the sitemaps of a sitemap index on the same site. It sends each URL of the site once, at most 10,000 in one request.

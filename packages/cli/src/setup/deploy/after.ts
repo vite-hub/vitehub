@@ -96,12 +96,21 @@ export function rollbackFor(host: DeployHost, input: { previous: HostDeployment 
   }
 }
 
+const xmlEntities: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", quot: "\"" }
+
+/** Text of an XML element: CDATA kept as it is, named and numeric character references decoded. */
 function decodeXml(text: string): string {
-  return text.replace(/&(amp|lt|gt|quot|apos);/gu, (_, name: string) => ({ amp: "&", apos: "'", gt: ">", lt: "<", quot: "\"" })[name]!)
+  return text.split(/(<!\[CDATA\[[\s\S]*?\]\]>)/u).map(part => part.startsWith("<![CDATA[")
+    ? part.slice(9, -3)
+    : part.replace(/&(?:#x([\da-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/giu, (match, hex: string | undefined, decimal: string | undefined, name: string | undefined) => {
+        if (name) return xmlEntities[name]!
+        const code = hex ? Number.parseInt(hex, 16) : Number(decimal)
+        return code <= 0x10FFFF ? String.fromCodePoint(code) : match
+      })).join("").trim()
 }
 
 function locations(xml: string): string[] {
-  return [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gu)].map(match => decodeXml(match[1]!))
+  return [...xml.matchAll(/<loc>([\s\S]*?)<\/loc>/gu)].map(match => decodeXml(match[1]!)).filter(Boolean)
 }
 
 /** IndexNow takes at most 10,000 URLs in one request. */

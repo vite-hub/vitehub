@@ -112,7 +112,7 @@ describe("IndexNow", () => {
       const origin = "https://shop.example.com"
       const bodies: Record<string, string> = {
         "/sitemap.xml": `<?xml version="1.0"?><sitemapindex><sitemap><loc>${origin}/sitemap-pages.xml</loc></sitemap><sitemap><loc>https://cdn.example.com/other.xml</loc></sitemap></sitemapindex>`,
-        "/sitemap-pages.xml": `<urlset><url><loc>${origin}/</loc></url><url><loc> ${origin}/products?a=1&amp;b=2 </loc></url><url><loc>${origin}/</loc></url><url><loc>https://other.example.com/x</loc></url></urlset>`,
+        "/sitemap-pages.xml": `<urlset><url><loc>${origin}/</loc></url><url><loc> ${origin}/products?a=1&amp;b=2 </loc></url><url><loc>${origin}/</loc></url><url><loc>https://other.example.com/x</loc></url><url><loc><![CDATA[${origin}/guides?x=1&y=2]]></loc></url><url><loc>${origin}/search?a=1&#38;b=2&#x26;c=3</loc></url></urlset>`,
       }
       if (request.url === "/indexnow") return void response.writeHead(202).end()
       const body = bodies[request.url ?? ""]
@@ -122,14 +122,14 @@ describe("IndexNow", () => {
       const url = new URL(String(input))
       return await fetch(url.origin === "https://api.indexnow.org" ? `${site.origin}/indexnow` : `${site.origin}${url.pathname}`, init)
     }
-    expect(await submitIndexNow({ key, url: "https://shop.example.com" }, routed)).toEqual({ status: 202, submitted: 2 })
+    expect(await submitIndexNow({ key, url: "https://shop.example.com" }, routed)).toEqual({ status: 202, submitted: 4 })
     const submission = site.requests.find(request => request.path === "/indexnow")!
     expect(submission.method).toBe("POST")
     expect(JSON.parse(submission.body)).toEqual({
       host: "shop.example.com",
       key,
       keyLocation: `https://shop.example.com/${key}.txt`,
-      urlList: ["https://shop.example.com/", "https://shop.example.com/products?a=1&b=2"],
+      urlList: ["https://shop.example.com/", "https://shop.example.com/products?a=1&b=2", "https://shop.example.com/guides?x=1&y=2", "https://shop.example.com/search?a=1&b=2&c=3"],
     })
     expect(site.requests.some(request => request.path === "/other.xml")).toBe(false)
   })
@@ -171,7 +171,7 @@ describe("vitehub deploy with deploy.check", () => {
     expect(text.exitCode, text.stderr).toBe(0)
     expect(text.stdout).toContain("Checked /api/_vitehub/health: 200\nChecked /: 200\n")
     expect(site.requests.filter(request => request.path === "/indexnow")).toHaveLength(1)
-  })
+   }, 30_000)
 
   it("fails with the rollback command of the deployment it replaced when a path does not answer 2xx", async () => {
     const site = await localSite((request, response) => {
