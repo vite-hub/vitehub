@@ -133,6 +133,7 @@ the same behavior.
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
+| `vite-hub/schedule/os` | `installOsSchedule()`, `osScheduleStatus()`, and `uninstallOsSchedule()`: run a Schedule from a systemd, launchd, or Task Scheduler timer. See [OS timers](/docs/schedule/os-timers). |
 | `vite-hub/schedule/runtime` | Schedule Run stores and custom runtime wiring. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
