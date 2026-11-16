@@ -239,13 +239,10 @@ async function list(limit: number): Promise<Result<string[], "KV_INVALID_LIMIT">
 
 const [error, keys] = await list(0)
 if (error) error.code // "KV_INVALID_LIMIT"
+if (errors.KV_INVALID_LIMIT.is(error)) error.data // data of KV_INVALID_LIMIT
 ```
 
 Check an error with the catalog. `errors.is(error)` accepts any code of the catalog, and `errors.KV_INVALID_LIMIT.is(error)` accepts one code. Both narrow `code` and `data`. They read `code` from a live Nostics error, so they also accept an error from another bundled copy or realm. `is` is not enumerable, so `Object.keys(errors)` gives only the codes, and no code can be named `is`. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
-
-```ts
-if (errors.KV_INVALID_LIMIT.is(error)) error.data // data of KV_INVALID_LIMIT
-```
 
 A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Catalog definitions can also provide static or computed `data`. `defineErrors()` infers that data for each code; `ResultError<Code, Data>` can name its type explicitly. A bare `ResultError` or `ResultError<Code>` keeps data as `unknown` so it can accept any catalog error. Codes without data infer `undefined`.
 

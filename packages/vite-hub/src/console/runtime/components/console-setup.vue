@@ -9,6 +9,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 import type { SetupCatalogFeature, SetupClient, SetupFeatureState, SetupLevel, SetupMissing, SetupPlanDocument, SetupPlanRequest, SetupStatusDocument } from "../client/setup";
 
@@ -397,7 +398,7 @@ onBeforeUnmount(() => events?.abort());
 
             <template v-else-if="step === 'restart'">
               <p v-if="!restartFailed" role="status" class="flex items-center gap-2 text-sm text-muted">
-                <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
                 Restarting the dev server. The page reloads when it is back.
               </p>
               <UAlert v-else color="warning" variant="subtle" title="The dev server did not come back" description="The change is written. Restart the dev server by hand, then reload this page." />

@@ -3,6 +3,13 @@ import { Window } from "happy-dom"
 import { createApp, defineComponent, h, nextTick } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
+vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
+  const { defineComponent, h } = await import("vue")
+  return { default: defineComponent({
+    props: { name: { required: true, type: String } },
+    setup(props) { return () => h("span", { "data-icon-name": props.name }) },
+  }) }
+})
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: vi.fn() }))
 vi.mock("@vite-hub/auth/vue", () => ({ createAuthClient: vi.fn() }))
 vi.mock("vue-router", () => ({
@@ -31,10 +38,6 @@ describe("Console rail icons", () => {
     const app = createApp(Rail, { sectionsBase: "/sections" })
     app.component("UTooltip", defineComponent({
       setup(_props, { slots }) { return () => h("div", slots.default?.()) },
-    }))
-    app.component("UIcon", defineComponent({
-      props: { name: { required: true, type: String } },
-      setup(props) { return () => h("span", { "data-icon-name": props.name }) },
     }))
     // The test supplies only the Nuxt UI components that contain or render section icons.
     app.config.warnHandler = () => {}

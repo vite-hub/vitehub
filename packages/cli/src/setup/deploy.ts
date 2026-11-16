@@ -264,9 +264,11 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const env = await checkDeployEnv({
     context,
     entries: output.env,
+    envDir: output.envDir,
     host,
     interactive,
     link: args.temporary ? undefined : link,
+    outputDir: output.outputDir,
     preview: args.preview,
     pushEnv: args.pushEnv,
     root: project.root,
