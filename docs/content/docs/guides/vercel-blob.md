@@ -128,8 +128,8 @@ Create the store in one of two ways:
 - With the ViteHub Vercel Provision Step. It creates a store named `vitehub-blob` in `iad1` with your `access` mode and connects it to the project's production, preview, and development environments, which adds `BLOB_STORE_ID`. If an older connection has only `BLOB_READ_WRITE_TOKEN`, the step warns and keeps it. Reconnect the store in the dashboard to use OIDC.
 
 ```bash [Terminal]
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel
 ```
 
 Add `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` if the token needs a team scope. See [Provisioning](/docs/development/provisioning).
@@ -290,4 +290,4 @@ Routes that import `blob` stay the same. Change the host, and ViteHub picks the 
 | `netlify` | Netlify Blobs. |
 | `node` | Files in `.vitehub/data/blob` on the local disk. |
 
-Run `vitehub provision run --provider cloudflare` to create the R2 bucket. See [Blob hosts](/docs/blob/hosts) for R2, S3, and MinIO setup, and [Blob configuration](/docs/blob/configure#provider-options) for each driver's options.
+Run `vitehub provision run --host cloudflare` to create the R2 bucket. See [Blob hosts](/docs/blob/hosts) for R2, S3, and MinIO setup, and [Blob configuration](/docs/blob/configure#provider-options) for each driver's options.

@@ -200,7 +200,7 @@ describe("Netlify Blobs driver", () => {
   ])("rejects malformed cursor with %s before listing", async (_, cursor) => {
     vi.stubGlobal("fetch", vi.fn())
 
-    await expect(createDriver(options).list({ cursor })).rejects.toThrow()
+    await expect(createDriver(options).list({ cursor })).rejects.toMatchObject({ code: "BLOB_INVALID_CURSOR" })
 
     expect(fetch).not.toHaveBeenCalled()
     expect(store.getMetadata).not.toHaveBeenCalled()

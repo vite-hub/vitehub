@@ -2,7 +2,7 @@ import { H3, H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { getRuntimeContext, getStandardContext } from "../src/index.ts"
-import { installStandardContext } from "../src/internal/h3.ts"
+import { installStandardContext, sendPreparedResponse } from "../src/internal/h3.ts"
 
 /** A Request as Nitro 3 and srvx pass it to a Fetchable handler on Cloudflare. */
 function cloudflareRequest(url: string) {
@@ -123,5 +123,42 @@ describe("@vite-hub/runtime request context", () => {
     expect(response.headers.get("content-type")).toBe("text/plain")
     expect(response.headers.has("x-remove")).toBe(false)
     expect(response.headers.getSetCookie()).toEqual(["first=1; Path=/", "second=2; Path=/"])
+  })
+
+  it("adds the prepared response of a plain Fetch host to a Response as H3 does, once", async () => {
+    const request = new Request("https://example.test/fetchable")
+    const res = getStandardContext(request).res
+    res.headers?.set("ratelimit-remaining", "4")
+    res.headers?.append("set-cookie", "first=1; Path=/")
+    const returned = new Response("ok", { headers: { "content-type": "text/plain", "ratelimit-remaining": "9", "set-cookie": "own=1; Path=/" }, status: 201 })
+
+    const response = sendPreparedResponse(request, returned)
+
+    expect(response.status).toBe(201)
+    expect(await response.text()).toBe("ok")
+    expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(response.headers.get("ratelimit-remaining")).toBe("4")
+    expect(response.headers.getSetCookie()).toEqual(["own=1; Path=/", "first=1; Path=/"])
+    expect([...res.headers ?? []]).toEqual([])
+    const again = new Response("ok")
+    expect(sendPreparedResponse(request, again)).toBe(again)
+  })
+
+  it("leaves the prepared response of an H3 event to H3", async () => {
+    const app = new H3()
+    app.use((event) => { installStandardContext(event) })
+    let returned: Response | undefined
+    app.get("/fetchable", {
+      fetch(request: Request) {
+        getStandardContext(request).res.headers?.append("set-cookie", "first=1; Path=/")
+        returned = new Response("ok")
+        return sendPreparedResponse(request, returned)
+      },
+    })
+
+    const response = await app.fetch(new Request("https://example.test/fetchable"))
+
+    expect(response.headers.getSetCookie()).toEqual(["first=1; Path=/"])
+    expect(returned?.headers.getSetCookie()).toEqual([])
   })
 })

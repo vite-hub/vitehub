@@ -31,6 +31,7 @@ import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import { hubKV, kvStorageDriver } from "@vite-hub/kv/vite"
+import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
 import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
@@ -2591,6 +2592,32 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("validates changed server Rate Limits when only Nitro replays a cached build", async () => {
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = `${root}/server/rate-limit.ts`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    const policy = (enforcement: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { enforcement: "${enforcement}", limit: 25, window: "10s" })\n`
+    onTestFinished(() => rm(definition, { force: true }))
+    mocks.vitehub.mockReturnValue([hubRateLimit({ provider: "memory" })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, env: false, host: "node", rateLimit: true }, nuxt)
+    await writeFile(definition, policy("best-effort"))
+    await runNitroConfigHook(nitroOptions(nuxt))
+    // No Vite hooks run between these builds: only the server policy changes.
+    await writeFile(definition, policy("strict"))
+    await expect(runNitroConfigHook(nitroOptions(nuxt))).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED" })
+  })
+
+  it.each(["build", "dev", "prepare"])("validates explicit KV in Nitro replay (%s)", async (mode) => {
+    mocks.vitehub.mockReturnValue([hubRateLimit({ provider: "kv" }), hubKV({ driver: "fs-lite" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(mode === "dev")
+    if (mode === "prepare") Object.assign(nuxt.options, { _prepare: true })
+    await viteHubNuxtModule({ console: false, env: false, host: "node" }, nuxt)
+    const result = runNitroConfigHook(nitroOptions(nuxt))
+    if (mode === "build") await expect(result).rejects.toMatchObject({ code: "RATE_LIMIT_KV_STORE_UNSUPPORTED" })
+    else await expect(result).resolves.toBeUndefined()
+  })
+
   it("installs only discovered Rate Limit policies for a Rate-Limit-only Console", async () => {
     const definition = `${tmp}/vitehub-nuxt/packages/policies/rules/upload.ts`
     await mkdir(resolve(definition, ".."), { recursive: true })
@@ -3430,6 +3457,38 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
+  it("writes primitive deployment env on a Nuxt Nitro-only cache hit", async () => {
+    const { viteHubPlugins } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-host", "vite-hub/deployment-output", "@vite-hub/blob/vite"].includes(String(plugin.name)),
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const outputDir = await mkdtemp(resolve(tmp, "deployment-env-"))
+    try {
+      await viteHubNuxtModule({ host: "node", blob: { driver: "fs" }, env: false, queue: false, rateLimit: false }, nuxt)
+      const config: Record<string, unknown> = {}
+      // Nuxt 5 cache hits skip Vite configResolved and buildStart entirely.
+      await runNitroConfigHook(config)
+      const compiled: Array<() => Promise<void>> = []
+      const nitro = {
+        options: { ...config, preset: "node-server", rootDir: nuxt.options.rootDir, commands: {}, output: { dir: outputDir, serverDir: resolve(outputDir, "server") } },
+        hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") compiled.push(callback) } },
+      }
+      for (const module of config.modules as Array<unknown>) {
+        if (typeof module === "function") await module(nitro)
+      }
+      await mkdir(resolve(outputDir, "server"), { recursive: true })
+      await writeFile(resolve(outputDir, "server/index.mjs"), "export default {}\n")
+      for (const callback of compiled) await callback()
+      const manifest = JSON.parse(await readFile(resolve(outputDir, "deployment.json"), "utf8"))
+      expect(manifest.env).toContainEqual({ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["blob"] })
+    }
+    finally {
+      await rm(outputDir, { force: true, recursive: true })
+    }
+  })
+
   it("binds deployment output to an existing Env plugin selected for replay", async () => {
     const existingEnvPlugin = {
       name: "@vite-hub/env/vite",
@@ -3512,6 +3571,17 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
     expect(generated).not.toContain(`"sandbox-tasks"`)
     expect(generated).not.toContain(`"section":"sandbox-tasks"`)
+  })
+
+  it("turns Sandbox Tasks on for an explicit Vercel provider on the Node host", async () => {
+    const development = createNuxt(true)
+
+    await viteHubNuxtModule({ console: { auth: false }, host: "node", sandboxTask: { provider: "vercel", timeout: 60_000 } }, development.nuxt)
+    const nitroConfig = nitroOptions(development.nuxt)
+    await development.runNitroConfigHook(nitroConfig)
+
+    const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
+    expect(generated).toContain(`"sandbox-tasks"`)
   })
 
   it("removes Blob Console metadata when Nuxt replay disables Blob", async () => {

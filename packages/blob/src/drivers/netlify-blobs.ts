@@ -131,7 +131,13 @@ function decodeCursor(cursor: string | undefined): FoldedCursor {
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   const decoded = decodeBase64(cursor)
   if (encodeBase64Url(decoded) !== cursor) throw blobErrors.BLOB_INVALID_CURSOR()
-  const parsed: unknown = JSON.parse(decoded)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded)
+  }
+  catch {
+    throw blobErrors.BLOB_INVALID_CURSOR()
+  }
   const directoriesConsumed = readProperty(parsed, "directoriesConsumed")
   const index = readProperty(parsed, "index")
   const providerCursor = readProperty(parsed, "providerCursor")

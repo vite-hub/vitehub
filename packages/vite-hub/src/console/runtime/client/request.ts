@@ -133,7 +133,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
-  "env": { booleans: { status: "1" }, operation: "env.get" },
+  "env": { operation: "env.get" },
   "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
@@ -236,6 +236,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
 }
 
 /** A fetch failure known to originate at the network boundary. */
+// Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
 export class ConsoleNetworkError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
