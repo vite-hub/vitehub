@@ -547,17 +547,25 @@ export async function openConsoleSite(): Promise<void> {
   const gate = projects.gate.value
   const current = projects.current.value
   if (gate.kind !== "site" || !current) return
+  const refuse = (message: string) => {
+    projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message }
+  }
+  let answer: unknown
   try {
     const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
-    const answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
-    const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
-    if (!url) throw new Error("The app did not return a sign-in link of its own.")
-    const location: unknown = Reflect.get(globalThis, "location")
-    Reflect.apply(Reflect.get(Object(location), "replace"), location, [url])
+    answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
   }
   catch (error) {
-    projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message: error instanceof Error ? error.message : "Try again." }
+    refuse(error instanceof Error ? error.message : "Try again.")
+    return
   }
+  const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
+  if (!url) {
+    refuse("The app did not return a sign-in link of its own.")
+    return
+  }
+  const location: unknown = Reflect.get(globalThis, "location")
+  Reflect.apply(Reflect.get(Object(location), "replace"), location, [url])
 }
 
 /** Puts a path in the address bar without a load. The page sets it, because only the page has a history. */

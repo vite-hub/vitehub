@@ -310,8 +310,9 @@ describe("GET /_vitehub", () => {
     expect(Object.fromEntries(location.searchParams)).toMatchObject({ project: `${origin}/portal`, site: "/runs/42" })
   })
 
-  it("answers only GET", async () => {
+  it("answers only GET, and 404 for another method on a page path", async () => {
     expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { method: "POST" }))).status).toBe(405)
+    expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub/schedules/run`, { method: "POST" }))).status).toBe(404)
   })
 })
 

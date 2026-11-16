@@ -118,7 +118,11 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   if (!policy) throw consoleRequestError(500, "Console access is not configured. The generated Console output did not install an access policy.", "CONSOLE_ACCESS_NOT_CONFIGURED")
   // A development Console answers only this computer, as every Console route does.
   if (!await isConsoleLoopbackRequest(request, { access: policy.mode, remoteAddress: runtime?.clientAddress })) throw consoleRequestError(403, "This development server answers the Console only on this computer.", "CONSOLE_LOOPBACK_ONLY")
-  if (request.method !== "GET" && request.method !== "HEAD") throw consoleRequestError(405, "Open /_vitehub in the browser.")
+  // `/_vitehub/<page>` is a browser address, not a route: another method there is a path that nothing serves.
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    if (/\/_vitehub\/./.test(new URL(request.url).pathname)) throw consoleRequestError(404, "Nothing serves this path. ViteHub routes below /_vitehub have their own paths.")
+    throw consoleRequestError(405, "Open /_vitehub in the browser.")
+  }
   const development = isConsoleDevelopmentRuntime()
   const origin = development ? new URL(request.url).origin : appOrigin(request)
   const target = siteEntryTarget(request, origin)
