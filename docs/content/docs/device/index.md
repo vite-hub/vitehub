@@ -21,11 +21,10 @@ icon: i-lucide-hard-drive
 
   ```vue [src/components/ProjectList.vue]
   <script setup lang="ts">
-  import { useStoredData } from 'vite-hub/device/vue'
+  import { useStoredFetch } from 'vite-hub/device/vue'
 
   // The last answer at once, then the new one
-  const { data: projects } = useStoredData('projects', () =>
-    fetch('/api/projects').then(response => response.json()), { default: () => [] })
+  const { data: projects } = useStoredFetch<{ id: string, name: string }[]>('/api/projects', { default: () => [] })
   </script>
 
   <template>
@@ -39,7 +38,8 @@ icon: i-lucide-hard-drive
 
 | Part | What it does |
 | --- | --- |
-| Stored reads | `useStoredData()` shows the stored answer in the first render, then calls your loader. It has the shape of Nuxt `useAsyncData()`. |
+| Stored reads | `useStoredData()` shows the stored answer in the first render, then calls your loader. It has the shape of Nuxt `useAsyncData()`. `useStoredFetch()` does the same for a GET of JSON, and never stores an error answer. |
+| Nuxt | The ViteHub module opens the device, auto-imports the reads, and with ViteHub Auth, names the account and waits for the copies to go on sign-out. |
 | One account | The device holds the copies of the account that your session read names with its `account` option, or that you name with `setDeviceAccount()`. Another account, or a sign-out, deletes them in every tab. |
 | No account, no disk | The device stores only the answers of loader calls that start after the page names an account, and the answer of the session read that names it. An app that names no account stores nothing. |
 | Caps | A copy older than `maxAge` (7 days by default) does not show. The device keeps at most 5 MB, and deletes the oldest copies first. |

@@ -35,6 +35,7 @@ export type {
   SandboxTaskOptions,
   ScheduleOptions,
   SystemdOptions,
+  ViteHubDeviceOptions,
   ViteHubNodeOptions,
   ViteHubOptions,
   ViteHubQueueOptions,
