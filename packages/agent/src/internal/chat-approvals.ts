@@ -1,6 +1,6 @@
 import { defineGrant, type Grant } from "@vite-hub/runtime/internal/grant"
 
-import { AgentHttpError } from "../http-error.ts"
+import { agentHttpError, type AgentHttpError } from "../http-error.ts"
 
 import type { UIMessageLike } from "../chat-message-input.ts"
 import type { StateAdapter } from "chat"
@@ -74,7 +74,7 @@ function isUiMessageStreamResponse(response: Response): boolean {
 }
 
 function approvalError(statusCode: number, message: string): AgentHttpError {
-  return new AgentHttpError(statusCode, message)
+  return agentHttpError(statusCode, message)
 }
 
 function isAgentChatConsumedApproval(value: unknown): value is AgentChatConsumedApproval {

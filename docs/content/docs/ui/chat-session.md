@@ -13,16 +13,16 @@ icon: i-lucide-messages-square
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { ChatSession } from "@vite-hub/ui";
+import { ChatSession } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts fragment
-import { ChatSession, type ViteHubUISession } from "@vite-hub/ui";
+import { ChatSession, type ViteHubUISession } from "vite-hub/ui";
 
 const session: ViteHubUISession = {
   id: "session_01",

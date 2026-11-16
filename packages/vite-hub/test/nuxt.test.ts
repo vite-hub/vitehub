@@ -1274,6 +1274,24 @@ describe("ViteHub Nuxt integration", () => {
     expect(() => upstashDriver()).toThrow(expect.objectContaining({ code: "VITE_HUB_R0001" }))
   })
 
+  it("gives the disabled KV config when Comments is on and KV is unset", async () => {
+    const { viteHubPlugins: vitehub } = await vi.importActual<typeof import("../src/plugins.ts")>("../src/plugins.ts")
+    // Without a github() Source, Vite drops the KV plugin of the Content KV variant, so the module must not keep it.
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/kv/vite",
+    ))
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ comments: true, console: { auth: false }, host: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
+    const kvAlias = (nitroConfig.alias as Record<string, string>)["#vitehub/kv/config"]
+    expect(kvAlias).toBeTypeOf("string")
+    expect(await readFile(kvAlias!, "utf8")).toContain("export const kv = false")
+  })
+
   it("installs the disabled KV config in development too, and keeps the app's own config and alias", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt(true)
     const nitroConfig: Record<string, unknown> = {
@@ -1469,9 +1487,10 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ agent: true, blob: true, comments: false, console: { auth: false }, kv: true, host: "node" }, development.nuxt)
 
     // Apps serve no Console page, client script, or page assets. The hosted Console reads the endpoints, and
-    // `/_vitehub` only sends the browser there.
-    expect(nitroOptions(development.nuxt).handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub", handler: expect.stringMatching(/server\/site-entry\.js$/) }))
-    expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).not.toEqual(expect.arrayContaining(["/_vitehub/**"]))
+    // `/_vitehub` and `/_vitehub/<page>` only go back to a page of the app, through the Console when needed.
+    for (const route of ["/_vitehub", "/_vitehub/**"]) {
+      expect(nitroOptions(development.nuxt).handlers).toContainEqual(expect.objectContaining({ route, handler: expect.stringMatching(/server\/site-entry\.js$/) }))
+    }
     expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
       baseURL: "/_vitehub/.well-known/skills",
       dir: expect.stringMatching(/console\/runtime\/public\/skills$/),
@@ -1487,7 +1506,7 @@ describe("ViteHub Nuxt integration", () => {
       maxAge: 300,
     }])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/page/session" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/_vitehub/page/session" }],
       plugins: [`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`],
     })
     // The app's own route rules stay as they were. ViteHub adds no Console page rules.
@@ -1518,7 +1537,7 @@ describe("ViteHub Nuxt integration", () => {
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/page/session" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/_vitehub/page/session" }],
       plugins: expect.arrayContaining([`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`]),
     })
     expect(Object.keys(production.nuxt.options.routeRules ?? {})).not.toContain("/_vitehub/**")
@@ -1931,7 +1950,7 @@ describe("ViteHub Nuxt integration", () => {
       host: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/page/session" }],
+      handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/_vitehub/page/session" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
@@ -2477,7 +2496,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, host: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/page/session" }],
+        handlers: [{ route: "/_vitehub/rpc" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/_vitehub/page/session" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
@@ -2553,6 +2572,7 @@ describe("ViteHub Nuxt integration", () => {
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
           { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
           { route: "/_vitehub/page/session" },
         ],
       })
@@ -2643,6 +2663,7 @@ describe("ViteHub Nuxt integration", () => {
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
           { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
           { route: "/_vitehub/page/session" },
         ],
       })
@@ -2678,6 +2699,7 @@ describe("ViteHub Nuxt integration", () => {
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/rpc" },
           { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
           { route: "/_vitehub/page/session" },
         ],
       })
@@ -2924,8 +2946,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const config = nitroOptions(production.nuxt)
     expect(production.nuxt.options.vite).toHaveProperty("__vitehubAppBaseURL", "/portal/")
     expect(mocks.objectHook).toHaveBeenCalledWith(expect.objectContaining({ __vitehubAppBaseURL: "/portal/" }), expect.anything())
-    expect(nitroHandlerRoutes(config)).toContain("/_vitehub/rpc")
-    expect(nitroHandlerRoutes(config)).not.toContain("/_vitehub/**")
+    expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/_vitehub/rpc", "/_vitehub", "/_vitehub/**"]))
     expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
     expect(config.publicAssets).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
     const plugin = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
@@ -4379,7 +4400,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "#app", name: "useAppConfig" },
       ...names("vite-hub/blob", "blob"),
       ...names("vite-hub/database", "db", "schema", "useDatabase"),
-      ...names("vite-hub/env", "useServerEnv"),
+      ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
@@ -4399,7 +4420,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ host: "node" }, defaults.nuxt)
     const defaultConfig: Record<string, unknown> = { imports: { imports: [] } }
     await defaults.runNitroConfigHook(defaultConfig)
-    expect(defaultConfig).toHaveProperty("imports.imports", [{ from: "vite-hub/env", name: "useServerEnv", priority: -1 }])
+    expect(defaultConfig).toHaveProperty("imports.imports", [
+      { from: "vite-hub/env", name: "checkServiceToken", priority: -1 },
+      { from: "vite-hub/env", name: "requireServiceToken", priority: -1 },
+      { from: "vite-hub/env", name: "useServerEnv", priority: -1 },
+    ])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.
     const netlify = createNuxt()

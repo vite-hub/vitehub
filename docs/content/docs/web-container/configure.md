@@ -62,10 +62,10 @@ await container.run("dev", { env: { OPENAI_API_KEY: key } })
 
 ## Describe connectable accounts
 
-`@vite-hub/web-container/connect` describes the accounts that a page offers to the reader. It does not run an OAuth flow yet. `connectEnv()` maps the credentials that the reader gives to the `env` variables of each provider:
+`vite-hub/web-container/connect` describes the accounts that a page offers to the reader. It does not run an OAuth flow yet. `connectEnv()` maps the credentials that the reader gives to the `env` variables of each provider:
 
 ```ts [src/playground.ts] fragment
-import { connectEnv, defineConnect } from "@vite-hub/web-container/connect"
+import { connectEnv, defineConnect } from "vite-hub/web-container/connect"
 
 const connect = defineConnect({
   vercel: { clientId: "oac_..." }, // without clientId, the reader pastes a token
@@ -95,7 +95,7 @@ Each provider has a `kind` (`deploy`, `source`, or `model`), a `reach` (`browser
 `isWebContainer()` returns `true` when the code runs inside a WebContainer:
 
 ```ts [server/utils/driver.ts]
-import { isWebContainer } from "@vite-hub/web-container/env"
+import { isWebContainer } from "vite-hub/web-container/env"
 
 export const driver = isWebContainer() ? "libsql" : "sqlite"
 ```

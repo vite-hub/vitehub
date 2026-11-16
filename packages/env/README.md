@@ -91,6 +91,8 @@ export async function sync(event: ViteHubContext) {
 
 The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
 
+To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/development/cli#encrypted-env-files).
+
 ## Derive secrets from one root secret
 
 `deriveSecret(purpose)` from `@vite-hub/env` derives a 32-byte hex secret from `VITEHUB_SECRET` with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
@@ -141,6 +143,23 @@ export default defineEventHandler(async (event) => {
 ```
 
 The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry, so a leak of the database does not leak values. `db` is a SQLite, libSQL, or D1 Drizzle database; KV cannot take a use atomically. A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
+
+## Protect a machine route
+
+`requireServiceToken(event, name)` from `vite-hub/env` checks that a request carries `Authorization: Bearer <token>` with a token from the server variable `name`. Use it for routes that scripts, CI runners, and webhooks call. It needs no Auth setup.
+
+```ts
+// server/api/runs.post.ts
+import { defineEventHandler } from "h3";
+import { requireServiceToken } from "vite-hub/env";
+
+export default defineEventHandler((event) => {
+  requireServiceToken(event, "INGEST_TOKEN");
+  return { ok: true };
+});
+```
+
+It compares in constant time. A wrong or missing token throws a `401` HTTP error with `ENV_SERVICE_TOKEN_INVALID`. When the variable has no token, every request fails with `503` and `ENV_SERVICE_TOKEN_UNSET`. The variable holds one token, or a comma-separated list while you rotate. `checkServiceToken(event, name)` returns the same result as `[error, undefined]`. See [Service tokens](https://vitehub.dev/docs/env/service-tokens).
 
 ## Typed server values
 

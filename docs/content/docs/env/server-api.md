@@ -22,6 +22,7 @@ icon: i-lucide-code-2
 | `useServerEnv` from `vite-hub/env` | Read Server Env in server code. |
 | `deriveSecret` from `vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
+| `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the `Authorization: Bearer` token of a machine route against a server variable. See [Service tokens](/docs/env/service-tokens). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv`, and the registry forms of `loadServerEnv`, `describeServerEnv`, `inspectServerEnv` from `vite-hub/env/server` | Resolve, load, or inspect an explicit Server Env registry. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |
@@ -278,7 +279,7 @@ The Console Env section shows this metadata behind Console access. Host variable
 
 From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/development/cli#inspect-server-env) for options.
 
-To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, an overall `ok`, and the `host` that the app runs on, never values. The Console Env section runs it when it opens, for an app in the app's Console and for each linked app in a hosted Console. It shows each entry's host variable names, the name that supplied the value, its status, and a fix for blocking values, such as `vitehub env push --host cloudflare` for a missing variable. An Agent connected to the ViteHub MCP of a Console calls `run_operation` with `env.inspect`.
+To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, an overall `ok`, and the `host` that the app runs on, never values. The Console Env section runs it when it opens, for an app in the app's Console and for each linked app in a hosted Console. It shows each entry's host variable names, the name that supplied the value, its status, and a fix for blocking values, such as `vitehub env push --host cloudflare` for a missing variable. An Agent connected to the ViteHub MCP of a Console calls `read_operation` with `env.inspect`.
 
 To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, and an overall `ok`, never values.
 

@@ -15,7 +15,7 @@ Each link has its own variable, so two teams can link the same app, and unlinkin
 
 The migration `0002_sign_project_calls` removes the links that an older Console made with bearer tokens, because they cannot sign. Link those apps again and set the new line.
 
-The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect and refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
+The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect, and names Cloudflare Access when Access sent the call to its sign-in page. It refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 
@@ -74,7 +74,7 @@ The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in 
 | Address | Sign-in | Tools |
 | --- | --- | --- |
 | `/mcp` | None. It answers `tools/list` without a token and advertises no OAuth metadata. | `list-pages` and `get-page`. Each call goes to the docs MCP at `https://vitehub.dev/mcp`. |
-| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, and `run_operation`. |
+| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, `read_operation`, and `run_operation`. |
 
 ```sh
 claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
@@ -85,9 +85,10 @@ The client registers itself (Dynamic Client Registration), and the browser opens
 The account tools act on the team that the person opened last in the Console, else their first team, and they keep the rules of the HTTP routes because they call the same code:
 
 - `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
-- `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app.
+- `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app. An app with an older vite-hub refuses the MCP fields of the caller as a malformed header (`CONSOLE_SIGNATURE_INVALID`). `check_app` then calls `project.get` as the Console page does, so the app shows as linked, and the other tools answer `CONSOLE_APP_VITEHUB_OUTDATED` with the version of the app. They do not send the call without the MCP fields, because the app would then run it without its MCP rules.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
-- `run_operation` runs any operation that `list_operations` names. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
+- `read_operation` runs an operation that only reads. The Console signs `readOnly: true` in the caller, and the app refuses a write or destructive call. The tool has `readOnlyHint: true`, so an MCP client can run it without asking the person. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
+- `run_operation` runs an operation that changes data. It has `destructiveHint: true`, so an MCP client can ask the person first.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
 
 ## Configure
