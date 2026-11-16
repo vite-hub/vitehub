@@ -41,5 +41,30 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
     GATEWAYS_R0011: { ...dynamicError, fix: "Install the `ai` package with `pnpm add ai`." },
     /** The model answered a question with a value that is not one of its options. */
     GATEWAYS_R0012: { ...dynamicError, fix: "Ask the question again, or make its prompt and options clearer so that the model picks one of the options. A retry often helps." },
+    // Named errors. Keep these codes in alphabetical order.
+    GATEWAYS_ASK_EACH_KEY_DUPLICATE: {
+      why: ({ key }: { key: string }) => `ask.each produced duplicate key ${key}`,
+      fix: "Return a different key for each item from the `key` function of `ask.each(items, { key, question })`, such as the item id.",
+    },
+    GATEWAYS_ASK_EACH_KEY_INVALID: {
+      why: "ask.each keys must be non-empty strings",
+      fix: "Return a non-empty string from the `key` function of `ask.each(items, { key, question })` for every item.",
+    },
+    GATEWAYS_ASK_THRESHOLD_INVALID: {
+      why: ({ problem }: { problem: "finite" | "range" }) => problem === "finite" ? "ask.if threshold must be a finite number" : "ask.if threshold must be between 0 and 1",
+      fix: "Pass `ask.if(instructions, { threshold })` a number from 0 to 1, or omit `threshold` to use 0.5.",
+    },
+    GATEWAYS_JEV_INPUT_TOO_LARGE: {
+      why: ({ question }: { question?: string }) => question === undefined
+        ? "[vitehub] Jev shared state exceeds the safe per-question input budget."
+        : `[vitehub] Jev question "${question}" exceeds the safe per-question input budget.`,
+      fix: "Pass less shared state to the ask, or split a long question into shorter ones, so each question with the shared state stays under 30,000 bytes of JSON.",
+    },
+    GATEWAYS_JEV_RESPONSE_INVALID: {
+      why: ({ name, problem }: { name: string, problem: "choice" | "missing" }) => problem === "missing"
+        ? `[vitehub] Jev response is missing answer "${name}".`
+        : `[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`,
+      fix: "Retry the ask, because the Jev service sent an incomplete answer. If it repeats, update the `advocaat` package and check the Jev service status.",
+    },
   },
 })

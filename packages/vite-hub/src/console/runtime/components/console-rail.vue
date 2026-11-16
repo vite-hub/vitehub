@@ -10,7 +10,7 @@ import { operationItems } from "../client/operation-view";
 import { showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired, requestConsoleOperation } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
-import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch, toggleConsoleSidebar } from "../client/sidebar";
+import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch } from "../client/sidebar";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionGroupLabels, consoleSectionShortcut, groupConsoleSections, resolveConsoleSectionGroup } from "../sections";
 import ConsoleProjectSwitcher from "./console-project-switcher.vue";
@@ -24,7 +24,7 @@ const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-
 
 /**
  * The sidebar of an open app: the app tile, Overview, the app's sections in groups, and Add a primitive. It owns the
- * "Go to" chords and the `[` key that opens and closes the sidebar, because it is on every page of an app.
+ * "Go to" chords, because it is on every page of an app.
  */
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -59,6 +59,9 @@ const groups = computed(() =>
     items,
   })),
 );
+
+// Settings is a page of the app, not a section, so the route name marks it.
+const settingsOpen = computed(() => route.name === resolveConsoleRouteName(route.name, "vitehub-console-app-settings"));
 
 // The brand row leads to the apps of the team. An embedded Console has one app, so its home is the Overview.
 
@@ -138,7 +141,6 @@ defineShortcuts(
   computed(() => {
     const shortcuts: Record<string, () => void> = {
       [consoleOverviewShortcut.join("-")]: () => openShortcut("vitehub-console"),
-      "[": () => { if (!editing()) toggleConsoleSidebar(); },
     };
     for (const section of sections.value) {
       if (section.shortcut) shortcuts[section.shortcut.join("-")] = () => openShortcut(section.routeName);
@@ -188,7 +190,8 @@ onBeforeUnmount(() => {
       <ConsoleProjectSwitcher :app="app" />
     </template>
 
-    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active && !settingsOpen" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Settings" icon="i-lucide-settings" :current="settingsOpen" @click="open('vitehub-console-app-settings')" />
     <ConsoleSidebarItem v-if="setup" :label="setup.label" :current="active === 'setup'" :shortcut="setup.shortcut" @click="open(setup.routeName)">
       <template #icon><ConsoleSectionIcon :icon="setup.icon" /></template>
     </ConsoleSidebarItem>

@@ -88,6 +88,11 @@ export type BlobImageTransformerName = "auto" | "cloudflare-images" | "passthrou
 export interface BlobImagesOptions {
   /** Cloudflare Images binding name. Defaults to `IMAGES`. */
   binding?: string
+  /**
+   * Largest source, in pixels, that the `photon` transformer decodes. Defaults to 4,000,000. Each megapixel costs
+   * about 17 MB of WebAssembly memory, and a Worker has 128 MB, so keep it at 6,000,000 or less on Cloudflare.
+   */
+  maxPixels?: number
   /** Default quality for lossy formats, from 1 to 100. Defaults to 75. */
   quality?: number
   /** Sizes that variant widths and heights snap to. Defaults to 16 through 3840. */
