@@ -221,16 +221,18 @@ Sign-in and every session already check [`VITEHUB_MEMBERS`](/docs/auth/configure
 
 ```ts [server/api/uploads/[ticket].put.ts]
 import { checkAuthMember } from 'vite-hub/auth/server'
-import { defineHandler, HTTPError } from 'h3'
-import { readUploadTicket } from '../../utils/uploads'
+import { kv } from 'vite-hub/kv'
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
 
 export default defineHandler(async (event) => {
-  const ticket = await readUploadTicket(event)
-  const [error] = await checkAuthMember(ticket.userId, event)
+  // The upload page stored the uploader's user id under the ticket.
+  const [, userId] = await kv.get(`upload-tickets:${getRouterParam(event, 'ticket')}`)
+  if (typeof userId !== 'string') throw new HTTPError({ status: 404 })
+  const [error] = await checkAuthMember(userId, event)
   // During a GitHub outage, ask the uploader to try again.
   if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw new HTTPError({ status: 503 })
   if (error) throw new HTTPError({ status: 403 })
-  // ...store the upload
+  return { ok: true }
 })
 ```
 
