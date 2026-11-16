@@ -273,7 +273,7 @@ patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
   # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
-  # Also 21 core bug fixes and 5 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571 and #PRNUM).
+  # Also 21 core bug fixes and 5 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571 and #4598).
   "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
   "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
