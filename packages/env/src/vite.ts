@@ -62,11 +62,12 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
+// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment.
+const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 // Rolldown and Vite skip the resolveId and load hooks for every other id.
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
-const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
+const RESOLVED_ID_PATTERN = /^\0(?:#vitehub\/env\/(?:description|server)|virtual:vitehub\/env\/public)$/
 const defaultRuntimeImports = {
   secret: "@vite-hub/env",
   server: "@vite-hub/env/internal/server",

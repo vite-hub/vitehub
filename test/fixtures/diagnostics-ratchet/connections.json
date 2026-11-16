@@ -1,0 +1,9 @@
+{
+  "rawErrors": {
+    "packages/connections/src/cli.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/connections/src/internal/http-access.ts": 1
+  }
+}

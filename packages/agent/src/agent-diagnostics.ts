@@ -3492,6 +3492,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Write `channels` in `defineAgent()`, and `path` and `aliases` in the Channel adapter, as string literals or same-module `const` values, and correct any syntax error in the file that the message names. ViteHub reads these files without running them.",
     },
+    AGENT_INVOCATION_DRIVER_INTERRUPTED: {
+      why: ({ id }: { id: string }) => `[vitehub] Agent Invocation ${JSON.stringify(id)} was interrupted while its Driver ran, and ViteHub did not run the Driver again. A second run could repeat model calls and tool side effects.`,
+      fix: "Start a new turn. Before you do, check the work that the interrupted Driver did, such as tool calls with side effects. The journal record and its observations show how far it got.",
+    },
     AGENT_R0872: {
       ...dynamicError,
       fix: "Keep the Agent Dev Loop client connected until the Invocation ends, then run the request again.",
@@ -4733,6 +4737,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ kind }: { kind: "forgejo" | "gitlab" }) => `[vitehub] ${kind}() requires webhookSecret or ${kind.toUpperCase()}_WEBHOOK_SECRET.`,
       fix: "Set `webhookSecret` in the Channel options, or set VITEHUB_GITLAB_WEBHOOK_SECRET or VITEHUB_FORGEJO_WEBHOOK_SECRET.",
     },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_DISABLED: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] The github() Channel has the pull request trigger "${trigger}", but \`pullRequest\` is not set, so the Channel does not read pull request events.`,
+      fix: "Set `pullRequest` on the github() Channel, such as `pullRequest: { reply: false }`, or remove the trigger.",
+    },
     AGENT_GMAIL_AGENT_AMBIGUOUS: {
       why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,
       fix: "Pass `gmailChannelStatus(channel, { agent })` with the name of one Agent that the message lists.",
@@ -4822,7 +4830,17 @@ const agentDiagnosticHandles = defineDiagnostics({
   },
 })
 
-export const agentDiagnostics = { ...agentDiagnosticHandles, ...messageDiagnostics }
+type Guarded<TGuard> = TGuard extends (error: unknown) => error is infer TError ? TError : never
+
+/**
+ * Every Agent diagnostic handle. A spread does not copy the non-enumerable `is` of each registry,
+ * so `is` is defined again here and checks both registries.
+ */
+export const agentDiagnostics: Omit<typeof agentDiagnosticHandles & typeof messageDiagnostics, "is"> & {
+  is: (error: unknown) => error is Guarded<typeof agentDiagnosticHandles.is> | Guarded<typeof messageDiagnostics.is>
+} = /*#__PURE__*/ Object.defineProperty({ ...agentDiagnosticHandles, ...messageDiagnostics }, "is", {
+  value: (error: unknown) => agentDiagnosticHandles.is(error) || messageDiagnostics.is(error),
+})
 
 /** Preserves input-error HTTP status for application TypeErrors and Agent diagnostics. */
 export function isAgentTypeDiagnostic(error: unknown): boolean {
