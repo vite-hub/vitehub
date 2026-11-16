@@ -16,7 +16,7 @@ it("reuses message diagnostic handles and keeps their input-error classification
     expect(error.cause).toBe(cause)
     expect(error.sources).toBe(sources)
     expect(error).toMatchObject({ code, name: code, message: "Invalid message", docs: `https://vitehub.dev/docs/agents/diagnostics/${code.toLowerCase()}` })
-    expect(error.fix).toBeUndefined()
+    expect(error.fix).toMatch(/\S/)
     expect(agentDiagnostics[code]().message).toBe("")
     expect(agentDiagnostics[code]({ message: 42 }).message).toBe("42")
     expect(isAgentTypeDiagnostic(error)).toBe(true)

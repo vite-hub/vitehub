@@ -81,24 +81,15 @@ export interface ConnectionRequestPolicy {
   timeoutMs?: number
 }
 
-/** An OAuth 2.0 provider with authorization code, PKCE, and refresh token support. */
-export interface ConnectionProvider<TApis extends object = object> {
+interface ConnectionProviderOptions<TApis extends object> {
   readonly id: string
-  readonly authorizationEndpoint: string
-  readonly tokenEndpoint: string
   readonly revocationEndpoint?: string
-  readonly clientId: ConnectionValue
   readonly clientSecret?: ConnectionValue
   /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
   /** Typed API catalogs. Their root URLs receive the token. Default: none. */
   readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /**
-   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
-   * and `mcp({ servers: { name: { connection } } })` connects to it.
-   */
-  readonly mcp?: string
   /** Pacing, retries, and a timeout for provider requests. */
   readonly requests?: ConnectionRequestPolicy
   /**
@@ -109,6 +100,40 @@ export interface ConnectionProvider<TApis extends object = object> {
   /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }
+
+/** A provider with a client that you registered, and its endpoints. */
+interface ConnectionProviderClient {
+  readonly authorizationEndpoint: string
+  readonly tokenEndpoint: string
+  readonly clientId: ConnectionValue
+  /**
+   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
+   * and `mcp({ servers: { name: { connection } } })` connects to it.
+   */
+  readonly mcp?: string
+  readonly clientName?: never
+}
+
+/**
+ * A provider that ViteHub finds from its MCP endpoint, as MCP clients do. Each endpoint and the client that you
+ * leave out come from the authorization server metadata. Without `clientId`, ViteHub registers a client
+ * (RFC 7591) on the first Connect, stores it, and reuses it.
+ */
+interface ConnectionProviderDiscovery {
+  readonly authorizationEndpoint?: string
+  readonly tokenEndpoint?: string
+  readonly clientId?: ConnectionValue
+  /**
+   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
+   * and `mcp({ servers: { name: { connection } } })` connects to it.
+   */
+  readonly mcp: string
+  /** The client name that the provider shows when a person approves access. Default: the host of the app. */
+  readonly clientName?: string
+}
+
+/** An OAuth 2.0 provider with authorization code, PKCE, and refresh token support. */
+export type ConnectionProvider<TApis extends object = object> = ConnectionProviderOptions<TApis> & (ConnectionProviderClient | ConnectionProviderDiscovery)
 
 type MethodId<TMethods> = keyof TMethods & string
 type Prefixes<TId extends string> = TId extends `${infer THead}.${infer TRest}`

@@ -5,6 +5,7 @@ export interface ConsoleAccountViews {
   signIn?: Component
   shell?: Component
   team?: Component
+  teamSettings?: Component
   settings?: Component
 }
 

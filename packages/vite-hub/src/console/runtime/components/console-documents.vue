@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { consoleDiagnostic } from "../diagnostics";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
@@ -223,7 +224,7 @@ async function loadCollections(): Promise<void> {
   try {
     const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
     if (current !== collectionsRequest) return;
-    if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
+    if (!applyDefinitions(definitions)) throw consoleDiagnostic("CONSOLE_REQUEST_INVALID", "The Console returned invalid collections.");
     loading.value = false;
     error.value = undefined;
     // A Settings link can be followed while loading, then disappear when no singleton is readable.

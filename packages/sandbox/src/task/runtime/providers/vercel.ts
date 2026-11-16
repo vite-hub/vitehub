@@ -1,5 +1,6 @@
 import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
+import { resolveVercelSandboxTaskVcpus } from '../../size.ts'
 import { readEnv } from '@vite-hub/internal/env'
 
 /**
@@ -54,7 +55,7 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
     timeout: typeof options.local.timeout === 'number'
       ? options.local.timeout + VERCEL_TASK_SANDBOX_HEADROOM_MS
       : options.provider.timeout,
-    cpu: options.provider.cpu,
+    cpu: resolveVercelSandboxTaskVcpus(options.provider),
     ports: options.provider.ports,
     source: options.provider.source,
     networkPolicy: options.provider.networkPolicy,
