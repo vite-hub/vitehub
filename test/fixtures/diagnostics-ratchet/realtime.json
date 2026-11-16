@@ -1,8 +1,5 @@
 {
-  "rawErrors": {
-    "packages/realtime/src/client.ts": 2,
-    "packages/realtime/src/server.ts": 2
-  },
+  "rawErrors": {},
   "codesWithoutFix": [],
   "invariants": {}
 }

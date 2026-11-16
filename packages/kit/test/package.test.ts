@@ -24,9 +24,9 @@ describe("@vite-hub/kit package contract", () => {
     expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "@nuxt/schema", "nuxt", "vue"]);
   });
 
-  it("has 6 entries or fewer", () => {
-    // `./styles/default.scoped.css` goes when the Console has no Nuxt UI left, and the kit is back to 5.
-    expect(Object.keys(manifest.exports).length).toBeLessThanOrEqual(6);
+  it("has 7 entries or fewer", () => {
+    // `./styles/default.scoped.css` goes when the Console has no Nuxt UI left, and the kit is back to 6.
+    expect(Object.keys(manifest.exports).length).toBeLessThanOrEqual(7);
   });
 
   it("has one entry for each part it adds, and none that ui-sdk has", () => {
@@ -40,6 +40,12 @@ describe("@vite-hub/kit package contract", () => {
     // Rules that only the workspace patch of @ui-sdk/core adds.
     expect(packed).toContain('[data-slot="input-group"]');
     expect(packed).toContain("--ui-radius-popup");
+  });
+
+  it("ships the Tailwind bridge unchanged", () => {
+    const source = readFileSync(new URL("../src/styles/tailwind.css", import.meta.url), "utf8");
+    const packed = readFileSync(new URL("../dist/styles/tailwind.css", import.meta.url), "utf8");
+    expect(packed).toBe(source);
   });
 
   it("ships default.scoped.css with every rule on the scope root or inside it", () => {
