@@ -571,7 +571,7 @@ export interface ViteHubOptions {
   /**
    * Search engine files. `seo: { sitemap: true }` serves `/sitemap.xml` with the Nuxt pages without a dynamic part, the
    * static prerender routes, the published Content pages with a URL, and the entries of `server/sitemap.ts`, and
-   * `/robots.txt` that names it unless the app has its own. Builds need `publicUrl`.
+   * `/robots.txt` that names it unless the app has its own. URLs start with `publicUrl`, else the request origin.
    */
   seo?: SeoOptions
   workflow?: boolean | WorkflowOptions
@@ -1760,9 +1760,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       hosting: plan.nitroPreset,
     } as WorkspaceOptions))
   }
-  if (options.seo?.sitemap) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))
+  if (options.seo?.sitemap || options.seo?.robots) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))
   const sourcePlugin = hubSource({
-    ...options.seo?.sitemap ? { appSitemap: true } : {},
+    ...options.seo?.sitemap || options.seo?.robots ? { appSeo: { sitemap: Boolean(options.seo.sitemap), robots: options.seo.robots !== false } } : {},
     auth: options.auth
       ? ({ projectRoot, serverDirs }) => Boolean(requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
           options.auth === true ? undefined : options.auth,

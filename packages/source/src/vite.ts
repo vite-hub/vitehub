@@ -79,8 +79,8 @@ export interface GeneratedSourcePlugin {
 export interface SourceGenerationOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes. Requires the Auth Vite plugin. */
   auth?: boolean
-  /** The app serves `/sitemap.xml` and `/robots.txt` with the Content pages, so Content adds neither route. */
-  appSitemap?: boolean
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
   projectRoot: string
@@ -90,8 +90,8 @@ export interface SourceGenerationOptions {
 export interface SourceVitePluginOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes when the Auth Vite plugin has a Definition. */
   auth?: boolean | ((input: { projectRoot: string, serverDirs?: string[] }) => boolean)
-  /** The app serves `/sitemap.xml` and `/robots.txt` with the Content pages, so Content adds neither route. */
-  appSitemap?: boolean
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
 }
@@ -638,8 +638,8 @@ async function writeContentArtifact(
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
   const inspected = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
-  // `vitehub({ seo: { sitemap } })` serves both routes for the whole app and lists the Content pages there.
-  const features = options.appSitemap ? { ...inspected, sitemap: false, robots: false } : inspected
+  // `vitehub({ seo })` serves these routes for the whole app and lists the Content pages there.
+  const features = { ...inspected, ...options.appSeo?.sitemap ? { sitemap: false } : {}, ...options.appSeo?.robots ? { robots: false } : {} }
   // With Auth, every reader of published Content passes the session user of each request to `authorize` for
   // `action: "read"`. Entries that load when the server starts import Auth on the first request that asks.
   const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
@@ -845,7 +845,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "appSitemap" | "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): Promise<void> }
   vitehub: ViteHubInspectionPluginMetadata
@@ -880,7 +880,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     projectRoot?: string
   }>()
   const prepareSources = (
-    input: Omit<SourceGenerationOptions, "appSitemap" | "auth" | "contentImportBase" | "importBase">,
+    input: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">,
   ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
@@ -891,7 +891,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return prepareSourceArtifacts({
         ...input,
         auth,
-        ...options.appSitemap ? { appSitemap: true } : {},
+        ...options.appSeo ? { appSeo: options.appSeo } : {},
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
       }).then(({ content, handlers }) => {

@@ -70,7 +70,7 @@ describe("seo.sitemap in a built Nitro 3 app", () => {
 })
 
 describe("seo.sitemap in a built Nuxt app", () => {
-  it("lists the Nuxt pages without a dynamic part and the server/sitemap.ts entries", async () => {
+  it("lists the Nuxt pages without a dynamic part and the server/sitemap.ts entries, at the request origin without publicUrl", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-seo-nuxt-")))
     try {
       await linkFixtureModules(root, { nuxt: dirname(createRequire(import.meta.url).resolve("nuxt/package.json")) })
@@ -82,7 +82,7 @@ describe("seo.sitemap in a built Nuxt app", () => {
           `export default defineNuxtConfig({`,
           `  compatibilityDate: "2026-10-01",`,
           `  devtools: { enabled: false },`,
-          `  modules: [[viteHubNuxt, { host: "node", publicUrl: "https://shop.example.com", seo: { sitemap: { exclude: ["/admin"] } } }]],`,
+          `  modules: [[viteHubNuxt, { host: "node", seo: { sitemap: { exclude: ["/admin"] }, robots: { disallow: ["/api/"] } } }]],`,
           `  telemetry: false,`,
           `})`,
           ``,
@@ -105,12 +105,9 @@ describe("seo.sitemap in a built Nuxt app", () => {
       })
       const server = await startBuiltServer(root, { NODE_ENV: "production" })
       try {
-        expect(locs(await (await server.fetch("/sitemap.xml")).text())).toEqual([
-          "https://shop.example.com/",
-          "https://shop.example.com/about",
-          "https://shop.example.com/products/kettle",
-        ])
-        expect(await (await server.fetch("/robots.txt")).text()).toContain("Sitemap: https://shop.example.com/sitemap.xml")
+        const origin = `http://127.0.0.1:${server.port}`
+        expect(locs(await (await server.fetch("/sitemap.xml")).text())).toEqual([`${origin}/`, `${origin}/about`, `${origin}/products/kettle`])
+        expect(await (await server.fetch("/robots.txt")).text()).toBe(`User-agent: *\nDisallow: /api/\n\nSitemap: ${origin}/sitemap.xml\n`)
       }
       finally {
         server.close()

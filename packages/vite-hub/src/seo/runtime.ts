@@ -102,13 +102,18 @@ export function defineSitemapRoute(options: SitemapRouteOptions): Fetchable {
   }
 }
 
-/** `/robots.txt` that allows crawling and names the sitemap. With Content, it keeps the `seo.robots.disallow` paths. */
-export function defineRobotsRoute(options: { site: string | null, content?: () => Promise<SeoContent> }): Fetchable {
+/**
+ * `/robots.txt` that allows crawling, keeps the `disallow` paths and Content's `seo.robots.disallow` paths out, and names
+ * the sitemap: the ViteHub one, or Content's own when only Content serves one.
+ */
+export function defineRobotsRoute(options: { site: string | null, sitemap: boolean, disallow: readonly string[], content?: () => Promise<SeoContent> }): Fetchable {
   return {
     async fetch(request) {
-      const robots = (await options.content?.())?.seo?.robots
-      const disallow = typeof robots === "object" ? robots.disallow : undefined
-      return new Response(renderRobots({ sitemap: `${siteOf({ site: options.site, base: "/" }, request)}/sitemap.xml`, ...disallow ? { disallow } : {} }), {
+      const seo = (await options.content?.())?.seo
+      const contentDisallow = typeof seo?.robots === "object" ? seo.robots.disallow ?? [] : []
+      const disallow = [...new Set([...options.disallow, ...contentDisallow])]
+      const sitemap = options.sitemap || seo?.sitemap === true ? `${siteOf({ site: options.site, base: "/" }, request)}/sitemap.xml` : undefined
+      return new Response(renderRobots({ ...sitemap ? { sitemap } : {}, ...disallow.length ? { disallow } : {} }), {
         headers: { "content-type": "text/plain; charset=utf-8" },
       })
     },

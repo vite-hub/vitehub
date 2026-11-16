@@ -10,6 +10,7 @@ import { defineRobotsRoute, defineSitemapRoute } from "../src/seo/runtime.ts"
 import { isSitemapPage, nitroSitemapPages, viteHubSeoPlugin } from "../src/seo/vite.ts"
 
 import type { SeoContent } from "../src/seo/runtime.ts"
+import type { SeoOptions } from "../src/seo/vite.ts"
 
 const roots: string[] = []
 
@@ -111,11 +112,18 @@ describe("/sitemap.xml", () => {
 })
 
 describe("/robots.txt", () => {
-  it("allows crawling and names the sitemap, with the Content disallow paths", async () => {
-    const plain = await defineRobotsRoute({ site: "https://shop.example.com" }).fetch(new Request("http://localhost/robots.txt"))
+  it("allows crawling and names the sitemap, with the disallow paths of seo.robots and of Content", async () => {
+    const plain = await defineRobotsRoute({ site: "https://shop.example.com", sitemap: true, disallow: [] }).fetch(new Request("http://localhost/robots.txt"))
     expect(await plain.text()).toBe("User-agent: *\nAllow: /\n\nSitemap: https://shop.example.com/sitemap.xml\n")
-    const withContent = await defineRobotsRoute({ site: null, content: async () => content({ seo: { robots: { disallow: ["/_vitehub"] } } }) }).fetch(new Request("http://localhost:3000/robots.txt"))
-    expect(await withContent.text()).toBe("User-agent: *\nDisallow: /_vitehub\n\nSitemap: http://localhost:3000/sitemap.xml\n")
+    const withContent = await defineRobotsRoute({ site: null, sitemap: true, disallow: ["/api/"], content: async () => content({ seo: { robots: { disallow: ["/_vitehub", "/api/"] } } }) }).fetch(new Request("http://localhost:3000/robots.txt"))
+    expect(await withContent.text()).toBe("User-agent: *\nDisallow: /api/\nDisallow: /_vitehub\n\nSitemap: http://localhost:3000/sitemap.xml\n")
+  })
+
+  it("names no sitemap when neither ViteHub nor Content serves one", async () => {
+    const response = await defineRobotsRoute({ site: null, sitemap: false, disallow: ["/api/"] }).fetch(new Request("https://drop.example.com/robots.txt"))
+    expect(await response.text()).toBe("User-agent: *\nDisallow: /api/\n")
+    const contentSitemap = await defineRobotsRoute({ site: null, sitemap: false, disallow: [], content: async () => content({ seo: { sitemap: true } }) }).fetch(new Request("https://drop.example.com/robots.txt"))
+    expect(await contentSitemap.text()).toContain("Sitemap: https://drop.example.com/sitemap.xml")
   })
 })
 
@@ -134,13 +142,15 @@ describe("static pages", () => {
 })
 
 describe("vitehub({ seo: { sitemap } }) plugin", () => {
-  async function configure(root: string, command: "build" | "serve", publicUrl?: string, nitro: Record<string, unknown> = {}) {
-    const plugin = viteHubSeoPlugin({ sitemap: { exclude: ["/admin/"] } }, publicUrl)
-    const config: Record<string, unknown> = { root, nitro }
+  async function configure(root: string, command: "build" | "serve", publicUrl?: string, options: SeoOptions = { sitemap: { exclude: ["/admin/"] } }) {
+    const plugin = viteHubSeoPlugin(options, publicUrl)
+    const config: Record<string, unknown> = { root, nitro: {} }
     const hook = plugin.config as (config: Record<string, unknown>, env: { command: string, mode: string }) => Promise<void>
     await hook(config, { command, mode: command === "build" ? "production" : "development" })
     return { plugin, config }
   }
+  const routesOf = (config: Record<string, unknown>) => (config.nitro as { handlers: Array<{ route: string }> }).handlers.map(handler => handler.route)
+  const nitroHost = (options: Record<string, unknown> = {}) => ({ options, hooks: { hook: () => {} } })
 
   it("generates /sitemap.xml with the site, the pages, server/sitemap.ts, and Content, and /robots.txt", async () => {
     const root = await project({
@@ -148,7 +158,7 @@ describe("vitehub({ seo: { sitemap } }) plugin", () => {
       "server/content.ts": "export default {}\n",
     })
     const { plugin, config } = await configure(root, "build", "https://shop.example.com")
-    await plugin.nitro.setup({ options: { prerender: { routes: ["/pricing"] } }, hooks: { hook: () => {} } })
+    await plugin.nitro.setup(nitroHost({ prerender: { routes: ["/pricing"] } }))
     await plugin.api.setPages(["/", "/products/:slug"])
     expect((config.nitro as { handlers: unknown[] }).handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/seo/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
@@ -161,18 +171,39 @@ describe("vitehub({ seo: { sitemap } }) plugin", () => {
     expect(await readFile(join(root, ".vitehub/nitro/seo/pages.mjs"), "utf8")).toBe(`export default ["/","/pricing"]\n`)
   })
 
-  it("uses the request origin in development, and fails a build without publicUrl with SEO_PUBLIC_URL_MISSING", async () => {
+  it("uses the request origin without publicUrl, and fails only a build that prerenders the files", async () => {
     const root = await project({})
-    await configure(root, "serve")
+    const { plugin } = await configure(root, "build")
     expect(await readFile(join(root, ".vitehub/nitro/seo/sitemap.mjs"), "utf8")).toContain("site: null")
-    await expect(configure(root, "build")).rejects.toMatchObject({ code: "SEO_PUBLIC_URL_MISSING" })
+    await plugin.nitro.setup(nitroHost({ prerender: { routes: ["/"] } }))
+    await expect(plugin.nitro.setup(nitroHost({ prerender: { routes: ["/sitemap.xml"] } }))).rejects.toMatchObject({ code: "SEO_PUBLIC_URL_MISSING" })
+    await plugin.nitro.setup(nitroHost({ dev: true, prerender: { routes: ["/sitemap.xml"] } }))
+    const { plugin: withUrl } = await configure(root, "build", "https://shop.example.com")
+    await withUrl.nitro.setup(nitroHost({ prerender: { routes: ["/sitemap.xml"] } }))
+  })
+
+  it("lists no discovered pages with pages: false", async () => {
+    const root = await project({})
+    const { plugin } = await configure(root, "serve", undefined, { sitemap: { pages: false } })
+    await plugin.nitro.setup(nitroHost({ prerender: { routes: ["/pricing"] } }))
+    await plugin.api.setPages(["/", "/about"])
+    expect(await readFile(join(root, ".vitehub/nitro/seo/pages.mjs"), "utf8")).toBe("export default []\n")
+  })
+
+  it("serves robots.txt alone with seo.robots, and none with robots: false", async () => {
+    const root = await project({})
+    const { config } = await configure(root, "serve", undefined, { robots: { disallow: ["/api/"] } })
+    expect(routesOf(config)).toEqual(["/robots.txt"])
+    expect(await readFile(join(root, ".vitehub/nitro/seo/robots.mjs"), "utf8")).toContain(`sitemap: false, disallow: ["/api/"]`)
+    const { config: off } = await configure(await project({}), "serve", undefined, { sitemap: true, robots: false })
+    expect(routesOf(off)).toEqual(["/sitemap.xml"])
   })
 
   it("leaves robots.txt to the app when it has one", async () => {
     for (const file of ["public/robots.txt", "server/routes/robots.txt.ts", "server/routes/robots.txt.get.ts"]) {
       const root = await project({ [file]: "" })
       const { config } = await configure(root, "serve")
-      expect((config.nitro as { handlers: Array<{ route: string }> }).handlers.map(handler => handler.route)).toEqual(["/sitemap.xml"])
+      expect(routesOf(config)).toEqual(["/sitemap.xml"])
     }
   })
 

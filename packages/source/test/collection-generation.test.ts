@@ -237,16 +237,15 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
   }
 })
 
-it("leaves /sitemap.xml and /robots.txt to the app when it serves them with appSitemap", async () => {
+it("leaves /sitemap.xml and /robots.txt to the app when it serves them with appSeo", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {
     await mkdir(join(projectRoot, "server"), { recursive: true })
     await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ access: "public", seo: { sitemap: true, robots: true, rss: true } })')
-    const routes = async (appSitemap: boolean) => (await prepareSourceGeneration({ projectRoot, appSitemap })).flatMap(handler => handler.route ?? []).sort()
-    expect(await routes(false)).toEqual(expect.arrayContaining(["/robots.txt", "/rss.xml", "/sitemap.xml"]))
-    expect(await routes(true)).toEqual(expect.arrayContaining(["/rss.xml"]))
-    expect(await routes(true)).not.toContain("/sitemap.xml")
-    expect(await routes(true)).not.toContain("/robots.txt")
+    const routes = async (appSeo?: { sitemap?: boolean, robots?: boolean }) => (await prepareSourceGeneration({ projectRoot, ...appSeo ? { appSeo } : {} })).flatMap(handler => handler.route ?? []).filter(route => ["/robots.txt", "/rss.xml", "/sitemap.xml"].includes(route)).sort()
+    expect(await routes()).toEqual(["/robots.txt", "/rss.xml", "/sitemap.xml"])
+    expect(await routes({ robots: true })).toEqual(["/rss.xml", "/sitemap.xml"])
+    expect(await routes({ sitemap: true, robots: true })).toEqual(["/rss.xml"])
     await expect(access(join(projectRoot, ".vitehub/content/sitemap.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {

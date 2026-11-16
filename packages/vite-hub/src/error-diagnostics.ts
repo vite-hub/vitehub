@@ -38,8 +38,8 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Read the logs again from the first page without a cursor. The log source no longer keeps the events that the cursor pointed to.",
     },
     SEO_PUBLIC_URL_MISSING: {
-      why: "`seo.sitemap` lists absolute page URLs, but `publicUrl` is not set to one origin, so the build cannot know the address of the site.",
-      fix: "Set `publicUrl` in `vitehub()` to the origin of the deployed app, such as `publicUrl: \"https://example.com\"`. `vite dev` uses the request origin.",
+      why: ({ route }: { route: string }) => `The build prerenders \`${route}\`, which holds full URLs, but \`publicUrl\` is not set to one origin. A prerendered file has no request to take the origin from.`,
+      fix: "Set `publicUrl` in `vitehub()` to the origin of the deployed app, such as `publicUrl: \"https://example.com\"`, or remove the route from `nitro.prerender.routes` so each request gives the origin.",
     },
     SEO_SITEMAP_ENTRY_INVALID: {
       why: ({ entry }: { entry: string }) => `\`server/sitemap.ts\` returned an entry that is not a page: ${entry}.`,
