@@ -6,6 +6,7 @@ import * as v from "valibot";
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
@@ -497,7 +498,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 <template>
   <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
     <template #header>
-      <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
+      <ConsolePageHeader title="Usage" :toggle="false">
         <template #right>
           <span v-if="updatedAt" class="hidden text-xs text-dimmed tabular-nums sm:inline">Updated {{ updatedAt }}</span>
           <UButton class="md:hidden" aria-label="Open agent sessions" color="neutral" icon="i-lucide-list" label="Sessions" size="sm" variant="ghost" @click="emit('open-sessions')" />
@@ -505,7 +506,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="refresh(); loadStatus();" />
           </UTooltip>
         </template>
-      </UDashboardNavbar>
+      </ConsolePageHeader>
     </template>
     <template #body>
       <div class="usage-page">

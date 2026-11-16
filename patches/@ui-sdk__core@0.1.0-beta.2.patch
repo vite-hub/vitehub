@@ -1,0 +1,590 @@
+diff --git a/dist/web.css b/dist/web.css
+index 3dd0e5e2d54bae93ae1f8d6dc19b5c72c610adc5..091a809c10bbde00cc40ff44b27d1e7533ec1ebb 100644
+--- a/dist/web.css
++++ b/dist/web.css
+@@ -54,6 +54,16 @@
+     padding: 0;
+   }
+ 
++  /* Text for screen readers only, such as the label of an icon-only part. */
++  [data-slot="visually-hidden"] {
++    position: absolute;
++    width: 1px;
++    height: 1px;
++    overflow: hidden;
++    clip-path: inset(50%);
++    white-space: nowrap;
++  }
++
+   :is(
+     [data-slot="field-description"],
+     [data-slot="field-error"],
+@@ -86,8 +96,8 @@
+   }
+ 
+   :is(a, summary):focus-visible {
+-    outline: 4px solid var(--ui-ring);
+-    outline-offset: 0;
++    outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
++    outline-offset: var(--ui-ring-offset, 0);
+   }
+ 
+   hr {
+@@ -115,8 +125,8 @@
+   }
+ 
+   [data-slot]:focus-visible {
+-    outline: 4px solid var(--ui-ring);
+-    outline-offset: 0;
++    outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
++    outline-offset: var(--ui-ring-offset, 0);
+   }
+ 
+   [data-slot] > svg {
+@@ -125,6 +135,16 @@
+     height: 1rem;
+   }
+ 
++  /* Icon parts that wrap an svg. Inline, they take the line height and push the icon up. */
++  :is(
++    [data-slot="command-item-icon"],
++    [data-slot="menu-item-icon"],
++    [data-slot="toggle-icon"]
++  ) {
++    display: inline-flex;
++    flex-shrink: 0;
++  }
++
+   /* Drawn only when a part has no icon of its own. */
+   [data-slot="select-trigger"]:not(:has(> svg))::after,
+   [data-slot="combobox-trigger"]:not(:has(> svg))::after,
+@@ -697,7 +717,7 @@
+     background: var(--ui-background);
+ 
+     &:has(:focus-visible) {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &[data-disabled] {
+@@ -892,7 +912,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -967,7 +987,7 @@
+     gap: calc(var(--ui-spacing) * 2);
+     min-height: calc(var(--ui-spacing) * 7.5);
+     padding-inline: calc(var(--ui-spacing) * 2);
+-    border-radius: max(0px, calc(var(--ui-radius) * 1.5 - var(--ui-spacing)));
++    border-radius: max(0px, calc(var(--ui-radius-popup, calc(var(--ui-radius) * 1.5)) - var(--ui-spacing)));
+     outline: none;
+     cursor: default;
+     user-select: none;
+@@ -1070,7 +1090,7 @@
+     max-width: 100%;
+     overflow: hidden;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     color: var(--ui-foreground);
+     font-size: var(--ui-font-size);
+@@ -1093,6 +1113,23 @@
+     }
+   }
+ 
++  /* A wrapper around the command input, such as one that adds a search icon, takes the input's bottom border. */
++  [data-slot="command"] > :has(> [data-slot="command-input"]) {
++    display: flex;
++    align-items: center;
++    gap: calc(var(--ui-spacing) * 2);
++    padding-inline: calc(var(--ui-spacing) * 3);
++    border-bottom: 1px solid var(--ui-border);
++    color: var(--ui-muted-foreground);
++
++    & > [data-slot="command-input"] {
++      flex: 1;
++      padding-inline: 0;
++      border-bottom: 0;
++      color: var(--ui-foreground);
++    }
++  }
++
+   [data-slot="command-list"] {
+     max-height: 18rem;
+     padding: var(--ui-spacing);
+@@ -1107,7 +1144,7 @@
+     max-width: 100%;
+     padding: var(--ui-spacing);
+     border: 1px solid var(--ui-input);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     font-size: var(--ui-font-size);
+   }
+@@ -1191,12 +1228,12 @@
+       flex-direction: column;
+       gap: 2px;
+       padding: calc(var(--ui-spacing) * 2);
+-      border-radius: max(0px, calc(var(--ui-radius) * 1.5 - var(--ui-spacing)));
++      border-radius: max(0px, calc(var(--ui-radius-popup, calc(var(--ui-radius) * 1.5)) - var(--ui-spacing)));
+       color: var(--ui-foreground);
+       font-size: var(--ui-font-size);
+       font-weight: 500;
+       text-decoration: none;
+-      outline-offset: -4px;
++      outline-offset: calc(var(--ui-ring-width, 4px) * -1);
+ 
+       &:is(:hover, [data-highlighted]) {
+         background: var(--ui-muted);
+@@ -1354,7 +1391,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -1562,6 +1599,7 @@
+ 
+   :is(
+     [data-slot="date-picker-clear"],
++    [data-slot="input-clear"],
+     [data-slot="file-input-item-remove"],
+     [data-slot="token-input-token-remove"],
+     [data-slot="toast-close"]
+@@ -1709,7 +1747,7 @@
+ 
+     &:has(:focus-visible) {
+       border-color: var(--ui-ring-border);
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &:is([data-invalid], :has([aria-invalid="true"])) {
+@@ -1917,7 +1955,7 @@
+     &[data-active] {
+       z-index: 1;
+       border-color: var(--ui-ring-border);
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &[data-fake-caret]:empty::after {
+@@ -2136,7 +2174,7 @@
+     gap: calc(var(--ui-spacing) * 2) 0;
+     padding: calc(var(--ui-spacing) * 3);
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     color: var(--ui-foreground);
+     font-size: var(--ui-font-size);
+@@ -2289,7 +2327,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -2470,7 +2508,7 @@
+     }
+ 
+     &:focus-visible {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+       outline-offset: 2px;
+     }
+   }
+@@ -2596,7 +2634,7 @@
+       outline: none;
+ 
+       &::after {
+-        outline: 4px solid var(--ui-ring);
++        outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+       }
+     }
+ 
+@@ -2862,7 +2900,7 @@
+     width: 100%;
+     height: 100%;
+     border-radius: inherit;
+-    outline-offset: -4px;
++    outline-offset: calc(var(--ui-ring-width, 4px) * -1);
+   }
+ 
+   [data-slot="scroll-area-content"] {
+@@ -3061,7 +3099,7 @@
+ 
+     &:focus-visible > [data-slot="tree-label"],
+     &:focus-visible > :not([data-slot]) > [data-slot="tree-label"] {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+   }
+ 
+@@ -3118,18 +3156,31 @@
+     }
+   }
+ 
++  /* The drawn chevron points down, so it turns to the side while closed. An app's own icon, such as a chevron
++     pointing to the side, turns down when the item opens. */
+   [data-slot="tree-indicator"] {
+     display: inline-flex;
+     flex-shrink: 0;
+     color: var(--ui-muted-foreground);
+-    rotate: -90deg;
+ 
+-    &:is([dir="rtl"] *) {
+-      rotate: 90deg;
++    &:not(:has(svg)) {
++      rotate: -90deg;
++
++      &:is([dir="rtl"] *) {
++        rotate: 90deg;
++      }
++
++      &[data-expanded] {
++        rotate: none;
++      }
+     }
+ 
+-    &[data-expanded] {
+-      rotate: none;
++    &:has(svg)[data-expanded] {
++      rotate: 90deg;
++
++      &:is([dir="rtl"] *) {
++        rotate: -90deg;
++      }
+     }
+   }
+ 
+@@ -3188,7 +3239,7 @@
+     gap: calc(var(--ui-spacing) * 1) calc(var(--ui-spacing) * 3);
+     padding: calc(var(--ui-spacing) * 4);
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -3375,4 +3426,310 @@
+       content: "";
+     }
+   }
++
++  /* An input with parts beside its text, such as a prefix and a clear button. The group draws the input's frame. */
++  [data-slot="input-group"] {
++    display: flex;
++    align-items: center;
++    gap: var(--ui-spacing);
++    width: 100%;
++    min-width: 0;
++    height: calc(var(--ui-spacing) * 8);
++    padding-inline: calc(var(--ui-spacing) * 2.5) var(--ui-spacing);
++    border: 1px solid var(--ui-input);
++    border-radius: var(--ui-radius);
++    background: var(--ui-background);
++    color: var(--ui-muted-foreground);
++    font-size: var(--ui-font-size);
++
++    & > [data-slot="input"] {
++      flex: 1;
++      height: 100%;
++      padding: 0;
++      border: 0;
++      border-radius: 0;
++      background: transparent;
++      outline: none;
++    }
++
++    &:has(> [data-slot="input"]:focus-visible) {
++      border-color: var(--ui-ring-border);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
++      outline-offset: var(--ui-ring-offset, 0);
++    }
++
++    &:has(> [data-slot="input"][data-invalid]) {
++      border-color: var(--ui-destructive);
++    }
++
++    &[data-disabled] {
++      opacity: 0.5;
++      cursor: not-allowed;
++    }
++  }
++
++  [data-slot="input-clear"] {
++    --ui-icon: var(--ui-icon-x);
++    display: inline-flex;
++    flex-shrink: 0;
++    align-items: center;
++    justify-content: center;
++    width: calc(var(--ui-spacing) * 6);
++    height: calc(var(--ui-spacing) * 6);
++    padding: 0;
++    border: 0;
++    border-radius: max(0px, calc(var(--ui-radius) - 2px));
++    background: transparent;
++    color: var(--ui-muted-foreground);
++    font: inherit;
++    cursor: pointer;
++
++    &:not(:has(svg))::before {
++      content: "";
++      flex-shrink: 0;
++      width: var(--ui-icon-size, 1rem);
++      height: var(--ui-icon-size, 1rem);
++      background: currentColor;
++      mask: var(--ui-icon) center / contain no-repeat;
++    }
++
++    &:hover {
++      background: var(--ui-muted);
++      color: var(--ui-foreground);
++    }
++
++    &:not([data-filled]) {
++      visibility: hidden;
++    }
++  }
++
++  [data-slot="select-label"] {
++    display: block;
++    margin-block-end: calc(var(--ui-spacing) * 1.5);
++    font-size: calc(var(--ui-font-size) - 0.0625rem);
++    font-weight: 500;
++  }
++
++  [data-slot="number-input-scrub-area"] {
++    cursor: ew-resize;
++  }
++
++  [data-slot="timeline"] {
++    display: flex;
++    flex-direction: column;
++    margin: 0;
++    padding: 0;
++    color: var(--ui-foreground);
++    font-size: var(--ui-font-size);
++    list-style: none;
++
++    &[data-orientation="horizontal"] {
++      display: grid;
++      grid-template-columns: repeat(var(--timeline-count, 1), minmax(0, 1fr));
++    }
++
++    &[data-busy] {
++      opacity: 0.6;
++    }
++  }
++
++  /* The marker sits in its own column, and the connector runs down that column to the next marker. */
++  [data-slot="timeline-item"] {
++    position: relative;
++    display: grid;
++    grid-template-columns: calc(var(--ui-spacing) * 2) minmax(0, 1fr);
++    align-items: baseline;
++    column-gap: calc(var(--ui-spacing) * 3);
++    padding-block-end: calc(var(--ui-spacing) * 5);
++
++    &:is([data-last], :last-child) {
++      padding-block-end: 0;
++    }
++
++    & > :not([data-slot="timeline-marker"], [data-slot="timeline-connector"]) {
++      grid-column: 2;
++    }
++
++    &[data-orientation="horizontal"] {
++      grid-template-columns: minmax(0, 1fr);
++      padding: calc(var(--ui-spacing) * 5) calc(var(--ui-spacing) * 4) 0 0;
++
++      & > :not([data-slot="timeline-marker"], [data-slot="timeline-connector"]) {
++        grid-column: 1;
++      }
++    }
++  }
++
++  [data-slot="timeline-marker"] {
++    grid-row: 1;
++    grid-column: 1;
++    align-self: center;
++    width: calc(var(--ui-spacing) * 2);
++    height: calc(var(--ui-spacing) * 2);
++    border: 1px solid var(--ui-input);
++    border-radius: 50%;
++    background: var(--ui-background);
++
++    [data-slot="timeline-item"][data-first] > & {
++      border-color: var(--ui-primary);
++      background: var(--ui-primary);
++    }
++
++    &[data-orientation="horizontal"] {
++      position: absolute;
++      inset-block-start: var(--ui-spacing);
++      inset-inline-start: 0;
++    }
++  }
++
++  [data-slot="timeline-connector"] {
++    position: absolute;
++    inset-block: calc(var(--ui-spacing) * 4.5) calc(var(--ui-spacing) * 0.5);
++    inset-inline-start: calc(var(--ui-spacing) - 0.5px);
++    width: 1px;
++    background: var(--ui-border);
++
++    [data-slot="timeline-item"]:is([data-last], :last-child) > & {
++      display: none;
++    }
++
++    &[data-orientation="horizontal"] {
++      inset-block: calc(var(--ui-spacing) * 2 - 0.5px) auto;
++      inset-inline: calc(var(--ui-spacing) * 3) var(--ui-spacing);
++      width: auto;
++      height: 1px;
++    }
++  }
++
++  [data-slot="timeline-title"] {
++    font-weight: 500;
++  }
++
++  :is([data-slot="timeline-time"], [data-slot="timeline-description"]) {
++    color: var(--ui-muted-foreground);
++    font-size: calc(var(--ui-font-size) - 0.0625rem);
++  }
++
++  [data-slot="timeline-time"] {
++    font-variant-numeric: tabular-nums;
++  }
++
++  /* Rows share the columns of the grid through subgrid, so a row can take a hover fill and a focus ring. */
++  [data-slot="waterfall"] {
++    display: grid;
++    grid-template-columns: minmax(6rem, max-content) max-content minmax(12rem, 1fr);
++    width: 100%;
++    overflow: hidden;
++    border: 1px solid var(--ui-border);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
++    background: var(--ui-background);
++    color: var(--ui-foreground);
++    font-size: calc(var(--ui-font-size) - 0.0625rem);
++  }
++
++  :is([data-slot="waterfall-header-row"], [data-slot="waterfall-row"]) {
++    display: grid;
++    grid-column: 1 / -1;
++    grid-template-columns: subgrid;
++    align-items: center;
++    min-height: calc(var(--ui-spacing) * 8);
++  }
++
++  [data-slot="waterfall-header-row"] {
++    border-block-end: 1px solid var(--ui-border);
++    color: var(--ui-muted-foreground);
++  }
++
++  [data-slot="waterfall-row"] {
++    &:is(:hover, [data-selected]) {
++      background: var(--ui-muted);
++    }
++
++    &:focus-visible {
++      outline-offset: calc(var(--ui-ring-width, 4px) * -1);
++    }
++  }
++
++  :is(
++    [data-slot="waterfall-column-header"],
++    [data-slot="waterfall-row-header"],
++    [data-slot="waterfall-cell"]
++  ) {
++    min-width: 0;
++    padding-inline: calc(var(--ui-spacing) * 3);
++    overflow: hidden;
++    font-weight: 400;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  [data-slot="waterfall-row-header"] {
++    padding-inline-start: calc(var(--ui-spacing) * 3 + (var(--waterfall-level, 1) - 1) * var(--ui-spacing) * 4);
++  }
++
++  [data-slot="waterfall-cell"] {
++    color: var(--ui-muted-foreground);
++    font-variant-numeric: tabular-nums;
++    text-align: end;
++  }
++
++  /* The axis header and the bars have the same box, so a tick and a bar at the same time line up. */
++  [data-slot="waterfall-column-header"]:has([data-slot="waterfall-axis"]) {
++    position: relative;
++    align-self: stretch;
++    margin-inline-end: calc(var(--ui-spacing) * 3);
++    padding: 0;
++  }
++
++  [data-slot="waterfall-axis"] {
++    position: absolute;
++    inset: 0;
++    container-type: inline-size;
++  }
++
++  /* On a narrow axis, every other tick keeps its line and drops its label, so the labels do not overlap. */
++  @container (max-width: 24rem) {
++    [data-slot="waterfall-tick"]:nth-child(even) {
++      color: transparent;
++    }
++  }
++
++  [data-slot="waterfall-tick"] {
++    position: absolute;
++    inset-block: 0;
++    inset-inline-start: var(--waterfall-tick);
++    display: flex;
++    align-items: center;
++    padding-inline-start: var(--ui-spacing);
++    border-inline-start: 1px solid var(--ui-border);
++    font-size: calc(var(--ui-font-size) - 0.125rem);
++    font-variant-numeric: tabular-nums;
++  }
++
++  [data-slot="waterfall-mark"] {
++    position: absolute;
++    inset-block-end: 0;
++    inset-inline-start: var(--waterfall-mark);
++    width: 1px;
++    height: calc(var(--ui-spacing) * 2);
++    overflow: hidden;
++    background: var(--ui-destructive);
++    color: transparent;
++  }
++
++  [data-slot="waterfall-bar"] {
++    position: relative;
++    align-self: stretch;
++    margin-inline-end: calc(var(--ui-spacing) * 3);
++
++    &::before {
++      position: absolute;
++      inset-block: calc(50% - var(--ui-spacing));
++      inset-inline-start: var(--waterfall-start);
++      width: max(2px, var(--waterfall-size));
++      border-radius: max(0px, calc(var(--ui-radius) - 2px));
++      background: var(--ui-primary);
++      content: "";
++    }
++  }
+ }

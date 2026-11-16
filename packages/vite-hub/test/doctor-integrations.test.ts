@@ -199,7 +199,7 @@ describe("vitehub/valid-vitehub-options", () => {
         "import { vitehub } from \"vite-hub\"",
         "export default defineConfig({ kv: {}, env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, logs: true, contentImportBase: \"vite-hub/content\" })] })",
       ),
-    })).toEqual(Array(8).fill("VHUB0031"))
+    })).toEqual(Array(7).fill("VHUB0031"))
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {

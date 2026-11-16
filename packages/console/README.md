@@ -49,6 +49,7 @@ The account tools act on the team that the person opened last in the Console, el
 - `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
+- `run_operation` runs any operation that `list_operations` names. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
 
 ## Configure
@@ -81,6 +82,7 @@ The `/api/projects` routes and the forward need a session. They act on the sessi
 
 | Route | Use |
 | --- | --- |
+| `GET /api/account` | The person, their teams, their roles in the session's team, and its projects, with one session check. The page HTML starts this read with `<link rel="preload">` when the request has a session cookie. Signed out, it answers `401`. |
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
 | `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
