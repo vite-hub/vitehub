@@ -21,9 +21,10 @@ function setup(open: () => unknown[]) {
   const inbox = new PullRequestInbox({ path: ":memory:", repositories: [repository], clock: () => now })
   const graphql = vi.fn(async () => ({ data: { repository: { pullRequests: { nodes: open(), pageInfo: { hasNextPage: false, endCursor: null } } } } }))
   const rest = { state: "open" }
-  const read = vi.fn(async (path: string) => path.endsWith("/pulls/7")
-    ? [{ number: 7, state: rest.state, user: { login: "dev" }, head: { sha: head, ref: "fix-7" }, base: { ref: "main" }, updated_at: "2026-10-01T01:00:00Z" }]
-    : [])
+  const read = vi.fn(async (path: string) => {
+    const number = Number(/\/pulls\/(\d+)$/.exec(path)?.[1])
+    return number ? [{ number, state: rest.state, user: { login: "dev" }, head: { sha: head, ref: `fix-${number}` }, base: { ref: "main" }, updated_at: "2026-10-01T01:00:00Z" }] : []
+  })
   const tick = async (advance = 61_000) => {
     now += advance
     await detectChangedPullRequests(inbox, () => graphql, [repository], now)
@@ -137,6 +138,28 @@ describe("GitHub inbox change detection", () => {
     await expect(f.tick()).rejects.toThrow("GitHub unavailable")
     expect(await probeChangedSnapshots(f.inbox, f.read, f.clock() + 10_000)).toBe(0)
     expect(await probeChangedSnapshots(f.inbox, f.read, f.clock() + 121_000)).toBe(1)
+    await f.inbox.close()
+  })
+
+  it("probes PRs whose checks settled before PRs whose checks still run", async () => {
+    const settled = (number: number) => node(number, { commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS", contexts: { nodes: [{ __typename: "CheckRun", databaseId: number, status: "COMPLETED", conclusion: "SUCCESS" }], pageInfo: { hasNextPage: false } } } } }] } })
+    const prs = [node(1), node(2), node(3), node(4), settled(9)]
+    const f = setup(() => prs)
+    for (const pr of prs) await f.inbox.seed(repository, { number: pr.number, state: "open", user: { login: "dev" }, head: { sha: head, ref: `fix-${pr.number}` }, base: { ref: "main" } })
+    await detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000)
+    expect(await probeChangedSnapshots(f.inbox, f.read, f.clock() + 61_000, undefined, [], 1)).toBe(2)
+    expect(f.read.mock.calls.map(([path]) => path)).toContain(`repos/${repository}/pulls/9`)
+    expect(f.read.mock.calls.map(([path]) => path)).toContain(`repos/${repository}/pulls/1`)
+    expect(f.read.mock.calls.map(([path]) => path)).not.toContain(`repos/${repository}/pulls/2`)
+    await f.inbox.close()
+  })
+
+  it("reports a repository whose query failed", async () => {
+    const f = setup(() => [])
+    f.graphql.mockRejectedValueOnce(new Error("GitHub 504"))
+    const onError = vi.fn()
+    await detectChangedPullRequests(f.inbox, () => f.graphql, [repository], f.clock() + 61_000, true, onError)
+    expect(onError).toHaveBeenCalledWith(repository, expect.objectContaining({ message: "GitHub 504" }))
     await f.inbox.close()
   })
 
