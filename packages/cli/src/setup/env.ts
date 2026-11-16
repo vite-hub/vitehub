@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto"
-import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { existsSync, statSync } from "node:fs"
+import { readFile, realpath, stat } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
 import { parseArgs, parseEnv } from "node:util"
 
 import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
-import { join } from "pathe"
+import { basename, dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
@@ -22,6 +22,7 @@ import { readSetupProject } from "./project.ts"
 
 import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
+import type { BuildOutput } from "./build-output.ts"
 import type { GitHubEnvDestination } from "./deploy/github.ts"
 import type { DeployHost, DeployRun, HostEnv, HostEnvContext, HostEnvTarget } from "./deploy/host.ts"
 import type { SetupLink } from "./link.ts"
@@ -80,8 +81,11 @@ export interface EnvDiffOutput {
   extra: string[]
 }
 
-/** Where a pushed value came from: the shell, one of the stage env files, or `vitehub deploy`, which generated it. */
-export type EnvValueSource = "process" | "generated" | `.env${string}`
+/**
+ * Where a pushed value came from: the shell, one of the stage env files relative to the project root, such as
+ * `.env.production` or `config/.env.production` with `envDir: "config"`, or `vitehub deploy`, which generated it.
+ */
+export type EnvValueSource = "process" | "generated" | `${string}.env${string}`
 
 /** What `vitehub env push --json` prints, after `schemaVersion: 1`. Never a value. */
 export interface EnvPushOutput {
@@ -140,10 +144,10 @@ function linkedTarget(links: Awaited<ReturnType<typeof readSetupLinks>>, host: D
   return selected.link
 }
 
-/** The names of the last build for `host`. Builds first when there is no build output for `host`. */
-async function readNames(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<DeploymentEnvEntry[]> {
+/** The names and the env folder of the last build for `host`. Builds first when there is no build output for `host`. */
+async function readNames(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<BuildOutput> {
   try {
-    return (await readBuildOutput(project.root, host)).env
+    return await readBuildOutput(project.root, host)
   }
   catch (error: unknown) {
     const code = isSetupFailure(error) ? Reflect.get(error, "code") : undefined
@@ -151,7 +155,7 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
   }
   context.stderr.write(`No build output for ${host}. Building it to read the names.\n`)
   await build(project, host, context)
-  return (await readBuildOutput(project.root, host)).env
+  return await readBuildOutput(project.root, host)
 }
 
 interface EnvTarget {
@@ -163,6 +167,8 @@ interface EnvTarget {
   github?: GitHubEnvDestination
   project: SetupProject
   entries: DeploymentEnvEntry[]
+  /** Vite's resolved `envDir` of the build, or `false` when the app loads no env file. */
+  envDir: string | false
   hostEnv: HostEnv
   run: DeployRun
   /** Values that no output may show. Push adds the values that it reads. */
@@ -182,12 +188,12 @@ async function openTarget(args: EnvArgs, command: string, context: ViteHubCliCon
   const link = linkedTarget(await readSetupLinks(project.root), args.host, command)
   const host = link.host
   const target = stageTarget(host, args.stage)
-  const entries = await readNames(project, host, context)
+  const { env: entries, envDir } = await readNames(project, host, context)
   const secrets = hostTokens(context.env)
   // The runner reads `secrets` at each run, so values that push adds later are redacted too.
   const run = createDeployRun(context.stderr, secrets)
   const hostEnv = hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: project.root, run, secrets, target })
-  return { entries, host, hostEnv, name: link.project.name, project, run, secrets, stage: args.stage, target }
+  return { entries, envDir, host, hostEnv, name: link.project.name, project, run, secrets, stage: args.stage, target }
 }
 
 /**
@@ -199,7 +205,8 @@ async function openGitHubTarget(args: EnvArgs, options: NonNullable<EnvArgs["git
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, `${command} --to github`)
   const host = args.host ?? selected.link?.host
   if (!host) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({}), setupExitCodes.inputNeeded, { missing: [{ field: "host" }], rerun: `${command} --to github --host cloudflare` })
-  const entries = (await readNames(project, host, context)).flatMap((entry) => {
+  const { env: buildEntries, envDir } = await readNames(project, host, context)
+  const entries = buildEntries.flatMap((entry) => {
     const names = entry.names.filter(isGitHubSecretName)
     return names.length || entry.prefix ? [{ ...entry, names }] : []
   })
@@ -211,7 +218,7 @@ async function openGitHubTarget(args: EnvArgs, options: NonNullable<EnvArgs["git
   secrets.push(token)
   const github: GitHubEnvDestination = { repository, ...(options.environment ? { environment: options.environment } : {}) }
   const name = selected.link?.project.name ?? (await readBuildOutput(project.root, host)).identityName ?? repository
-  return { entries, github, host, hostEnv: githubEnv({ ...github, fetch, secrets, token }), name, project, run, secrets, stage: args.stage }
+  return { entries, envDir, github, host, hostEnv: githubEnv({ ...github, fetch, secrets, token }), name, project, run, secrets, stage: args.stage }
 }
 
 function diffEntry(entry: DeploymentEnvEntry): EnvDiffEntry {
@@ -309,27 +316,86 @@ function destination(target: EnvTarget): Pick<EnvDiffOutput, "github" | "host" |
 interface LocalValue {
   value: string
   source: EnvValueSource
+  /** Every env file that the value reads: its own file, and the files of the names that it expands with `$NAME`. */
+  files: string[]
+}
+
+/** An env file as output names it: relative to the project root, such as `config/.env.production`. */
+function fileSource(root: string, path: string): EnvValueSource {
+  const folder = relative(root, dirname(path))
+  return `${folder ? `${folder}/` : ""}.env${basename(path).slice(".env".length)}`
+}
+
+/** Trace the same replacements and iteration order as Vite's patched dotenv-expand. */
+function expandedFiles(raw: Map<string, { path: string, value: string }>, env: NodeJS.ProcessEnv): Map<string, Set<string>> {
+  const parsed = Object.fromEntries([...raw].map(([name, file]) => [name, file.value]))
+  const files = new Map([...raw].map(([name, file]) => [name, new Set([file.path])]))
+  for (const name of Object.keys(parsed)) {
+    let result = parsed[name]!
+    const sources = new Set(files.get(name))
+    if (env[name] && env[name] !== result) {
+      parsed[name] = env[name]!
+      files.set(name, new Set())
+      continue
+    }
+    // Snapshot values before this key is expanded, as dotenv-expand does.
+    const values = { ...parsed, ...env }
+    const regex = /(?<!\\)\${([^{}]+)}|(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)/g
+    const seen = new Set<string>()
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(result)) !== null) {
+      seen.add(result)
+      const template = match[0]
+      const expression = (match[1] || match[2])!
+      const operator = expression.match(/(:\+|\+|:-|-)/)?.[0]
+      const parts = operator ? expression.split(operator) : [expression]
+      const key = parts.shift()!
+      // Even a conditional reads the referenced value. Shell values carry no file.
+      if (env[key] === undefined) {
+        for (const path of files.get(key) ?? []) sources.add(path)
+      }
+      const alternate = operator === ":+" || operator === "+"
+      const fallback = alternate && !values[key] ? "" : parts.join(operator)
+      const replacement = alternate ? undefined : values[key]
+      result = result.replace(template, replacement && !seen.has(replacement) ? replacement : fallback)
+      if (result === parsed[key]) break
+      // Replacements can form new references, including across the replacement boundary.
+      regex.lastIndex = 0
+    }
+    parsed[name] = result.replace(/\\\$/g, "$")
+    files.set(name, sources)
+  }
+  return files
 }
 
 /**
- * The values of `stage` as Vite loads them: `.env`, `.env.local`, `.env.<stage>`, `.env.<stage>.local`, with later files
- * winning and the shell winning over every file (`packages/internal/src/vite-stage.ts`). Each value keeps its source.
+ * The values of `stage` as Vite loads them: `.env`, `.env.local`, `.env.<stage>`, `.env.<stage>.local` in `envDir`, with
+ * later files winning and the shell winning over every file (`packages/internal/src/vite-stage.ts`). With `envDir: false`
+ * only the shell counts. Each value keeps its source, and every file that it reads through `$NAME` expansion.
  */
-export async function readLocalEnvValues(root: string, stage: string, env: NodeJS.ProcessEnv): Promise<Map<string, LocalValue>> {
-  const files = [".env", ".env.local", `.env.${stage}`, `.env.${stage}.local`] as const
-  const sources = new Map<string, EnvValueSource>()
-  for (const file of files) {
-    const path = join(root, file)
-    if (!existsSync(path)) continue
-    for (const name of Object.keys(parseEnv(await readFile(path, "utf8")))) sources.set(name, file)
+export async function readLocalEnvValues(root: string, envDir: string | false, stage: string, env: NodeJS.ProcessEnv): Promise<Map<string, LocalValue>> {
+  const raw = new Map<string, { path: string, value: string }>()
+  const paths = envDir === false ? [] : [".env", ".env.local", `.env.${stage}`, `.env.${stage}.local`].map(file => join(envDir, file))
+  for (const path of paths) {
+    // Vite reads regular files and follows symlinks.
+    if (!(await stat(path).catch(() => undefined))?.isFile()) continue
+    for (const [name, value] of Object.entries(parseEnv(await readFile(path, "utf8")))) {
+      if (value !== undefined) raw.set(name, { path, value })
+    }
   }
+  const files = expandedFiles(raw, env)
   const vite = await import("vite")
   // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
-  const loaded = await withViteStageEnvironment(env, async () => withoutStderr(() => vite.loadEnv(stage, root, "")))
+  const loaded = await withViteStageEnvironment(env, async () => withoutStderr(() => vite.loadEnv(stage, envDir, "")))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
-    const source = env[name] !== undefined ? "process" : sources.get(name)
-    if (source && value !== "") values.set(name, { source, value })
+    if (value === "") continue
+    // A shell value of a name wins without expansion.
+    if (env[name] !== undefined) values.set(name, { files: [], source: "process", value })
+    else {
+      const own = raw.get(name)
+      if (own) values.set(name, { files: [...files.get(name) ?? []], source: fileSource(root, own.path), value })
+    }
   }
   return values
 }
@@ -353,6 +419,8 @@ interface PlannedValue {
   name: string
   value: string
   source: EnvValueSource
+  /** The env files that the value reads. See `LocalValue`. */
+  files: readonly string[]
   secret: boolean
 }
 
@@ -376,21 +444,73 @@ function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<st
     for (const name of chosen) {
       const local = values.get(name)!
       const current = planned.get(name)
-      planned.set(name, { name, secret: entry.secret || (current?.secret ?? false), source: local.source, value: local.value })
+      planned.set(name, { files: local.files, name, secret: entry.secret || (current?.secret ?? false), source: local.source, value: local.value })
     }
   }
   return { planned: [...planned.values()], skipped }
 }
 
-/** Refuses a secret whose value comes from a file that git tracks: pushing it would hide that the secret is in git. */
-async function assertUntracked(planned: readonly PlannedValue[], root: string, run: DeployRun, env: NodeJS.ProcessEnv): Promise<void> {
+/**
+ * True when `directory` or a parent folder looks like a git repository, or `GIT_DIR` names one: a `.git` file, as in a
+ * worktree, or a `.git` folder with `HEAD`. It does not ask git, because git reports a broken repository the same way
+ * as no repository, and a broken one must refuse.
+ */
+function inGitRepository(directory: string, env: NodeJS.ProcessEnv): boolean {
+  if (env.GIT_DIR) return true
+  for (let current = directory; ; current = dirname(current)) {
+    const marker = join(current, ".git")
+    if (existsSync(marker) && (!statSync(marker).isDirectory() || existsSync(join(marker, "HEAD")))) return true
+    if (dirname(current) === current) return false
+  }
+}
+
+/** What git says about one env file, by its real path. Throws when git cannot answer. */
+async function gitFileState(file: string, label: string, run: DeployRun, env: NodeJS.ProcessEnv): Promise<"tracked" | "ignored" | "unignored"> {
+  const failed = (reason: string) => setupFailure(cliErrorDiagnostics.SETUP_ENV_GIT_FAILED({ file: label, reason }), setupExitCodes.error)
+  const git = async (args: string[]) => {
+    try {
+      return await run("git", args, { cwd: dirname(file), env })
+    }
+    catch (error: unknown) {
+      throw failed(error instanceof Error ? error.message : String(error))
+    }
+  }
+  // `--error-unmatch` exits with 1 for an untracked file, and `check-ignore` with 1 for a file that is not ignored.
+  const tracked = await git(["ls-files", "--error-unmatch", "--", basename(file)])
+  if (tracked.exitCode === 0) return "tracked"
+  if (tracked.exitCode !== 1) throw failed(tracked.stderr.trim() || `git ls-files exited with ${tracked.exitCode}`)
+  const ignored = await git(["check-ignore", "-q", "--", basename(file)])
+  if (ignored.exitCode === 0) return "ignored"
+  if (ignored.exitCode === 1) return "unignored"
+  throw failed(ignored.stderr.trim() || `git check-ignore exited with ${ignored.exitCode}`)
+}
+
+/**
+ * Refuses a secret whose value reads an env file that git tracks, or that git does not ignore: pushing it would hide
+ * that the secret is in git, or that the next commit can add it. It checks every file that the value reads, through
+ * `$NAME` expansion too, by its real path, so a symlink to a tracked file does not pass. When git cannot answer inside a
+ * repository, it refuses. A file outside any git repository passes with a warning, since git cannot commit it.
+ */
+async function assertUntracked(planned: readonly PlannedValue[], root: string, run: DeployRun, env: NodeJS.ProcessEnv, stderr: ViteHubCliContext["stderr"]): Promise<void> {
   const byFile = new Map<string, string[]>()
   for (const item of planned) {
-    if (item.secret && item.source !== "process" && item.source !== "generated") byFile.set(item.source, [...byFile.get(item.source) ?? [], item.name])
+    if (!item.secret) continue
+    for (const file of item.files) {
+      const real = await realpath(file)
+      byFile.set(real, [...new Set([...byFile.get(real) ?? [], item.name])])
+    }
   }
+  // Real paths on both sides, so a symlinked project folder gives a short label.
+  const realRoot = await realpath(root).catch(() => root)
   for (const [file, names] of byFile) {
-    const result = await run("git", ["ls-files", "--error-unmatch", "--", file], { cwd: root, env }).catch(() => undefined)
-    if (result?.exitCode === 0) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file, names: names.join(", ") }), setupExitCodes.conflict)
+    const label = relative(realRoot, file)
+    if (!inGitRepository(dirname(file), env)) {
+      stderr.write(`Warning: ${label} is not in a git repository, so ViteHub cannot check that git ignores it.\n`)
+      continue
+    }
+    const state = await gitFileState(file, label, run, env)
+    if (state === "tracked") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_TRACKED({ file: label, names: names.join(", ") }), setupExitCodes.conflict)
+    if (state === "unignored") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_FILE_NOT_IGNORED({ file: label, names: names.join(", ") }), setupExitCodes.conflict)
   }
 }
 
@@ -428,7 +548,7 @@ function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
 
 async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<number> {
   const target = await openTarget(args, "vitehub env push", context)
-  const values = await readLocalEnvValues(target.project.root, target.stage, context.env)
+  const values = await readLocalEnvValues(target.project.root, target.envDir, target.stage, context.env)
   const { planned, skipped } = planPush(target.entries, values, args.only)
   addRedactions(planned, target.secrets)
   const output: EnvPushOutput = { ...destination(target), pushed: [], skipped }
@@ -437,7 +557,7 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
     else writePush(output, context)
     return setupExitCodes.done
   }
-  await assertUntracked(planned, target.project.root, target.run, context.env)
+  await assertUntracked(planned, target.project.root, target.run, context.env, context.stderr)
   if (!args.yes) {
     const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
     if (!interactive) throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: `[vitehub] \`vitehub env push\` changes ${target.github ? "GitHub Actions secrets" : "host variables"} and was not confirmed. Without a terminal, pass --yes.` }), setupExitCodes.inputNeeded, { rerun: pushRerun(args) })
@@ -483,6 +603,8 @@ export interface DeployEnvOptions {
   interactive: boolean
   root: string
   entries: readonly DeploymentEnvEntry[]
+  /** Vite's resolved `envDir` of the build, from `deployment.json`. */
+  envDir: string | false
   context: ViteHubCliContext
   run: DeployRun
   /** The redaction list of the deploy runner. The gate adds the values that it reads. */
@@ -529,7 +651,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
   const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
   const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
-  const values = await readLocalEnvValues(options.root, stage, context.env)
+  const values = await readLocalEnvValues(options.root, options.envDir, stage, context.env)
   const candidates = options.pushEnv || host === "cloudflare" ? entries : entries.filter(entry => !isSet(entry, onHost))
   const planned = planPush(candidates, values, []).planned
   if (host === "cloudflare") {
@@ -549,7 +671,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const unset = () => entries.filter(entry => !isSet(entry, new Set([...onHost, ...planned.map(item => item.name)])))
   const appSecret = unset().find(entry => isRequired(entry) && entry.names.includes(appSecretName))
   if (appSecret && (options.yes || (options.interactive && await confirmGenerate(label)))) {
-    planned.push({ name: appSecretName, secret: true, source: "generated", value: randomBytes(32).toString("base64") })
+    planned.push({ files: [], name: appSecretName, secret: true, source: "generated", value: randomBytes(32).toString("base64") })
     output.generated = [appSecretName]
   }
   addRedactions(planned, options.secrets)
@@ -566,7 +688,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   if (planned.length && !hostEnv && host !== "cloudflare") {
     throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: planned.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
   }
-  await assertUntracked(planned, options.root, options.run, context.env)
+  await assertUntracked(planned, options.root, options.run, context.env, context.stderr)
 
   output.missing = missing.map(diffEntry)
   output.pushed = planned.map(item => item.name)

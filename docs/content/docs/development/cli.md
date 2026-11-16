@@ -533,10 +533,10 @@ After provisioning and the build, before migrations, env writes, or publishing c
 
 1. Deploy reads the names that the host has, as `vitehub env diff` does. It reads them only when the build lists env names.
 2. Each required name must be on the host or have a local value. When one has neither, nothing is deployed and the command exits with `SETUP_DEPLOY_ENV_MISSING`.
-3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it refuses a secret from a file that git tracks, never deletes a host variable, and prints names, never values.
+3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it reads the env files in the recorded `envDir`, refuses a secret from a file that git tracks or does not ignore, never deletes a host variable, and prints names, never values.
 4. An optional name that is on neither prints one warning line.
 
-Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or an untracked stage env file. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
+Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or a stage env file that git ignores. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
 
 On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
@@ -877,7 +877,9 @@ When the build output for the host is missing, both commands build first, as `vi
 
 `env diff` prints three lists: missing required names, missing optional names, and extra names on the host that no declaration reads. An entry with several names, such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN`, is set when one of them is. Hosts do not return values, so `env diff` compares names only and never says that a value changed. It exits with `1` when a required name is missing, so it can gate a deploy step.
 
-`env push` reads each value from the shell first, then from `.env.<stage>.local`, `.env.<stage>`, `.env.local`, and `.env`, as Vite does. For each entry it pushes the first name in read order that has a value. It does not push an entry without a local value, and it never deletes a host variable. It prints the names and where each value came from, never a value. Values go to the host CLI on stdin, or in an API request body, never in argv, and host CLI errors have the values replaced by `<redacted>`.
+`env push` reads each value from the shell first, then from `.env.<stage>.local`, `.env.<stage>`, `.env.local`, and `.env`, as Vite does. It reads the files in the `envDir` that the build recorded in `deployment.json`, so `envDir: "config"` reads `config/.env.production`, and `envDir: false` reads the shell only. For each entry it pushes the first name in read order that has a value. It does not push an entry without a local value, and it never deletes a host variable. It prints the names and where each value came from, never a value. Values go to the host CLI on stdin, or in an API request body, never in argv, and host CLI errors have the values replaced by `<redacted>`.
+
+A secret from an env file must come from a file that git ignores and does not track. `env push` checks every file that the value reads: its own file, the files of the names that it expands with `$NAME`, and the real path of a symlink. When git cannot answer inside a repository, nothing is pushed. A file outside any git repository passes with a warning, because git cannot commit it. A secret from the shell is not checked.
 
 | Host | Names | Values | Stages |
 | --- | --- | --- | --- |
@@ -903,9 +905,17 @@ pnpm vitehub env push --to github --repo acme/web --environment production --yes
 
 The token comes from `GITHUB_TOKEN`, then `GH_TOKEN`, then `gh auth token`, then an installation token of the GitHub App that `@vite-hub/forge` reads when `VITEHUB_GITHUB_APP_ID` is set. It needs write access to the repository secrets. The CLI encrypts each value with the repository public key (a libsodium sealed box) before the request, so the value is not in argv, in output, or in plain text on the wire. GitHub reserves names that start with `GITHUB_`, so an entry such as `VITEHUB_GITHUB_TOKEN or GITHUB_TOKEN` uses `VITEHUB_GITHUB_TOKEN` there.
 
+### `SETUP_ENV_FILE_NOT_IGNORED`
+
+A secret value comes from an env file that git does not track and does not ignore, so the next commit can add it. Nothing was pushed. Add `.env*` to `.gitignore`. The command exits with `3`.
+
 ### `SETUP_ENV_FILE_TRACKED`
 
-A secret value comes from an env file that git tracks. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+A secret value comes from an env file that git tracks, directly, through `$NAME` expansion, or through a symlink. Nothing was pushed. Remove the file from git, ignore `.env*`, and rotate the values that git has seen. The command exits with `3`.
+
+### `SETUP_ENV_GIT_FAILED`
+
+A secret value comes from an env file in a git repository, but `git ls-files` or `git check-ignore` failed, so the CLI cannot tell whether git has the secret. Nothing was pushed. Fix the repository, or set the value in the shell. The command exits with `1`.
 
 ### `SETUP_ENV_NAME_UNKNOWN`
 
