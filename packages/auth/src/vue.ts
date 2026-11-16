@@ -58,6 +58,7 @@ let sessionSeedResolver: ((read: boolean) => unknown) | undefined
 let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
 let defaultBasePath: string | undefined
 let requestFetchResolver: (() => RequestFetch | undefined) | undefined
+const signOutListeners = new Set<() => unknown>()
 
 /** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
 export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
@@ -763,6 +764,18 @@ function createUserSession<Client extends AuthClientLike>(client: Client, store:
   }
 }
 
+/**
+ * Calls `listener` in the browser after each `signOut()` of `useUserSession()`, once the server ended the session and
+ * before the next page opens. `signOut()` waits for it. Use it to forget data of the person, such as `clearSync()`.
+ * Returns a function that stops it.
+ */
+export function onSignOut(listener: () => unknown): () => void {
+  signOutListeners.add(listener)
+  return () => {
+    signOutListeners.delete(listener)
+  }
+}
+
 async function signOut(client: AuthClientLike, store: SessionStore, options: { redirectTo?: string } = {}, fetchOptions: unknown[] = []): Promise<unknown> {
   const { redirectTo, ...betterAuthOptions } = options
   // SAFETY: every Better Auth client has `signOut()`, which answers with a promise.
@@ -775,6 +788,7 @@ async function signOut(client: AuthClientLike, store: SessionStore, options: { r
   // atom starts that read from `null`, so the read cannot show the user again. Every component shares the store, so
   // they all show the sign-out at once.
   store.clear(await loadAuthClient(client as VueAuthClient<{}>))
+  await Promise.all([...signOutListeners].map(listener => listener()))
   // A provider sign-out, such as OpenID Connect logout, answers `{ url, redirect: true }`, and Better Auth then
   // loads the provider's page. Another navigation now would cancel it.
   const data: unknown = answer.data
