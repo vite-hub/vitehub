@@ -84,6 +84,8 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     node: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL) or a Postgres Default Database", value: "true" } } },
   },
   sandboxTask: {
+    netlify: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ provider: 'vercel' }" } } },
+    node: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ provider: 'vercel' }" } } },
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },
     vercel: { options: { sandboxTask: { comment: "Each run starts a Vercel Sandbox", value: "true" } } },
   },

@@ -106,7 +106,8 @@ describe("Console server startup graph", () => {
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])
-      for (const removed of ["installConsoleClient(", "installConsoleBuild(", "installConsolePageTool("]) {
+      expect(generated).toContain("installConsoleBuild(")
+      for (const removed of ["installConsoleClient(", "installConsolePageTool("]) {
         expect(generated).not.toContain(removed)
       }
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))

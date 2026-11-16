@@ -60,7 +60,7 @@ export default defineContent({
 })
 ```
 
-A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but Source reads do not return `document.url`. `content.resolve()`, Markdown copies, and `seo()` fields work only with collections.
+A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt) and gives them [Markdown copies](#markdown-for-agents), but Source reads do not return `document.url`. `content.resolve()` and `seo()` fields work only with collections.
 
 ## SEO fields
 
@@ -317,9 +317,43 @@ export default defineContent({
 })
 ```
 
+### Write the copy yourself
+
+A page can hold blocks that mean nothing outside the browser, such as a booking form, or a component that reads its words from the app, such as a `::phrases` table. Pass `markdown` to `documents()` or `singleton()` to write the copy that agents read:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+const phrases = [['Hello', 'สวัสดี'], ['Thank you', 'ขอบคุณ']]
+const phrasesTable = () => ['| Meaning | Thai |', '| --- | --- |', ...phrases.map(([meaning, thai]) => `| ${meaning} | ${thai} |`)].join('\n')
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    guide: documents({
+      path: 'guide/*.md',
+      url: '/guide/:id',
+      fields: { title: z.string(), description: z.string().optional() },
+      markdown: ({ title, description, body }) => [
+        `# ${title}`,
+        description && `> ${description}`,
+        body.replace(/^::phrases\n::$/m, phrasesTable()).replace(/^::booking-form\n::\n?/m, ''),
+      ].filter(Boolean).join('\n\n'),
+    }),
+  },
+  seo: { site: 'https://example.com', llms: { title: 'Trip guide' } },
+})
+```
+
+The function gets `{ id, path, locale, data, body, title, description, site }` of the published document. `title` and `description` come from its `seo()` field, else from its fields. Return a string, or `{ markdown, footer }`: only the `.md` copy ends with `footer`, and `llms-full.txt` and `get-page` leave it out. Return `null` for a page without a copy. Content uses the result as it is, so make links absolute yourself if agents need them. The `.md` copy, the `Accept: text/markdown` answer, `llms-full.txt`, and the MCP `get-page` tool all use it. A Source takes the same function in `contentSource(input, { markdown })`, with the whole file as `text`.
+
+To keep the copies and the llms files out of search results, such as for an unlisted site, add an `X-Robots-Tag` header with [route rules](https://nuxt.com/docs/guide/concepts/rendering#route-rules): `routeRules: { '/raw/**': { headers: { 'x-robots-tag': 'noindex' } } }`.
+
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
-An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. A `.md` URL that only an HTML page answers, such as the shell of a single-page app, gets the same `404`. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
 
 Check the output from code:
 

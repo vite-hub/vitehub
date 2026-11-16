@@ -13,6 +13,8 @@ export interface FakeCall {
   stdin: string
   cwd: string
   generated?: Record<string, unknown>
+  /** The `--secrets-file` of a Wrangler run, read while the run lasted. */
+  secretsFile?: { path: string, mode?: number, values?: Record<string, string>, missing?: true }
   accountId?: string
 }
 

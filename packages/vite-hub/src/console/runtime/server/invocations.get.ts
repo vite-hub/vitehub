@@ -29,14 +29,17 @@ function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
   if (!value) return {}
   try {
     const parsed: unknown = JSON.parse(value)
-    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw viteHubErrorDiagnostics.VITE_HUB_R0055()
+    // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
+    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw new Error("The cursor is not an object.")
     const keys = ["working", "queued", "done", "history"] as const
-    if (!keys.some(key => Reflect.has(parsed, key))) throw viteHubErrorDiagnostics.VITE_HUB_R0056()
+    // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
+    if (!keys.some(key => Reflect.has(parsed, key))) throw new Error("The cursor has no position.")
     const cursor: ConsoleInvocationCursor = {}
     for (const key of keys) {
       if (!Reflect.has(parsed, key)) continue
       const value = Reflect.get(parsed, key)
-      if (value !== null && String(value) !== value) throw viteHubErrorDiagnostics.VITE_HUB_R0057()
+      // Internal invariant: the catch below answers every cursor error with VITE_HUB_R0058.
+      if (value !== null && String(value) !== value) throw new Error("The cursor has a position that is not a string.")
       cursor[key] = value === null ? null : String(value)
     }
     return cursor

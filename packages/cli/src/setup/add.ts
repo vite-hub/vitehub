@@ -68,15 +68,19 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "email.driver": { values: ["resend"] },
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
+  "sandboxTask.provider": { values: ["vercel"] },
   "workflow.provider": { values: ["openworkflow"] },
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
 const providerKeys = ["authority", "driver", "provider", "store"]
 
-function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: ViteHubHost): boolean {
+function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
   if (!isRecord(value)) return false
-  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  if (id === "workflow" && host !== "netlify") {
+    const configured = (storage: JsonValue | undefined, key: string) => isRecord(storage) && (typeof storage[key] === "string" ? !!storage[key].trim() : isRecord(storage[key]))
+    if (configured(value.postgres, "url") || configured(value.sqlite, "path")) return true
+  }
   return providerKeys.some(key => value[key] !== undefined)
 }
 
@@ -87,8 +91,6 @@ function hostSupport(id: FeatureId, host: ViteHubHost, env: NodeJS.ProcessEnv): 
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
 }
 
-/** Features whose key accepts only a boolean. */
-const booleanFeatures: readonly FeatureId[] = ["sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 
@@ -170,7 +172,6 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     const id = head ?? (parsed.features.length === 1 ? parsed.features[0] : undefined)
     const keys = head ? path.slice(1) : path
     if (!id || !keys.length || keys.some(key => !key)) throw invalid(`--option ${JSON.stringify(option)} must start with one of the features, such as \`${parsed.features[0] ?? "email"}.driver=resend\`.`)
-    if (booleanFeatures.includes(id)) throw invalid(`${id} has no options. Its key accepts only true or false.`)
     setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1)))
   }
   return parsed
@@ -480,11 +481,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   // Host defaults that build and run, but keep state in one process.
   for (const id of [...addedFeatures, ...implied]) {
-    if (selectsProvider(id, valueFor(id), host)) continue
+    if (selectsProvider(id, valueFor(id))) continue
     const support = hostSupport(id, host, env)
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
-  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"), host)) {
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"))) {
     nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
