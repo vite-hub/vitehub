@@ -197,7 +197,7 @@ VITEHUB_CONSOLE_SECRET=$(openssl rand -hex 32) VITEHUB_CONSOLE_ALLOW_PRIVATE=tru
 corepack pnpm --dir packages/console run test
 ```
 
-CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Run them for one host after you build the page:
+CI builds the Console for each host from the same commit and runs the same checks against the running build: the real page, a write and read in the database after the migrations, and `/mcp`. Then it checks env values on the database of that host. It writes a test owner, a member, and their API keys into the database, and starts the build three times: with values off, as console.vitehub.dev runs, with values on, and with values on and another key. With values on, an owner sets, lists, reveals, and deletes a value over HTTP, a member gets `403`, the activity and the database hold no plain value, and another key opens no value. Run them for one host after you build the page:
 
 ```sh
 cd packages/console

@@ -1,5 +1,8 @@
-// Starts the Console build of one host on this machine and runs scripts/smoke.mjs against it. CI runs it for each host,
-// so console.vitehub.dev and every self-hosted Console run the same checks on the same commit.
+// Starts the Console build of one host on this machine and runs scripts/smoke.mjs and scripts/env-smoke.mjs against it.
+// CI runs it for each host, so console.vitehub.dev and every self-hosted Console run the same checks on the same commit.
+//
+// The build starts three times on one database: with env values off, as console.vitehub.dev runs, then with values on,
+// then with values on and another key.
 //
 //   VITEHUB_HOST=<host> vp build && node scripts/host-smoke.mjs <host>
 //
@@ -16,11 +19,14 @@ import { createServer } from "node:http"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { extname, join, resolve } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { pathToFileURL } from "node:url"
+import { format } from "node:util"
 
-import { smoke } from "./smoke.mjs"
+import { envKey, envOffChecks, envOnChecks, envOtherKeyChecks, seedOwner } from "./env-smoke.mjs"
+import { runChecks, smoke } from "./smoke.mjs"
 
 const root = resolve(import.meta.dirname, "..")
 const wrangler = resolve(root, "../../node_modules/.bin/wrangler")
@@ -32,6 +38,9 @@ const secrets = { BETTER_AUTH_SECRET: randomBytes(32).toString("hex"), VITEHUB_C
 const temp = mkdtempSync(join(tmpdir(), `vitehub-console-${host}-`))
 const children = []
 const output = []
+// The Vercel function runs in this process and logs with `console`, so the smoke prints with these instead.
+const print = text => process.stdout.write(`${text}\n`)
+const printError = text => process.stderr.write(`${text}\n`)
 
 function run(command, args, env = {}) {
   const child = spawn(command, args, { cwd: root, detached: true, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] })
@@ -43,8 +52,46 @@ function run(command, args, env = {}) {
 
 async function exec(command, args, env) {
   const child = run(command, args, env)
+  const stdout = []
+  child.stdout.on("data", chunk => stdout.push(chunk))
   const code = await new Promise(done => child.on("exit", done))
   if (code !== 0) throw new Error(`${command} ${args.join(" ")} exited with ${code}`)
+  return Buffer.concat(stdout).toString()
+}
+
+/** Stop a server that `run()` started, and wait until its port is free, so the next start answers on it. */
+async function halt(child) {
+  if (child.exitCode === null) {
+    const exited = new Promise(done => child.on("exit", done))
+    process.kill(-child.pid, "SIGTERM")
+    await Promise.race([exited, new Promise(done => setTimeout(done, 15_000))])
+    if (child.exitCode === null) process.kill(-child.pid, "SIGKILL")
+  }
+  for (let tries = 0; tries < 60; tries++) {
+    try {
+      await fetch(base, { signal: AbortSignal.timeout(1_000) })
+      await new Promise(done => setTimeout(done, 500))
+    }
+    catch {
+      return
+    }
+  }
+  throw new Error(`${base} still answers after the server stopped`)
+}
+
+/** Run SQL on a SQLite or file: libSQL database. Returns the rows of a SELECT. */
+function sqlite(file) {
+  return (text) => {
+    const db = new DatabaseSync(file, { timeout: 10_000 })
+    try {
+      if (/^\s*select/i.test(text)) return db.prepare(text).all()
+      db.exec(text)
+      return []
+    }
+    finally {
+      db.close()
+    }
+  }
 }
 
 async function ready(child) {
@@ -66,16 +113,26 @@ function need(path, build) {
   if (!existsSync(resolve(root, path))) throw new Error(`${path} is missing. Build it first: ${build}`)
 }
 
-// Each host returns its extra checks, which run after the shared smoke.
+// Each host has `start(vars)`, which starts the build with extra variables and returns its stop function, `sql(text)` on
+// the database of the build, and `extra` checks, which run after the shared smoke.
 const hosts = {
   async node() {
     need(".output/server/index.mjs", "VITEHUB_HOST=node vp build")
     const dataDir = resolve(root, process.env.VITEHUB_DATA_DIR ?? ".data")
-    await ready(run(process.execPath, [".output/server/index.mjs"], { ...secrets, HOST: "127.0.0.1", PORT: String(port) }))
-    // The Dockerfile mounts only the data folder, so a database outside it is lost with the container.
-    return [["keeps SQLite in the data folder", () => {
-      if (!existsSync(join(dataDir, "database/sqlite.db"))) throw new Error(`${join(dataDir, "database/sqlite.db")} does not exist`)
-    }]]
+    const database = join(dataDir, "database/sqlite.db")
+    return {
+      // The server applies the migrations when it starts.
+      async start(vars) {
+        const child = run(process.execPath, [".output/server/index.mjs"], { ...secrets, ...vars, HOST: "127.0.0.1", PORT: String(port) })
+        await ready(child)
+        return () => halt(child)
+      },
+      sql: sqlite(database),
+      // The Dockerfile mounts only the data folder, so a database outside it is lost with the container.
+      extra: [["keeps SQLite in the data folder", () => {
+        if (!existsSync(database)) throw new Error(`${database} does not exist`)
+      }]],
+    }
   },
   async cloudflare() {
     need(".output/server/wrangler.json", "VITEHUB_HOST=cloudflare vp build")
@@ -87,22 +144,47 @@ const hosts = {
     const built = JSON.parse(readFileSync(resolve(root, config), "utf8")).compatibility_date
     const supported = workerdCompatibilityDate()
     const date = supported && supported < built ? supported : built
-    await ready(run(wrangler, [
-      "dev", "--config", config, "--local", "--ip", "127.0.0.1", "--port", String(port), "--persist-to", state,
-      "--compatibility-date", date, "--show-interactive-dev-session=false",
-      ...Object.entries(secrets).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
-    ]))
-    return []
+    return {
+      async start(vars) {
+        const child = run(wrangler, [
+          "dev", "--config", config, "--local", "--ip", "127.0.0.1", "--port", String(port), "--persist-to", state,
+          "--compatibility-date", date, "--show-interactive-dev-session=false",
+          ...Object.entries({ ...secrets, ...vars }).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
+        ])
+        await ready(child)
+        return () => halt(child)
+      },
+      // The local D1 of `wrangler dev`, the same SQLite file that the Worker uses.
+      async sql(text) {
+        const out = await exec(wrangler, ["d1", "execute", "DB", "--local", "--config", config, "--persist-to", state, "--json", "--command", text])
+        const results = JSON.parse(out.slice(out.indexOf("[")))
+        return results.at(-1)?.results ?? []
+      },
+      extra: [],
+    }
   },
   async vercel() {
     need(".vercel/output/functions/__server.func/index.mjs", "VITEHUB_HOST=vercel vp build")
     // The deploy steps of the README: migrate the hosted libSQL database, then deploy the prebuilt output.
-    const database = { TURSO_DATABASE_URL: pathToFileURL(join(temp, "console.db")).href, TURSO_AUTH_TOKEN: "" }
+    const file = join(temp, "console.db")
+    const database = { TURSO_DATABASE_URL: pathToFileURL(file).href, TURSO_AUTH_TOKEN: "" }
     await exec(vitehub, ["database", "migrate"], { ...database, VITEHUB_HOST: "vercel" })
     Object.assign(process.env, secrets, database)
+    // The function runs in this process and reads process.env on each request, so a new start sets other variables.
     await serveVercel(resolve(root, ".vercel/output"))
-    await ready()
-    return []
+    // Its logs go with the server output, which the smoke prints when a check fails.
+    for (const level of ["debug", "error", "info", "log", "warn"]) console[level] = (...args) => output.push(Buffer.from(`${format(...args)}\n`))
+    return {
+      async start(vars) {
+        Object.assign(process.env, vars)
+        await ready()
+        return () => {
+          for (const name of Object.keys(vars)) delete process.env[name]
+        }
+      },
+      sql: sqlite(file),
+      extra: [],
+    }
   },
 }
 
@@ -168,37 +250,42 @@ function stop() {
 }
 
 if (!Object.hasOwn(hosts, host)) {
-  console.error(`Usage: node scripts/host-smoke.mjs <${Object.keys(hosts).join("|")}>`)
+  printError(`Usage: node scripts/host-smoke.mjs <${Object.keys(hosts).join("|")}>`)
   process.exit(2)
 }
 
 let failures = []
 try {
-  console.log(`Console on ${host} at ${base}`)
-  const extra = await hosts[host]()
-  failures = await smoke(base)
-  for (const [name, check] of extra) {
-    try {
-      await check()
-      console.log(`ok    ${name}`)
-    }
-    catch (error) {
-      failures.push(name)
-      console.log(`FAIL  ${name}: ${error.message}`)
-    }
-  }
+  print(`Console on ${host} at ${base}`)
+  const server = await hosts[host]()
+  // Off is the config of console.vitehub.dev.
+  let stopServer = await server.start({})
+  failures = await smoke(base, print)
+  failures.push(...await runChecks(server.extra, [], print))
+  const ctx = await seedOwner(server.sql)
+  print("\nEnv values off")
+  failures.push(...await runChecks(envOffChecks, [base, ctx], print))
+  await stopServer()
+  print("\nEnv values on")
+  stopServer = await server.start({ VITEHUB_CONSOLE_ENV_KEY: envKey(), VITEHUB_CONSOLE_ENV_VALUES: "1" })
+  failures.push(...await runChecks(envOnChecks, [base, ctx, server.sql], print))
+  await stopServer()
+  print("\nEnv values on, with another key")
+  stopServer = await server.start({ VITEHUB_CONSOLE_ENV_KEY: envKey(), VITEHUB_CONSOLE_ENV_VALUES: "1" })
+  failures.push(...await runChecks(envOtherKeyChecks, [base, ctx], print))
+  await stopServer()
 }
 catch (error) {
   failures.push(String(error.message ?? error))
-  console.error(error.message ?? error)
+  printError(error.message ?? error)
 }
 finally {
   stop()
 }
 if (failures.length) {
-  console.error(`\n${failures.length} check(s) failed on ${host}. Server output:\n${Buffer.concat(output.map(chunk => Buffer.from(chunk))).toString().slice(-6000)}`)
+  printError(`\n${failures.length} check(s) failed on ${host}. Server output:\n${Buffer.concat(output.map(chunk => Buffer.from(chunk))).toString().slice(-6000)}`)
   process.exitCode = 1
 }
-else console.log(`\nAll checks passed on ${host}.`)
+else print(`\nAll checks passed on ${host}.`)
 // The Vercel function keeps timers and connections open in this process.
 process.exit()
