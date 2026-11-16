@@ -42,6 +42,8 @@ export interface Device {
   setAccount: (account: string | null) => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   clear: () => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   inspect: () => DeviceInspection
+  /** `true` once the page named an account or `null` in this page, and no change of another tab dropped the naming. */
+  named: () => boolean
   /**
    * Changes when the page names an account, and each time the copies and the answers in memory stop being valid: another
    * account or a sign-out, a clear, or a change of the disk by another tab. A loader call keeps the epoch in which it
@@ -486,6 +488,7 @@ export function createDevice(options: DeviceOptions): Device {
       return opening
     },
     opened: () => opening !== undefined,
+    named: () => named !== undefined,
     setAccount,
     clear,
     inspect: () => ({
