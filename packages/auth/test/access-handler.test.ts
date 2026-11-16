@@ -5,6 +5,7 @@ import { Response as ForeignResponse } from "undici"
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -19,7 +20,7 @@ const session = { session: { id: "session" }, user: { id: "user" } }
 describe("Auth access handlers", () => {
   beforeEach(() => {
     provider.betterAuth.mockReset().mockReturnValue({
-      api: { getSession: provider.getSession },
+      api: { getSession: returnHeaders(provider.getSession) },
       handler: provider.handler,
     })
     provider.getSession.mockReset().mockResolvedValue(session)

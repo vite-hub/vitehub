@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
-import { dotenvLine, envPullFeature } from "../src/setup/console-env.ts"
+import { dotenvLine } from "../src/setup/console-env.ts"
 import { createProject } from "./setup-helpers.ts"
 
 const consoleUrl = "https://console.example.com"
@@ -47,7 +47,6 @@ async function pull(args: string[], cwd: string, fetch: typeof globalThis.fetch)
     loadConfig: vi.fn(async () => {
       throw new Error("env pull must not load the config")
     }),
-    runtimeFeatures: [{ features: [envPullFeature], name: "env" }],
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },
     stdout: { write: (chunk: string | Uint8Array) => { stdout += String(chunk) } },
   })

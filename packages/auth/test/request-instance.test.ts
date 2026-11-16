@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler, handleAuthRequest, requireAuth, resetAuth, setAuthRuntimeEnvResolver, useAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -30,7 +31,7 @@ describe("Auth request instances", () => {
     resetAuth()
     provider.betterAuth.mockReset().mockImplementation(() => ({
       $context: Promise.resolve({}),
-      api: { getSession: provider.getSession },
+      api: { getSession: returnHeaders(provider.getSession) },
       handler: provider.handler,
     }))
     provider.getSession.mockReset().mockResolvedValue(session)
@@ -149,7 +150,7 @@ describe("Auth request instances", () => {
     provider.betterAuth.mockImplementationOnce(() => {
       const $context = Promise.reject(new Error("setup failed"))
       $context.catch(() => {})
-      return { $context, api: { getSession: provider.getSession }, handler: provider.handler }
+      return { $context, api: { getSession: returnHeaders(provider.getSession) }, handler: provider.handler }
     })
     const guard = withAuth(() => "ok", defineAuth({ appName: "ViteHub" }))
     await guard(request("https://app.example/one"))

@@ -1506,6 +1506,8 @@ describe("Vite workflow provider outputs", () => {
     expect(startupPlugin).toContain("setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)
     const combinedFlow = await readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8")
+    // The generated native entry sleeps until the start time of a delayed run before its first step.
+    expect(combinedFlow).toContain("~vitehubStartAt")
     expect(combinedFlow).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "webhook", "[token].func", "index.mjs"))).toBe(true)
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")

@@ -3,7 +3,9 @@ import * as v from "valibot";
 import type { SQL } from "drizzle-orm";
 import { envBridgeError } from "./bridge-error.ts";
 import type { EnvAccessStore, EnvSecretMetadata, EnvSecretStore } from "./bridge.ts";
-import { importSealKey, sealedPayloadPattern, sealWithKey, unsealWithKey } from "./seal.ts";
+import { ViteHubError } from "@vite-hub/runtime";
+import { importSealKey, sealedPayloadPattern, sealKeyId, sealWithKey, unsealWithKey } from "./seal.ts";
+import type { SealKey } from "./seal.ts";
 
 export interface EnvDatabase {
   run(query: SQL): unknown;
@@ -16,9 +18,23 @@ export interface DatabaseEnvStore {
   list(): Promise<(EnvSecretMetadata & { key: string })[]>;
   /** Delete a key. Returns `false` when the namespace has no such key. Activity and grants stay. */
   remove(key: string): Promise<boolean>;
+  /**
+   * Re-encrypts every value of the namespace that another key sealed with the current key, the first of
+   * `encryptionKeys`. Revisions stay the same. A value that a write replaces during the rotation keeps the new write.
+   */
+  rotate(): Promise<EnvStoreRotation>;
   secrets: EnvSecretStore;
   access: EnvAccessStore;
 }
+/** The result of `DatabaseEnvStore.rotate()`. */
+export interface EnvStoreRotation {
+  /** Values re-encrypted with the current key. */
+  rotated: number;
+  /** Values that the current key already sealed, or that a concurrent write replaced. */
+  skipped: number;
+}
+/** A stored value: `v2:<keyId>:<iv>:<ciphertext>`, or a legacy `<iv>:<ciphertext>` without a key id. */
+const storedPayloadPattern = new RegExp(`^(?:v2:[a-f0-9]{16}:)?${sealedPayloadPattern.source.slice(1, -1)}$`);
 const identifier = v.pipe(
   v.string(),
   v.minLength(1),
@@ -50,7 +66,7 @@ const grant = v.object({
   permissions: v.pipe(v.array(permission), v.minLength(1)),
 });
 const secretRow = v.object({
-  payload: v.pipe(v.string(), v.regex(sealedPayloadPattern)),
+  payload: v.pipe(v.string(), v.regex(storedPayloadPattern)),
   revision: identifier,
   updated_at: timestamp,
   preview: v.nullable(v.string()),
@@ -93,6 +109,16 @@ export async function listDatabaseEnvNamespaces(db: EnvDatabase, prefix: string)
   return rows.map((row) => v.parse(namespaceRow, row).namespace);
 }
 
+const rotationRow = v.object({
+  key: identifier,
+  payload: v.pipe(v.string(), v.regex(storedPayloadPattern)),
+  revision: identifier,
+});
+interface StoreKey {
+  id: string;
+  key: SealKey;
+}
+
 function parseStoredJson(payload: string): unknown {
   try {
     return JSON.parse(payload);
@@ -101,16 +127,51 @@ function parseStoredJson(payload: string): unknown {
   }
 }
 
-/** Persistent encrypted values, activity, and grants on a ViteHub SQLite/Drizzle database. */
+/**
+ * Persistent encrypted values, activity, and grants on a ViteHub SQLite/Drizzle database.
+ * `encryptionKeys` is the keyring: the current 32-byte key first, then previous keys that still decrypt older values.
+ */
 export function createDatabaseEnvStore(options: {
   db: EnvDatabase;
-  encryptionKey: Uint8Array;
+  encryptionKeys: readonly Uint8Array[];
   namespace?: string;
   previews?: boolean;
 }): DatabaseEnvStore {
-  if (options.encryptionKey.byteLength !== 32) throw envBridgeError("invalid");
+  if (!options.encryptionKeys.length || options.encryptionKeys.some((key) => key.byteLength !== 32))
+    throw envBridgeError("invalid");
   const namespace = options.namespace ?? "default";
-  const encryptionKey = importSealKey(options.encryptionKey);
+  let keyring: Promise<StoreKey[]> | undefined;
+  const keys = () =>
+    (keyring ??= Promise.all(
+      options.encryptionKeys.map(async (key) => ({ id: await sealKeyId(key), key: await importSealKey(key) })),
+    ));
+  async function seal(key: string, revision: string, value: string): Promise<string> {
+    const [current] = await keys();
+    return `v2:${current!.id}:${await sealWithKey(current!.key, aad(key, revision), value)}`;
+  }
+  async function unseal(key: string, revision: string, payload: string): Promise<string> {
+    const additionalData = aad(key, revision);
+    if (payload.startsWith("v2:")) {
+      const id = payload.slice(3, 19);
+      const match = (await keys()).find((candidate) => candidate.id === id);
+      if (!match)
+        throw new ViteHubError(
+          "SEAL_INVALID",
+          `No configured encryption key has the key id ${id}. Add the key that sealed this value to the keyring.`,
+        );
+      return await unsealWithKey(match.key, additionalData, payload.slice(20));
+    }
+    // A legacy value has no key id. Try the current key, then each previous key.
+    let failure: unknown;
+    for (const candidate of await keys()) {
+      try {
+        return await unsealWithKey(candidate.key, additionalData, payload);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    throw failure;
+  }
   let ready: Promise<void> | undefined;
   const initialize = () =>
     (ready ??= createEnvTables(options.db).catch((error: unknown) => {
@@ -130,6 +191,31 @@ export function createDatabaseEnvStore(options: {
     return new TextEncoder().encode(JSON.stringify([namespace, key, revision]));
   }
   return {
+    async rotate() {
+      await initialize();
+      const [current] = await keys();
+      const rows = await options.db.all(
+        sql`SELECT key, payload, revision FROM vitehub_env_secrets WHERE namespace = ${namespace} ORDER BY key`,
+      );
+      let rotated = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const stored = v.parse(rotationRow, row);
+        if (stored.payload.startsWith(`v2:${current!.id}:`)) {
+          skipped++;
+          continue;
+        }
+        const value = await unseal(stored.key, stored.revision, stored.payload);
+        const payload = await seal(stored.key, stored.revision, value);
+        // The row must still hold the value that was read. A write in between wins and already uses the current key.
+        const written = await options.db.all(
+          sql`UPDATE vitehub_env_secrets SET payload = ${payload} WHERE namespace = ${namespace} AND key = ${stored.key} AND revision = ${stored.revision} AND payload = ${stored.payload} RETURNING key`,
+        );
+        if (written.length) rotated++;
+        else skipped++;
+      }
+      return { rotated, skipped };
+    },
     async revisionCondition(key, revision) {
       await initialize();
       return revision === null
@@ -172,14 +258,14 @@ export function createDatabaseEnvStore(options: {
       async read(key) {
         const stored = await row(key);
         if (!stored) return;
-        const value = await unsealWithKey(await encryptionKey, aad(key, stored.revision), stored.payload);
+        const value = await unseal(key, stored.revision, stored.payload);
         return { value, revision: stored.revision };
       },
       async replace({ key, value, expectedRevision }) {
         await initialize();
         const revision = crypto.randomUUID();
         const updatedAt = new Date().toISOString();
-        const payload = await sealWithKey(await encryptionKey, aad(key, revision), value);
+        const payload = await seal(key, revision, value);
         const preview =
           options.previews && value.length > 12 && /^[A-Za-z0-9_.-]+$/.test(value)
             ? `${value.slice(0, 4)}••••${value.slice(-4)}`

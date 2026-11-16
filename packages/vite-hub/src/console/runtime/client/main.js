@@ -8,6 +8,7 @@ import { createApp, watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
+const ConsoleAppSettings = () => import("../components/console-app-settings.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleCache = () => import("../components/console-cache.vue");
@@ -68,6 +69,7 @@ if (account) {
         view("shell", () => import("../components/console-account-shell.vue")),
         // A page with its own data starts that load too, so the first paint after the frame is the whole page.
         ...(/^\/team\/?$/.test(window.location.pathname) ? [view("team", () => import("../components/console-account-team.vue")), import("./account").then(module => module.earlyConsoleTeam.start(), () => undefined)] : []),
+        ...(/^\/team-settings\/?$/.test(window.location.pathname) ? [view("teamSettings", () => import("../components/console-account-team-settings.vue"))] : []),
         ...(/^\/env\/?$/.test(window.location.pathname) ? [view("env", () => import("../components/console-account-env.vue"))] : []),
         ...(/^\/settings\/?$/.test(window.location.pathname) ? [view("settings", () => import("../components/console-account-settings.vue")), import("./account").then(module => module.earlyConsoleSignInState.start(), () => undefined)] : []),
       ]
@@ -166,6 +168,13 @@ const router = createRouter({
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
+    },
+    {
+      component: ConsoleAppSettings,
+      name: "vitehub-console-app-settings",
+      path: "/app-settings/:section(primitives|connection|danger)?",
+      meta: { title: "Settings · ViteHub Console" },
+      props: { sectionsBase },
     },
     {
       component: ConsoleApp,

@@ -1,5 +1,8 @@
 import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
+import { createWorkflowError } from "../errors.ts"
+
+import { fromCloudflareStartParams } from "./delay.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
@@ -20,7 +23,9 @@ export interface RunCloudflareWorkflowOptions {
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep
+  step?: WorkflowProviderStep & {
+    sleepUntil?: (name: string, timestamp: Date | number) => Promise<void>
+  }
 }
 
 /** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */
@@ -73,11 +78,19 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       throw workflowErrorDiagnostics.WORKFLOW_R0015({ message: `Missing workflow definition: ${name}` })
     }
 
+    // A delayed start sleeps first. A sleeping instance does not count toward the concurrency limit. On replay, the
+    // finished sleep returns at once.
+    const { payload, startAt } = fromCloudflareStartParams(event?.payload)
+    if (startAt !== undefined) {
+      if (!step?.sleepUntil) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "cloudflare" } })
+      await step.sleepUntil("vitehub-delay", new Date(startAt))
+    }
+
     try {
       return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runSerializedWorkflowHandler({
         id: event?.instanceId || event?.id,
         name,
-        payload: event?.payload,
+        payload,
         provider: "cloudflare",
         step: providerStep,
       }, definition))

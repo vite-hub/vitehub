@@ -41,13 +41,6 @@ const contentRuntimeFeatures = contentCli?.createContentCliContributor().namespa
   features: namespace.features.filter(feature => feature.name === "check"),
 })) ?? []
 
-// `env pull` reads a Console with the key of `vitehub login`, so it does not load the project. `env inspect` and
-// `env check` still do. The setup module loads Babel, so only `env pull` imports it.
-const envRuntimeFeatures: ViteHubCliCommandNamespace = {
-  features: [{ name: "pull", run: async (args, context) => (await import("@vite-hub/cli/setup")).envPullFeature.run(args, context) }],
-  name: "env",
-}
-
 const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
   description: "Generate and derive app secrets without loading project configuration.",
   features: secretCliFeatures,
@@ -63,6 +56,6 @@ runViteHubCliEntrypoint({
   },
   // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
   // server files that they generate make the running dev server rebuild while the command waits for its answer.
-  runtimeFeatures: [agentRuntimeFeatures, envRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? [], ...contentRuntimeFeatures],
+  runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? [], ...contentRuntimeFeatures],
   runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
 })
