@@ -40,16 +40,22 @@ createApp(App).mount('#app')
 ::tutorial-step{title="Name the account"}
 ## Name the account
 
-The device keeps the copies of one account. Tell it who is signed in, each time your app learns it:
+The device keeps the copies of one account. Read the session with `useStoredData()` and give it `account`, so each answer names who is signed in:
 
-```ts [src/session.ts]
-import { setDeviceAccount } from 'vite-hub/device'
+```ts [src/composables/useSession.ts]
+import { useStoredData } from 'vite-hub/device/vue'
 
-const session = await fetch('/api/session').then(response => response.json() as Promise<{ user: { id: string } | null }>)
-await setDeviceAccount(session.user?.id ?? null)
+export function useSession() {
+  return useStoredData('session', () =>
+    fetch('/api/session').then(response => response.json() as Promise<{ user: { id: string } | null }>), {
+    account: session => session.user?.id ?? null,
+  })
+}
 ```
 
-The device stores only the answers of loader calls that start after this call. A read that started before shows its answer, and calls its loader again when the page names the account. If your app knows the account before it mounts, such as from the HTML, name it before `mount()`, so each read calls its loader once. Another account, or `null` after a sign-out, deletes every copy.
+Call `useSession()` in `App.vue`. The answer of the session read is stored under its account, and the next visit shows it at once. The other reads store only the answers of loader calls that start after the session answered. A read that started before shows its answer, and calls its loader again. Another account, or `null` after a sign-out, deletes every copy. A stored copy of the session names nothing: only an answer of the server does.
+
+If your app knows the account another way, such as from the HTML or an auth client, call `setDeviceAccount(id)` instead.
 
 ::
 

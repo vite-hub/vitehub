@@ -29,7 +29,7 @@ createApp(App).mount('#app')
 
 ## `setDeviceAccount()`
 
-Names the signed-in account. Call it each time your app learns who is signed in, and with `null` after a sign-out:
+Names the signed-in account. When a read says who is signed in, give it the `account` option of [`useStoredData()`](#usestoreddata) instead. Call `setDeviceAccount()` when your app learns the account another way, such as from the HTML or an auth client, and with `null` after a sign-out:
 
 ```ts [src/session.ts]
 import { setDeviceAccount } from 'vite-hub/device'
@@ -91,6 +91,7 @@ const { data: project, status, error, refresh, storedAt } = useStoredData(
 | --- | --- | --- |
 | `default` | `() => undefined` | The value when the device has no copy. |
 | `maxAge` | 7 days | A stored copy that is older does not show, and the disk deletes it at the next `openDevice()` or write. In milliseconds. |
+| `account` | none | For the read that says who is signed in, such as `/api/session`: returns the account of an answer, or `null` when nobody is signed in. Each answer names its account, as `setDeviceAccount()` does, and is stored under it, also though its call started before the naming. The read keeps its answer and does not call its loader again. A stored copy and a failed call name nothing. An answer whose call started before another account, a sign-out, or a clear names nothing, and the read calls its loader again. |
 
 | Field | Holds |
 | --- | --- |

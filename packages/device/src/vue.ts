@@ -1,6 +1,6 @@
 import { computed, getCurrentInstance, getCurrentScope, onMounted, onScopeDispose, shallowRef, toValue, watch } from "vue"
 
-import { checkKey, checkMaxAge, currentDevice } from "./device.ts"
+import { checkAccount, checkKey, checkMaxAge, currentDevice } from "./device.ts"
 
 import type { MaybeRefOrGetter, Ref, ShallowRef } from "vue"
 import type { Device } from "./device.ts"
@@ -8,11 +8,17 @@ import type { Device } from "./device.ts"
 /** `idle` on the server and before the loader starts, `pending` while the loader runs, then `success` or `error`. */
 export type StoredDataStatus = "idle" | "pending" | "success" | "error"
 
-export interface UseStoredDataOptions<TDefault> {
+export interface UseStoredDataOptions<TData, TDefault> {
   /** The value before the first answer, when the device has no copy. */
   default?: () => TDefault
   /** The age in milliseconds after which a stored copy does not show. 7 days by default. */
   maxAge?: number
+  /**
+   * The account that an answer belongs to, or `null` when nobody is signed in. Give it to the read that says who is
+   * signed in, such as `/api/session`: each answer names its account, as `setDeviceAccount()` does, and is stored under
+   * it. A stored copy and a failed call name nothing.
+   */
+  account?: (value: TData) => string | null
 }
 
 /**
@@ -51,11 +57,15 @@ interface SharedRead {
   loader: (context: StoredDataContext) => Promise<unknown>
   fallback: () => unknown
   maxAge: number
+  /** The account of an answer, for the read that says who is signed in. */
+  account: ((value: unknown) => string | null) | undefined
 }
 
 const week = 7 * 24 * 60 * 60 * 1000
 const reads = new Map<string, SharedRead>()
 let watching = false
+/** The read whose answer names the account right now. It keeps its answer, and does not start over. */
+let claiming: SharedRead | undefined
 
 /**
  * Follows the device: a copy that loads late shows, a naming of the account calls every loader again, and a reset starts
@@ -73,6 +83,7 @@ function watchDevice(device: Device): void {
       return
     }
     for (const read of reads.values()) {
+      if (read === claiming) continue
       // Another account, a sign-out, or a clear: the read shows its default, also when its loader answered.
       if (event.type === "reset") {
         read.answered = false
@@ -107,12 +118,21 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     const value = await loader({ signal: controller.signal })
     // A newer call, the release of the read, or a change of the epoch came first.
     if (controller.signal.aborted || device.epoch() !== since) return
+    const account = read.account?.(value)
+    if (read.account) checkAccount(account)
     read.answered = true
     read.data.value = value
     read.storedAt.value = undefined
     read.error.value = undefined
     read.status.value = "success"
-    device.write(read.key, value, read.maxAge, since)
+    if (account === undefined) return device.write(read.key, value, read.maxAge, since)
+    claiming = read
+    try {
+      device.claim(read.key, value, read.maxAge, since, account)
+    }
+    finally {
+      claiming = undefined
+    }
   }
   catch (error) {
     if (controller.signal.aborted || device.epoch() !== since) return
@@ -122,7 +142,7 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
 }
 
 /** Returns the shared read of `key`. A new read calls its loader at once, unless `start` is `false`: then it stays `idle`. */
-function acquire(key: string, loader: (context: StoredDataContext) => Promise<unknown>, fallback: () => unknown, maxAge: number, device: Device, start = true): SharedRead {
+function acquire(key: string, loader: (context: StoredDataContext) => Promise<unknown>, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, start = true): SharedRead {
   const existing = reads.get(key)
   if (existing) {
     existing.users++
@@ -140,6 +160,7 @@ function acquire(key: string, loader: (context: StoredDataContext) => Promise<un
     loader,
     fallback,
     maxAge,
+    account,
   }
   read.data.value = fallback()
   show(read, device)
@@ -177,10 +198,12 @@ function release(read: SharedRead): void {
 export function useStoredData<TData, TDefault = undefined>(
   key: MaybeRefOrGetter<string>,
   loader: (context: StoredDataContext) => Promise<TData>,
-  options: UseStoredDataOptions<TDefault> = {},
+  options: UseStoredDataOptions<TData, TDefault> = {},
 ): UseStoredDataReturn<TData, TDefault> {
   const maxAge = checkMaxAge(options.maxAge ?? week)
   const fallback: () => unknown = options.default ?? (() => undefined)
+  // SAFETY: the loader of the read answers `TData`, and only its answers reach `account`.
+  const account = options.account as SharedRead["account"]
   const device = currentDevice()
   if (!device) {
     checkKey(toValue(key))
@@ -195,7 +218,7 @@ export function useStoredData<TData, TDefault = undefined>(
   watchDevice(device)
   // Before `openDevice()`, the first render must match a server render: the default, and `idle`.
   const deferred = !device.opened() && getCurrentInstance() !== null
-  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, device, !deferred))
+  const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, !deferred))
   if (deferred) {
     onMounted(() => {
       if (current.value.status.value === "idle") void load(current.value, loader, device)
@@ -204,7 +227,7 @@ export function useStoredData<TData, TDefault = undefined>(
   if (typeof key !== "string") {
     watch(() => toValue(key), (next) => {
       const previous = current.value
-      current.value = acquire(checkKey(next), loader, fallback, maxAge, device)
+      current.value = acquire(checkKey(next), loader, fallback, maxAge, account, device)
       release(previous)
     })
   }
