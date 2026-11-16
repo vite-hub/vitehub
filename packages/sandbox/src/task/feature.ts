@@ -1,3 +1,4 @@
+import { invariant } from '@vite-hub/internal/invariant'
 import { createImportPath } from '@vite-hub/internal/build/paths'
 import { hostFromNitroPreset } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
@@ -308,8 +309,7 @@ export async function createSandboxTaskFeaturePlan(
         getContents(emitted, location) {
           return createSandboxTaskRegistryContents(location.dst, sandboxTaskDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
-            if (!artifact)
-              throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0014({ message: `[vitehub] Missing generated sandbox definition module for "${definition.name}".` })
+            invariant(artifact, `the Sandbox Task plan emits the Definition artifact of "${definition.name}" before the registry artifact`)
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,
