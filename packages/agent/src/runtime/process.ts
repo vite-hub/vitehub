@@ -29,7 +29,10 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
-  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  /**
+   * Invocations that run on other hosts and do not take this queue. They count toward concurrency but
+   * reserve no local memory.
+   */
   remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
@@ -146,10 +149,11 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
       const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
         ? remoteActive
         : 0
-      const localActive = Math.max(0, context.active - validRemoteActive)
-      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
+      // Remote invocations do not take this queue, so every active invocation is local. Remote ones
+      // still hold concurrency slots.
+      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
-      const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
+      const concurrency = Math.max(0, Math.min(context.concurrency - validRemoteActive, memoryConcurrency))
       return concurrency > context.active
         ? { concurrency, reason: `capacity available (${formatBytes(availableMemory)} memory headroom)` }
         : { concurrency, reason: `waiting for capacity (${formatBytes(availableMemory)} memory headroom)` }

@@ -216,7 +216,8 @@ function packageNameOf(root: string): string {
 /** The files of a new Vite app, as `fixtures/docs-hosts/installation` has them. */
 function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    ".gitignore": "node_modules\n.output\n.vitehub\n.env\n",
+    // `.env*` keeps stage files such as `.env.production` out of git. `.env.example` lists the names without values.
+    ".gitignore": "node_modules\n.output\n.vitehub\n.env*\n!.env.example\n",
     "package.json": `${JSON.stringify({
       name,
       private: true,

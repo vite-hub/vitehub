@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { finalizeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
+import { collectDeploymentEnv, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "../src/build/deployment-plan-output.ts"
 import {
   assertDeploymentService,
   hostFromNitroPreset,
@@ -154,6 +154,59 @@ describe("built-in deployment plans", () => {
     await writeFile(entry, "export {}\n", "utf8")
     await finalizeDeploymentPlanOutput({ plan, rootDir })
     expect(JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))).not.toHaveProperty("env")
+  })
+  it("collects the names that plugins contribute for the host and joins repeated names", () => {
+    const hosts: string[] = []
+    const plugins = [
+      { name: "env", api: { deploymentEnv: () => [{ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }] } },
+      { name: "blob", api: { deploymentEnv: ({ host }: { host: string }) => {
+        hosts.push(host)
+        return [
+          { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+          { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+        ]
+      } } },
+      { name: "no-api" },
+      { name: "other-api", api: { getConfig: () => ({}) } },
+      null,
+    ]
+
+    const entries = mergeDeploymentEnv(collectDeploymentEnv(plugins, { host: "vercel" }))
+
+    expect(hosts).toEqual(["vercel"])
+    expect(entries).toEqual([
+      { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["env", "blob"] },
+      { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+    ])
+  })
+  it("keeps a Server Env declaration apart from a primitive entry with the same names", () => {
+    const declared = { path: "env.server.secret", names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false }
+    const primitive = { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }
+    expect(mergeDeploymentEnv([declared, primitive])).toEqual([declared, primitive])
+  })
+  it("records prefixes and owners, and drops names that are not host variable names", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-prefix-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+
+    await finalizeDeploymentPlanOutput({
+      env: [
+        { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+        { names: ["libsql://canary-value-7c1f.turso.io"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+        { names: ["TURSO_AUTH_TOKEN", "canary value"], required: false, secret: true, hasDefault: false, owners: ["Database Owner"] },
+      ],
+      plan,
+      rootDir,
+    })
+
+    const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
+    expect(JSON.parse(text).env).toEqual([
+      { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+      { names: ["TURSO_AUTH_TOKEN"], required: false, secret: true, hasDefault: false },
+    ])
+    expect(text).not.toContain("canary")
   })
   it("uses Netlify's deployment root above its Nitro output directory", async () => {
     const rootDir = await temporaryDirectory("vitehub-plan-netlify-output-")
