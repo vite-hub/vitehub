@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
       :actions="emptyState ? (emptyState.action ? [{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: () => { search = ''; state = 'all'; filters = {} } }] : []) : collection.access.write ? [{ label: 'New document', icon: 'i-lucide-plus', onClick: create }] : []"
     />
     <table v-if="items.length || loading" class="w-full table-fixed text-left" aria-label="Documents">
-      <thead class="sticky top-0 z-10 bg-default text-xs text-muted shadow-[inset_0_-1px_0_var(--ui-border)]">
+      <thead class="sticky top-0 z-10 bg-default text-xs text-muted shadow-[inset_0_-1px_0_var(--border)]">
         <tr class="h-9">
           <th v-if="collection.access.publish" class="w-10 ps-4 font-medium">
             <UCheckbox :model-value="allSelected" :disabled="loading || publishing" aria-label="Select every document on this page" @update:model-value="toggleAll" />

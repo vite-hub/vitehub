@@ -745,7 +745,9 @@ describe("docs search checks", () => {
       route: `/${name}`,
       contents: `<html><head><title>Docs ${name} overview</title>
         <meta name="description" content="Read the ${name} overview for practical steps to build, configure, and publish your documentation site.">
-        <link rel="canonical" href="http://docs.invalid${appBase}${name}"></head>
+        <link rel="canonical" href="http://docs.invalid${appBase}${name}">
+        <meta property="og:title" content="Docs ${name} overview"><meta property="og:type" content="article">
+        <meta property="og:image" content="http://docs.invalid/og.png"><meta property="og:url" content="http://docs.invalid${appBase}${name}"></head>
         <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
         <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
     }))

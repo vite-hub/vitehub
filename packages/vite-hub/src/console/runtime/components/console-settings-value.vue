@@ -34,7 +34,7 @@ async function copyValue(): Promise<void> {
 .vitehub-settings-value {
   align-items: center;
   background: var(--ui-bg-muted);
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   border-radius: 0.375rem;
   display: flex;
   font-size: 0.875rem;
