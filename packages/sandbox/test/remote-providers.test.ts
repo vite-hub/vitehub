@@ -277,7 +277,12 @@ describe("remote Sandbox providers", () => {
   });
 
   it("bounds remote requirement checks with their configured timeout", async () => {
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    let finish!: () => void;
+    const stub = cloudflareStub(async () => {
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
+    });
+    stub.cancelExec = async () => finish();
     const sandbox = await resolveSandbox({
       requires: [{ command: "node", timeout: 20 }],
       runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
@@ -608,13 +613,15 @@ describe("remote Sandbox providers", () => {
 
   it("cancels only the aborted Cloudflare command, not the Sandbox", async () => {
     const execIds: Array<string | undefined> = [];
+    let finish!: () => void;
     const stub = cloudflareStub(async (_command, options) => {
       execIds.push(options?.id);
-      return await new Promise<never>(() => {});
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
     });
     const destroy = vi.fn(async () => {});
     stub.destroy = destroy;
-    stub.cancelExec = vi.fn(async () => {});
+    stub.cancelExec = vi.fn(async () => finish());
     const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await sandbox.open();
     const controller = new AbortController();

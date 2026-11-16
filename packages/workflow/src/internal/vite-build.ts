@@ -212,7 +212,8 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
   return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
-export async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
+/** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   const plugin = builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
@@ -222,7 +223,7 @@ export async function createVercelWorkflowTransformPlugin(rootDir: string): Prom
     setup: build => plugin.setup({
       ...build,
       // Workflow and step IDs are paths relative to this directory. Match the native Workflow build, not the process directory.
-      initialOptions: { ...build.initialOptions, absWorkingDir: rootDir },
+      initialOptions: { ...build.initialOptions, absWorkingDir: idRoot },
       onLoad: (options, callback) => build.onLoad(options, async (args) => {
         const source = await readFile(args.path, "utf8")
         return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
