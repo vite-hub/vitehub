@@ -16,12 +16,16 @@ export interface ViteHubCliStreams {
 export interface ViteHubCliSpawnResult {
   exitCode: number | null
   signal?: NodeJS.Signals | null
+  /** The output of the child when `stdout` is `pipe`. */
+  stdout?: string
 }
 
 export interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
+  /** `ignore` gives the child no terminal input, so a tool that asks questions on a terminal does not ask. */
+  stdin?: "ignore" | "inherit"
   /** `stderr` sends the child's stdout to the parent's stderr, so the parent's stdout keeps only its own output. */
   stdout?: "inherit" | "pipe" | "stderr"
 }

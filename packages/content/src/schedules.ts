@@ -100,13 +100,13 @@ export interface ContentPublishDueResult {
   failed: ContentSchedule[]
 }
 
-/** Internal control flow used when an expired schedule is cancelled in flight. */
-// Internal invariant: internal control flow. The scheduler catches it when it cancels an expired schedule.
-export class ContentScheduleCancelled extends Error {
-  constructor() {
-    super("Content schedule was cancelled while publishing.")
-    this.name = "ContentScheduleCancelled"
-  }
+/** The error that ends the publish of a schedule that `unschedule()` cancelled in flight. The runner skips it. */
+export function contentScheduleCancelled(): Error {
+  return contentErrorDiagnostics.CONTENT_SCHEDULE_CANCELLED()
+}
+
+function isContentScheduleCancelled(error: unknown): boolean {
+  return Reflect.get(Object(error), "code") === "CONTENT_SCHEDULE_CANCELLED"
 }
 
 /** The schedule `status()` reports for a document: its pending or overdue one, or else a failed one. */
@@ -433,7 +433,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
           })
         }
         catch (error) {
-          if (error instanceof ContentScheduleCancelled) continue
+          if (isContentScheduleCancelled(error)) continue
           failure = failureOf(error, new Date().toISOString())
           // Anything else, such as an unavailable store, leaves the schedule pending for the next run.
           if (!failure) {

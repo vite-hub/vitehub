@@ -14,7 +14,7 @@ In this tutorial, you add a playground page to a Vite app. The page boots a WebC
 ## Install the package
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/web-container
+pnpm add vite-hub @vite-hub/web-container
 ```
 
 ## Make the page cross-origin isolated
@@ -42,7 +42,7 @@ Production needs the same headers. [Configure](/docs/web-container/configure#set
 Create the script of the playground page. It mounts two files, installs, and starts the `dev` script:
 
 ```ts [src/playground.ts]
-import { bootWebContainer } from "@vite-hub/web-container"
+import { bootWebContainer } from "vite-hub/web-container"
 
 const container = await bootWebContainer({
   files: {

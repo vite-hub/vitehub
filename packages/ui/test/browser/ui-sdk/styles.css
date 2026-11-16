@@ -1,0 +1,13 @@
+/* The kit style family between the base styles and the parts' own layer, as the kit README asks. */
+@layer theme, base, comark, ui-sdk, components, utilities;
+@import "../../../../kit/src/styles/tokens.css";
+@import "../../../../kit/src/styles/default.css";
+@import "../../../styles.css";
+
+main {
+  display: grid;
+  gap: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}

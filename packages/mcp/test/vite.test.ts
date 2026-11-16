@@ -97,6 +97,17 @@ describe("hubMcp", () => {
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/discovery.ts"), "utf8")).toContain("serveMcpOAuthDiscovery")
   })
 
+  it("checks a token when there is one and answers OAuth discovery with auth: \"optional\"", () => {
+    const root = app({ "server/mcp/tools/add.ts": tool })
+    const { config } = configure(root, { auth: "optional" })
+    expect(config.nitro?.handlers).toEqual([
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+    ])
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    expect(entry).toContain("verify: request => verifyMcpRequest(request),\n  optional: true,")
+  })
+
   it("does not import or inspect tools excluded by the host", async () => {
     const root = app({ "server/mcp/tools/excluded.ts": tool })
     const { plugin } = configure(root, { auth: false }, { [VITEHUB_SERVER_DIRS]: [] })
@@ -200,6 +211,7 @@ describe("hubMcp", () => {
 
   it("rejects publicRoute without auth, because every tool on route is public then", () => {
     expect(() => hubMcp({ auth: false, publicRoute: "/mcp", route: "/mcp/account" })).toThrow(expect.objectContaining({ name: "MCP_B0003" }))
+    expect(() => hubMcp({ auth: "optional", publicRoute: "/mcp", route: "/mcp/account" })).toThrow(expect.objectContaining({ name: "MCP_B0003" }))
   })
 
   it("rejects a route that is not a path", () => {

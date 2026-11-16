@@ -237,6 +237,22 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
   }
 })
 
+it("leaves /sitemap.xml and /robots.txt to the app when it serves them with appSeo", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ access: "public", seo: { sitemap: true, robots: true, rss: true } })')
+    const routes = async (appSeo?: { sitemap?: boolean, robots?: boolean }) => (await prepareSourceGeneration({ projectRoot, ...appSeo ? { appSeo } : {} })).flatMap(handler => handler.route ?? []).filter(route => ["/robots.txt", "/rss.xml", "/sitemap.xml"].includes(route)).sort()
+    expect(await routes()).toEqual(["/robots.txt", "/rss.xml", "/sitemap.xml"])
+    expect(await routes({ robots: true })).toEqual(["/rss.xml", "/sitemap.xml"])
+    expect(await routes({ sitemap: true, robots: true })).toEqual(["/rss.xml"])
+    await expect(access(join(projectRoot, ".vitehub/content/sitemap.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it("adds no GitHub push webhook route without a github() Source", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": `import { defineContent } from "vite-hub/content"\nimport { glob } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: glob("docs/**/*.md") } })\n`,
@@ -279,7 +295,7 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
     expect(await read("robots.mjs")).not.toContain("useAuth")
     // Entries that load when the server starts import Auth on the first request that asks.
     const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
-    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
     expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
     expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
   }

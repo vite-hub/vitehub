@@ -92,6 +92,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown-ui",
+    "@mdream/js": "catalog:markdown",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",

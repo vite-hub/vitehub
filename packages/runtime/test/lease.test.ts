@@ -183,9 +183,11 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
     let pending: Promise<unknown> | undefined
     try {
       await blocker.unsafe(`select "key" from ${leaseTable} where "key" = 'blocked-job' for update`)
+      // Longer than the first lease, so a renew that changes nothing cannot pass.
+      const ttl = 60
       const result = (async () => {
-        if (operation === "acquire") return ok(await store.acquire("blocked-job", { ttl: 0.2 }))
-        expect(ok(await original.renew({ ttl: 0.2 }))).toBe(true)
+        if (operation === "acquire") return ok(await store.acquire("blocked-job", { ttl }))
+        expect(ok(await original.renew({ ttl }))).toBe(true)
         return original
       })()
       pending = result
@@ -195,12 +197,15 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
         return row!.blocked
       }).toBe(true)
       await observer.unsafe("select pg_sleep(0.7)")
+      // The lease statement gets the row lock only after this commit. Compare against this database clock reading, not
+      // the time of a later read, so a slow runner cannot fail the check.
+      const [released] = await blocker.unsafe("select (extract(epoch from clock_timestamp()) * 1000)::bigint as now")
       await blocker.unsafe("commit")
 
       const held = await result
       expect(held).not.toBeNull()
-      const [row] = await observer.unsafe(`select id, expires_at - (extract(epoch from clock_timestamp()) * 1000)::bigint as remaining from ${leaseTable} where "key" = 'blocked-job'`)
-      expect(Number(row!.remaining)).toBeGreaterThan(0)
+      const [row] = await observer.unsafe(`select id, expires_at from ${leaseTable} where "key" = 'blocked-job'`)
+      expect(Number(row!.expires_at) - Number(released!.now)).toBeGreaterThanOrEqual(ttl * 1000)
       expect(row!.id).toBe(held!.id)
       expect(ok(await store.get("blocked-job"))).toMatchObject({ id: held!.id, expiresAt: held!.expiresAt })
       expect(ok(await store.acquire("blocked-job", { ttl: 30 }))).toBeNull()

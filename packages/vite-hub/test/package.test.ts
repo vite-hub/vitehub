@@ -95,7 +95,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/sessions",
   // The Console reads the hashed entry names of the prebuilt Console app.
   "@vite-hub/console-client/manifest.json",
-  "@vite-hub/comments/testing",
   // Comments imports the guard of public writes; apps use defineForm().
   "@vite-hub/forms/guard",
   "@vite-hub/agent/cloudflare/state",
@@ -104,25 +103,17 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/observability/posthog",
   "@vite-hub/blob/served",
   "@vite-hub/comments/client",
-  "@vite-hub/comments/testing",
   "@vite-hub/sandbox/ssh",
   "@vite-hub/database/config",
   "@vite-hub/database/connect",
   "@vite-hub/database/connect/node",
-  "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   // Build tools and page scripts read a preview's repository and commit; apps call useForge() from vite-hub/forge.
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
-  // Share links and zips with no UI, and the design system that apps load from nuxt.config and CSS.
+  // Pages read it as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
   "@vite-hub/ui/comment-marks.css",
-  "@vite-hub/ui/playground",
-  "@vite-hub/ui/theme",
-  "@vite-hub/ui/theme.css",
-  "@vite-hub/ui/workspace",
-  "@vite-hub/web-container/env",
-  "@vite-hub/web-container/snapshot",
   "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
@@ -315,6 +306,7 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
+      "./seo",
       "./skills",
       "./test",
     ]);
@@ -789,6 +781,7 @@ describe("framework package contract", () => {
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
         "/_vitehub",
+        "/_vitehub/**",
         "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {

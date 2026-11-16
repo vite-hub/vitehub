@@ -1,0 +1,9 @@
+{
+  "rawErrors": {
+    "packages/ui/src/internal/icon-shapes.ts": 2
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/ui/src/standalone/vite.ts": 1
+  }
+}

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { GitHubPullRequestOperations } from "../src/github/index.ts"
 import { resolveAgentCapabilities } from "../../agent/src/capability-runtime.ts"
 import { repairCapability } from "../src/babysitter/repair.ts"
-import { GitHubWorkspaceInstallError } from "../src/github/install.ts"
+import { githubWorkspaceInstallError } from "../src/github/install.ts"
 
 function operations() {
   const mention = vi.fn(async () => {})
@@ -49,13 +49,13 @@ describe("Babysitter repair capability", () => {
     expect(refreshDependencies).toHaveBeenCalledTimes(1)
     expect(charges).toBe(1)
 
-    const failing = vi.fn(async () => { throw new GitHubWorkspaceInstallError(new Error("ECONNRESET"), true) })
+    const failing = vi.fn(async () => { throw githubWorkspaceInstallError(new Error("ECONNRESET"), true) })
     // SAFETY: The repair capability calls only refreshDependencies in this test.
     const retryable = await resolveTools(repairCapability({ refreshDependencies: failing } as unknown as GitHubPullRequestOperations, false, [], undefined, workspace))
     await expect(retryable?.refreshDependencies?.execute?.({})).rejects.toThrow(/ECONNRESET/)
     expect(charges).toBe(1)
 
-    const defect = vi.fn(async () => { throw new GitHubWorkspaceInstallError(new Error("ERR_PNPM_OUTDATED_LOCKFILE"), false) })
+    const defect = vi.fn(async () => { throw githubWorkspaceInstallError(new Error("ERR_PNPM_OUTDATED_LOCKFILE"), false) })
     // SAFETY: The repair capability calls only refreshDependencies in this test.
     const rejected = await resolveTools(repairCapability({ refreshDependencies: defect } as unknown as GitHubPullRequestOperations, false, [], undefined, workspace))
     await expect(rejected?.refreshDependencies?.execute?.({})).rejects.toThrow(/OUTDATED_LOCKFILE/)

@@ -80,6 +80,8 @@ export interface GeneratedSourcePlugin {
 export interface SourceGenerationOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes. Requires the Auth Vite plugin. */
   auth?: boolean
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
   projectRoot: string
@@ -89,6 +91,8 @@ export interface SourceGenerationOptions {
 export interface SourceVitePluginOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes when the Auth Vite plugin has a Definition. */
   auth?: boolean | ((input: { projectRoot: string, serverDirs?: string[] }) => boolean)
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
 }
@@ -634,13 +638,16 @@ async function writeContentArtifact(
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
-  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  const inspected = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  // `vitehub({ seo })` serves these routes for the whole app and lists the Content pages there.
+  const features = { ...inspected, ...options.appSeo?.sitemap ? { sitemap: false } : {}, ...options.appSeo?.robots ? { robots: false } : {} }
   // With Auth, every reader of published Content passes the session user of each request to `authorize` for
   // `action: "read"`. Entries that load when the server starts import Auth on the first request that asks.
   const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
   const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []
   const readerOptions = options.auth ? `, { user: ${sessionUser("useAuth")} }` : ""
-  const lazyReaderOptions = options.auth ? `, { user: ${sessionUser(`(await import(${JSON.stringify(authServerModuleId)})).useAuth`)} }` : ""
+  const lazyUser = options.auth ? `user: ${sessionUser(`(await import(${JSON.stringify(authServerModuleId)})).useAuth`)}` : ""
+  const lazyReaderOptions = lazyUser ? `, { ${lazyUser} }` : ""
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
     ...authImport,
@@ -739,12 +746,14 @@ async function writeContentArtifact(
   }
   // `seo: { markdown }` serves copies at every page URL plus `.md`, which no Nitro route pattern matches, so they are
   // middleware. It loads when the server starts, because it reads the response of later handlers for the Markdown 404.
-  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown.
+  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown
+  // or gets an HTML page. `seo: { markdown: { pages: true } }` renders other pages through Nitro, without a network hop.
   if (features.markdown) {
     await writeFileIfChanged(markdown, [
       `import { defineContentMarkdownHandler } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/markdown`)}`,
+      `import { serverFetch } from "nitro"`,
       "",
-      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default)${lazyReaderOptions})`,
+      `export default defineContentMarkdownHandler(() => import(${contentModule}).then(module => module.default), { render: request => serverFetch(request)${lazyUser ? `, ${lazyUser}` : ""} })`,
       "",
     ].join("\n"))
     handlers.push({ handler: markdown, middleware: true, lazy: false, route: "/**" })
@@ -826,7 +835,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): Promise<void> }
   vitehub: ViteHubInspectionPluginMetadata
@@ -861,7 +870,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     projectRoot?: string
   }>()
   const prepareSources = (
-    input: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">,
+    input: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">,
   ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
@@ -872,6 +881,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return prepareSourceArtifacts({
         ...input,
         auth,
+        ...options.appSeo ? { appSeo: options.appSeo } : {},
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
       }).then(({ content, handlers }) => {

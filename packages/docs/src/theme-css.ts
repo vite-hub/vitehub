@@ -19,7 +19,7 @@ function readTheme(file: string): postcss.Root {
 }
 
 // The shadcn/ui names that theme.css sets and its Nuxt UI and ViteHub tokens read.
-const shadcnTokens = new Set(["--background", "--foreground", "--muted", "--muted-foreground", "--border", "--primary", "--popover", "--ring", "--radius"])
+const shadcnTokens = new Set(["--background", "--foreground", "--muted", "--muted-foreground", "--border", "--primary", "--popover", "--ring", "--radius", "--primary-foreground", "--input", "--destructive", "--overlay", "--popover-foreground", "--shadow-popover", "--shadow-dialog"])
 
 /** The shared design system on docs pages inside an app, without changing the app's Tailwind font theme or primary. */
 export function docsThemeCss(file: string): string {

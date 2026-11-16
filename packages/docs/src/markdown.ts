@@ -85,6 +85,8 @@ const tagKey = (tag: string) => tag.replaceAll("-", "").toLowerCase()
 const vueBlocks = comarkUi()
 const vueTags = new Set([...Object.keys(vueBlocks.components), ...vueBlocks.tags].map(tagKey))
 const htmlOnly = new Set(Object.keys(htmlBlocks).filter(tag => !vueTags.has(tagKey(tag))))
+// A chart's notes and targets are comark-annotate marks, which only the HTML renderer draws.
+const drawsAsHtml = (node: ElementNode) => htmlOnly.has(node[0]) || (node[0] === "chart" && Array.isArray(node[1].marks) && node[1].marks.length > 0)
 
 const isElement = (node: ComarkNode): node is ElementNode => Array.isArray(node) && typeof node[0] === "string"
 // A block such as `:suggestion` can sit in a paragraph, where a `div` would end the paragraph in the browser.
@@ -99,8 +101,9 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
       const node = nodes[at]!
       if (!isElement(node)) continue
       const tag = node[0]
-      visit(node as ComarkNode[], 2, tag, insideHtml || htmlOnly.has(tag))
-      if (htmlOnly.has(tag)) {
+      const html = drawsAsHtml(node)
+      visit(node as ComarkNode[], 2, tag, insideHtml || html)
+      if (html) {
         // Keep the source props and children for app overrides, search, and heading text.
         const rendered: ElementNode = ["comark-html", { block: tag, blockProps: node[1], ...(parent && phrasing.test(parent) ? { inline: true } : {}) }, ...node.slice(2) as ComarkNode[]]
         blocks.set(rendered, node)

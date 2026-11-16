@@ -1,0 +1,9 @@
+{
+  "rawErrors": {
+    "packages/browser/src/controllers/cdp.ts": 9,
+    "packages/browser/src/internal/cdp-page.ts": 7,
+    "packages/browser/src/internal/cloudflare-provider.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}
