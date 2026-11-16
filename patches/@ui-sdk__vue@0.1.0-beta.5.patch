@@ -1,3 +1,40 @@
+diff --git a/dist/button.js b/dist/button.js
+index afd0e27d6ef74b61899bf6c58be0c5a22d6412ff..b1d4c4111727c3370767a485d1a4f4be2512452d 100644
+--- a/dist/button.js
++++ b/dist/button.js
+@@ -9,6 +9,11 @@ import {
+   usePart,
+   usePrimitive
+ } from "./use-primitive.js";
++function runClick(handlers, event, details) {
++  if (!Array.isArray(handlers)) return handlers?.(event, details);
++  const results = handlers.map((handler) => handler(event, details));
++  return results.some((result) => result instanceof Promise) ? Promise.all(results) : void 0;
++}
+ var Button = withElement(
+   "button",
+   defineComponent({
+@@ -21,8 +26,9 @@ var Button = withElement(
+       pendingAnnouncement: String,
+       debug: optionalBoolean,
+       // `@click="save"` binds here, so the button gets the handler's Promise and
+-      // stays pending until it settles.
+-      onClick: Function
++      // stays pending until it settles. Vue merges two click listeners, such
++      // as a trigger's props and the author's `@click`, into an array.
++      onClick: [Function, Array]
+     },
+     slots: Object,
+     setup(props) {
+@@ -32,7 +38,7 @@ var Button = withElement(
+         type: props.type,
+         pendingAnnouncement: props.pendingAnnouncement,
+         debug: props.debug,
+-        action: (event, details) => props.onClick?.(event, details)
++        action: (event, details) => runClick(props.onClick, event, details)
+       }));
+       return usePart(button, "root", void 0, void 0, "button");
+     }
 diff --git a/dist/form-inputs.js b/dist/form-inputs.js
 index 3082c66a034197df3452cbe967d05f29d4a8c0b3..33a6cf67a222fc525c76bc8d0f52e218a78d7bfe 100644
 --- a/dist/form-inputs.js
