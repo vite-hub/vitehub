@@ -4,7 +4,7 @@ import process from "node:process"
 
 import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
-import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
+import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -156,7 +156,7 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
     const viteRoot = resolve(nuxtRoot, config.vite.root || nuxtRoot)
     const envDir = config.vite.envDir === false ? false : resolve(viteRoot, config.vite.envDir || ".")
     const { loadEnv } = await import("vite")
-    Object.assign(process.env, loadEnv(mode, envDir, ""))
+    Object.assign(process.env, loadAllEnv(loadEnv, mode, envDir))
     options.dotenv = false
   }
   const nuxt = await loadNuxt(options)
