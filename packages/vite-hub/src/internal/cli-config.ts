@@ -4,6 +4,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
 import type { ConfigEnv, InlineConfig, ResolvedConfig } from "vite"
 
@@ -93,7 +94,7 @@ export async function loadViteHubCliConfig(
     const viteRoot = resolve(nuxtRoot, config.vite?.root || nuxtRoot)
     const envDir = config.vite?.envDir === false ? false : resolve(viteRoot, config.vite?.envDir || ".")
     const { loadEnv } = await import("vite")
-    Object.assign(process.env, loadEnv(mode, envDir, ""))
+    Object.assign(process.env, loadAllEnv(loadEnv, mode, envDir))
     options.dotenv = false
   }
   const nuxt = await loadNuxt(options)

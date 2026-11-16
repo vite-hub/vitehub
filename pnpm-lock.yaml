@@ -2510,6 +2510,9 @@ importers:
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.261103-rc
       publint:
         specifier: catalog:tooling
         version: 0.3.25

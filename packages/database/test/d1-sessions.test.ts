@@ -97,6 +97,13 @@ describe("D1 read replication", () => {
     expect(event.res.headers.get("set-cookie")).toBeNull()
   })
 
+  it("skips a malformed or empty duplicate bookmark cookie", async () => {
+    const { binding, constraints } = createReplicatedD1()
+    const name = d1BookmarkCookieName("DB")
+    await inRequest(binding, createEvent("GET", `${name}=%E0%A4%A; ${name}=; ${name}=bookmark-valid`), () => createDb(true).select().from(schema.notes))
+    expect(constraints).toEqual(["bookmark-valid"])
+  })
+
   it("starts a write on the primary and carries its bookmark to the next read", async () => {
     const { binding, constraints } = createReplicatedD1()
     const db = createDb(true)
