@@ -206,13 +206,13 @@ function isRemovedRegistryOption(node: Node, ancestors: readonly Node[], callNam
     && registryProperty(options) === property
 }
 
-/** Names of `names` that a function, class, variable, parameter, or catch clause declares in `program`. */
-function localDeclarations(program: File, names: ReadonlySet<string>): Set<string> {
-  const declared = new Set<string>()
+/** How often a function, class, variable, parameter, or catch clause declares each name of `names` in `program`. */
+function localDeclarations(program: File, names: ReadonlySet<string>): Map<string, number> {
+  const declared = new Map<string, number>()
   const addPattern = (pattern: Node | null | undefined) => {
     if (!pattern) return
     if (pattern.type === "Identifier") {
-      if (names.has(pattern.name)) declared.add(pattern.name)
+      if (names.has(pattern.name)) declared.set(pattern.name, (declared.get(pattern.name) ?? 0) + 1)
     }
     else if (pattern.type === "AssignmentPattern") addPattern(pattern.left)
     else if (pattern.type === "RestElement") addPattern(pattern.argument)
@@ -232,6 +232,48 @@ function localDeclarations(program: File, names: ReadonlySet<string>): Set<strin
     else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") addPattern(node.id)
   })
   return declared
+}
+
+/** Methods of a Drizzle client. `useDatabase()` returns `{ db, schema, relations }`, so these calls go through `db`. */
+const drizzleMethods = new Set(["$count", "$with", "all", "batch", "delete", "execute", "get", "insert", "query", "run", "select", "selectDistinct", "selectDistinctOn", "transaction", "update", "values", "with"])
+
+function isUseDatabaseCall(node: Node | null | undefined): boolean {
+  return node?.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "useDatabase"
+}
+
+/**
+ * Finds Drizzle methods read from the result of `useDatabase()`, such as `useDatabase("notes").select()`, or
+ * `database.select()` after `const database = useDatabase("notes")`. `insertAt` lists where `.db` goes. A name that
+ * the file declares again is in `shadowed`: the codemod has no scope analysis, so it leaves those reads.
+ */
+function databaseQueries(program: File): { insertAt: number[], shadowed: Array<{ node: Node, name: string, method: string }> } {
+  const bindings = new Set<string>()
+  walk(program, (node) => {
+    if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && isUseDatabaseCall(node.init)) bindings.add(node.id.name)
+  })
+  const declarations = bindings.size ? localDeclarations(program, bindings) : new Map<string, number>()
+  const insertAt: number[] = []
+  const shadowed: Array<{ node: Node, name: string, method: string }> = []
+  walk(program, (node) => {
+    if (node.type !== "MemberExpression" || node.computed || node.property.type !== "Identifier" || !drizzleMethods.has(node.property.name)) return
+    const { object } = node
+    if (isUseDatabaseCall(object)) insertAt.push(end(object))
+    else if (object.type === "Identifier" && bindings.has(object.name)) {
+      if (declarations.get(object.name) === 1) insertAt.push(end(object))
+      else shadowed.push({ node, name: object.name, method: node.property.name })
+    }
+  })
+  return { insertAt, shadowed }
+}
+
+/** Moves Drizzle calls on the result of `useDatabase()` to its `db`. Returns the number of calls it moved. */
+function rewriteDatabaseQueries(context: FileContext): number {
+  const { insertAt, shadowed } = databaseQueries(context.program)
+  for (const at of insertAt) context.output.appendLeft(context.block.offset + at, ".db")
+  for (const { node, name, method } of shadowed) {
+    followUp(context, node, `\`${name}\` is declared more than once in this file, so the codemod left this call. If \`${name}\` holds the result of \`useDatabase()\`, call \`${name}.db.${method}()\`: \`useDatabase()\` returns \`{ db, schema, relations }\`.`)
+  }
+  return insertAt.length
 }
 
 /** Rewrites one script block. Returns true when it changed. */
@@ -442,10 +484,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
   let browserPublicEnv = 0
+  let movedImports = 0
+  let movedQueries = 0
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
-    if (!needles.some(needle => source.includes(needle))) continue
+    if (!needles.some(needle => source.includes(needle)) && !source.includes("useDatabase(")) continue
     const output = new MagicString(source)
     let changed = false
     for (const block of scriptBlocks(file, source)) {
@@ -459,9 +503,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       }
       const context: FileContext = { block, file, followUps, output, program, rewritten: new Set(), style: detectStyle(block.code, program) }
       if (rewriteBlock(context, movesBySource)) changed = true
+      movedQueries += rewriteDatabaseQueries(context)
       if (!isServerFile(file, block.code) && block.code.includes("#vitehub/env/public")) browserPublicEnv++
     }
-    if (changed) edits.push({ path: file, before: source, after: output.toString() })
+    if (changed) movedImports++
+    const after = output.toString()
+    if (after !== source) edits.push({ path: file, before: source, after })
   }
 
   followUps.push(...await packageImportsFollowUps(cwd))
@@ -470,7 +517,10 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     ...(browserPublicEnv ? [`${browserPublicEnv} file(s) outside \`server/\` keep \`#vitehub/env/public\`, the browser path of Public Env.`] : []),
   ]
   return {
-    summary: edits.length ? `moved the accessor imports of ${edits.length} file(s) to the primitive roots` : "found no import to move",
+    summary: [
+      ...(movedImports ? [`moved the accessor imports of ${movedImports} file(s) to the primitive roots`] : []),
+      ...(movedQueries ? [`moved ${movedQueries} Drizzle call(s) on \`useDatabase()\` to its \`db\``] : []),
+    ].join(", and ") || "found no import to move",
     edits,
     followUps,
     notes,
@@ -480,7 +530,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const rootAccessors: Codemod = {
   name: "root-accessors",
-  description: "Import db, schema, useDatabase, email, runSchedule, and the Env accessors from each primitive root",
+  description: "Import db, schema, useDatabase, email, runSchedule, and the Env accessors from each primitive root, and query through useDatabase().db",
   usage: "[dir]",
   async detect({ cwd }) {
     const paths = moves(name => `vite-hub/${name}`)
@@ -489,6 +539,17 @@ export const rootAccessors: Codemod = {
       const source = await readFile(join(cwd, file), "utf8")
       const move = paths.find(move => source.includes(move.from) && (!move.serverOnly || isServerFile(file, source)))
       if (move) return { reason: `${file} uses ${move.from}` }
+      if (!source.includes("useDatabase(")) continue
+      for (const block of scriptBlocks(file, source)) {
+        let program: File
+        try {
+          program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
+        }
+        catch {
+          continue
+        }
+        if (databaseQueries(program).insertAt.length) return { reason: `${file} calls Drizzle methods on the result of useDatabase()` }
+      }
     }
     if ((await packageImportsFollowUps(cwd)).length) return { reason: "package.json maps the former Env imports" }
     return undefined

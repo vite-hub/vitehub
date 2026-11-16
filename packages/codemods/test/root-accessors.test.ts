@@ -16,6 +16,7 @@ describe.each([
   ["root-accessors-finance", "Finance: email from vite-hub/email/server and Server Env in auth and schedules"],
   ["root-accessors-calories", "calories: useDatabase() and Server Env in an Agent and a collection"],
   ["root-accessors-schedule", "runSchedule() with the generated registry"],
+  ["root-accessors-queries", "Drizzle calls on the result of useDatabase()"],
 ])("root-accessors with %s", (name, label) => {
   it(`migrates ${label}`, async () => {
     const input = join(fixtures, name, "input")
@@ -53,6 +54,22 @@ describe("root-accessors edge cases", () => {
     expect(detected.map(entry => [entry.codemod.name, entry.detection.reason])).toEqual([
       ["root-accessors", "server/api/a.ts uses vite-hub/database/drizzle"],
     ])
+  })
+
+  it("detects Drizzle calls on the result of useDatabase() and leaves names declared twice", async () => {
+    const { after, run } = await migrate({
+      "server/api/notes.ts": "export default async () => {\n  const notes = useDatabase('notes')\n  return notes.select().from(notes.schema.notes)\n}\nexport const count = (notes: { $count: () => number }) => notes.$count()\n",
+      "server/api/ok.ts": "const { db } = useDatabase('notes')\nexport default () => db.select().from(useDatabase('notes').schema.notes)\n",
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps.map(item => `${item.file}:${item.line} ${item.message}`)).toEqual([
+      "server/api/notes.ts:3 `notes` is declared more than once in this file, so the codemod left this call. If `notes` holds the result of `useDatabase()`, call `notes.db.select()`: `useDatabase()` returns `{ db, schema, relations }`.",
+      "server/api/notes.ts:5 `notes` is declared more than once in this file, so the codemod left this call. If `notes` holds the result of `useDatabase()`, call `notes.db.$count()`: `useDatabase()` returns `{ db, schema, relations }`.",
+    ])
+    expect(await detectCodemods(root)).toEqual([])
+
+    await writeFile(join(root, "server/api/one.ts"), "export default () => useDatabase().query.notes.findMany()\n")
+    expect((await detectCodemods(root)).map(entry => entry.detection.reason)).toEqual(["server/api/one.ts calls Drizzle methods on the result of useDatabase()"])
   })
 
   it("does not detect browser Public Env or current accessor paths", async () => {
