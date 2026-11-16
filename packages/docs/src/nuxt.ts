@@ -40,7 +40,7 @@ import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsT
 import { docsThemeCss } from "./theme-css.ts"
 
 import type { ContentLlmsSection } from "@vite-hub/content"
-import type { Nuxt } from "nuxt/schema"
+import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
@@ -220,6 +220,15 @@ export interface DocsPublicConfig {
   markdownPages: boolean
   assistant: { agent: string } | false
   ogImage: { component: string } | false
+}
+
+// `useRuntimeConfig().public.docs` is typed in the app and in Nitro server code. Nuxt types Nitro's runtime config as
+// its own when its server types load. Package code and server files without them get the same `public` here.
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "nitro/types" {
+  interface NitroRuntimeConfig { public: PublicRuntimeConfig }
 }
 
 interface DiscoveryLink {
