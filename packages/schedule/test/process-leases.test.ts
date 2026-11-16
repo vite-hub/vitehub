@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -99,9 +100,12 @@ describe("scheduleLeaseStoreFromDatabase", () => {
   })
 
   it.skipIf(!postgresUrl)("gives one of two node-postgres Pools the lease on a real Postgres server", async () => {
-    const pools = [new pg.Pool({ connectionString: postgresUrl, max: 2 }), new pg.Pool({ connectionString: postgresUrl, max: 2 })]
+    // Other test files run against the same database and can drop their lease table while this test holds a lease.
+    const schema = `schedule_leases_${randomUUID().replaceAll("-", "")}`
+    const config = { connectionString: postgresUrl, max: 2, options: `-c search_path=${schema}` }
+    const pools = [new pg.Pool(config), new pg.Pool(config)]
     try {
-      await pools[0]!.query("drop table if exists vitehub_leases")
+      await pools[0]!.query(`create schema ${schema}`)
       const [first, second] = pools.map(pool => scheduleLeaseStoreFromDatabase({ $client: pool })!)
       const key = `schedule/srun_static_daily_${Date.now()}`
       const results = await Promise.all([first!.acquire(key, { ttl: 30 }), second!.acquire(key, { ttl: 30 })])
@@ -117,7 +121,12 @@ describe("scheduleLeaseStoreFromDatabase", () => {
       expect(await first!.get(key)).toEqual([undefined, null])
     }
     finally {
-      await Promise.all(pools.map(pool => pool.end()))
+      try {
+        await pools[0]!.query(`drop schema if exists ${schema} cascade`)
+      }
+      finally {
+        await Promise.all(pools.map(pool => pool.end()))
+      }
     }
   })
 
