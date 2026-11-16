@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
+import { rm, writeFile } from "node:fs/promises"
+import { constants } from "node:os"
 import { dirname } from "node:path"
+import process from "node:process"
 
 import { describe, expect, it } from "vitest"
 
-import { buildOutput, builtProject, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
+import { buildOutput, builtProject, cliProcess, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { runSetup } from "./setup-helpers.ts"
 
 import type { SetupDeployOutput, SetupError, SetupMissing } from "../src/setup/index.ts"
@@ -135,6 +137,41 @@ describe("vitehub deploy checks Server Env", () => {
     expect(result.json.env).toMatchObject({ missing: [], pushed: ["API_KEY", "SENTRY_DSN"], stage: "production" })
     expectNoLeak(calls, result.stdout + result.stderr, [...tokens, canary, previewCanary])
     expect(result.stderr).toContain("Setting API_KEY on cloudflare with the new version from .env.production.")
+  })
+
+  it.skipIf(process.platform === "win32").each(["SIGINT", "SIGTERM"] as const)("removes the secrets file and stops Wrangler when %s interrupts the deploy", async (signal) => {
+    const root = await project("cloudflare", [apiKey], { files: { ".env.production": `API_KEY=${canary}\n` } })
+    const hosts = await fakeHosts({ ...hostEnv.cloudflare, FAKE_HOST_HANG: "wrangler deploy" })
+    const cli = cliProcess(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env)
+    let call: Awaited<ReturnType<typeof hosts.calls>>[number] | undefined
+    let ended: Awaited<typeof cli.exited> | undefined
+    void cli.exited.then(result => { ended = result })
+    for (let tries = 0; !call && !ended && tries < 100; tries++) {
+      call = (await hosts.calls()).find(item => item.argv[0] === "deploy")
+      if (!call) await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    try {
+      expect(call?.secretsFile, JSON.stringify(ended)).toMatchObject({ mode: 0o600, values: { API_KEY: canary } })
+      process.kill(cli.pid, signal)
+      const exited = await cli.exited
+
+      expect(exited.code, exited.stderr).toBe(128 + constants.signals[signal])
+      expect(existsSync(call!.secretsFile!.path)).toBe(false)
+      expect(existsSync(dirname(call!.secretsFile!.path))).toBe(false)
+      // Wrangler was stopped before the cleanup, so it cannot read the file later.
+      expect(() => process.kill(call!.pid, 0)).toThrow()
+      expectNoLeak(await hosts.calls(), exited.stdout + exited.stderr, [canary])
+    }
+    finally {
+      // A failed run must not leave the CLI or the fake Wrangler running.
+      for (const pid of [cli.pid, call?.pid]) {
+        try {
+          if (pid) process.kill(pid, "SIGKILL")
+        }
+        catch {}
+      }
+      if (call?.secretsFile) await rm(dirname(call.secretsFile.path), { force: true, recursive: true })
+    }
   })
 
   it("uploads the preview stage with `wrangler versions upload` and leaves production values alone", async () => {

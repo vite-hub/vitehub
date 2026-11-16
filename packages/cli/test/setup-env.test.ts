@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 
 import { decryptEnvValues, envPrivateKeyName } from "../src/setup/env-encrypted.ts"
 import { readLocalEnvValues } from "../src/setup/env.ts"
-import { expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
+import { cliProcess, expectNoLeak, fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -253,6 +253,16 @@ describe("vitehub env push", () => {
     else expect(writes.map(call => call.stdin)).toEqual([canary, "gh-from-shell", "https://sentry.example/1", "console-key-ci"])
     expectNoLeak(calls, result.stdout + result.stderr, [canary, "gh-from-shell", "console-key-ci", ...tokens])
     expect(JSON.stringify(result.json)).not.toContain(canary)
+  })
+
+  it("prints no value when DEBUG turns on the Vite env logs", async () => {
+    const root = await linkedProject(["cloudflare"], local)
+    const hosts = await fakeHosts({ ...hostEnv.cloudflare, DEBUG: "vite:*", VITEHUB_GITHUB_TOKEN: "gh-from-shell" })
+    const result = await cliProcess(["env", "push", "--yes", "--json"], root, hosts.env).exited
+
+    expect(result.code, result.stderr).toBe(0)
+    expect((await hosts.calls()).filter(call => call.stdin).map(call => call.stdin)).toContain(canary)
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [canary, "gh-from-shell", "console-key-ci", ...tokens])
   })
 
   it("passes the secret flag the way each host CLI takes it", async () => {

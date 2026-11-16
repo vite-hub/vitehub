@@ -708,7 +708,7 @@ defineExpose({
 
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
-      <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
+      <span class="h-4 w-px bg-(--border)" aria-hidden="true" />
       <UButton v-if="selectionManageable && client.capabilities?.move !== false" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
       <UButton v-if="selectionManageable" variant="ghost" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
@@ -759,14 +759,14 @@ defineExpose({
 <style>
 /* The detail panel of a file sits next to the browser on wide screens and covers it on narrow ones. */
 .vitehub-media-library__detail {
-  border-left: 1px solid var(--ui-border);
+  border-left: 1px solid var(--border);
   flex-shrink: 0;
   width: 22.5rem;
 }
 
 @media (max-width: 1023px) {
   .vitehub-media-library__detail {
-    background: var(--ui-bg);
+    background: var(--background);
     border-left: 0;
     inset: 0;
     position: absolute;
@@ -801,8 +801,8 @@ defineExpose({
 /* A folder tile frames its open button and its menu. In the list view the frame goes, so folders read as rows. */
 .vitehub-media-folder {
   align-items: center;
-  border: 1px solid var(--ui-border);
-  border-radius: calc(var(--ui-radius) * 2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
   gap: 0.25rem;
   padding: 0.25rem;
@@ -820,7 +820,7 @@ defineExpose({
 
 /* The theme rings the whole tile, thumbnail and name, when the button has focus. */
 .vitehub-media-tile__button {
-  border-radius: calc(var(--ui-radius) * 2);
+  border-radius: calc(var(--radius) * 2);
   display: grid;
   min-width: 0;
   text-align: start;
@@ -830,8 +830,8 @@ defineExpose({
 /* An inset hairline keeps light images apart from the page, and dark images apart from the dark page. */
 .vitehub-media-tile__thumb {
   aspect-ratio: 1;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: block;
   overflow: hidden;
   position: relative;
@@ -839,7 +839,7 @@ defineExpose({
 
 .vitehub-media-tile__thumb::after {
   border-radius: inherit;
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ui-text-highlighted) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 8%, transparent);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -860,7 +860,7 @@ defineExpose({
 
 .vitehub-media-tile.is-selected .vitehub-media-tile__thumb,
 .vitehub-media-tile.is-active .vitehub-media-tile__thumb {
-  outline: 2px solid var(--ui-border-inverted);
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }
 
@@ -883,7 +883,7 @@ defineExpose({
 }
 
 .vitehub-media-table th {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   font-size: 0.75rem;
   font-weight: 500;
@@ -892,13 +892,13 @@ defineExpose({
 }
 
 .vitehub-media-table td {
-  border-bottom: 1px solid var(--ui-border);
+  border-bottom: 1px solid var(--border);
   height: 2.75rem;
   padding-inline: 0.5rem;
 }
 
 .vitehub-media-table tbody tr:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-media-table tbody tr.is-selected,
@@ -912,8 +912,8 @@ defineExpose({
 
 .vitehub-media-row-thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   display: inline-flex;
   flex-shrink: 0;
   height: 1.75rem;
@@ -927,7 +927,7 @@ defineExpose({
   align-items: center;
   backdrop-filter: blur(12px);
   background: var(--vh-floating);
-  border-radius: calc(var(--ui-radius) * 3);
+  border-radius: calc(var(--radius) * 3);
   bottom: 1rem;
   box-shadow: var(--vh-shadow-floating);
   display: flex;
@@ -942,9 +942,9 @@ defineExpose({
 /* The drop target covers the whole browser, so a file can land anywhere on it. */
 .vitehub-media-drop {
   align-items: center;
-  background: color-mix(in oklab, var(--ui-bg) 85%, transparent);
-  border: 1px dashed var(--ui-border-inverted);
-  border-radius: calc(var(--ui-radius) * 2);
+  background: color-mix(in oklab, var(--background) 85%, transparent);
+  border: 1px dashed var(--foreground);
+  border-radius: calc(var(--radius) * 2);
   display: flex;
   inset: 0.5rem;
   justify-content: center;

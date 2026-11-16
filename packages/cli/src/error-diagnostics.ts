@@ -273,5 +273,13 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ host }: { host?: unknown, name?: unknown, reason?: unknown }) => `Set this value in the ${String(host)} dashboard.`,
       why: ({ host, name, reason }: { host?: unknown, name?: unknown, reason?: unknown }) => `The value of ${String(name)} cannot go to ${String(host)} without a terminal prompt or argv. ${String(reason)}`,
     },
+    SETUP_GITHUB_REPOSITORY_REQUIRED: {
+      fix: "Pass --repo owner/name, or add a GitHub remote named origin.",
+      why: ({ remote }: { remote?: unknown }) => remote ? `The git remote origin (${String(remote)}) is not a github.com repository.` : "This folder has no git remote named origin.",
+    },
+    SETUP_GITHUB_REQUEST_FAILED: {
+      fix: "Check that the token can write the Actions secrets of the repository, and that the repository and environment exist.",
+      why: ({ operation, reason }: { operation?: unknown, reason?: unknown }) => `GitHub refused \`${String(operation)}\`: ${String(reason)}`,
+    },
   },
 })

@@ -740,7 +740,8 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     const failed = await project.migrate(["--allow-data-loss"])
 
     expect(failed.exitCode).toBe(1)
-    expect(failed.stderr).toContain("[vitehub] D1 migration failed for the database \"default\". Cloudflare D1 returned HTTP 400")
+    expect(failed.stderr).toContain("DATABASE_D1_MIGRATION_FAILED")
+    expect(failed.stderr).toContain("D1 migration failed for the database \"default\". Cloudflare D1 returned HTTP 400")
     await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([])
     d1.client.close()
   }, 120_000)
