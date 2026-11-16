@@ -497,7 +497,9 @@ export function createAuthConsole(
     const run = endpoint(name);
     if (!run)
       throw authConsoleError(409, "The required Better Auth plugin endpoint is not installed.");
-    return await run({ headers: request.headers, body, asResponse });
+    // The session middleware of the endpoint reads the actor's session. The Console never sends that session's cookies
+    // to anyone, so a renewal would extend the session in the database while the actor's browser keeps the old cookie.
+    return await run({ headers: request.headers, body, query: { disableRefresh: true }, asResponse });
   }
   /** The stored app session of the request, without a cookie cache read or a refresh write. */
   async function appSession(request: Request): Promise<{ session: Row; user: Row } | null> {
@@ -1158,13 +1160,10 @@ export function createAuthConsole(
         name = endpoints[input.action];
         body = { userId: input.userId };
     }
-    const session = record(
-      await endpoint("getSession")!({
-        headers: request.headers,
-        query: { disableCookieCache: true },
-      }),
-    );
-    const actorId = string(record(session.user).id);
+    // The read only checks who acts. Like `appSession()`, it does not renew the session: this route sends only the cookies
+    // of the action, so a renewal here would extend the session in the database and drop its new cookie.
+    const actor = await appSession(request);
+    const actorId = string(actor?.user.id);
     if (!actorId)
       throw authConsoleError(401, "Sign in with an app session to run this action.");
     const result = await call(name, request, body, true);
