@@ -531,9 +531,50 @@ describe("vitehub database migrate with an existing migrations table", () => {
 
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     await expect(project.columns()).resolves.toEqual(["id", "title", "body"])
+    // The row of the old name gets the new name, so it cannot stand for a later migration with the same SQL.
     await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY id")).resolves.toEqual([
-      ["20261109120000_init"], ["20261109120500_create_notes"], ["20261109121000_add_body"],
+      ["20261109120500_create_notes"], ["20261109121000_add_body"],
     ])
+
+    await folder(migrationsDir, "20261109122000_clear_notes", "DELETE FROM notes;")
+    await expect(project.run("migrate", ["--allow-data-loss"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await rm(join(migrationsDir, "20261109122000_clear_notes"), { recursive: true })
+    await folder(migrationsDir, "20261109122500_clear_notes", "DELETE FROM notes;")
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await seedDatabase(project.rootDir, "INSERT INTO notes (title) VALUES ('added after the rename');")
+    await folder(migrationsDir, "20261109123000_clear_notes_again", "DELETE FROM notes;")
+    const again = await project.run("migrate", ["--dry-run", "--allow-data-loss"])
+    expect(again.stdout).toContain("1 pending migration.\n\n  20261109123000_clear_notes_again\n")
+    await expect(project.run("migrate", ["--allow-data-loss"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(rows(project.rootDir, "SELECT count(*) FROM notes")).resolves.toEqual([[0]])
+  }, 120_000)
+
+  it("upgrades a Drizzle Kit 0.x ledger before it records adopted rows, so Drizzle does not replay an applied migration", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    const migrations = [
+      ["20231114221319_init", "CREATE TABLE cache (value TEXT);"],
+      ["20231114221320_clear_cache", "DELETE FROM cache;"],
+      ["20231114221321_clear_cache_again", "DELETE FROM cache;"],
+      ["20231114221321_index_cache", "CREATE INDEX cache_value_idx ON cache (value);"],
+    ] as const
+    for (const [tag, sql] of migrations) await folder(migrationsDir, tag, sql)
+    const hash = (sql: string) => createHash("sha256").update(sql).digest("hex")
+    // A legacy ledger whose `SERIAL PRIMARY KEY` gives no ids. NuxtHub applied the third migration.
+    await seedDatabase(project.rootDir, [
+      "CREATE TABLE cache (value TEXT);",
+      "CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric);",
+      `INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('${hash(migrations[0][1])}', ${Date.UTC(2023, 10, 14, 22, 13, 19, 200)}), ('${hash(migrations[1][1])}', ${Date.UTC(2023, 10, 14, 22, 13, 20, 200)});`,
+      "CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE);",
+      "INSERT INTO _hub_migrations (name) VALUES ('0002_clear_cache_again');",
+      "INSERT INTO cache (value) VALUES ('kept');",
+    ].join("\n"))
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain("1 pending migration.\n  Applied before, as _hub_migrations lists: 20231114221321_clear_cache_again\n\n  20231114221321_index_cache\n")
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(rows(project.rootDir, "SELECT value FROM cache")).resolves.toEqual([["kept"]])
+    await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY rowid")).resolves.toEqual(migrations.map(([tag]) => [tag]))
   }, 120_000)
 
   it("fails the check when _hub_migrations lists a migration that now has another number", async () => {

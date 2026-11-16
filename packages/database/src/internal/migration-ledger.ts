@@ -72,6 +72,18 @@ export function ledgerUpgradeProblem({ backfill }: LedgerMatch): string | undefi
   return undefined
 }
 
+/**
+ * The statements with which Drizzle 1.0 upgrades a Drizzle Kit 0.x ledger: they add `name` and `applied_at`, and
+ * write the name of each matched row. Check `ledgerUpgradeProblem()` first.
+ */
+export function ledgerUpgradeStatements(table: string, { backfill }: LedgerMatch): Array<string | { args: Array<number | string>, sql: string }> {
+  return [
+    `ALTER TABLE "${table}" ADD COLUMN "name" text`,
+    `ALTER TABLE "${table}" ADD COLUMN "applied_at" TEXT`,
+    ...backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${table}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
+  ]
+}
+
 /** Reads one ledger row from an object row, such as a libSQL or postgres.js row. */
 export function toLedgerRow(row: Record<string, unknown>): LedgerRow {
   const createdAt = row.created_at === null || row.created_at === undefined ? Number.NaN : Number(row.created_at)
@@ -142,7 +154,8 @@ export function findRenumbered(unmatched: readonly string[], migrations: readonl
 
 /**
  * Matches named Drizzle rows whose folder no longer exists to unapplied migrations with the same SQL hash, such as a
- * renamed folder. Returns the tag of each match and the folder name that the row lists.
+ * renamed folder. Returns the tag of each match and the folder name that the row lists. The caller renames the row, so
+ * it cannot match a later migration with the same SQL.
  */
 export function matchRenamedRows(rows: readonly LedgerRow[], migrations: readonly LedgerMigration[], applied: ReadonlySet<string>): Map<string, string> {
   const tags = new Set(migrations.map(migration => migration.tag))

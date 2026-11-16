@@ -15,7 +15,7 @@ import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { applyD1Migrations, createD1Query, d1MigrationNamesFile, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
-import { findRenumbered, ledgerUpgradeProblem, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
+import { findRenumbered, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
@@ -211,16 +211,24 @@ function drizzleLedgerProblem(match: LedgerMatch, migrationsDir: string): string
  * folder name, or, for a renamed folder, by its SQL hash. Another tool's ledger lists it by one of the names that
  * `matchRecordedNames()` accepts. Returns the problem when Drizzle 1.0 or ViteHub would apply a migration again.
  */
-function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationEntry[], migrationsDir: string): { adopted: Map<string, string>, applied: Set<string> } | { problem: string } {
+interface SqliteLedgerMatch {
+  /** The tag of each adopted migration, and the ledger that lists it. */
+  adopted: Map<string, string>
+  applied: Set<string>
+  match: LedgerMatch
+  /** The tag of each renamed folder, and the name that its row in Drizzle's ledger has. */
+  renamed: Map<string, string>
+}
+
+function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationEntry[], migrationsDir: string): SqliteLedgerMatch | { problem: string } {
   const rows = ledgers.drizzle?.rows ?? []
   const match = matchLedger(rows, entries)
   const problem = drizzleLedgerProblem(match, migrationsDir)
   if (problem) return { problem }
   const { applied } = match
-  // The tag of each adopted migration and the ledger that lists it.
-  const adopted = new Map<string, string>()
-  for (const tag of matchRenamedRows(rows, entries, applied).keys()) adopted.set(tag, sqliteMigrationsTable)
-  if (!ledgers.recorded.some(ledger => ledger.names.length)) return { adopted, applied }
+  const renamed = matchRenamedRows(rows, entries, applied)
+  const adopted = new Map([...renamed.keys()].map(tag => [tag, sqliteMigrationsTable]))
+  if (!ledgers.recorded.some(ledger => ledger.names.length)) return { adopted, applied, match, renamed }
   const tags = new Set(entries.map(entry => entry.tag))
   const files = listD1Migrations(migrationsDir).filter(file => tags.has(file.tag))
   const unmatched = new Map<string, string>()
@@ -236,7 +244,7 @@ function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationE
     const { moved, name } = renumbered
     return { problem: `The migrations table ${unmatched.get(name)} lists ${name}, but that migration is now ${moved.name} (${moved.tag}), so ViteHub would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name.replace(/\.sql$/, "")}.sql" in it.` }
   }
-  return { adopted, applied }
+  return { adopted, applied, match, renamed }
 }
 
 /** A Postgres client of the CLI: the part of postgres.js that migrations use, and `end()`. */
@@ -388,8 +396,9 @@ export async function readMigrationPlan(
 
 /**
  * Records the applied migrations that only another ledger lists in Drizzle's ledger of a SQLite or libSQL database,
- * so Drizzle Kit does not run them again. It writes the rows that Drizzle 1.0 writes, or the rows of Drizzle Kit 0.x
- * when the ledger has no `name` column yet, which Drizzle 1.0 then upgrades. Returns the error when the check fails.
+ * so Drizzle Kit does not run them again. A Drizzle Kit 0.x ledger gets the upgrade of Drizzle 1.0 first, so the new
+ * rows have names and cannot change how Drizzle matches the old ones. A renamed folder renames its row. Returns the
+ * error when the check fails.
  */
 export async function adoptSqliteMigrations(
   database: ResolvedDrizzleDatabaseConfig,
@@ -407,13 +416,14 @@ export async function adoptSqliteMigrations(
       const match = matchSqliteLedgers(ledgers, entries, database.migrationsDir)
       if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem })
       if (!match.adopted.size) return
-      const named = ledgers.drizzle?.named ?? true
       const appliedAt = new Date().toISOString()
       await client.batch([
-        ...ledgers.drizzle ? [] : [`CREATE TABLE IF NOT EXISTS ${sqliteMigrationsTable} (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`],
-        ...entries.filter(entry => match.adopted.has(entry.tag)).map(entry => named
-          ? { args: [entry.hash, entry.when, entry.tag, appliedAt], sql: `INSERT INTO ${sqliteMigrationsTable} ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)` }
-          : { args: [entry.hash, entry.when], sql: `INSERT INTO ${sqliteMigrationsTable} ("hash", "created_at") VALUES (?, ?)` }),
+        ...!ledgers.drizzle
+          ? [`CREATE TABLE IF NOT EXISTS ${sqliteMigrationsTable} (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`]
+          : ledgers.drizzle.named ? [] : ledgerUpgradeStatements(sqliteMigrationsTable, match.match),
+        ...entries.filter(entry => match.adopted.has(entry.tag)).map(entry => match.renamed.has(entry.tag)
+          ? { args: [entry.tag, entry.when, match.renamed.get(entry.tag)!], sql: `UPDATE ${sqliteMigrationsTable} SET "name" = ?, "created_at" = ? WHERE "name" = ?` }
+          : { args: [entry.hash, entry.when, entry.tag, appliedAt], sql: `INSERT INTO ${sqliteMigrationsTable} ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)` }),
       ], "write")
       for (const [name, from] of match.adopted) onAdopted({ from, name })
     })
