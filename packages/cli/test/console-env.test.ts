@@ -13,7 +13,7 @@ const token = `vhk_${"S".repeat(43)}`
 const canary = "canary-value-7f3a9c"
 
 /** A Console with env values, or one that keeps them off. It records each request. */
-function fakeConsole(options: { off?: boolean, projects?: { id: string, url: string }[] } = {}) {
+function fakeConsole(options: { keyMissing?: boolean, off?: boolean, projects?: { id: string, url: string }[] } = {}) {
   const requests: { method: string, path: string, authorization: string | null }[] = []
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
@@ -23,6 +23,7 @@ function fakeConsole(options: { off?: boolean, projects?: { id: string, url: str
     if (url.pathname === "/api/projects") return Response.json({ projects: options.projects ?? [{ id: "p1", url: "https://app.example.com" }] })
     if (url.pathname === "/api/projects/p1/env/production/reveal" && init?.method === "POST") {
       if (options.off) return Response.json({ code: "CONSOLE_ENV_VALUES_OFF", message: "This Console does not store env values." }, { status: 404 })
+      if (options.keyMissing) return Response.json({ code: "CONSOLE_ENV_KEY_MISSING", fix: "Add the key that sealed the value to VITEHUB_CONSOLE_ENV_KEYS.", message: "A key that this Console does not have sealed API_TOKEN of production." }, { status: 500 })
       return Response.json({ stage: "production", values: { API_TOKEN: canary, GREETING: "hello world", MULTI: "a\nb" } })
     }
     return Response.json({ code: "NOT_FOUND" }, { status: 404 })
@@ -119,6 +120,12 @@ describe("vitehub env pull --from console", () => {
     expect(off.stderr).toContain("CONSOLE_ENV_VALUES_OFF")
     expect(off.stderr).toContain("does not store env values")
     await expect(stat(join(root, ".env.production"))).rejects.toThrow()
+
+    // A coded answer of the Console carries its fix, which the CLI prints too.
+    const keyMissing = await pull(["--from", "console", "--project", "p1"], root, fakeConsole({ keyMissing: true }).fetch)
+    expect(keyMissing.exitCode).not.toBe(0)
+    expect(keyMissing.stderr).toContain("CONSOLE_ENV_KEY_MISSING")
+    expect(keyMissing.stderr).toContain("Add the key that sealed the value to VITEHUB_CONSOLE_ENV_KEYS.")
 
     const noFrom = await pull([], root, fakeConsole().fetch)
     expect(noFrom.stderr).toContain("--from console")

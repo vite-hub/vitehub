@@ -79,7 +79,9 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 }
 
 function consoleFailure(origin: string, path: string, status: number, body: Record<string, unknown>) {
-  const message = typeof body.message === "string" ? body.message : `${origin} answered ${status} to ${path}.`
+  const why = typeof body.message === "string" ? body.message : `${origin} answered ${status} to ${path}.`
+  // A code of the Console catalog carries its own fix, such as the key to add for CONSOLE_ENV_KEY_MISSING.
+  const message = typeof body.fix === "string" ? `${why} ${body.fix}` : why
   return cliErrorDiagnostics.CLI_ENV_PULL_FAILED({ code: typeof body.code === "string" ? body.code : String(status), message })
 }
 

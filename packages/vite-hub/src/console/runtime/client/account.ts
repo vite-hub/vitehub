@@ -73,7 +73,10 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
     const message: unknown = body instanceof Object ? Reflect.get(body, "message") : undefined
-    throw failure({ status: response.status }, String(message) === message && message ? message : `The Console answered ${response.status}.`)
+    // A code of the Console catalog also carries its fix.
+    const fix: unknown = body instanceof Object ? Reflect.get(body, "fix") : undefined
+    const why = String(message) === message && message ? message : `The Console answered ${response.status}.`
+    throw failure({ status: response.status }, String(fix) === fix && fix ? `${why} ${fix}` : why)
   }
   // SAFETY: The Console server owns these routes and their answers.
   return body as T
