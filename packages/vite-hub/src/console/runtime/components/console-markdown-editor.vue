@@ -24,6 +24,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleComarkComponent from "./console-comark-component.vue";
 import ConsoleMediaDialog from "./console-media-dialog.vue";
 import ConsoleLoading from "./console-loading.vue";
+import Icon from "./console-icon.vue";
 
 import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "@nuxt/ui";
 import type { Editor, JSONContent } from "@tiptap/vue-3";
@@ -495,7 +496,7 @@ watch(editor, (instance) => {
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
     <ConsoleLoading v-if="hydrating" label="Loading editor…" />
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
-      <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <Icon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>Read-only here. {{ lossy }} Switch to Source to read or edit the Markdown.</span>
     </p>
     <template v-if="editor">
