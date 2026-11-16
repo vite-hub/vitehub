@@ -39,6 +39,8 @@ import { defineChannel } from 'vite-hub/channels'
 export default defineChannel({ adapter: github() })
 ```
 
+The `github()`, `gitlab()`, and `forgejo()` Channels talk to the Forge through [Forge](/docs/forge). Install it in the app with `pnpm add @vite-hub/forge`. The build stops with this command when the app uses one of these Channels without it. Apps without them do not install or bundle Forge.
+
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 

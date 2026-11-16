@@ -13,10 +13,11 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, isForgeResponseError, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { forgeEnv, forgeErrorStatus } from "@vite-hub/internal/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { invariant } from "@vite-hub/internal/invariant"
-import type { ForgeKind } from "@vite-hub/forge"
+import type { Forge, ForgeKind, ForgeProvider } from "@vite-hub/forge"
+import { loadForge } from "./internal/forge-module.ts"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
@@ -714,7 +715,7 @@ export type ForgejoChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 
 interface ForgeChannelServices<TRuntimeConfig extends AgentRuntimeConfig> {
   kind: "gitlab" | "forgejo"
-  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof forgeProvider>
+  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => Promise<ForgeProvider>
 }
 
 export interface DiscordAdapterOptions {
@@ -1389,7 +1390,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     })
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
-    const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+    const provider = services ? await services.provider(context) : await (await loadForge()).forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
     const { thread, comments, files } = services
       ? await forgeChannelMetadata(provider, { forge: services.kind, instance: provider.instance, repository: command.repository, number: command.issueNumber }, { maxComments, maxFiles })
       : await forgePullRequestMetadata(provider, githubForgeTarget(command), { maxComments, maxFiles, authenticated: Boolean(token) })
@@ -1742,6 +1743,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "privateKey", context))
   const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "privateKeyPath", context))
+  const { readGitHubAppPrivateKey } = await loadForge()
   try {
     const privateKey = await readGitHubAppPrivateKey(inline, path)
     if (privateKey) return privateKey
@@ -1750,6 +1752,33 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
     throw agentDiagnostics.AGENT_R0347({ message: `[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, cause: error })
   }
   throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_PRIVATE_KEY_PATH is required." })
+}
+
+/**
+ * The Forge of the Channel's GitHub App: `app` options first, then Server Env. `useForge()` mints and caches the
+ * installation tokens, and routes repository owners to installations as Server Env sets it.
+ */
+async function githubAppForge<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: GitHubAppOptions<TRuntimeConfig>,
+  context: GitHubAppContext<TRuntimeConfig>,
+): Promise<Forge<"github">> {
+  const env = await githubEnv(context)
+  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
+  const privateKey = await githubAppPrivateKey(options, env, context)
+  const { github } = forgeEnv
+  const { useForge } = await loadForge()
+  return useForge({
+    env: {
+      [github.appId.names[0]]: appId,
+      [github.privateKey.names[0]]: privateKey,
+      [github.installationId.names[0]]: envNumberText(env.installationId),
+      [github.appOwner.names[0]]: cleanSecret(env.appOwner),
+      [github.appInstallations.names[0]]: cleanSecret(env.appInstallations),
+    },
+    ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+  })
 }
 
 async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1769,38 +1798,23 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     }) : options.token
     return requiredString(token, 'token')
   }
-  const env = await githubEnv(context)
-  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
-  const configuredInstallation = installation
+  const configured = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
     ?? await resolveGithubAppOption(options.installationId, context)
-    // Server Env routes by repository owner, the same way as useForge().
-    ?? githubInstallationFor(githubInstallationRouting({
-      installationId: envNumberText(env.installationId),
-      appOwner: cleanSecret(env.appOwner),
-      appInstallations: cleanSecret(env.appInstallations),
-    }), repository)
-  const credentials = githubAppCredentials({
-    appId,
-    privateKey: await githubAppPrivateKey(options, env, context),
-    baseUrl: options.apiBaseUrl,
-    fetch: options.fetch,
-    userAgent: options.userAgent,
+  const forge = await githubAppForge(options, context)
+  // Without an installation, useForge() routes the repository owner, or asks GitHub which installation reaches it.
+  const [error, minted] = await forge.token({
+    ...(repository ? { repository } : {}),
+    ...(configured === undefined || configured === "" ? {} : { installation: requiredNumber(configured, "installationId") }),
+    ...(signal ? { signal } : {}),
+    ...(minLifetime === undefined ? {} : { minLifetime }),
   })
-  try {
-    // Without a fixed installation, find the App installation of the target repository.
-    const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
-      ? await credentials.installation(repository, signal)
-      : requiredNumber(configuredInstallation, "installationId")
-    return (await credentials.installationToken(installationId, { signal, minLifetime })).token
-  }
-  catch (error) {
-    const status = forgeErrorStatus(error)
-    if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
-    throw error
-  }
+  if (!error) return minted.token
+  const status = forgeErrorStatus(error.cause)
+  if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
+  if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+  throw error
 }
 
 async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1916,28 +1930,17 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
   if (options.identity) return options.identity
-  const env = await githubEnv(context)
-  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
-  const credentials = githubAppCredentials({
-    appId,
-    privateKey: await githubAppPrivateKey(options, env, context),
-    baseUrl: options.apiBaseUrl,
-    fetch: options.fetch,
-    userAgent: options.userAgent,
-  })
-  try {
-    return { appId: (await credentials.app(signal)).id }
-  }
-  catch (error) {
-    const status = forgeErrorStatus(error)
-    if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
-    throw error
-  }
+  const forge = await githubAppForge(options, context)
+  const [error, identity] = await forge.app(signal ? { signal } : {})
+  if (!error) return { appId: identity.id }
+  const status = forgeErrorStatus(error.cause)
+  if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
+  if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID and a slug.", cause: error })
+  throw error
 }
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   token: string,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
@@ -2253,7 +2256,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
+          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
           const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
@@ -2636,7 +2639,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
 ): Promise<PublishedAgentDeliveryArtifact[]> {
   if (!body || !context.workspace || options.artifacts === false) return []
   const paths = new Set<string>()
@@ -2664,7 +2667,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 async function ensureGitHubArtifactBranch(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   command: GitHubPullRequestCommand,
   branch: string,
 ): Promise<void> {
@@ -2693,7 +2696,7 @@ async function ensureGitHubArtifactBranch(
 }
 
 async function publishGitHubArtifact(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   command: GitHubPullRequestCommand,
   branch: string,
   input: AgentDeliveryArtifactPublishInput,
@@ -2728,7 +2731,7 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
 ): Promise<string | undefined> {
   const structuredArtifacts = deliveryArtifacts(context)
   const referencedStructuredPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, structuredArtifacts))
@@ -2774,7 +2777,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return forgeDeliveryEffects({
-    provider: async context => await forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: forgeChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
+    provider: async context => await (await loadForge()).forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: forgeChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
     target: context => {
       const command = githubCommandFromEffect(context)
       return command ? githubForgeTarget(command) : undefined
@@ -3433,7 +3436,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
       const appOptions = app ? githubAppOptions(app) || {} : {}
       try {
         const token = services ? undefined : await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository)
-        const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+        const provider = services ? await services.provider(context) : await (await loadForge()).forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
         const pullRequest = services ? await forgeChannelPullRequest(provider, { forge: services.kind, instance: provider.instance, repository, number }) : (await forgeChannelRead(provider, "AGENT_R0351", async () => await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository, number }))).raw
         if (isRecord(pullRequest)) {
           const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
@@ -4193,7 +4196,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
   const setting = forgeChannelSetting(kind, options)
   const services: ForgeChannelServices<TRuntimeConfig> = {
     kind,
-    provider: async (context, fetcher) => await forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: forgeChannelFetch(fetcher || globalThis.fetch) }),
+    provider: async (context, fetcher) => await (await loadForge()).forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: forgeChannelFetch(fetcher || globalThis.fetch) }),
   }
   const secret = async (context: AgentCallbackContext<TRuntimeConfig>) => {
     const value = await setting("webhookSecret", context)

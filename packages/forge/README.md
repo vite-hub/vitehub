@@ -7,7 +7,7 @@
 
 `@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
 
-The GitHub Channel and the Workspace GitHub store mint App installation tokens through `useForge()`. GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). Workspaces and Sources list `@vite-hub/forge` as an optional peer and load it only on a Forge path, so an app without a Forge does not install it. Such an app that uses a GitHub Store or a GitHub Source fails with `INTERNAL_FORGE_NOT_INSTALLED` until it runs `pnpm add @vite-hub/forge`.
+The GitHub Channel, the `forge()` Capability, and the Workspace GitHub store mint App installation tokens through `useForge()`. GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). Channels, Workspaces and Sources list `@vite-hub/forge` as an optional peer and load it only on a Forge path, so an app without a Forge does not install it. Such an app that uses a Forge Channel, the `forge()` Capability, a GitHub Store or a GitHub Source fails with `INTERNAL_FORGE_NOT_INSTALLED` until it runs `pnpm add @vite-hub/forge`.
 
 ## Use it in an app
 

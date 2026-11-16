@@ -1052,9 +1052,6 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/gateways':
         specifier: workspace:*
         version: link:../gateways
@@ -1152,6 +1149,9 @@ importers:
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/forms':
         specifier: workspace:*
         version: link:../forms
