@@ -178,6 +178,40 @@ describe("Console env values", () => {
     expect((await call("vhk_unknown", "GET", `/api/projects/${other.id}/env/production`)).status).toBe(401)
   })
 
+  it("reads a keyring from VITEHUB_CONSOLE_ENV_KEYS, current key first, and refuses both variables at once", () => {
+    const next = "f".repeat(64)
+    const on = { VITEHUB_CONSOLE_ENV_VALUES: "1" }
+    expect(readConsoleEnvConfig({ ...on, VITEHUB_CONSOLE_ENV_KEY: envKey })).toEqual({ keys: [new Uint8Array(32).fill(0xEE)], state: "on" })
+    expect(readConsoleEnvConfig({ ...on, VITEHUB_CONSOLE_ENV_KEYS: ` ${next} , ${envKey} ` })).toEqual({ keys: [new Uint8Array(32).fill(0xFF), new Uint8Array(32).fill(0xEE)], state: "on" })
+    expect(readConsoleEnvConfig({ ...on, VITEHUB_CONSOLE_ENV_KEYS: `${next},` })).toMatchObject({ problem: expect.stringContaining("Key 2"), state: "misconfigured" })
+    expect(readConsoleEnvConfig({ ...on, VITEHUB_CONSOLE_ENV_KEY: envKey, VITEHUB_CONSOLE_ENV_KEYS: next })).toMatchObject({ problem: expect.stringContaining("not both"), state: "misconfigured" })
+  })
+
+  it("rotates every stored value to the new key, so the old key can go", async () => {
+    const { app, client, key, other } = await setup()
+    const owner = (await key("u-ada")).key
+    await call(owner, "PUT", `/api/projects/${app.id}/env/production/API_TOKEN`, { value: canary })
+    await call(owner, "PUT", `/api/projects/${other.id}/env/staging/DATABASE_URL`, { value: "libsql://db" })
+    const sealedWithOld = JSON.stringify((await client.execute("select payload from vitehub_env_secrets order by key")).rows)
+
+    const next = "f".repeat(64)
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", "")
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEYS", `${next},${envKey}`)
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).json()).toEqual({ stage: "production", values: { API_TOKEN: canary } })
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("sealed 2 values again"))
+    expect(JSON.stringify((await client.execute("select payload from vitehub_env_secrets order by key")).rows)).not.toBe(sealedWithOld)
+
+    // Without the old key, every value still reads.
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEYS", "")
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", next)
+    expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).json()).toEqual({ stage: "production", values: { API_TOKEN: canary } })
+    expect(await (await call(owner, "POST", `/api/projects/${other.id}/env/staging/reveal`, {})).json()).toEqual({ stage: "staging", values: { DATABASE_URL: "libsql://db" } })
+    // The old key alone no longer opens them.
+    vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", envKey)
+    expect((await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).status).toBeGreaterThanOrEqual(500)
+  })
+
   it("refuses bad stages and names", async () => {
     const { app, key } = await setup()
     const owner = (await key("u-ada")).key

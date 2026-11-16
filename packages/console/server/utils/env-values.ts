@@ -1,6 +1,6 @@
 import { useDatabase } from "vite-hub/database"
 
-import { consoleEnvValues, envNamePattern, envStagePattern, envValuesOffMessage, maxEnvValueLength, readConsoleEnvConfig } from "../../src/env-values.ts"
+import { consoleEnvValues, envNamePattern, envStagePattern, envValuesOffMessage, maxEnvValueLength, readConsoleEnvConfig, rotateConsoleEnvValues } from "../../src/env-values.ts"
 import { consoleJson, consoleProblem, projectIdOf, projectNotFound } from "./console.ts"
 
 import type { EnvActivity, EnvActor } from "vite-hub/env/bridge"
@@ -26,6 +26,24 @@ function actorOf(caller: ConsoleTeamCaller): { actor: EnvActor, target?: EnvActo
 async function record(store: DatabaseEnvStore, caller: ConsoleTeamCaller, event: Pick<EnvActivity, "action" | "key" | "outcome"> & { revision?: string, operation: string }): Promise<void> {
   const id = crypto.randomUUID()
   await store.access.append({ ...actorOf(caller), ...event, id, operationId: id, timestamp: new Date().toISOString() })
+}
+
+let rotation: Promise<void> | undefined
+
+/**
+ * With more than one key, the first env request of the process seals every stored value with the current key, so the
+ * operator can then remove the previous keys. Reads work during the rotation, because the keyring opens either key. A
+ * failed rotation does not fail the request: the next request tries again.
+ */
+function rotateOnce(db: EnvDatabase, keys: Uint8Array[]): Promise<void> {
+  if (keys.length < 2) return Promise.resolve()
+  return rotation ??= rotateConsoleEnvValues(db, keys).then(
+    ({ namespaces, rotated, skipped }) => console.info(`[vitehub] Env values: sealed ${rotated} values again with the current key, ${skipped} already used it, in ${namespaces} stages.`),
+    (error: unknown) => {
+      rotation = undefined
+      console.error("[vitehub] Env values: the key rotation failed. Values still read with the keyring. Keep the previous keys.", error)
+    },
+  )
 }
 
 const forbidden = () => consoleProblem(403, "CONSOLE_ENV_FORBIDDEN", "Only owners and admins of the team set, delete, and reveal env values. Members see the names.")
@@ -55,7 +73,9 @@ export async function consoleEnvRoute(request: Request, caller: ConsoleTeamCalle
   const path = new URL(request.url).pathname
   const rest = path.slice(path.indexOf("/env") + "/env".length).split("/").filter(Boolean).map(decodeURIComponent)
   // SAFETY: Drizzle's SQLite databases (libSQL, D1) run `run(sql)` and `all(sql)`, the methods of `EnvDatabase`.
-  const values = consoleEnvValues(useDatabase("default").db as unknown as EnvDatabase, config.key, projectId)
+  const db = useDatabase("default").db as unknown as EnvDatabase
+  await rotateOnce(db, config.keys)
+  const values = consoleEnvValues(db, config.keys, projectId)
   const method = request.method.toUpperCase()
 
   if (!rest.length && method === "GET") return consoleJson({ stages: await values.stages() })

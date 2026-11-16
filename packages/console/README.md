@@ -56,7 +56,16 @@ The values use `createDatabaseEnvStore()` from `@vite-hub/env/database` in the C
 - Each write, delete, and reveal goes in the env activity first, with `operation` `console.set`, `console.delete`, or `console.reveal`. The actor is the person of a session, or `api-key:<key id>` with the person in `target`. The activity never holds a value.
 - `vitehub env pull --from console` reveals every value of a stage and writes `.env.<stage>`.
 
-The key is one key for now. Rotation with a list of keys comes with the Env keyring.
+### Rotate the env key
+
+`VITEHUB_CONSOLE_ENV_KEYS` is a keyring: comma-separated keys, the current key first, then the previous keys. New writes use the current key, and a value that a previous key sealed still reads. Set it in place of `VITEHUB_CONSOLE_ENV_KEY`. With both set, every env route answers `500` with `CONSOLE_ENV_KEY_INVALID`.
+
+1. Create a new key with `openssl rand -base64 32`, and keep a copy outside the database.
+2. Remove `VITEHUB_CONSOLE_ENV_KEY`, set `VITEHUB_CONSOLE_ENV_KEYS=<new key>,<old key>`, and deploy.
+3. Open the **Env values** page, or call any env route. The first env request of each Console process seals every stored value of every app and stage with the new key, and the host log gets one line: `[vitehub] Env values: sealed <n> values again with the current key, ...`. The values and their revisions stay the same. If it fails, the log says so, reads still work with both keys, and the next request tries again.
+4. When the log line is there, set `VITEHUB_CONSOLE_ENV_KEY=<new key>`, remove `VITEHUB_CONSOLE_ENV_KEYS`, and deploy. Delete the old key.
+
+Do not remove the old key before step 3 is done: a value that only the old key opens can no longer be read.
 
 ## ViteHub MCP
 
@@ -92,7 +101,8 @@ The account tools act on the team that the person opened last in the Console, el
 | `VITEHUB_CONSOLE_ALLOW_PRIVATE` | `true` lets the Console link private addresses, such as `localhost`, `10.0.0.8`, or `*.internal`. Off by default, so a person who links a project cannot make the Console fetch an address in its own network. The check reads the host name: a public name that resolves to a private address passes it. |
 | `VITEHUB_CONSOLE_COMMENTERS` | Optional. The emails, comma-separated, of the people who may comment on the Console's own pages. Anyone can sign up, so a signed-in account is not enough. Without it, nobody may. |
 | `VITEHUB_CONSOLE_ENV_VALUES` | Optional. `1` stores env values in this Console. Off by default. The operator can read the stored values. See [Env values](#env-values). |
-| `VITEHUB_CONSOLE_ENV_KEY` | The 32-byte key that encrypts env values, as base64 or 64 hex digits. Required when `VITEHUB_CONSOLE_ENV_VALUES` is `1`. |
+| `VITEHUB_CONSOLE_ENV_KEY` | The 32-byte key that encrypts env values, as base64 or 64 hex digits. Required when `VITEHUB_CONSOLE_ENV_VALUES` is `1`, unless `VITEHUB_CONSOLE_ENV_KEYS` is set. |
+| `VITEHUB_CONSOLE_ENV_KEYS` | Optional. In place of `VITEHUB_CONSOLE_ENV_KEY` during a rotation: comma-separated keys, the current key first. See [Rotate the env key](#rotate-the-env-key). |
 | `VITEHUB_CONSOLE_KEY_<NAME>` | Optional. The public key of a link to this Console from a Console, such as itself. See [Link the Console to itself](#link-the-console-to-itself). |
 
 ## Link the Console to itself
