@@ -110,11 +110,11 @@ describe("resolveRedirectsPolicy", () => {
 })
 
 describe("cloudflareRedirectsAssets", () => {
-  const nitro = { baseURL: "/", publicAssets: [{ baseURL: "/", fallthrough: true }, { baseURL: "/_nuxt/", fallthrough: false }, { baseURL: "/_nuxt", fallthrough: false }] }
+  const nitro = { baseURL: "/", publicAssets: [{ baseURL: "/", fallthrough: true }, { baseURL: "/_nuxt/builds/meta/", fallthrough: false }, { baseURL: "/_nuxt/", fallthrough: false }, { baseURL: "/_nuxt", fallthrough: false }, { baseURL: "/_nuxt-icons", fallthrough: false }] }
 
   it("runs the Worker first for every path except the hashed build assets", () => {
-    expect(cloudflareRedirectsAssets(policy({ host: "example.com" }), nitro, {})).toEqual({ run_worker_first: ["/*", "!/_nuxt/*"] })
-    expect(cloudflareRedirectsAssets(policy({ trailingSlash: "remove" }), { ...nitro, baseURL: "/docs" }, {})).toEqual({ run_worker_first: ["/docs/*", "!/docs/_nuxt/*"], html_handling: "drop-trailing-slash" })
+    expect(cloudflareRedirectsAssets(policy({ host: "example.com" }), nitro, {})).toEqual({ run_worker_first: ["/*", "!/_nuxt/*", "!/_nuxt-icons/*"] })
+    expect(cloudflareRedirectsAssets(policy({ trailingSlash: "remove" }), { ...nitro, baseURL: "/docs" }, {})).toEqual({ run_worker_first: ["/docs/*", "!/docs/_nuxt/*", "!/docs/_nuxt-icons/*"], html_handling: "drop-trailing-slash" })
     expect(cloudflareRedirectsAssets(policy({ trailingSlash: "add" }), nitro, {}).html_handling).toBe("force-trailing-slash")
   })
 

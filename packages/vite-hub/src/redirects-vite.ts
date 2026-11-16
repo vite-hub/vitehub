@@ -105,11 +105,14 @@ export function cloudflareRedirectsAssets(
   configured: Record<string, unknown>,
 ): Record<string, unknown> {
   const base = nitro.baseURL.endsWith("/") ? nitro.baseURL : `${nitro.baseURL}/`
-  const buildAssets = nitro.publicAssets
+  const prefixes = nitro.publicAssets
     .filter(asset => !asset.fallthrough && asset.baseURL && asset.baseURL !== "/")
-    .map(asset => `!${base}${asset.baseURL!.replace(/^\/+|\/+$/g, "")}/*`)
+    .map(asset => `${base}${asset.baseURL!.replace(/^\/+|\/+$/g, "")}/`)
+    .sort((a, b) => a.length - b.length)
+  // Wrangler refuses a rule that another rule makes redundant, such as `!/_nuxt/builds/*` next to `!/_nuxt/*`.
+  const buildAssets = prefixes.filter((prefix, index) => !prefixes.slice(0, index).some(shorter => prefix.startsWith(shorter)))
   return {
-    ...configured.run_worker_first === undefined ? { run_worker_first: [`${base}*`, ...new Set(buildAssets)] } : {},
+    ...configured.run_worker_first === undefined ? { run_worker_first: [`${base}*`, ...buildAssets.map(prefix => `!${prefix}*`)] } : {},
     ...policy.trailingSlash && configured.html_handling === undefined
       ? { html_handling: policy.trailingSlash === "add" ? "force-trailing-slash" : "drop-trailing-slash" }
       : {},
