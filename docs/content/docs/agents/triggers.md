@@ -179,6 +179,8 @@ defineChannelTrigger({
 })
 ```
 
+The GitHub Channel uses the same answer for code that runs on pull request comments and reviews. See [Run code on pull request comments and reviews](/docs/agents/channels#run-code-on-pull-request-comments-and-reviews).
+
 Two other helpers answer `{ accepted: false, ok: false, reason }` and start no Invocation.
 
 | Helper | Status | Use it when | Retry |

@@ -21,6 +21,7 @@ import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
+import { isResponse } from "./internal/response.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -339,7 +340,7 @@ export type GitHubIssueCommentPayload = {
     title?: unknown
     draft?: unknown
     base?: { ref?: unknown }
-    head?: { ref?: unknown, repo?: { full_name?: unknown } }
+    head?: { ref?: unknown, repo?: { full_name?: unknown }, sha?: unknown }
     url?: unknown
     user?: { id?: unknown, login?: unknown, type?: unknown }
   }
@@ -367,6 +368,8 @@ export interface GitHubPullRequestCommand {
   pullRequestUrl: string
   repo: string
   repository: string
+  /** The name of the `githubPullRequestTrigger()` that matched the delivery. */
+  trigger?: string
 }
 
 export interface GitHubPullRequestFileMetadata {
@@ -600,6 +603,81 @@ export interface GitHubPullRequestTrigger {
   noFindingsReviews?: readonly string[]
   prompt?: string
   reviewStates?: readonly string[]
+}
+
+/** The pull request events that a GitHub pull request trigger receives. */
+export type GitHubPullRequestTriggerEventName = "issue_comment" | "pull_request_review_comment" | "pull_request_review"
+
+/** The GitHub delivery that a pull request trigger matched. */
+export interface GitHubPullRequestTriggerEvent {
+  event: GitHubPullRequestTriggerEventName
+  /** The GitHub delivery ID from `x-github-delivery`. The queue runs each delivery ID once. */
+  deliveryId?: string
+  actor: { login: string, id?: number, type?: string, association?: string }
+  /** The comment or review body. */
+  body?: string
+  /** The comment or review page. */
+  url?: string
+  /** Set for `pull_request_review`. */
+  reviewState?: "approved" | "changes_requested" | "commented"
+  pullRequest: {
+    repository: string
+    number: number
+    url?: string
+    apiUrl: string
+    title?: string
+    author?: string
+    /** The head commit. A comment delivery does not include it, so ViteHub reads it from GitHub. Unset when that read fails. */
+    headSha?: string
+    headRef?: string
+    baseRef?: string
+  }
+  /** The GitHub webhook payload. */
+  payload: GitHubIssueCommentPayload
+}
+
+/** The answer of a GitHub pull request trigger: Agent input to start the Agent on the pull request, or a `Response` such as `ignored()`. */
+export type GitHubPullRequestTriggerResult = Response | { input: AgentRunInput }
+
+export interface GitHubPullRequestTriggerOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  events: readonly GitHubPullRequestTriggerEventName[]
+  filter?: GitHubPullRequestFilter
+  /** Wait this long before `invoke` runs; a later delivery from this trigger for the same pull request replaces a queued one. */
+  debounceMs?: number
+  mentions?: readonly string[]
+  /** Body prefixes of `commented` reviews that report no findings, such as `"> ✅ No new issues found."`. Those reviews do not match. */
+  noFindingsReviews?: readonly string[]
+  reviewStates?: readonly ("approved" | "changes_requested" | "commented")[]
+  /**
+   * Runs once per matching delivery, in the pull request's webhook queue. Return `{ input }` to start the Agent on the
+   * pull request, with `input.prompt` as the request, or `ignored(reason)` to finish without an Invocation.
+   */
+  invoke: (context: AgentChannelTriggerContext<TRuntimeConfig>, event: GitHubPullRequestTriggerEvent) => MaybePromise<GitHubPullRequestTriggerResult>
+}
+
+const githubPullRequestTriggerKey: unique symbol = Symbol.for("vitehub.github.pullRequestTrigger")
+
+export type GitHubPullRequestTriggerDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  AgentChannelTriggerDefinition<TRuntimeConfig, GitHubPullRequestTriggerEvent> & { [githubPullRequestTriggerKey]: GitHubPullRequestTriggerOptions<TRuntimeConfig> }
+
+/**
+ * A trigger of the `github()` Channel that runs on comments and reviews of pull requests. Put it in the Channel's
+ * `triggers`. The webhook queue runs `invoke` once per matching delivery.
+ */
+export function githubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
+): GitHubPullRequestTriggerDefinition<TRuntimeConfig> {
+  return {
+    invoke: options.invoke,
+    // The `webhook` trigger of the Channel receives the GitHub webhook and selects this trigger.
+    webhooks: [],
+    [githubPullRequestTriggerKey]: options,
+  }
+}
+
+function githubPullRequestTriggerOptionsOf<TRuntimeConfig extends AgentRuntimeConfig>(trigger: object): GitHubPullRequestTriggerOptions<TRuntimeConfig> | undefined {
+  // SAFETY: Only githubPullRequestTrigger() sets this key, with the options of the Channel's runtime configuration.
+  return githubPullRequestTriggerKey in trigger ? (trigger as GitHubPullRequestTriggerDefinition<TRuntimeConfig>)[githubPullRequestTriggerKey] : undefined
 }
 
 export interface GitHubPullRequestFilterContext {
@@ -1104,8 +1182,8 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
 
 interface GitHubPullRequestReconcileInput {
   command: GitHubPullRequestCommand
-  /** Debounce of the matched trigger; `trigger` is its index, so triggers keep separate keys. */
-  debounce?: { delayMs: number, trigger: number }
+  /** Debounce of the matched trigger; `key` names the trigger, so triggers keep separate keys. */
+  debounce?: { delayMs: number, key: string }
   payload: GitHubIssueCommentPayload
 }
 
@@ -1209,9 +1287,11 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: AgentCallbackContext<TRuntimeConfig>,
   services?: ForgeChannelServices<TRuntimeConfig>,
+  pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>> = {},
 ): Promise<GitHubPullRequestReconcileInput | undefined> {
-  if (!reconcile) return
-  const options = reconcile === true ? {} : reconcile
+  const namedTriggers = Object.entries(pullRequestTriggers)
+  if (!reconcile && !namedTriggers.length) return
+  const options = reconcile === true || !reconcile ? {} : reconcile
   let payload = inputPayload(input)
   const facts = inputGithubFacts(input)
   if (!payload) return
@@ -1225,7 +1305,10 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
   if (!event || event === "issue_comment" || event === "pull_request_review_comment" || event === "pull_request_review") {
     if (event === "pull_request_review" && payload.action !== "submitted") return
     if (event === "pull_request_review_comment" && payload.action !== "created") return
-    const triggerOptions = githubPullRequestTriggerOptions(reconcile)
+    const triggerOptions: Array<GitHubPullRequestTrigger & { name?: string }> = [
+      ...githubPullRequestTriggerOptions(reconcile),
+      ...namedTriggers.map(([name, trigger]) => ({ ...trigger, name })),
+    ]
     if (event === "pull_request_review" && !["approved", "commented", "changes_requested"].includes(githubPullRequestReviewState(payload) || "")) return
     if (event === "pull_request_review_comment" || event === "pull_request_review") {
       const reviewPullRequest = payload.pull_request
@@ -1254,7 +1337,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
     }
     if ((event === "issue_comment" && payload.action !== "created") || !payload.issue?.pull_request) return
     const body = maybeString(payload.comment?.body) || (event === "pull_request_review" ? githubPullRequestReviewUrl(payload) : undefined)
-    let trigger: GitHubPullRequestTrigger | undefined
+    let trigger: (typeof triggerOptions)[number] | undefined
     for (const candidate of triggerOptions) {
       const events = Array.isArray(candidate.events) ? candidate.events : []
       if (!events.includes(event || "issue_comment")) continue
@@ -1303,13 +1386,14 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
         pullRequestUrl,
         repo,
         repository,
+        ...(trigger?.name ? { trigger: trigger.name } : {}),
       },
-      ...(trigger?.debounceMs === undefined ? {} : { debounce: { delayMs: trigger.debounceMs, trigger: triggerOptions.indexOf(trigger) } }),
+      ...(trigger?.debounceMs === undefined ? {} : { debounce: { delayMs: trigger.debounceMs, key: trigger.name ?? String(triggerOptions.indexOf(trigger)) } }),
       payload,
     }
   }
 
-  if (event !== "pull_request" || !isRecord(payload.pull_request)) return
+  if (!reconcile || event !== "pull_request" || !isRecord(payload.pull_request)) return
   const action = maybeString(payload.action)
   const events = Array.isArray(options.events)
     ? options.events.filter(event => typeof event === "string")
@@ -1619,6 +1703,7 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
     pullRequestUrl,
     repo,
     repository,
+    ...(maybeString(value.trigger) ? { trigger: maybeString(value.trigger) } : {}),
   }
 }
 
@@ -3473,12 +3558,92 @@ async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConf
   return { label: "Current session", url: consoleInvocationUrl(publicUrl, agentName, id) }
 }
 
+async function githubPullRequestTriggerEvent<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: unknown,
+  command: GitHubPullRequestCommand,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: AgentCallbackContext<TRuntimeConfig>,
+): Promise<GitHubPullRequestTriggerEvent> {
+  const event = command.event
+  invariant(event !== "pull_request", "Pull request triggers match only comment and review deliveries.")
+  const payload = inputPayloadOrBody(input) ?? {}
+  const pullRequest = isRecord(payload.pull_request) ? payload.pull_request : undefined
+  const review = payload.review
+  const reviewState = githubPullRequestReviewState(payload)
+  let head = pullRequest?.head
+  if (!head?.sha) {
+    // Comment deliveries do not include the head commit.
+    try {
+      const appOptions = app ? githubAppOptions(app) || {} : {}
+      const token = await githubPullRequestMetadataToken(app, context, command.installationId, command.repository)
+      const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+      const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository: command.repository, number: command.issueNumber })
+      if (isRecord(read.raw) && isRecord(read.raw.head)) head = read.raw.head
+    }
+    catch (error) {
+      console.error(`[vitehub] Could not read the head commit of ${command.repository}#${command.issueNumber}.`, error)
+    }
+  }
+  const author = maybeString(pullRequest?.user?.login) ?? maybeString(payload.issue?.user?.login)
+  const url = maybeString(pullRequest?.html_url) ?? maybeString(payload.issue?.pull_request?.html_url)
+  const title = maybeString(pullRequest?.title) ?? maybeString(payload.issue?.title)
+  const headSha = maybeString(head?.sha)
+  const headRef = maybeString(head?.ref)
+  const baseRef = maybeString(pullRequest?.base?.ref)
+  const body = maybeString(payload.comment?.body) ?? maybeString(review?.body)
+  const commentUrl = maybeString(payload.comment?.html_url) ?? maybeString(review?.html_url)
+  return {
+    event,
+    ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+    actor: command.actor,
+    ...(body ? { body } : {}),
+    ...(commentUrl ? { url: commentUrl } : {}),
+    ...(event === "pull_request_review" && (reviewState === "approved" || reviewState === "changes_requested" || reviewState === "commented") ? { reviewState } : {}),
+    pullRequest: {
+      repository: command.repository,
+      number: command.issueNumber,
+      ...(url ? { url } : {}),
+      apiUrl: command.pullRequestUrl,
+      ...(title ? { title } : {}),
+      ...(author ? { author } : {}),
+      ...(headSha ? { headSha } : {}),
+      ...(headRef ? { headRef } : {}),
+      ...(baseRef ? { baseRef } : {}),
+    },
+    payload,
+  }
+}
+
+/** Runs the `githubPullRequestTrigger()` that matched a delivery. A `Response` finishes the delivery; input starts the Agent. */
+async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelTriggerContext<TRuntimeConfig>,
+  pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>>,
+  command: GitHubPullRequestCommand & { trigger: string },
+  input: unknown,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+): Promise<Response | AgentRunInput> {
+  if (!Object.hasOwn(pullRequestTriggers, command.trigger)) return ignored(`pull request trigger "${command.trigger}" no longer exists`)
+  const event = await githubPullRequestTriggerEvent(input, command, app, context)
+  const triggerContext = {
+    ...context,
+    trigger: { ...context.trigger, id: `${context.trigger.channelId}.${command.trigger}` as const, name: command.trigger },
+  }
+  const result = await pullRequestTriggers[command.trigger]!.invoke(triggerContext, event)
+  return isResponse(result) ? result : result.input
+}
+
+/** The command whose request is the trigger's `prompt`, when it returned one. */
+function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, input: AgentRunInput | undefined): GitHubPullRequestCommand {
+  return typeof input?.prompt === "string" && input.prompt ? { ...command, body: input.prompt } : command
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
   activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
   activityOptions?: GitHubChannelActivityOptions<TRuntimeConfig>,
   services?: ForgeChannelServices<TRuntimeConfig>,
+  pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>> = {},
 ): Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, unknown, unknown, AgentChannelTriggerContext<TRuntimeConfig>>> | undefined {
   if (!pullRequest && !activity) return undefined
   const options = pullRequest === true || !pullRequest ? {} : pullRequest
@@ -3496,6 +3661,12 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             concurrencyGroup: pullRequestKey,
             concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
             deliveryId: acceptedCommand.deliveryId,
+          }
+          let triggerInput: AgentRunInput | undefined
+          if (acceptedCommand.trigger) {
+            const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, input, app)
+            if (isResponse(result)) return { ...accepted, webhook: { ...ownership, rehydrate: () => result } }
+            triggerInput = result
           }
           const metadata = await githubPullRequestMetadata(app, context, acceptedCommand, options, undefined, services)
           const branch = options.reconcile && !services ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, accepted.acceptedAt) : {}
@@ -3518,15 +3689,16 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
               ...metadata,
             },
           }
-          const commandInput = pullRequestCommandInput(acceptedCommand, refreshed, options.ci)
+          const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(acceptedCommand, triggerInput), refreshed, options.ci)
           const invocation: AgentTriggerRunInvokeResult = {
             ...accepted,
             delivery: { finishEffects: githubPullRequestCommentFinishEffects(options) },
             input: {
               ...accepted.input,
+              ...triggerInput,
               ...commandInput,
               ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
-              context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
+              context: { ...accepted.input.context, ...triggerInput?.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
               ...ownership,
@@ -3600,10 +3772,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (!pullRequest) return ignored(payload ? "not_command" : "missing_payload")
         const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
-        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context, services)
+        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context, services, pullRequestTriggers)
         const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
         if (reconciled) payload = reconciled.payload
-        const automaticCommentOptions = reconciled?.command.command === "/comment" ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
+        const automaticCommentOptions = reconciled?.command.command === "/comment" && !reconciled.command.trigger ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
         if (automaticCommentOptions && automaticCommentOptions !== true && payload && !await githubPullRequestMatchesFilter(automaticCommentOptions, payload, app, context, services)) {
           return options.ignored?.("filtered") || ignored("filtered")
         }
@@ -3615,10 +3787,17 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
           deliveryId: command.deliveryId,
           ...(reconciled.debounce
-            ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.trigger}` } }
+            ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.key}` } }
             : githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`)),
         } : undefined
-        const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
+        let triggerInput: AgentRunInput | undefined
+        if (command.trigger && !ownership) {
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          if (isResponse(result)) return result
+          triggerInput = result
+        }
+        // A queued trigger reads the pull request when it runs, not when GitHub delivers the event.
+        const metadata = command.trigger && ownership ? {} : await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequestContext = githubPullRequestRunContext(command, {
           ...options,
           threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
@@ -3635,9 +3814,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             },
           }
         }
+        const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(command, triggerInput), pullRequestContext, options.ci)
         const invocation: AgentTriggerRunInvokeResult = {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
-          input: pullRequestCommandInput(command, pullRequestContext, options.ci),
+          input: { ...triggerInput, ...commandInput, context: { ...triggerInput?.context, ...commandInput.context } },
           run,
         }
         if (ownership) {
@@ -3685,32 +3865,41 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
 
         let payload = githubDevPayload(input)
         const pullRequestInput = isRecord(input) ? { ...input, payload } : { payload }
-        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context, services)
+        const reconciled = await githubPullRequestReconcileFromInput(pullRequestInput, options.reconcile, app, context, services, pullRequestTriggers)
         const command = reconciled?.command || githubPullRequestCommandFromInput(pullRequestInput)
         if (reconciled) payload = reconciled.payload
-        const automaticCommentOptions = reconciled?.command.command === "/comment" ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
+        const automaticCommentOptions = reconciled?.command.command === "/comment" && !reconciled.command.trigger ? githubPullRequestAutomaticCommentOptions(options.reconcile) : undefined
         if (automaticCommentOptions && automaticCommentOptions !== true && payload && !await githubPullRequestMatchesFilter(automaticCommentOptions, payload, app, context, services)) {
           return options.ignored?.("filtered") || ignored("filtered")
         }
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+        let triggerInput: AgentRunInput | undefined
+        if (command.trigger) {
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          if (isResponse(result)) return result
+          triggerInput = result
+        }
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequest = githubPullRequestRunContext(command, {
           ...options,
           threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
         }, payload, metadata)
+        const request = githubPullRequestTriggerRequest(command, triggerInput)
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
           input: {
+            ...triggerInput,
             ...controls,
             context: {
+              ...triggerInput?.context,
               github: command,
               pullRequest,
             },
             prompt: githubPullRequestTaskPrompt({
-              ...command,
-              body: maybeString(inputRecord.prompt) || command.body,
+              ...request,
+              body: maybeString(inputRecord.prompt) || request.body,
             }, pullRequest, options.ci),
           },
           run: githubPullRequestRunMetadata(pullRequest, context.trigger.channelId),
@@ -4101,6 +4290,14 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods>
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> {
   const { activity, app: appOptions, pullRequest, ...channelOptions } = options
+  const pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>> = {}
+  for (const [name, trigger] of Object.entries(options.triggers || {})) {
+    const triggerOptions = githubPullRequestTriggerOptionsOf<TRuntimeConfig>(trigger)
+    if (triggerOptions) pullRequestTriggers[name] = triggerOptions
+  }
+  if (Object.keys(pullRequestTriggers).length && !pullRequest) {
+    throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_DISABLED({ trigger: Object.keys(pullRequestTriggers)[0]! })
+  }
   const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : undefined
   const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : undefined
   const app = githubAppOptions(appOptions)
@@ -4129,7 +4326,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     ...(appEffects ? { [channelDeliveryHandlers]: appEffects } : {}),
     messages: false,
     triggers: {
-      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, activity && activity !== true ? activity : undefined),
+      ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, activity && activity !== true ? activity : undefined, undefined, pullRequestTriggers),
       ...options.triggers,
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
