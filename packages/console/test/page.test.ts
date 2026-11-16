@@ -32,6 +32,7 @@ describe("renderConsolePage", () => {
   it("marks the view and the sidebar row of the request", () => {
     expect(renderConsolePage(html, visit("/team", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team"')
     expect(renderConsolePage(html, visit("/team-settings", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="team-settings"')
+    expect(renderConsolePage(html, visit("/env", session))).toContain('data-vitehub-boot="shell" data-vitehub-page="env"')
     expect(renderConsolePage(html, visit("/", session))).toContain('data-vitehub-boot="shell" data-vitehub-page=""')
     expect(renderConsolePage(html, visit("/"))).toContain('data-vitehub-boot="sign-in" data-vitehub-page=""')
   })
