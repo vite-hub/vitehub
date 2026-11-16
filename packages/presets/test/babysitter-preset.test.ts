@@ -4148,6 +4148,8 @@ describe("Babysitter preset runtime", () => {
         await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
         release();
         await vi.waitFor(() => expect(f.events).toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything()), { timeout: 30_000 });
+        // The admitted preparation can reach the checkout after the other PR parks.
+        await vi.waitFor(() => expect(prepareGitHubRepairBase).toHaveBeenCalled(), { timeout: 30_000 });
         expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
       } finally {
         release(); finish();
