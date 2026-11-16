@@ -3877,6 +3877,35 @@ describe("Babysitter preset runtime", () => {
       } finally { f.restore(); await f.runtime.inbox.close(); }
     });
 
+    it("lets placement admit a conflict that needs the model while this host's memory admits none", async () => {
+      const release = vi.fn();
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      // Without the no-findings prefix, the bot review is feedback, so the merge needs a model pass.
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).not.toHaveBeenCalled();
+        expect(place).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(1);
+        expect(f.events).not.toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything());
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("keeps host admission for a conflict that an install defect keeps off placement", async () => {
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      await f.runtime.inbox.setMeta("install-defect:acme/app#12", { head: "a".repeat(40), error: "ERR_PNPM_OUTDATED_LOCKFILE" });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).toHaveBeenCalledOnce();
+        expect(place).not.toHaveBeenCalled();
+        expect(f.install).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
     it("pushes a host-resolved merge without asking placement", async () => {
       const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
       const f = await conflictOnly({ placement: { place }, hostCapacity: async () => ({ concurrency: 1 }) });

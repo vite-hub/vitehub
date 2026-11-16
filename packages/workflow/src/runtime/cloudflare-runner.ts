@@ -23,9 +23,7 @@ export interface RunCloudflareWorkflowOptions {
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep & {
-    sleepUntil?: (name: string, timestamp: Date | number) => Promise<void>
-  }
+  step?: WorkflowProviderStep
 }
 
 /** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */

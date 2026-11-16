@@ -27,7 +27,7 @@ export default defineWorkflow('transcribe', async (payload: { recordingId: strin
 })
 ```
 
-Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. A `ViteHubError` does not change the retry policy. To stop the retries, throw a [`NonRetryableError`](#stop-the-retries).
+Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. When a run fails, `getWorkflowRun()` returns the thrown error as `run.error`: its `message`, and its `name` when it is not `Error`. Inline runs also keep its `code`. Cloudflare and OpenWorkflow store only the name and the message. Native Vercel runs read the error after Workflow DevKit serialization, which drops custom `code` properties on ordinary Errors. Application error codes are therefore not portable across providers. The stack, `cause`, and `details` stay out. A thrown error does not change its retry policy. To stop the retries, throw a [`NonRetryableError`](#stop-the-retries).
 
 When a provider call fails, ViteHub throws `WORKFLOW_PROVIDER_OPERATION_FAILED`. Its `details` tell you what happened:
 
@@ -73,9 +73,9 @@ It works in a step file, in a single-file Workflow, and in a `native` entry:
 
 | Provider | Error in `getWorkflowRun()` |
 | --- | --- |
-| Inline, OpenWorkflow | `metadata` has the error `message` and `name`. On OpenWorkflow, the step also reports `failed` with the message. |
-| Cloudflare | `metadata` is the Cloudflare status record, which has the error. |
-| Vercel `native` | `metadata` is `{ workflow }`. The failed step in `steps` has the message. |
+| Inline, OpenWorkflow | `error` has the failure `message` and `name`. On OpenWorkflow, the step also reports `failed` with the message. |
+| Cloudflare | `error` has the failure `message` and `name`. `metadata` also keeps the Cloudflare status record. |
+| Vercel `native` | `error` has the failure `message` and `name`. `metadata` is `{ workflow }`. The failed step in `steps` also has the message. |
 
 ViteHub finds the error by `isRetryable === false` or by the name `NonRetryableError`, so an error from another copy of the package also works. In a folder `index.ts` on OpenWorkflow, a `catch` gets a new `NonRetryableError` with the same `name`, `message`, and `code`, not the original object.
 
