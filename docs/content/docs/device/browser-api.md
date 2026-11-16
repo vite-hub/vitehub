@@ -91,7 +91,7 @@ const { data: project, status, error, refresh, storedAt } = useStoredData(
 | --- | --- | --- |
 | `default` | `() => undefined` | The value when the device has no copy. |
 | `maxAge` | 7 days | A stored copy that is older does not show, and the disk deletes it at the next `openDevice()` or write. In milliseconds. |
-| `account` | none | For the read that says who is signed in, such as `/api/session`: returns the account of an answer, or `null` when nobody is signed in. Each answer names its account, as `setDeviceAccount()` does, and is stored under it, also though its call started before the naming. The read keeps its answer and does not call its loader again. A stored copy and a failed call name nothing. An answer whose call started before another account, a sign-out, or a clear names nothing, and the read calls its loader again. |
+| `account` | none | For the read that says who is signed in, such as `/api/session`: returns the account of an answer, or `null` when nobody is signed in. Each answer names its account, as `setDeviceAccount()` does, and is stored under it, also though its call started before the naming. The read keeps its answer and does not call its loader again. A stored copy and a failed call name nothing. An answer whose call started before another account, a sign-out, or a clear names nothing, and the read calls its loader again. While it runs and the page named no account, a read that shows a stored copy waits for it, so its loader runs once. |
 
 | Field | Holds |
 | --- | --- |

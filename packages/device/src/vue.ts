@@ -66,6 +66,19 @@ const reads = new Map<string, SharedRead>()
 let watching = false
 /** The read whose answer names the account right now. It keeps its answer, and does not start over. */
 let claiming: SharedRead | undefined
+/** The reads with `account` whose loader runs. */
+const identifying = new Set<SharedRead>()
+/** The reads that show a stored copy and wait for the naming before they call their loader. */
+const held = new Set<SharedRead>()
+
+/**
+ * Calls the loaders of the held reads, when the read that says who is signed in failed or went before it named an
+ * account. A naming calls them through its event.
+ */
+function startHeld(device: Device): void {
+  if (identifying.size) return
+  for (const read of held) void load(read, read.loader, device)
+}
 
 /**
  * Follows the device: a copy that loads late shows, a naming of the account calls every loader again, and a reset starts
@@ -109,10 +122,19 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
   // No component shows a released read, and its answer must not replace the answer of a newer read of the key.
   if (!read.users) return
   read.controller?.abort()
-  const controller = new AbortController()
-  read.controller = controller
   read.loader = loader
   read.status.value = "pending"
+  held.delete(read)
+  // A read that shows a stored copy waits while the read that says who is signed in runs, and the page named no
+  // account: an answer of a call that starts before the naming is never stored, so its call would run twice.
+  if (!read.account && read.storedAt.value && identifying.size && !device.named()) {
+    read.controller = undefined
+    held.add(read)
+    return
+  }
+  const controller = new AbortController()
+  read.controller = controller
+  if (read.account) identifying.add(read)
   const since = device.epoch()
   try {
     const value = await loader({ signal: controller.signal })
@@ -138,6 +160,9 @@ async function load(read: SharedRead, loader: (context: StoredDataContext) => Pr
     if (controller.signal.aborted || device.epoch() !== since) return
     read.error.value = error instanceof Error ? error : new Error(String(error), { cause: error })
     read.status.value = "error"
+  }
+  finally {
+    if (read.controller === controller && identifying.delete(read)) startHeld(device)
   }
 }
 
@@ -170,11 +195,13 @@ function acquire(key: string, loader: (context: StoredDataContext) => Promise<un
 }
 
 /** When the last component of a read goes, its loader call stops, so a late answer cannot replace a newer one. */
-function release(read: SharedRead): void {
+function release(read: SharedRead, device: Device): void {
   read.users--
   if (read.users) return
   read.controller?.abort()
+  held.delete(read)
   if (reads.get(read.key) === read) reads.delete(read.key)
+  if (identifying.delete(read)) startHeld(device)
 }
 
 /**
@@ -228,10 +255,10 @@ export function useStoredData<TData, TDefault = undefined>(
     watch(() => toValue(key), (next) => {
       const previous = current.value
       current.value = acquire(checkKey(next), loader, fallback, maxAge, account, device)
-      release(previous)
+      release(previous, device)
     })
   }
-  if (getCurrentScope()) onScopeDispose(() => release(current.value))
+  if (getCurrentScope()) onScopeDispose(() => release(current.value, device))
   return {
     // SAFETY: the shared read of a key holds the default, a stored copy, or an answer of the loader of that key.
     data: computed({ get: () => current.value.data.value as TData | TDefault, set: (value) => { current.value.data.value = value } }),
