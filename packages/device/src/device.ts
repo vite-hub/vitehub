@@ -507,6 +507,8 @@ export function createDevice(options: DeviceOptions): Device {
         return opening
       }
       version = wanted
+      // A message before `open()` was compared with the default version, not with this one.
+      versionSeen = false
       opening = load()
       return opening
     },
