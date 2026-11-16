@@ -152,7 +152,9 @@ describe("CMS publish with publish: 'pr' and previews", { timeout: 30_000 }, () 
     const opened = await keyless.content.publish()
     expect(opened.pullRequest?.number).toBe(1)
     expect(opened.previews).toBeUndefined()
-    expect(vi.mocked(console.warn).mock.calls.some(([message]) => String(message).includes("CONTENT_R0076"))).toBe(true)
+    // The warning prints the signing error as its cause.
+    const warning = vi.mocked(console.warn).mock.calls.find(([, message]) => String(message).includes("CONTENT_R0076"))
+    expect(warning?.[2]).toMatchObject({ code: "CONTENT_R0010" })
   })
 })
 

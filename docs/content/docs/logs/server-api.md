@@ -24,7 +24,7 @@ A `LogSource` has `info` and an asynchronous `query(query, options)` method. `op
 
 Return a `LogPage` with `entries`, an optional next-page `cursor`, and optional `dropped` count. Return the newest events first, with stable IDs. A `LogEntry` has `id`, ISO `timestamp`, `level`, `service`, `message`, and structured `data`.
 
-Throw `LogCursorExpiredError` when a cursor points to data that is gone. Keep pages stable while new events arrive.
+Throw `logCursorExpiredError()` from `vite-hub/logs` when a cursor points to data that is gone. The Console then answers `LOGS_CURSOR_EXPIRED` with status 409. Keep pages stable while new events arrive.
 
 ## Local buffer
 

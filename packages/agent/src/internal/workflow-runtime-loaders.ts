@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 // Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
@@ -93,8 +95,7 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   const load = workflowCapabilityLoaders.console
-  // Internal invariant: the only caller catches this error and treats the Capability as not portable.
-  if (!load) throw new Error("[vitehub] The Console Workflow capability requires a generated runtime loader.")
+  invariant(load, "the generated Workflow host sets a Console capability loader before the Console Workflow capability loads")
   return await load()
 }
 

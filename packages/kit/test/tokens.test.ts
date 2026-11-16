@@ -41,6 +41,15 @@ function shade(color: string, step: number): string {
 }
 
 describe("the kit tokens", () => {
+  it.each(modes)("supply every shared token read by the scoped family in $mode", ({ kit, theme }) => {
+    const family = readFileSync(new URL("../src/styles/default.css", import.meta.url), "utf8");
+    const names = [...new Set([...family.matchAll(/var\((--[\w-]+)/g)].map(([, name]) => name!))]
+      .filter(name => !/^--(?:ui|vh|font)-/.test(name));
+    for (const name of names) {
+      expect(theme.get(name) ?? modes[0]!.theme.get(name), name).toBe(kit.get(name) ?? modes[0]!.kit.get(name));
+    }
+  });
+
   it.each(modes)("have the values of theme.css in $mode", ({ kit, theme }) => {
     const expected = [...theme]
       .filter(([name]) => !/^--(?:ui|vh)-/.test(name) || name in renamed)
