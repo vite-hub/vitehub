@@ -154,7 +154,7 @@ describe("Inline runs", () => {
 
     await vi.waitFor(async () => {
       await expect(getWorkflowRun("decline", started.id)).resolves.toMatchObject({
-        metadata: { message: "card declined", name: "NonRetryableError" },
+        error: { message: "card declined", name: "NonRetryableError" },
         status: "failed",
       })
     })
@@ -189,7 +189,7 @@ describe("OpenWorkflow (SQLite)", () => {
     await tick()
 
     const run = await getWorkflowRun("declineInStep", started.id)
-    expect(run).toMatchObject({ metadata: { message: "card declined", name: "NonRetryableError" }, status: "failed" })
+    expect(run).toMatchObject({ error: { message: "card declined", name: "NonRetryableError" }, status: "failed" })
     expect(run.steps).toEqual([
       expect.objectContaining({ attempt: 1, error: { message: "card declined" }, name: "declineInStep/01.charge.ts", status: "failed" }),
     ])
@@ -203,7 +203,7 @@ describe("OpenWorkflow (SQLite)", () => {
     await tick()
 
     await expect(getWorkflowRun("decline", started.id)).resolves.toMatchObject({
-      metadata: { message: "card declined", name: "NonRetryableError" },
+      error: { message: "card declined", name: "NonRetryableError" },
       status: "failed",
     })
     expect(calls).toEqual(["charge"])

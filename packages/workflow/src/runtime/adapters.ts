@@ -11,6 +11,7 @@ import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
@@ -171,6 +172,12 @@ function cloudflareRunResult(metadata: unknown): unknown {
   return isSerializedResponse(output) ? deserializeResponse(output) : output
 }
 
+/** The `error` member of a Cloudflare `status()` record. */
+function ownStatusError(metadata: unknown): unknown {
+  if (typeof metadata !== "object" || metadata === null || !Object.hasOwn(metadata, "error")) return undefined
+  return Reflect.get(metadata, "error")
+}
+
 /** Cloudflare `get(id)` rejects with `instance.not_found` when no instance has the id. */
 function isCloudflareInstanceNotFound(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false
@@ -224,6 +231,7 @@ async function readCloudflareRun(binding: CloudflareWorkflowBinding, id: string)
   return {
     instance,
     run: {
+      ...(status === "failed" ? { error: toWorkflowRunError(ownStatusError(metadata)) } : {}),
       id,
       metadata,
       provider: "cloudflare",
@@ -378,8 +386,8 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           }
         }
         return {
+          ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          metadata: run.error,
           provider: config.provider,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
@@ -395,8 +403,9 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
       const existing = getWorkflowRunState(name, id)
       if (existing) {
         return {
+          ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: existing.error ?? (config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined),
+          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
           provider: config.provider,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
