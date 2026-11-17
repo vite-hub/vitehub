@@ -419,7 +419,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
     if (changed || (!this.#head && !this.#pendingCommit)) {
       this.#pendingCommit = await git.commit({
-        author: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+        author: options.author ?? { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+        committer: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
         dir,
         fs: this.#fs! as never,
         message: options.name || "Update workspace",

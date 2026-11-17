@@ -301,8 +301,9 @@ Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
 On the GitHub Store, revision ids are commit shas. An instance keeps a ref head for up to
-5 seconds, so a pull can miss a newer commit for that time. The revision `author` is the
-GitHub account of the token, and the signed-in user is only in the commit trailer. Files
+5 seconds, so a pull can miss a newer commit for that time. The signed-in user is the Git
+author of the commit when the user has a name and an email; the account of the token is
+the committer. Without them, the account of the token is the author. Files
 keep only their Git mode. The first push to a new ref starts it from the published or
 default branch and then pulls the copied files. A pull reads one blob per changed file
 (two when it also needs the old version), which counts against the GitHub rate limit.
@@ -508,7 +509,7 @@ The GitHub Store also writes history. `history.commit()` creates one commit, che
 of the `published` and `draft` history refs and reports revisions with those names. `database` is
 carried on the store target and not used by the Store. `history.digest(bytes)` and every revision
 view use Git blob shas as digests. Commit `metadata` is kept in the commit message as a
-`Vitehub-Metadata: {...}` line, and `history.list({ path })` returns the commits that changed that
+`Vitehub-Metadata: {...}` line, a `metadata.author` with a `name` and an `email` is the Git author of the commit, and `history.list({ path })` returns the commits that changed that
 path. `history.head()` keeps a branch head for 5 seconds. The Store reads the repository and token on
 first use, so a missing one throws `WORKSPACE_R0072` then, not when the definition loads.
 

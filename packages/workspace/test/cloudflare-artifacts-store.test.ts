@@ -239,6 +239,18 @@ describe("Cloudflare Artifacts workspace store", () => {
     ])
   })
 
+  it("writes the author of a snapshot as the Git author", async () => {
+    const repo = artifactsRepo()
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+    await store.writeFile("README.md", { content: "hello", path: "README.md" })
+    await store.snapshot({ name: "docs: hello", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(gitMock.commit).toHaveBeenCalledWith(expect.objectContaining({
+      author: { name: "Ada Lovelace", email: "ada@example.com" },
+      committer: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+      message: "docs: hello",
+    }))
+  })
+
   it("pushes an empty initial snapshot as a Git commit", async () => {
     const store = await createStore({
       create: vi.fn(),

@@ -141,8 +141,19 @@ export interface WorkspacePlugin {
   hooks?: WorkspaceHooks
 }
 
+/** The person that a snapshot or a history commit records as its author. */
+export interface WorkspaceAuthor {
+  name: string
+  email: string
+}
+
 export interface SnapshotOptions {
   name?: string
+  /**
+   * Who made the change, such as the signed-in user. The GitHub and Cloudflare Artifacts Stores write it as the Git
+   * commit author. Stores with retained history keep it as `metadata.author` of the revision.
+   */
+  author?: WorkspaceAuthor
 }
 
 export interface DiffOptions {

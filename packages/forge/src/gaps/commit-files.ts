@@ -19,7 +19,7 @@ export interface ForgeCommitFilesInput extends Omit<CommitFilesInput, "changes">
 
 /**
  * `provider.contents.commitFiles()` with Git file modes, and the sha of the new commit.
- * Without a `mode`, the call goes to `commitFiles()`. When one change has a `mode`, every write without one is `100644`.
+ * Without a `mode` or a GitHub author, the call goes to `commitFiles()`. Every write without a mode is `100644`.
  * Rejects with `BranchMovedError` when the branch no longer points at `expectedHead`, as `commitFiles()` does.
  * Gap: `FileChange` has no mode, so `commitFiles()` cannot write a symlink or an executable file.
  * Proposed upstream as `FileChange.mode`.
@@ -27,7 +27,7 @@ export interface ForgeCommitFilesInput extends Omit<CommitFilesInput, "changes">
 export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, input: ForgeCommitFilesInput, options: BaseOptions = {}): Promise<string> {
   // GitHub's Contents API rejects an empty change set, but history commits must
   // still create a revision. Use the Git database for empty commits as well.
-  if (input.changes.length > 0 && !input.changes.some(change => change.mode)) return (await provider.contents.commitFiles(repo, input, options)).sha
+  if (!(provider.forge === "github" && input.author) && input.changes.length > 0 && !input.changes.some(change => change.mode)) return (await provider.contents.commitFiles(repo, input, options)).sha
   if (provider.forge !== "github") {
     throw forgeDiagnostics.FORGE_R0005({ message: `Git file modes are not supported for ${provider.forge}.` })
   }
@@ -46,10 +46,24 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
     return { mode: change.mode ?? "100644", path: change.path, sha: sha(blob.data, undefined, "blob"), type: "blob" }
   }))
   const treeSha = sha((await provider.request<unknown>("POST", `${base}/trees`, { body: { base_tree: baseTree, tree }, signal })).data, undefined, "tree")
-  const commit = sha((await provider.request<unknown>("POST", `${base}/commits`, {
-    body: { message: input.message, parents: [parent], tree: treeSha, ...(input.author ? { author: input.author } : {}) },
-    signal,
-  })).data, undefined, "commit")
+  const body = { message: input.message, parents: [parent], tree: treeSha }
+  let result = (await provider.request<unknown>("POST", `${base}/commits`, { body, signal })).data
+  if (input.author) {
+    // Let GitHub derive the credential's identity, including for installation
+    // tokens, which cannot call /user. This first object is never attached to a
+    // ref. Reuse its committer on the authored object with the same tree/parents.
+    // Omitting committer here would make GitHub copy the supplied author.
+    const committer = result instanceof Object && "committer" in result ? result.committer : undefined
+    if (!(committer instanceof Object) || !("name" in committer) || typeof committer.name !== "string"
+      || !("email" in committer) || typeof committer.email !== "string") {
+      throw forgeResponseError("GitHub returned a malformed commit committer response.")
+    }
+    result = (await provider.request<unknown>("POST", `${base}/commits`, {
+      body: { ...body, author: input.author, committer: { name: committer.name, email: committer.email } },
+      signal,
+    })).data
+  }
+  const commit = sha(result, undefined, "commit")
   if (input.createFrom !== undefined) {
     await provider.request("POST", `${base}/refs`, { body: { ref: `refs/heads/${input.branch}`, sha: commit }, signal })
     return commit
