@@ -39,7 +39,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
 | Realtime | memory | Durable Objects | — | — | — | Host driver | Postgres or Redis |
 | Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
-| Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
+| Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | Deno.cron | Provider Wake | process |
 | Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
 <!-- support-matrix:server-primitives:end -->

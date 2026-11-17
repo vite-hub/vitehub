@@ -48,14 +48,14 @@ function isVercelCron(value: unknown): value is { path: string, schedule: string
   return isRecord(value) && typeof value.path === "string" && typeof value.schedule === "string"
 }
 
-export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
+export function resolveSchedulePublicEntry(resolveImport: ImportResolver = specifier => import.meta.resolve(specifier)) {
   const packageRoot = dirname(fileURLToPath(resolveImport(`${schedulePackageName}/package.json`)))
-  return resolve(packageRoot, "dist/definition.js")
+  return resolve(packageRoot, "dist/index.js")
 }
 
 // Generated Schedule functions import the static runtime by path. It is not a package export.
 const scheduleRuntimeEntry = ownModule(import.meta.url, "runtime/static")
-const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
+const schedulePublicEntry = resolveSchedulePublicEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -448,13 +448,13 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
   ].join("\n")
 }
 
-function createScheduleDefinitionAliasPlugin(): Plugin {
+function createSchedulePublicAliasPlugin(): Plugin {
   return {
-    name: "vitehub-schedule-definition-alias",
+    name: "vitehub-schedule-public-alias",
     setup(build) {
       // `vite-hub/schedule` re-exports `@vite-hub/schedule`. Bundle both, so the output does not need the `vite-hub` package.
       build.onResolve({ filter: /^(?:@vite-hub|vite-hub)\/schedule$/ }, () => ({
-        path: scheduleDefinitionEntry,
+        path: schedulePublicEntry,
       }))
     },
   }
@@ -552,7 +552,7 @@ export async function writeVercelScheduleFunctions(options: {
       external: options.bundleExternal,
       format: "esm",
       platform: "node",
-      plugins: [createScheduleDefinitionAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
+      plugins: [createSchedulePublicAliasPlugin(), ...(options.workflow?.bundlePlugins ?? [])],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
       workingDir: options.sourceRootDir ?? options.rootDir,
@@ -768,7 +768,7 @@ async function writeNetlifyScheduleFunctions(options: {
             external: options.bundleExternal,
             format: "esm",
             platform: "node",
-            plugins: [createScheduleDefinitionAliasPlugin()],
+            plugins: [createSchedulePublicAliasPlugin()],
             rootDir: options.sourceRootDir ?? options.rootDir,
             signal: options.signal,
             workingDir: options.sourceRootDir ?? options.rootDir,
@@ -887,7 +887,7 @@ async function writeCloudflareScheduleOutput(options: {
       external: [cloudflareRuntimeExternal, "node:*"],
       format: "esm",
       platform: "neutral",
-      plugins: [createScheduleDefinitionAliasPlugin()],
+      plugins: [createSchedulePublicAliasPlugin()],
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal: options.signal,
     }),
@@ -1009,7 +1009,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
           format: "esm",
           packages: "external",
           platform: "neutral",
-          plugins: [createScheduleDefinitionAliasPlugin()],
+          plugins: [createSchedulePublicAliasPlugin()],
           rootDir: options.sourceRootDir ?? options.rootDir,
           signal: options.signal,
         })
