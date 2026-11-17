@@ -25,7 +25,7 @@ import {
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./kv.ts"
-import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
+import { contentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { mergeContentDocument } from "./merge.ts"
@@ -1644,6 +1644,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           search: searchFields,
           sort: options.sort ? { direction: options.sort.direction, field: fieldPath(options.sort.field) } : undefined,
         }),
+        route: false,
         transform: ({ body: _body, ...summary }: IndexedDocument): ContentDocumentSummary => summary,
       })
       const page = await listed.page({ cursor: options.cursor, limit: options.limit, query, signal: options.signal })
@@ -2035,6 +2036,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           return await list({ cursor, limit, search, signal, filter })
         },
       },
+      route: false,
     })
 
     const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
@@ -2406,7 +2408,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           // may occur while the provider constructs the transaction.
           draftExpectation = undefined
         }
-        if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+        if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
         return await land(draftExpectation)
       }
       catch (error) {
@@ -2415,7 +2417,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actualDraft = actualHead ? await openRevision(actualHead) : undefined
           const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
           if (!moved) {
-            if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+            if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
             return await land(undefined)
           }
           throw contentConflict("[vitehub] The draft Content changed before publish().", {

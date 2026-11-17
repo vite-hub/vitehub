@@ -50,7 +50,7 @@ describe("Rate Limit runtime error fixes", () => {
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
     await expect(limiter.consume({ key: "user" })).rejects.toMatchObject({
       code: "RATE_LIMIT_R0044",
-      fix: expect.stringContaining("`[null, result]`"),
+      fix: expect.stringContaining("`[undefined, result]`"),
     })
   })
 })

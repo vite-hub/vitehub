@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { generateProviderOutputs } from "../../schedule/src/internal/provider-output.ts"
 import { createWorkflowRegistryContents } from "../../workflow/src/internal/vite-build.ts"
@@ -38,7 +38,8 @@ describe("Nuxt Definition imports outside Nitro", () => {
         default: (req: { headers: Record<string, string>, url: string }, res: { end: () => void, statusCode?: number }) => Promise<void>
       }
       const response = { end: () => {}, statusCode: 0 }
-      const invocation = generated.default({ headers: { authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` }, url: "/" }, response)
+      vi.stubEnv("CRON_SECRET", "cron-secret")
+      const invocation = generated.default({ headers: { authorization: "Bearer cron-secret" }, url: "/" }, response)
       if (bindings === "all") {
         await invocation
         expect(response.statusCode).toBe(204)
@@ -48,6 +49,7 @@ describe("Nuxt Definition imports outside Nitro", () => {
       }
     }
     finally {
+      vi.unstubAllEnvs()
       await rm(rootDir, { recursive: true, force: true })
     }
   })

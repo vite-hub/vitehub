@@ -68,6 +68,7 @@ const runtimeEntries = [
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
+  "src/seo/runtime.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -264,6 +265,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-env.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-settings.vue",
           to: "dist/console/runtime/components",
         },
@@ -317,6 +322,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-search-palette.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-icon.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -498,6 +507,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
         { from: "src/ui/styles.css", to: "dist/ui" },
+        { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
@@ -630,6 +640,7 @@ export default defineConfig({
           delete exports["./cache/operations"];
           delete exports["./skills/operations"];
           delete exports["./durability/operations"];
+          delete exports["./seo/runtime"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];
@@ -640,6 +651,7 @@ export default defineConfig({
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
+            "./ui/theme.css": "./dist/ui/theme.css",
             "./tsconfig": "./tsconfig.json",
           });
         },

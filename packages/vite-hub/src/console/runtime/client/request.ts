@@ -4,7 +4,7 @@ import { Diagnostic } from "nostics"
 import { consoleRpcHeader } from "../rpc"
 import { projectFetch } from "./project"
 
-import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
+import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode, type ConsoleDiagnosticData } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/_vitehub/api/"
@@ -235,17 +235,13 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
   return { input: inputFromQuery(known, call.query), operation: known.operation }
 }
 
-/** A fetch failure known to originate at the network boundary. */
-// Internal invariant: runs in the Console browser client, where nostics does not load. The Console shows the message.
-export class ConsoleNetworkError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
-    this.name = "ConsoleNetworkError"
-  }
+/** A fetch failure known to originate at the network boundary: `CONSOLE_UNAVAILABLE` with the message and cause of the fetch error. */
+export function consoleNetworkError(cause: unknown): Diagnostic<ConsoleDiagnosticData> {
+  return Object.assign(consoleDiagnostic("CONSOLE_UNAVAILABLE", cause instanceof Error ? cause.message : "Console network request failed."), { cause })
 }
 
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
+  if (!(error instanceof ConsoleRequestError)) return error instanceof Error && Reflect.get(error, "code") === "CONSOLE_UNAVAILABLE"
   const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
   if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
   return transientStatus
@@ -299,7 +295,7 @@ export async function requestConsoleOperation(
       // Aborted requests are intentional (for example when a view unmounts); preserve
       // the original error so callers that ignore AbortError can do so reliably.
       if (error instanceof Error && error.name === "AbortError") throw error
-      throw new ConsoleNetworkError(error)
+      throw consoleNetworkError(error)
     }
     // The clone keeps the body readable for the error of an answer that is not a reply.
     return { body: await response.clone().json().catch(() => undefined), response }

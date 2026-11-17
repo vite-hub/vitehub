@@ -34,6 +34,7 @@ export type {
   SameOriginWritesOptions,
   SandboxTaskOptions,
   ScheduleOptions,
+  SeoOptions,
   SystemdOptions,
   ViteHubDeviceOptions,
   ViteHubNodeOptions,

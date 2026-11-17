@@ -17,7 +17,7 @@ icon: i-lucide-cloud-cog
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
 
-ViteHub infers Vercel only on Vercel. Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an empty discovered Workflow registry starts no worker. `vitehub durability list` shows the store that the app uses.
+ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
 | Provider | Configure with | Provider output | Nuance |
@@ -34,7 +34,7 @@ All Vercel Workflow definitions, including plain inline handlers, require `@verc
 pnpm add @vercel/functions
 ```
 
-For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. Plain inline handlers do not need these two packages.
+For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. A Workflow folder is native too. Plain inline handlers do not need these two packages. When a native definition misses them, the build stops with `WORKFLOW_R0006` and prints the install command.
 
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
@@ -122,7 +122,8 @@ export default defineConfig({
 ::
 
 - `startWorkflow()` puts the run in storage and returns it with the status `queued`. A worker then executes it.
-- Each server starts the OpenWorkflow worker when it has discovered Workflow files. Apps with only Agent or inline Workflows do not open OpenWorkflow storage or start its worker. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
+- Each server starts the OpenWorkflow worker when it has discovered Workflow or Agent files. Apps with only inline Workflows do not open OpenWorkflow storage or start its worker.
+- A worker executes 10 runs at once. Set `worker: { concurrency }` to change it. Each Agent turn uses two runs: the turn, and a recovery run that waits for the turn to end. On `SIGTERM`, the worker stops taking runs. A run that does not finish in the [drain budget](/docs/agents/process-hosts#drain-agent-work-on-stop-signals) keeps its lease for 30 seconds. Then another worker takes it.
 - With a Postgres Default Database, OpenWorkflow keeps its runs in that database, in the `openworkflow` schema. Without one, set `OPENWORKFLOW_POSTGRES_URL`. A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. Without either, runs stay in `.vitehub/data/openworkflow.sqlite.db`, on one host only, and the server logs that at boot.
 - Several servers can use the same Postgres database. When they start together, one server at a time creates the `openworkflow` schema. A server tries a Postgres advisory lock in a short transaction, and a server that does not get it waits without a connection. The server that gets it holds the lock until OpenWorkflow has set up the schema. OpenWorkflow migrates on its own connection, so that server needs two connections. When it gets no second connection in 10 seconds, for example behind a pooler with one server connection, it reports `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE`, does not start the setup, and tries again later. Raise the pool size, or set up the schema once through a direct connection and then set `postgres.runMigrations: false`. OpenWorkflow takes each run with `FOR UPDATE SKIP LOCKED`, so only one worker executes it.
 - When the storage is not ready, for example while Postgres starts, the server reports the error and tries again. The delay grows from 0.5 to 30 seconds. The server serves requests meanwhile, and queued runs wait in storage until the worker starts.
@@ -130,7 +131,11 @@ export default defineConfig({
 
 ### Which Workflows are durable
 
-Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)` or an Agent Workflow, runs inline in the request process instead. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
+Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, and the Agents in `server/agents/`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. The startup registry also installs the generated Agent State resolver and Capability loaders, so a fresh worker can restore persisted Channel deliveries without loading an Agent route first.
+
+- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
+- A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, because no worker can run it. Move the Agent to `server/agents/`, or call `runAgent()` to run it without a Workflow.
+- A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)`, runs inline in the request process. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
 
 ### Run the worker in its own process
 

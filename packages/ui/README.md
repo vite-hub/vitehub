@@ -281,6 +281,35 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 
 Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
 
+## The ui-sdk set
+
+The styled parts render a few Nuxt UI components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, and `UDropdownMenu`. `uiSdkComponents` holds the same names built on [ui-sdk](https://ui-sdk.dev), styled by the `@vite-hub/kit` style family. Give it to `createViteHubUI()`, and a page with these parts loads no Nuxt UI component:
+
+```ts
+// src/main.ts
+import { createViteHubUI, uiSdkComponents } from "@vite-hub/ui";
+import { createApp } from "vue";
+import App from "./App.vue";
+import "./assets/main.css";
+
+createApp(App).use(createViteHubUI({ components: uiSdkComponents })).mount("#app");
+```
+
+```css
+/* src/assets/main.css */
+@layer theme, base, comark, ui-sdk, components, utilities;
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
+@import "@vite-hub/ui/styles.css";
+```
+
+- `UIcon` draws the Lucide icons that the parts use. To show other names, such as your own in `createViteHubUI({ icons })`, pass your own `UIcon` too: `{ ...uiSdkComponents, UIcon: MyIcon }`.
+- The buttons and fields keep the kit's `data-slot` (`button`, `input`), so a part's own name moves to `data-part`, for example `data-part="copy-button"`.
+- The parts still import Nuxt UI with `import()` for a name that no component replaces, so the build must resolve `@nuxt/ui`. Install it, or resolve `@nuxt/ui/*` to an empty module. The page never loads it.
+- The editor parts of `@vite-hub/ui/markdown-editor` have no ui-sdk version yet.
+
+`pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard.
+
 ## Verify the setup
 
 Render a public component directly:

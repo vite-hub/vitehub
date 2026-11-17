@@ -59,9 +59,10 @@ export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | Array
 export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
  * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
+ * `BLOB_INVALID_CURSOR` reports a list `cursor` that no `list()` result of the store returned.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
-export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 
 export type BlobSignOptions =
   | { expiresIn: number, method: "GET" }
@@ -165,8 +166,13 @@ export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
   formKey?: string
-  /** Accept more than one file. Defaults to `true`. */
+  /** Accept more than one file. Defaults to `true`. `false` is the same as `maxFiles: 1`. */
   multiple?: boolean
+  /**
+   * The most files that `formKey` accepts. A request with more files gets an H3 400 error before the extra files are
+   * read. Defaults to no limit.
+   */
+  maxFiles?: number
   /** Validate each file with `ensureBlob()` before it is stored. */
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */

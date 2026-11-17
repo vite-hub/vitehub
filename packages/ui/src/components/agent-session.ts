@@ -127,9 +127,8 @@ export const AgentSession = defineComponent({
     "update:maximized": (_maximized: boolean) => true,
   },
   setup(props, { attrs, emit, expose, slots }) {
-    const stored = readLayout(props.storageKey);
     const known = (id: string | null | undefined) => props.surfaces.some((surface) => surface.id === id);
-    const localPanelOpen = ref(stored.panelOpen ?? props.defaultPanelOpen);
+    const localPanelOpen = ref(props.defaultPanelOpen);
     const panelOpen = computed({
       get: () => props.panelOpen ?? localPanelOpen.value,
       set: (open: boolean) => {
@@ -140,9 +139,9 @@ export const AgentSession = defineComponent({
     });
     // Like T3 Code, the inline card keeps the user's choice, and the popover that replaces it on a narrow column starts
     // closed, so a remembered card never covers the timeline.
-    const detailsOpen = ref(stored.detailsOpen ?? props.defaultDetailsOpen);
+    const detailsOpen = ref(props.defaultDetailsOpen);
     const popoverOpen = ref(false);
-    const localMaximized = ref(stored.maximized ?? false);
+    const localMaximized = ref(false);
     const maximized = computed({
       get: () => props.maximized ?? localMaximized.value,
       set: (value: boolean) => {
@@ -151,10 +150,10 @@ export const AgentSession = defineComponent({
         emit("update:maximized", value);
       },
     });
-    const width = ref(stored.width ?? props.defaultWidth);
-    const initialTabs = (stored.tabs ?? (props.defaultSurface ? [props.defaultSurface] : [])).filter(known);
+    const width = ref(props.defaultWidth);
+    const initialTabs = (props.defaultSurface ? [props.defaultSurface] : []).filter(known);
     const tabs = ref<string[]>(initialTabs);
-    const localActive = ref<string | null>(known(stored.active) ? stored.active ?? null : initialTabs[0] ?? null);
+    const localActive = ref<string | null>(initialTabs[0] ?? null);
     const active = computed({
       get: () => props.surface !== undefined ? props.surface : localActive.value,
       set: (id: string | null) => {
@@ -191,6 +190,16 @@ export const AgentSession = defineComponent({
 
     let observer: ResizeObserver | undefined;
     onMounted(() => {
+      // Read after mount, so the first client render matches the server, which cannot read storage.
+      const stored = readLayout(props.storageKey);
+      localPanelOpen.value = stored.panelOpen ?? localPanelOpen.value;
+      detailsOpen.value = stored.detailsOpen ?? detailsOpen.value;
+      localMaximized.value = stored.maximized ?? localMaximized.value;
+      width.value = stored.width ?? width.value;
+      if (stored.tabs) tabs.value = stored.tabs.filter(known);
+      if (known(stored.active)) localActive.value = stored.active ?? null;
+      else if (stored.tabs) localActive.value = tabs.value[0] ?? null;
+      if (active.value && !tabs.value.includes(active.value)) tabs.value = [...tabs.value, active.value];
       observer = new ResizeObserver(() => {
         bodyWidth.value = body.value?.clientWidth ?? 0;
         rootWidth.value = root.value?.clientWidth ?? 0;

@@ -19,6 +19,7 @@
     "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
     "nitro": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "vite-hub": "workspace:*",
     "zod": "catalog:runtime"
   },

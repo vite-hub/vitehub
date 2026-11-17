@@ -16,14 +16,14 @@ You need a Nuxt 5 app with Nuxt UI 4.11 or newer and Tailwind CSS. For a site th
 ## Install the module
 
 ```bash [commands/install]
-pnpm add @vite-hub/docs
+pnpm add vite-hub @vite-hub/docs
 ```
 
 Add it after Nuxt UI, and give the docs a name:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@nuxt/ui', '@vite-hub/docs/nuxt'],
+  modules: ['@nuxt/ui', 'vite-hub/docs/nuxt'],
   css: ['~/assets/main.css'],
   docs: {
     site: { name: 'Acme', url: 'https://acme.dev' },

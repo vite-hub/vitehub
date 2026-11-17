@@ -13,6 +13,7 @@ export const diagnosticSections: Record<string, string> = {
   "codemods": "codemods",
   "comments": "comments",
   "connections": "connections",
+  "console": "development",
   "content": "content",
   "database": "database",
   "decisions": "decisions",
