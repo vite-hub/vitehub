@@ -38,7 +38,7 @@ async function serverProcess(storage: ReturnType<typeof sharedKV>) {
   vi.resetModules()
   const runtime = await import("@vite-hub/rate-limit/runtime")
   const { checkRateLimit } = await import("@vite-hub/rate-limit")
-  runtime.setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "redis", storage, store: "default" })
+  runtime.setRateLimitRuntimeConfig({ driver: "kv" }, { driver: async () => "redis", storage, store: "default" })
   return {
     setRateLimitRuntimeConfig: runtime.setRateLimitRuntimeConfig,
     forms: createFormsHandler({ forms: { contact }, memory: true, rateLimit: checkRateLimit, context: () => ({ runtime: { clientAddress: "203.0.113.9" } }) }),

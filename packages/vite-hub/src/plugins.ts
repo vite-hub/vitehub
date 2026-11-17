@@ -1844,7 +1844,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     database: Boolean(options.database),
     email: Boolean(options.email),
     auth: Boolean(options.auth),
-    rateLimit: Boolean(options.rateLimit) && buildRateLimitProvider(plan, options).provider === "kv",
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       runtime: "vite-hub/forms/runtime",
       operations: "vite-hub/forms/operations",
