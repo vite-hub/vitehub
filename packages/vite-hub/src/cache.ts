@@ -111,12 +111,13 @@ function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
     name,
     storage,
     getMaxAge: options.getMaxAge && ((entry) => {
-      const fallback = fallbacks.get(entry.value)
+      const fallback = entry.value === undefined ? undefined : fallbacks.get(entry.value)
       return fallback
         ? { maxAge: fallback.entry.maxAge, staleMaxAge: fallback.entry.staleMaxAge }
         : options.getMaxAge!(entry)
     }),
     serialize: (entry) => {
+      if (entry.value === undefined) return undefined
       const fallback = fallbacks.get(entry.value)
       if (!fallback) return entry.value
       fallbacks.delete(entry.value)
@@ -231,13 +232,16 @@ async function isNewerThanTags(tags: readonly string[], since: number): Promise<
 
 // Nitro's `kv` cache driver: the cache keys start with the `cache` mount.
 function nitroKVStorage(): StorageInterface {
-  const kv = useKV()
+  const storage = async () => {
+    kv ??= await import("nitro/kv")
+    return kv.useKV()
+  }
   return {
     // SAFETY: Nitro's own KV cache adapter returns what unstorage parsed, too. ocache checks the entry shape.
-    get: <V>(key: string) => kv.getItem(key) as Promise<V | null>,
+    get: async <V>(key: string) => (await storage()).getItem(key) as Promise<V | null>,
     set: async (key, value, opts) => {
       // ocache writes an entry object, or null to delete one.
-      if (typeof value === "object") await kv.setItem(key, value, opts?.ttl ? { ttl: opts.ttl } : undefined)
+      if (typeof value === "object") await (await storage()).setItem(key, value, opts?.ttl ? { ttl: opts.ttl } : undefined)
     },
   }
 }
