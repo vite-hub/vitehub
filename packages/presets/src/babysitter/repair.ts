@@ -124,17 +124,27 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       },
       commitRepair: {
         name: "commitRepair",
-        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. Call pushRepair after validation and this commit.",
+        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. A base merge is rejected when it undoes base changes, unless baseOverrides names each such file with a reason. Call pushRepair after validation and this commit.",
         inputSchema: {
           type: "object",
-          properties: { message: { type: "string", minLength: 1 }, paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+          properties: {
+            message: { type: "string", minLength: 1 },
+            paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+            baseOverrides: {
+              type: "array",
+              description: "Files where this PR deliberately replaces a change the base made, each with a one-sentence reason.",
+              items: { type: "object", properties: { path: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } }, required: ["path", "reason"], additionalProperties: false },
+            },
+          },
           required: ["message", "paths"],
           additionalProperties: false,
         },
         execute: (input: unknown) => withinRepair(async () => {
           if (!isRuntimeRecord(input) || !Array.isArray(input.paths) || !input.paths.every(path => hasRuntimeType(path, "string"))) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_PATHS_MISSING();
           await workspace?.beforeRepair(context.context, input.paths);
-          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths });
+          if (input.baseOverrides !== undefined && !Array.isArray(input.baseOverrides)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_INVALID({ key: "baseOverrides", expected: "an array" });
+          const baseOverrides = input.baseOverrides?.map((entry: unknown) => ({ path: stringField(entry, "path"), reason: stringField(entry, "reason") }));
+          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths, ...baseOverrides && { baseOverrides } });
           return { head };
         }),
       },

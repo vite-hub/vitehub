@@ -115,9 +115,9 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | `migrationTag` | `'v1'` | Wrangler migration tag that creates the Durable Object class. Set it when you deploy onto an existing Worker whose last migration tag is not `v1`, else the deploy fails with Cloudflare error 10074. |
 | `name` | - | Container name. The `cloudflare` host builds it from the app name. |
 | `maxInstances` | `12` | Maximum number of Containers that run at the same time. Your own `containers` entry can set `max_instances` instead. If both are set and differ, the build fails with `SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT`. |
-| `sandboxId` | - | One Sandbox ID for every run. |
-| `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
-| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (the Cloudflare maximum). ViteHub then closes the session after each run. |
+| `sandboxId` | - | One Sandbox ID for every run. The Sandbox stays after each run until it is idle for `sleepAfter`. |
+| `sleepAfter` | `'5m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
+| `keepAlive` | `false` | Set the idle time to 6 hours, the Cloudflare maximum. Use it with `sandboxId` to keep a warm Sandbox between runs. A Sandbox without `sandboxId` still stops after each run. |
 | `normalizeId` | `false` | Lowercase the Sandbox ID before it names the Durable Object. |
 | `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). |
 

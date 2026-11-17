@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
-import { forgeBlob } from "@vite-hub/forge"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -27,6 +26,7 @@ import {
   githubRequest,
   githubRequestStatus,
   joinGitPath,
+  loadForge,
   preloadGitHubFiles,
   readCurrentHead,
   readGitHubBranchState,
@@ -899,7 +899,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
         if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null, base: b?.sha ?? null })
       }
-      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await forgeBlob(provider, repo, sha) })
+      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await (await loadForge()).forgeBlob(provider, repo, sha) })
       metadata = { ...mergeOptions.metadata, ...resolution.metadata }
       for (const [path, text] of Object.entries(resolution.files ?? {})) {
         if (!conflicts.some(conflict => conflict.path === path)) throw workspaceError(`[vitehub] A merge resolved ${path}, which is not one of its conflicting files.`)

@@ -57,7 +57,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0011: {
       ...dynamicError,
-      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `requireRateLimit()` or `checkRateLimit()`.",
+      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `checkRateLimit()`. `requireRateLimit()` also accepts `message` and `code`.",
     },
     RATE_LIMIT_R0012: {
       ...dynamicError,
@@ -207,13 +207,17 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The KV store did not answer the Rate Limit within 1000 milliseconds.",
       fix: "Check that the KV store of the Rate Limit is reachable and not overloaded, then retry. Until it answers, `consume()` applies the `failure` policy of the Rate Limit.",
     },
+    RATE_LIMIT_MEMORY_PER_PROCESS: {
+      why: "Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit.",
+      fix: "Enable KV on Node so that ViteHub selects the kv provider, or set `rateLimit.provider` to \"kv\" and configure a Redis KV store or a Postgres Database. Keep `memory` only for one server process.",
+    },
     RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED: {
       ...dynamicError,
       fix: "Count in a shared store: on Node, set `rateLimit: { provider: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
     },
-    RATE_LIMIT_MEMORY_PER_PROCESS: {
-      why: "Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit.",
-      fix: "Enable KV on Node so that ViteHub selects the kv provider, or set `rateLimit.provider` to \"kv\" and configure a Redis KV store or a Postgres Database. Keep `memory` only for one server process.",
+    RATE_LIMIT_REFUSAL_OPTION_INVALID: {
+      ...dynamicError,
+      fix: "Pass `message` and `code` of `requireRateLimit()` as non-empty strings, such as `message: \"Too many tries. Wait a minute.\"`, or remove them to use the default `429` error.",
     },
   },
 })
