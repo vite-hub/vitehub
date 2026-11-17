@@ -82,6 +82,26 @@ describe("verifyWebhook({ provider: 'github' })", () => {
     const [wrong] = await verifyWebhook(post({ "x-hub-signature-256": signature.replace("sha256=", "") }, payload), { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })
     expect(wrong?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
   })
+
+  it("reads the payload field of a form delivery, as GitHub sends it with the form content type", async () => {
+    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "gh-secret")
+    const json = JSON.stringify({ action: "opened", pull_request: { title: "Add rate limits & retries" } })
+    const form = new URLSearchParams({ payload: json }).toString()
+    const signature = `sha256=${createHmac("sha256", "gh-secret").update(form).digest("hex")}`
+    const options = { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" } as const
+    const formHeaders = { "content-type": "application/x-www-form-urlencoded", "x-hub-signature-256": signature }
+    const [error, delivery] = await verifyWebhook<{ pull_request: { title: string } }>(post(formHeaders, form), options)
+    expect(error).toBeUndefined()
+    expect(delivery?.pull_request.title).toBe("Add rate limits & retries")
+
+    const [tampered] = await verifyWebhook(post(formHeaders, form.replace("opened", "closed")), options)
+    expect(tampered?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
+
+    const empty = "zen=hello"
+    const emptySignature = `sha256=${createHmac("sha256", "gh-secret").update(empty).digest("hex")}`
+    const [missing] = await verifyWebhook(post({ "content-type": "application/x-www-form-urlencoded", "x-hub-signature-256": emptySignature }, empty), options)
+    expect(missing?.code).toBe("ENV_WEBHOOK_BODY_INVALID")
+  })
 })
 
 describe("verifyWebhook({ provider: 'hmac' })", () => {
