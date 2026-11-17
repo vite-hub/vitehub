@@ -217,7 +217,7 @@ When an installed `@vite-hub/*` package comes from another release than `vite-hu
 When another installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
 
 ```text [output/unsupported-package.txt]
-[vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'
+[vitehub] drizzle-orm 0.45.4 is installed, but vite-hub 0.2.0 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'
 ```
 
 ::details{summary="Which features need their own package?"}

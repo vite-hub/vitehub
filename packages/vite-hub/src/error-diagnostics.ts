@@ -583,6 +583,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
       fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
     },
+    VITE_HUB_RENAMED_PROVIDER_KEY: {
+      why: ({ key, value }: { key: string, value: string }) => `\`${key}.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so it would pick the driver of the host, or stop because the host has none.`,
+      fix: ({ key, value }: { key: string, value: string }) => `Set \`${key}: { driver: ${value} }\` in \`vitehub()\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",
       fix: "Pass `--drain-timeout` or set `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS` to a whole number of milliseconds from 0 to 2147483647.",
