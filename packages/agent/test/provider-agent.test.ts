@@ -697,6 +697,17 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
   })
 
+  // An SSH runner's login shell reads /etc/profile, which sets PATH again on Debian and drops Codex's apply_patch folder.
+  it.each([
+    ["a launch", { launch: () => ({ command: "ssh", args: ["runner"] }) }],
+    ["driver.env PATH", { env: { PATH: "/app/node_modules/.bin:/usr/bin:/bin" } }],
+  ] as const)("runs Codex without a login shell with %s", async (_name, options) => {
+    const threadId = "thread-codex-login-shell"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex", ...options }).generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('-c "allow_login_shell=false"')
+  })
+
   it.each([false, true])("keeps the primary browser environment out of auxiliary providers with launcher %s", async (customLaunch) => {
     const threadId = "thread-browser-auxiliary"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -712,7 +723,9 @@ describe("Provider Agent Driver", () => {
 
     expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_SESSION")
     expect(createProviderRuntime.mock.lastCall?.[0].environment?.PATH).not.toContain("/managed/bin")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    // Only the launch turns off login shells here, not the primary browser PATH.
+    if (customLaunch) expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain("allow_login_shell=false")
+    else expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
   })
 
@@ -729,7 +742,6 @@ describe("Provider Agent Driver", () => {
     })
     await adapter.generate(runContext as never)
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "1")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
 
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
