@@ -268,6 +268,7 @@ fi
 
   const pullRequestJobs = [
     "checks",
+    "schedule-os-select",
     "workflow-lint",
     "contract-tests",
     "package-tests",

@@ -11,7 +11,7 @@
     "packages/agent/src/internal/channel-state.ts": 17,
     "packages/agent/src/internal/channel-sync-cli.ts": 1,
     "packages/agent/src/internal/forge-channel-sync.ts": 1,
-    "packages/agent/src/internal/gmail-channel.ts": 7,
+    "packages/agent/src/internal/gmail-channel.ts": 3,
     "packages/agent/src/internal/resumable-chat.ts": 1,
     "packages/agent/src/internal/workflow-portability.ts": 2,
     "packages/agent/src/internal/workflow-runtime-loaders.ts": 1,

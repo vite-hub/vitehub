@@ -215,6 +215,23 @@ describe("migrate", () => {
   })
 
   it.each([
+    ["catalog:", "catalog:\n  vue: ^3.5.0\n  nuxt: ^4.2.0 # pinned\n", "^4.2.0"],
+    ["catalog:default", "catalogs:\n  default:\n    nuxt: '>=4.0.0 <5'\n", ">=4.0.0 <5"],
+    ["catalog:frameworks", "packages:\n  - apps/*\ncatalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  frameworks:\n    \"nuxt\": ~4.1.0\n  tools:\n    nuxt: ^5.0.0\n", "~4.1.0"],
+    ["catalog:", "catalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  old:\n    nuxt: ^4.2.0\n", undefined],
+  ])("reads nuxt \"%s\" from pnpm-workspace.yaml", async (nuxt, workspace, warnsFor) => {
+    // A pnpm monorepo keeps pnpm-workspace.yaml in the repository root, above the app.
+    const directory = await app(`nuxt-${encodeURIComponent(nuxt)}-${warnsFor ?? "5"}`, {
+      "pnpm-workspace.yaml": workspace,
+      "apps/web/nuxt.config.ts": "export default defineNuxtConfig({})\n",
+      "apps/web/package.json": `${JSON.stringify({ dependencies: { nuxt } })}\n`,
+    })
+    const migration = await runMigration({ cwd: join(directory, "apps/web"), dryRun: true })
+    if (!warnsFor) return expect(migration.warnings).toEqual([])
+    expect(migration.warnings).toEqual([expect.stringContaining(`package.json requires nuxt "${nuxt}", which pnpm-workspace.yaml sets to "${warnsFor}".`)])
+  })
+
+  it.each([
     ["<5", true],
     ["<=3", true],
     [">=3 <5", true],

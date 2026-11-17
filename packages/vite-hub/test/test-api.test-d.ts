@@ -1,9 +1,10 @@
 import { expectTypeOf, it } from "vitest"
 
 import type { DeliverChannelOptions as AgentDeliverChannelOptions, deliverChannel } from "@vite-hub/agent/test"
+import type { SignInTestUser as AuthSignInTestUser, signIn } from "@vite-hub/auth/test"
 import type { EmailMessage } from "@vite-hub/email"
 import type { ScheduleDefinition, ScheduleRunRecord } from "@vite-hub/schedule"
-import type { DeliverChannelOptions, ViteHubTest } from "../src/test.ts"
+import type { DeliverChannelOptions, SignInTestUser, ViteHubTest } from "../src/test.ts"
 
 it("keeps local test shapes compatible with their optional Primitive owners", () => {
   expectTypeOf<DeliverChannelOptions>().toEqualTypeOf<AgentDeliverChannelOptions>()
@@ -12,4 +13,6 @@ it("keeps local test shapes compatible with their optional Primitive owners", ()
   expectTypeOf<Parameters<ViteHubTest["runSchedule"]>[0]>().toExtend<ScheduleDefinition>()
   expectTypeOf<ScheduleDefinition>().toExtend<Parameters<ViteHubTest["runSchedule"]>[0]>()
   expectTypeOf<Awaited<ReturnType<ViteHubTest["runSchedule"]>>>().toEqualTypeOf<ScheduleRunRecord>()
+  expectTypeOf<SignInTestUser>().toEqualTypeOf<AuthSignInTestUser>()
+  expectTypeOf<Awaited<ReturnType<typeof signIn>>>().toExtend<Awaited<ReturnType<ViteHubTest["signIn"]>>>()
 })

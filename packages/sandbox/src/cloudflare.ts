@@ -145,6 +145,10 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
+        // A new Container starts empty. One with the same ID can serve other sessions right now,
+        // so opening must not delete their files. A checkout still needs an empty workspace.
+        preserveHome: true,
+        preserveWorkspace: !input.checkout,
         runtime: "cloudflare",
         signal: openOptions?.signal,
       }, env);
@@ -222,18 +226,29 @@ function createCloudflareSession(
   }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
     const execId = crypto.randomUUID();
-    const result = await abortable(
-      request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
-        cwd: options.workingDirectory ?? "/workspace",
-        env: { ...baseEnv, ...options.env },
-        id: execId,
-        timeout,
-      })),
-      options.abortSignal,
-      // Stop only this command. The Sandbox and its other processes keep running.
-      () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
-    );
-    return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    const executions: Array<ReturnType<CloudflareSandboxStub["exec"]>> = [];
+    try {
+      const result = await abortable(
+        request("exec", { idempotent, timeout }, async () => {
+          const execution = stub.exec(options.command, {
+            cwd: options.workingDirectory ?? "/workspace",
+            env: { ...baseEnv, ...options.env },
+            id: execId,
+            timeout,
+          });
+          executions.push(execution);
+          return await execution;
+        }),
+        options.abortSignal,
+        // Stop only this command. The Sandbox and its other processes keep running.
+        () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
+      );
+      return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    } finally {
+      // Cancellation must acknowledge exit before invocation cleanup or same-ID reuse.
+      // A transport deadline must still bound an unresponsive RPC.
+      if (options.abortSignal?.aborted) await Promise.allSettled(executions);
+    }
   };
   return {
     defaultWorkingDirectory: "/workspace",
@@ -490,18 +505,18 @@ async function abortable<T>(
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-      if (abort) void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined).then(() => reject(signal.reason));
+      else reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        if (!signal.aborted) resolve(value);
       },
       (error) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        if (!signal.aborted) reject(error);
       },
     );
   });

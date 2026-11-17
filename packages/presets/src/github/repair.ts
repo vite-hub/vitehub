@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { invariantError } from "@vite-hub/internal/invariant";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { findGitHubBaseReverts } from "./base-reverts.ts";
+import type { GitHubBaseRevert } from "./base-reverts.ts";
 import { resolveGitHubMergeConflicts } from "./conflicts.ts";
 import type { GitHubConflictOptions, GitHubConflictResolution } from "./conflicts.ts";
 import { assertGitHubDependenciesCurrent } from "./install.ts";
@@ -15,6 +17,8 @@ const exec = promisify(execFile);
 export interface GitHubRepairCommit {
   message: string;
   paths: string[];
+  /** Files where a base merge intentionally keeps the PR's version over a base change, each with the reason. */
+  baseOverrides?: Array<{ path: string; reason: string }>;
 }
 
 /** Git metadata is protected by provider sandboxes. Only the host stages repairs. */
@@ -37,6 +41,7 @@ export async function commitGitHubPullRequestWorkspace(
   }
   if (!(await lstat(join(target, ".git"))).isDirectory()) throw invariantError("the GitHub host passes the root of its own prepared clone to the repair")
   const git = repairGit(target, options);
+  let message = input.message;
   if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target)) throw invariantError("the GitHub host passes the checkout root of its own clone to the repair")
   await git("merge-base", "--is-ancestor", options.expectedHead, "HEAD");
   const recordPath = join(target, ".git", "vitehub-merge.json");
@@ -57,6 +62,11 @@ export async function commitGitHubPullRequestWorkspace(
     await writeFile(recordPath, JSON.stringify({ ...mergeRecord, index: digest(await git("ls-files", "--stage", "-z")) }));
     const unresolved = await git("diff", "--name-only", "--diff-filter=U");
     if (unresolved) throw presetsErrorDiagnostics.PRESETS_REPAIR_CONFLICTS_UNRESOLVED({ files: unresolved });
+    const reasons = new Map(input.baseOverrides?.map(({ path, reason }) => [path, reason.trim()]));
+    const reverts = await findGitHubBaseReverts(git.raw, mergeRecord);
+    const unexplained = reverts.filter(({ path }) => !reasons.get(path));
+    if (unexplained.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_BASE_REVERTED({ files: describeBaseReverts(unexplained) });
+    if (reverts.length) message += `\n\nKeeps this PR's version over base changes:\n${reverts.map(({ path }) => `- ${path}: ${reasons.get(path)}`).join("\n")}`;
   }
   if (options.verifyDependencies) {
     const directory = await mkdtemp(join(target, ".git", "vitehub-commit-snapshot-"));
@@ -74,7 +84,7 @@ export async function commitGitHubPullRequestWorkspace(
       throw error;
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
-  if (mergeRecord || await git("diff", "--cached", "--name-only")) await git("commit", "-m", input.message);
+  if (mergeRecord || await git("diff", "--cached", "--name-only")) await git("commit", "-m", message);
   if (mergeRecord) await rm(recordPath);
   options.signal?.throwIfAborted();
   return await git("rev-parse", "HEAD");
@@ -90,6 +100,15 @@ const mergeRecordSchema = v.object({
     lockfile: v.optional(v.string()),
   })),
 });
+function describeBaseReverts(reverts: GitHubBaseRevert[]) {
+  const quote = (line: string) => JSON.stringify(line.length > 100 ? `${line.slice(0, 100)}…` : line);
+  return reverts.slice(0, 10).map(({ path, dropped, restored }) => [
+    `${path}:`,
+    dropped.length ? ` drops ${dropped.length} base line(s) such as ${dropped.slice(0, 2).map(quote).join(", ")}` : "",
+    dropped.length && restored.length ? ";" : "",
+    restored.length ? ` restores ${restored.length} line(s) the base removed, such as ${restored.slice(0, 2).map(quote).join(", ")}` : "",
+  ].join("")).join("\n") + (reverts.length > 10 ? `\nand ${reverts.length - 10} more files` : "");
+}
 const digest = (index: string) => createHash("sha256").update(index).digest("hex");
 function repairGit(target: string, options: { signal?: AbortSignal; identity?: Record<string, string | undefined>; env?: Record<string, string> }) {
   // No shell credentials, ambient Git bindings, global configuration, hooks,
