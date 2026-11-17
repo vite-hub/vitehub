@@ -171,7 +171,7 @@ A migrations folder has the layout of Drizzle Kit 0.x: flat `.sql` files and `me
 
 A pending migration drops a table, column, or schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no old rows. For PostgreSQL, this skip needs schema-qualified table names, and for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, later losses stay in the check, because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement.
 
-Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`. With `migrateOnStart`, the server throws this at startup and handles no requests. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to accept the loss.
+Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`. With `migrateOnStart`, the server throws this at startup and handles no requests. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to accept the loss, or start the built server once with `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.
 
 ### DATABASE_MIGRATION_FAILED
 
