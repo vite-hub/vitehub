@@ -13,7 +13,7 @@ export function syncDocsPage(code: string): string {
 export const syncErrors = /*#__PURE__*/ defineErrors({
   docs: syncDocs,
   codes: {
-    // Answers on the wire. The client acts on these codes.
+    // Wire errors. The client acts on these codes.
     SYNC_ACCOUNT_CHANGED: {
       why: "The writes were made for another account, such as before a sign-in as another user. The server wrote nothing.",
       fix: "Keep the writes for their account and send them when that account signs in again. Call `clearSync()` on sign-out to drop them.",
@@ -69,7 +69,7 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       fix: "Sign in, then pull again. To make the table public, return `{}` from `where`.",
     },
 
-    // Errors that the browser client makes. The server never sends them.
+    // Browser errors. The server never sends them.
     SYNC_BROWSER_ONLY: {
       why: "Sync writes run in the browser only, and this write ran on the server.",
       fix: "Call `insert`, `update`, `delete`, and `retry` from an event handler or after mount.",
