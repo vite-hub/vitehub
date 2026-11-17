@@ -63,26 +63,28 @@ describe("fs blob driver: a pathname that is also a folder", () => {
   it("recovers when a sibling writer completes an observed promotion", async () => {
     const { base, driver } = await store()
     await driver.put("docs", "parent", { contentType: "text/plain", customMetadata: { name: "parent" } })
-    const paused = Promise.withResolvers<void>()
-    const resume = Promise.withResolvers<void>()
+    let reached!: () => void
+    let release!: () => void
+    const paused = new Promise<void>(resolve => { reached = resolve })
+    const resume = new Promise<void>(resolve => { release = resolve })
     let intercepted = false
     vi.mocked(rename).mockImplementation(async (...args) => {
       if (args[0] === join(base, "docs") && !intercepted) {
         intercepted = true
-        paused.resolve()
-        await resume.promise
+        reached()
+        await resume
       }
       return fs.rename(...args)
     })
     const first = driver.put("docs/a.txt", "first")
     // Attach a handler before allowing the paused operation to fail on the old code.
     const result = Promise.all([first])
-    await paused.promise
+    await paused
     try {
       await driver.put("docs/b.txt", "second")
     }
     finally {
-      resume.resolve()
+      release()
     }
     await result
     expect(await text(await driver.get("docs/a.txt"))).toBe("first")
