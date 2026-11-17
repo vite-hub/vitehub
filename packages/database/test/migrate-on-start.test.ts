@@ -96,7 +96,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
       },
     }],
   })
-  return { config, start: () => execFileAsync(process.execPath, [output], { cwd: root }) }
+  return { config, start: (env: Record<string, string> = {}) => execFileAsync(process.execPath, [output], { cwd: root, env: { ...process.env, ...env } }) }
 }
 
 /** Runs the Nitro modules that the hooks added, like Nitro does after it resolves the preset. */
@@ -382,6 +382,21 @@ describe("database.migrateOnStart", () => {
 
     const allowed = await buildNodeServer(root, { connection: { url }, migrateOnStart: { allowDataLoss: true } })
     expect((await allowed.start()).stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
+    expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
+  })
+
+  it("accepts the data loss at start when VITEHUB_DATABASE_ALLOW_DATA_LOSS=1 is set", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "data/app.sqlite")}`
+    await writeMigrations(root, [init, seed])
+    await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+
+    // A container image is built once, so the operator accepts the loss with an environment variable at start.
+    await writeMigrations(root, [init, seed, dropLegacy])
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true })
+    await expect(server.start({ VITEHUB_DATABASE_ALLOW_DATA_LOSS: "true" })).rejects.toThrow(/VITEHUB_DATABASE_ALLOW_DATA_LOSS=1/)
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+    expect((await server.start({ VITEHUB_DATABASE_ALLOW_DATA_LOSS: "1" })).stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
   })
 

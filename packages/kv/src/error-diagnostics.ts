@@ -111,8 +111,12 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `kv: { driver: 'fs-lite' }`.",
     },
     KV_INVALID_DRIVER: {
-      why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
-      fix: "Set `kv.driver` to \"cloudflare\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`kv.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`kv.driver\` ${driver} is not a KV driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`kv: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `kv.driver` to \"cloudflare\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
     },
     KV_INVALID_REMOTE: {
       why: ({ store }: { store: string }) => `\`remote\` of the KV store "${store}" must be \`true\` or \`false\`.`,

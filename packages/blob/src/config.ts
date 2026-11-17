@@ -352,11 +352,16 @@ function resolveExplicitStore(
     case "azure":
     case "gcs":
       return store
-    default:
+    default: {
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-      throw blobErrorDiagnostics.BLOB_C0001({ message: `Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.` })
+      const driver = (store as { driver: unknown }).driver
+      throw blobErrorDiagnostics.BLOB_C0001({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedBlobDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedBlobDrivers = new Map([["cloudflare-r2", "cloudflare"], ["vercel-blob", "vercel"]])
 
 function normalizeServeHeaders(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return

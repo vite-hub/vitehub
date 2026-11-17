@@ -2,7 +2,7 @@
 title: Verify webhooks
 navigation.title: Verify webhooks
 description: Check the signature of a Stripe, GitHub, or other HMAC webhook in a plain route, with the secret in a server variable.
-navigation.order: 11
+navigation.order: 12
 icon: i-lucide-webhook
 ---
 

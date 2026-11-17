@@ -47,7 +47,8 @@ function withoutSessionCookies(headers: Headers, names: string[]): Headers {
 export function createAccessPolicyPlugin({ policy, members }: { policy?: AuthAccessPolicy, members?: MembersGate }): AccessPolicyPlugin {
   const recheck = policy?.recheck ?? defaultRecheck
   const allowedUntil = new Map<string, number>()
-  // Better Auth passes its context to `init`, and replaces `internalAdapter` on it later, so read it when a check runs.
+  // Better Auth passes its context to `init`, and replaces `internalAdapter` on it later, so read it when a check runs
+  // (https://github.com/better-auth/better-auth/issues/12711).
   let auth: AuthContext | undefined
 
   const remember = (key: string) => {
