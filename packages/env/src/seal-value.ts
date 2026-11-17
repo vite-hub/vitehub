@@ -152,11 +152,11 @@ function rootSecret(secret: string | SecretEnv<string>): string {
 
 /**
  * The root secrets in order: the one that seals first, then the old ones that `unseal()` also tries. `undefined` is
- * `VITEHUB_SECRET` (or the development secret), followed by each secret in `VITEHUB_SECRET_PREVIOUS`.
+ * `VITEHUB_SECRET` (or the development secret). Only `unseal()` passes `previous`, to add `VITEHUB_SECRET_PREVIOUS`.
  */
-function rootSecrets(options: UnsealOptions): (string | undefined)[] {
+function rootSecrets(options: UnsealOptions, previous: boolean): (string | undefined)[] {
   const { secret } = options
-  if (secret === undefined) return [undefined, ...previousSecrets(options.event)]
+  if (secret === undefined) return previous ? [undefined, ...previousSecrets(options.event)] : [undefined]
   const list = typeof secret === "string" || secret instanceof SecretEnv ? [secret] : secret
   if (!Array.isArray(list) || !list.length) argumentError("`secret` must be a string, a Secret Env value, or a non-empty list of them.")
   return list.map(rootSecret)
@@ -233,7 +233,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         argumentError(`\`value\` cannot be serialized as JSON: ${cause instanceof Error ? cause.message : String(cause)}`)
       }
       if (json === undefined) argumentError("`value` must be a JSON value, not undefined or a function.")
-      const [root] = rootSecrets(options)
+      const [root] = rootSecrets(options, false)
 
       const expiresAt = ttl === undefined ? 0 : Date.now() + ttl * 1000
       const header = new Uint8Array(uses === undefined ? headerLength : headerLength + idLength)
@@ -261,7 +261,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
     async unseal(purpose, sealed, options = {}) {
       checkPurpose(purpose)
       // Derive first, so that a missing root secret throws for every input.
-      const [current, ...previous] = rootSecrets(options)
+      const [current, ...previous] = rootSecrets(options, true)
       const key = await purposeKey(derive, purpose, options.event, current, "decrypt")
       const bytes = typeof sealed === "string" ? fromBase64Url(sealed) : undefined
       const counted = bytes?.[0] === countedVersion
