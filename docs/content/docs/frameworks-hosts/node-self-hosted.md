@@ -186,12 +186,13 @@ there.
 ## Check health
 
 Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
-which commit and ViteHub version are live, and whether each Database, KV
-store, and Blob store of the app answers:
+which app version, commit, and ViteHub version are live, and whether each
+Database, KV store, and Blob store of the app answers:
 
 ```json
 {
   "ok": true,
+  "version": "1.4.0",
   "commit": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f",
   "vitehub": "0.1.0",
   "checks": { "database": { "default": true }, "kv": { "default": true }, "blob": { "default": true } }

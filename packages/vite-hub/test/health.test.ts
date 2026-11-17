@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -36,6 +36,13 @@ describe("health route", () => {
     expect(response.status).toBe(200)
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(await response.json()).toEqual({ ok: true, commit: "abc123", vitehub: "0.0.9" })
+  })
+
+  it("answers the app version when its package.json has one", async () => {
+    const source = renderHealthHandler({ version: "1.4.0", commit: null, vitehub: "0.0.9", database: false, kv: [], blob: [] }).replace("export default", "return")
+    // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
+    const response = await (new Function(source)() as Handler).fetch()
+    expect(await response.json()).toEqual({ ok: true, version: "1.4.0", commit: null, vitehub: "0.0.9" })
   })
 
   it("checks each Database, KV store, and Blob store, and answers 503 without error text when one fails", async () => {
@@ -88,10 +95,11 @@ describe("health route", () => {
     expect(log).toHaveBeenCalledWith("[vitehub] Blob store \"uploads\" did not answer the health check.", new Error("No answer within 2000 ms."))
   })
 
-  it("registers the route with the commit of the build and the installed ViteHub version", async () => {
+  it("registers the route with the app version, the commit of the build, and the installed ViteHub version", async () => {
     vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "def456")
     const root = await mkdtemp(join(tmpdir(), "vitehub-health-"))
     roots.push(root)
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "ferry-times", version: "1.4.0" }))
     const config: Record<string, unknown> = { root }
     const targets = { database: false, kv: [], blob: [] }
 
@@ -103,6 +111,7 @@ describe("health route", () => {
     expect(config.nitro).toMatchObject({ handlers: [{ handler: file, route: "/api/_vitehub/health" }] })
     expect(custom.nitro).toMatchObject({ handlers: [{ handler: file, route: "/api/health" }] })
     const source = await readFile(file, "utf8")
+    expect(source).toContain(`const version = "1.4.0"`)
     expect(source).toContain(`const commit = "def456"`)
     expect(source).toContain(`const vitehub = ${JSON.stringify(readViteHubVersion())}`)
   })

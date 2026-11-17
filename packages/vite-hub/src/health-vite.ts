@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { readBuildRevision } from "@vite-hub/internal/build/revision"
@@ -30,18 +31,20 @@ export interface HealthTargets {
 const probeKey = "vitehub-health-check"
 
 /**
- * The health handler: `{ ok, commit, vitehub }`, and `checks` with whether each Database answered `SELECT 1` and
+ * The health handler: `{ ok, version, commit, vitehub }`, and `checks` with whether each Database answered `SELECT 1` and
  * whether each KV and Blob store answered one read, within {@link healthCheckTimeoutMs}. It answers 503 when a check
  * fails. The response holds no error text, so it shows no connection details. The error goes to the server log.
  */
-export function renderHealthHandler(input: { commit: string | null, vitehub: string } & HealthTargets): string {
+export function renderHealthHandler(input: { version?: string, commit: string | null, vitehub: string } & HealthTargets): string {
   const headers = `{ "cache-control": "no-store" }`
   const groups = [
     ...(input.database ? [`database: import("@vite-hub/database/runtime/registry").then(({ pingDatabases }) => pingDatabases())`] : []),
     ...(input.kv.length ? [`kv: import("vite-hub/kv").then(({ kv }) => checkStores("KV store", ${JSON.stringify(input.kv)}, name => kv.store(name, { mode: "read" }).has(${JSON.stringify(probeKey)})))`] : []),
     ...(input.blob.length ? [`blob: import("vite-hub/blob").then(({ blob }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, name => blob.store(name, { mode: "read" }).head(${JSON.stringify(probeKey)})))`] : []),
   ]
+  const build = input.version ? "version, commit, vitehub" : "commit, vitehub"
   return [
+    ...(input.version ? [`const version = ${JSON.stringify(input.version)}`] : []),
     `const commit = ${JSON.stringify(input.commit)}`,
     `const vitehub = ${JSON.stringify(input.vitehub)}`,
     "",
@@ -77,16 +80,23 @@ export function renderHealthHandler(input: { commit: string | null, vitehub: str
           "    const results = await Promise.all(Object.values(pending))",
           "    const checks = Object.fromEntries(Object.keys(pending).map((key, index) => [key, results[index]]))",
           "    const ok = results.every(group => Object.values(group).every(Boolean))",
-          `    return Response.json({ ok, commit, vitehub, checks }, { headers: ${headers}, status: ok ? 200 : 503 })`,
+          `    return Response.json({ ok, ${build}, checks }, { headers: ${headers}, status: ok ? 200 : 503 })`,
         ]
-      : [`    return Response.json({ ok: true, commit, vitehub }, { headers: ${headers} })`]),
+      : [`    return Response.json({ ok: true, ${build} }, { headers: ${headers} })`]),
     "  },",
     "}",
     "",
   ].join("\n")
 }
 
-/** Registers the health route, with the commit that the build comes from and the primitives to check. */
+/** The `version` of the app's `package.json`, when it has one. */
+async function readAppVersion(projectRoot: string): Promise<string | undefined> {
+  const manifest: unknown = JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8").catch(() => "{}"))
+  const version = manifest instanceof Object ? Reflect.get(manifest, "version") : undefined
+  return typeof version === "string" && version ? version : undefined
+}
+
+/** Registers the health route, with the app version and commit of the build, and the primitives to check. */
 export function healthVitePlugin(options: HealthOptions, targets: HealthTargets): Plugin {
   return {
     name: "vite-hub/health",
@@ -97,8 +107,8 @@ export function healthVitePlugin(options: HealthOptions, targets: HealthTargets)
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(config.root || process.cwd())
       const handler = resolve(projectRoot, ".vitehub/nitro/health.mjs")
-      const { commit } = await readBuildRevision(projectRoot)
-      await writeFileIfChanged(handler, renderHealthHandler({ commit: commit ?? null, vitehub: readViteHubVersion(), ...targets }))
+      const [{ commit }, version] = await Promise.all([readBuildRevision(projectRoot), readAppVersion(projectRoot)])
+      await writeFileIfChanged(handler, renderHealthHandler({ ...(version ? { version } : {}), commit: commit ?? null, vitehub: readViteHubVersion(), ...targets }))
       const kit = createNitroServerKit(viteConfig.nitro)
       kit.addHandler({ handler, route: options.route ?? defaultHealthRoute })
       viteConfig.nitro = kit.config
