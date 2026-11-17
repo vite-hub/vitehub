@@ -4359,12 +4359,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      birpc:
-        specifier: catalog:runtime
-        version: 4.2.0
-      nostics:
-        specifier: catalog:runtime
-        version: 1.4.0
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)

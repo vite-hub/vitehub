@@ -6,7 +6,7 @@ export default defineConfig({
   pack: {
     ...packDefaults,
     deps: {
-      neverBundle: ["@vite-hub/env", "@vite-hub/runtime", "drizzle-orm", "nostics", "valibot", "vite"],
+      neverBundle: ["@vite-hub/env", "@vite-hub/runtime", "drizzle-orm", "valibot", "vite"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },

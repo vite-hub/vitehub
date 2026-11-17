@@ -63,8 +63,6 @@
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "birpc": "catalog:runtime",
-    "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
