@@ -123,6 +123,13 @@ export interface CommentsReadAttachmentContext {
   thread: CommentThread
 }
 
+/** A fixed-window budget for each guest address, the same shape as `defineForm({ rateLimit })`. */
+export interface CommentsRateLimit {
+  limit: number
+  /** A duration such as `30s`, `1m`, or `1h`. */
+  window: string
+}
+
 export interface CommentsDefinition {
   /**
    * Who may read, write, resolve, and delete. Return `true` to allow. Without it, see `defaultPolicy()`: everyone on
@@ -161,6 +168,12 @@ export interface CommentsDefinition {
    * `comments/<uuid>/<name>` in the Blob store of the app. Use this hook to authorize reads of other app files.
    */
   readAttachment?: (key: string, context: CommentsReadAttachmentContext) => Blob | null | Promise<Blob | null>
+  /**
+   * How many writes each guest address may make in a window, such as `{ limit: 5, window: "1m" }`. Each new thread,
+   * reply, and upload of a guest counts. A refused write fails with `COMMENTS_GUEST_RATE_LIMITED` and status 429.
+   * Signed-in people and Agents are not limited. Default: guests are not limited.
+   */
+  rateLimit?: CommentsRateLimit
 }
 
 const marker: unique symbol = Symbol.for("vitehub.comments.definition")

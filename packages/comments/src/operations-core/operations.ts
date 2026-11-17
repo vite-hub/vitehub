@@ -1,4 +1,6 @@
 import { defineOperation, operationAccessAllows } from "@vite-hub/internal/operations"
+import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
 import { authorOf, guestFromHeaders } from "../identity.ts"
@@ -145,6 +147,28 @@ function author(who: CommentsCaller): CommentUser {
   return guest
 }
 
+const guestLimits = new WeakMap<CommentsRuntime, ReturnType<typeof createClientRateLimit>>()
+
+/**
+ * Counts one write of a guest against `defineComments({ rateLimit })`, by the address of the request. Signed-in people
+ * and Agents are not limited. Call it after the policy allowed the write, so a refused write uses no budget.
+ */
+async function limitGuest(who: CommentsCaller): Promise<void> {
+  const policy = who.runtime.definition.rateLimit
+  // A guest names itself in the headers of a request, so a call without one has no guest to limit.
+  if (!policy || !who.request || who.actor || (who.user && who.user.guest !== true)) return
+  let limit = guestLimits.get(who.runtime)
+  if (!limit) {
+    limit = createClientRateLimit({ name: "comments", unavailable: "Comments could not count this guest comment in Rate Limit", ...(who.runtime.rateLimit ? { shared: who.runtime.rateLimit } : {}) })
+    guestLimits.set(who.runtime, limit)
+  }
+  const decision = await limit(who.request, `guest:${clientAddressKey(who.request, getStandardContext(who.request))}`, policy)
+  if (decision.allowed) return
+  const { retryAfter } = decision
+  // `retryAfter` gives the Comments API its `retry-after` header.
+  throw Object.assign(fail(commentsErrorDiagnostics.COMMENTS_GUEST_RATE_LIMITED({ retryAfter }), 429), { retryAfter })
+}
+
 function writeOptions(who: CommentsCaller) {
   return { gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
 }
@@ -263,6 +287,7 @@ export const commentActions = {
     if (earlier) return retried(earlier, { author: author(who), subject: input.subject }, canRead)
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
+    await limitGuest(who)
     return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead })
   },
 
@@ -270,6 +295,7 @@ export const commentActions = {
   async reply(input: CommentReplyInput, who: CommentsCaller, options: { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
     const found = await load(who, input.threadId)
     await allow(who, "write", { thread: found })
+    await limitGuest(who)
     return replyToThread(who.runtime, found, {
       body: input.body,
       author: author(who),
@@ -340,6 +366,7 @@ export const commentActions = {
     await allow(who, "read", target)
     await allow(who, "write", target)
     author(who)
+    await limitGuest(who)
     return storeAttachment(who.runtime, input, who.user)
   },
 

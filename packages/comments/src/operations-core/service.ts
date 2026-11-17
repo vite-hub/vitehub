@@ -1,5 +1,7 @@
 import * as v from "valibot"
 
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
@@ -81,6 +83,11 @@ export interface CommentsRuntime {
   /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
   attachments?: CommentsAttachmentStore
   forge?: CommentsForgeHooks
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. Guest writes
+   * then count under the Rate Limit name `comments`. Without it, they count in the memory of this process.
+   */
+  rateLimit?: SharedRateLimit
   /** Work that runs after the answer, such as `onMention`. `flush()` of the server API waits for it. */
   background?: (task: Promise<unknown>) => void
 }
