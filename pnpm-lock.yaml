@@ -1057,9 +1057,6 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/gateways':
         specifier: workspace:*
         version: link:../gateways
@@ -1157,6 +1154,9 @@ importers:
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/forms':
         specifier: workspace:*
         version: link:../forms
@@ -3614,9 +3614,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3642,6 +3639,9 @@ importers:
       '@types/picomatch':
         specifier: catalog:tooling
         version: 4.0.3
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -3775,9 +3775,18 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+      '@fontsource-variable/geist':
+        specifier: catalog:ui
+        version: 5.3.0
+      '@fontsource-variable/geist-mono':
+        specifier: catalog:ui
+        version: 5.3.0
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139
+      '@iconify/vue':
+        specifier: catalog:ui
+        version: 5.0.3(vue@3.5.44(typescript@6.0.3))
       '@nuxt/schema':
         specifier: 4.6.3
         version: 4.6.3
@@ -4393,9 +4402,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
@@ -4457,6 +4463,9 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

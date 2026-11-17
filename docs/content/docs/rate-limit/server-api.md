@@ -20,7 +20,7 @@ await requireRateLimit(event, 'image-upload', {
 })
 ```
 
-The ID, `limit`, `window`, `enforcement`, and `failure` must be literals, or a `const` with a literal value in the same file, because ViteHub writes the provider config before runtime. `event`, `key`, and `message` are runtime values, so the identity can change per request.
+The ID, `limit`, `window`, `enforcement`, and `failure` must be literals, or a `const` with a literal value in the same file, because ViteHub writes the provider config before runtime. `event`, `key`, `message`, and `code` are runtime values, so the identity can change per request.
 
 ```ts [server/utils/publish-burst.ts]
 import type { H3Event } from 'h3'
@@ -46,11 +46,33 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |
-| `message` | `string` | `"Rate limit exceeded."` | The message of the `429` error, such as a text that your app translates. `requireRateLimit()` only. |
+| `message` | `string` | `"Rate limit exceeded."` | Message of the `429` error. |
+| `code` | `string` | none | `data.code` of the `429` error. |
+
+## Set the message of the 429
+
+The default `429` says `Rate limit exceeded.`. Pass `message` to tell the user what to do, and `code` when the client translates errors by code:
+
+```ts [server/api/demo/session.post.ts]
+import { defineHandler } from 'h3'
+import { requireRateLimit } from 'vite-hub/rate-limit'
+
+export default defineHandler(async (event) => {
+  await requireRateLimit(event, 'demo-session', {
+    code: 'errorTooManyTries',
+    limit: 10,
+    message: 'Too many tries. Wait a minute and try again.',
+    window: '1m',
+  })
+  return { started: true }
+})
+```
+
+The client gets `{ status: 429, message: 'Too many tries. Wait a minute and try again.', data: { code: 'errorTooManyTries' } }` and the `Retry-After` header. `message` and `code` can be runtime values, such as a translated text. They change only the `429`. The `503` of an unavailable limiter keeps its message. For a different status or body, use `checkRateLimit()`.
 
 ## Check without throwing
 
-`checkRateLimit(event, id, options)` takes the same arguments, except `message`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
+`checkRateLimit(event, id, options)` takes the same arguments, without `message` and `code`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
 ```ts [server/api/og.get.ts]
 import { defineEventHandler } from 'h3'
