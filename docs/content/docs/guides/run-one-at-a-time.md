@@ -76,9 +76,10 @@ Then acquire the lease, renew it while the work runs, and release it at the end:
 import { defineEventHandler, HTTPError } from 'h3'
 import { leases } from '../utils/leases'
 
-async function reindexSearch() {
+async function reindexSearch(signal: AbortSignal) {
   for (const page of ['getting-started', 'guides', 'reference']) {
-    await fetch(`https://search.example.com/index/${page}`, { method: 'POST' })
+    signal.throwIfAborted()
+    await fetch(`https://search.example.com/index/${page}`, { method: 'POST', signal })
   }
 }
 
@@ -87,10 +88,19 @@ export default defineEventHandler(async () => {
   if (error) throw new HTTPError({ status: 503, message: error.why })
   if (!lease) return { skipped: true }
 
-  const renewal = setInterval(() => void lease.renew(), 10_000)
+  // Stop the work when the lease is lost, so that two runners never write at once.
+  const lost = new AbortController()
+  const renewal = setInterval(async () => {
+    const [renewError, renewed] = await lease.renew()
+    if (renewError || !renewed) lost.abort(renewError ?? new Error('Another runner took the lease.'))
+  }, 10_000)
   try {
-    await reindexSearch()
+    await reindexSearch(lost.signal)
     return { reindexed: true }
+  }
+  catch (cause) {
+    if (lost.signal.aborted) throw new HTTPError({ status: 409, message: 'The reindex lost its lease and stopped.', cause })
+    throw cause
   }
   finally {
     clearInterval(renewal)
@@ -100,8 +110,8 @@ export default defineEventHandler(async () => {
 ```
 
 - `acquire()` returns `[error, lease]`. `lease` is `null` when another runner holds the key. Leases are not reentrant: the same `owner` also gets `null`.
-- `renew({ ttl? })` moves the end of the lease. It returns `false` when the lease expired and another runner took it. Stop the work then.
-- `get(key)` returns the live lease with its `owner` and `expiresAt`, or `null`. Use it to show who runs a job.
+- `renew({ ttl? })` moves the end of the lease and returns `[error, renewed]`. `renewed` is `false` when the lease expired and another runner took it. Then stop the work, as the `AbortController` above does. Work that already ran stays done.
+- `get(key)` returns `[error, lease]` with the live lease, its `owner` and `expiresAt`, or `null`. Use it to show who runs a job.
 - `owner` is a label for inspection, such as the server name. `acquire()` does not compare it.
 - Expiry uses the clock of the Database, not the clocks of the servers.
 
