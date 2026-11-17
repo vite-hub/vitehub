@@ -2,7 +2,7 @@
 
 import type { CommentMessage } from "@vite-hub/comments/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { createSSRApp, h, nextTick } from "vue";
+import { type App, createSSRApp, h, nextTick } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { CommentReply } from "../src/index.ts";
 
@@ -16,8 +16,11 @@ const message: CommentMessage = {
   threadId: "thread-1",
 };
 const timeZone = process.env.TZ;
+const mounted: App[] = [];
 
 afterEach(() => {
+  // Unmounting stops the shared clock, so the next test starts it again under its own fake timers.
+  for (const app of mounted.splice(0)) app.unmount();
   vi.useRealTimers();
   vi.restoreAllMocks();
   process.env.TZ = timeZone;
@@ -40,7 +43,9 @@ async function hydrate(server: { now: number, timeZone: string }, client: { now:
   const container = document.createElement("div");
   container.innerHTML = html;
   document.body.append(container);
-  app().mount(container);
+  const browser = app();
+  browser.mount(container);
+  mounted.push(browser);
   await nextTick();
   const time = container.querySelector("time");
   if (!time) throw new Error("CommentReply rendered no <time>.");
@@ -52,7 +57,8 @@ it("hydrates the time of a reply that a server in another time zone rendered", a
   const { mismatches, time } = await hydrate({ now: at, timeZone: "UTC" }, { now: at, timeZone: "America/New_York" });
 
   expect(mismatches).toEqual([]);
-  expect(time.getAttribute("title")).toBe(new Date(message.createdAt).toLocaleString());
+  expect(time.textContent).toBe("15 minutes ago");
+  expect(time.getAttribute("title")).toBe("Mon, Nov 16, 2026, 3:14 AM EST");
 });
 
 it("hydrates the time of a reply from HTML that was rendered earlier", async () => {
@@ -63,7 +69,7 @@ it("hydrates the time of a reply from HTML that was rendered earlier", async () 
 
   expect(mismatches).toEqual([]);
   expect(time.textContent).toBe("45 minutes ago");
-  expect(time.getAttribute("datetime")).toBe("2026-11-16T08:14:31.000Z");
+  expect(time.getAttribute("datetime")).toBe("2026-11-16T08:14:31Z");
 
   vi.advanceTimersByTime(60_000);
   await nextTick();

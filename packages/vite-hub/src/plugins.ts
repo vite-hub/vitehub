@@ -534,12 +534,12 @@ export interface ViteHubOptions {
    * `{ auth: false }` takes calls without a signature, for development only.
    */
   console?: boolean | ConsoleOptions
-  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
    * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
    * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
    */
   bundle?: boolean
+  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
   email?: boolean | EmailOptions
   /**
@@ -549,7 +549,8 @@ export interface ViteHubOptions {
   env?: false | EnvOptions
   /**
    * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
-   * It answers `{ ok, commit }`, and with a Database, pings each one and answers 503 when one fails.
+   * It answers `{ ok, version, commit, vitehub }` and checks each Database, KV store, and Blob store of the app in `checks`. It
+   * answers 503 when one fails, and never shows error text.
    */
   health?: boolean | HealthOptions
   /**
@@ -572,7 +573,7 @@ export interface ViteHubOptions {
   observability?: boolean | ObservabilityOptions
   /**
    * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
-   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   * files. An object sets Queue options, such as `cache`, or selects the Node driver with `driver`.
    */
   queue?: boolean | QueueOptions
   /**
@@ -1136,7 +1137,9 @@ function deploymentPlugins(
                 conditions: [],
                 define: {},
                 extensions: [],
-                hasScheduleIntegration: false,
+                // Nuxt does not run the deployment output plugin's configResolved hook, so read the plugins here.
+                hasScheduleIntegration: (config.plugins as readonly unknown[] | undefined)?.flat(Infinity)
+                  .some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/schedule/vite") ?? false,
                 mainFields: [],
                 preserveSymlinks: false,
               },
@@ -1425,7 +1428,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.host === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
-  assertFeatureSupported("schedule", plan.host, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.host === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" host cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the host's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1487,7 +1489,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const resolvedConsoleBlob = configuredBlob
     ? requireOptionalOwner(blobVite, "blob").resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
     : false
-  const consoleBlobStores = resolvedConsoleBlob
+  const blobStoreNames = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
@@ -1576,7 +1578,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
-  if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
+  if (options.health) {
+    const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
+    plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
+      database: Boolean(options.database),
+      kv: resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : [],
+      blob: blobStoreNames,
+    }))
+  }
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
@@ -1605,7 +1614,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const consolePlugin = consoleVitePlugin({
       name: options.name,
       contentImportBase: "vite-hub/content",
-      blobStores: consoleBlobStores,
+      blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
       runtimeCapabilityImports,
@@ -1814,7 +1823,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
-      ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
+      // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
+      ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",

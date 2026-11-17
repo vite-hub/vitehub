@@ -71,9 +71,9 @@ function overlaps(a: Segment[], b: Segment[]): boolean {
 }
 
 /**
- * The `_redirects` sources of a route, or the reason why Cloudflare cannot match it like Nitro does. Nitro also matches
- * `/old/` for `/old`, and `/blog` and `/blog/` for `/blog/**`, so these get lines of their own: Cloudflare matches only
- * the path as written, and its `/blog/*` needs the slash.
+ * The `_redirects` sources of a route, or the reason why Cloudflare cannot match it like Nitro does. Nitro matches
+ * `/old` and `/old/` for both `/old` and `/old/`, and `/blog` and `/blog/` for `/blog/**`, so these get lines of their
+ * own: Cloudflare matches only the path as written, and its `/blog/*` needs the slash.
  */
 function source(route: string, baseURL: string): { exact: string[], splat?: string, names: string[] } | { reason: string } {
   if (methodKey.test(route)) return { reason: "it matches one HTTP method, and `_redirects` matches every method" }
@@ -89,7 +89,10 @@ function source(route: string, baseURL: string): { exact: string[], splat?: stri
   })
   if (parts.includes(undefined)) return { reason: "Cloudflare cannot match its pattern" }
   const path = `${baseURL.replace(/\/+$/, "")}/${parts.join("/")}`
-  if (!path.endsWith("/*")) return { exact: path.endsWith("/") ? [path] : [path, `${path}/`], names }
+  if (!path.endsWith("/*")) {
+    const bare = path.replace(/\/+$/, "")
+    return { exact: bare ? [bare, `${bare}/`] : ["/"], names }
+  }
   const prefix = path.slice(0, -2)
   return { exact: prefix ? [prefix, `${prefix}/`] : ["/"], splat: path, names }
 }
@@ -116,6 +119,10 @@ function target(to: string, splat: boolean, names: string[]): { exact: string, s
  * The `_redirects` lines for the `redirect` route rules, most specific first. A rule that `_redirects` cannot express
  * is skipped, and so is each less specific rule that would match its paths first, because Cloudflare would then
  * redirect those paths to the wrong place. A `redirect: false` rule counts as skipped.
+ *
+ * Each source path gets one line. Cloudflare rejects a file with two rules for one path, and it would use only the
+ * first one. So when two routes give the same path, such as `/old` and `/old/`, or `/blog` and `/blog/**` for `/blog`,
+ * the line of the more specific route stays, as Nitro also prefers it.
  */
 export function routeRuleRedirects(routeRules: Record<string, { redirect?: RedirectRule }>, baseURL: string): { lines: string[], skipped: SkippedRedirect[] } {
   const routes = Object.entries(routeRules)
@@ -123,6 +130,7 @@ export function routeRuleRedirects(routeRules: Record<string, { redirect?: Redir
     .map(([route, rules]): RedirectRoute => ({ route, redirect: rules.redirect! }))
     .sort(compareRoutes)
   const lines: string[] = []
+  const sources = new Set<string>()
   const skipped: Array<SkippedRedirect & { pattern: Segment[] }> = []
   for (const { route, redirect } of routes) {
     const pattern = segments(route.replace(methodKey, "/"))
@@ -155,14 +163,17 @@ export function routeRuleRedirects(routeRules: Record<string, { redirect?: Redir
       continue
     }
     const ruleLines = [
-      ...from.exact.map(path => `${path} ${to.exact} ${redirect.status}`),
-      ...from.splat ? [`${from.splat} ${to.splat} ${redirect.status}`] : [],
-    ]
-    if (ruleLines.some(line => line.length > maxLine)) {
+      ...from.exact.map(path => [path, `${path} ${to.exact} ${redirect.status}`] as const),
+      ...from.splat ? [[from.splat, `${from.splat} ${to.splat} ${redirect.status}`] as const] : [],
+    ].filter(([path]) => !sources.has(path))
+    if (ruleLines.some(([, line]) => line.length > maxLine)) {
       skip(`its line is longer than Cloudflare's limit of ${maxLine} characters`)
       continue
     }
-    lines.push(...ruleLines)
+    for (const [path, line] of ruleLines) {
+      sources.add(path)
+      lines.push(line)
+    }
   }
   return { lines, skipped: skipped.map(({ route, reason }) => ({ route, reason })) }
 }
@@ -174,9 +185,10 @@ const ruleLine = /^\s*([^\s#]\S*)\s+\S+/
  * Returns `undefined` when the file would pass Cloudflare's limits of 2,000 static and 100 dynamic redirects.
  */
 export function addRedirectsToFile(contents: string, routeLines: string[]): string | undefined {
-  // A line that the file already has, such as from an earlier run on the same output, is not added again.
-  const present = new Set(contents.split("\n").map(line => line.trim()))
-  const lines = routeLines.filter(line => !present.has(line))
+  // A path that the file already has a rule for, such as from the app or an earlier run on the same output, gets no
+  // second rule: Cloudflare rejects the file, and would use the first rule anyway.
+  const present = new Set(contents.split("\n").map(line => ruleLine.exec(line)?.[1]).filter(from => from !== undefined))
+  const lines = routeLines.filter(line => !present.has(ruleLine.exec(line)?.[1] ?? ""))
   if (lines.length === 0) return contents
   const all = [...contents.split("\n"), ...lines].map(line => ruleLine.exec(line)?.[1]).filter(from => from !== undefined)
   const dynamic = all.filter(from => /[*:]/.test(from)).length

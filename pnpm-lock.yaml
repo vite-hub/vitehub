@@ -3769,6 +3769,9 @@ importers:
 
   packages/ui:
     dependencies:
+      reka-ui:
+        specifier: catalog:ui
+        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       '@codemirror/autocomplete':
         specifier: 6.20.4
         version: 6.20.4
@@ -3962,9 +3965,6 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.25
-      reka-ui:
-        specifier: catalog:ui
-        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
