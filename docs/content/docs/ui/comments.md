@@ -446,7 +446,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
-| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
+| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards and of the box for a new comment. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
 
 ### CommentPin
 
@@ -555,7 +555,9 @@ Edit and Delete show when you give their handlers. An unchanged edit keeps its m
 
 ### CommentComposer
 
-The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. Renders a `div` with `data-slot="comment-composer"`, `data-layout`, and `data-size`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). With `layout="row"` it is one row under a divider: attach, the text, and send. The reply box of a thread and the box at the bottom of a panel use it. When the text of a row box wraps, the text takes the full width and attach and send move to a row under it. The box goes back to one row when the text fits beside the buttons again.
+
+Renders a `div` with `data-slot="comment-composer"`, `data-layout`, `data-size`, and `data-frame`. It has `data-multiline` while the text of a row box wraps, `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -579,6 +581,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
 | `layout` | `"box" \| "row"` | `"box"` | `box` is a bordered field. `row` is one line that shows its edge only while it has the focus, for a box inside a card. |
 | `size` | `"sm" \| "md"` | `"md"` | `sm` is a shorter field with smaller buttons, and its focus edge has no halo. See [Sizes](#sizes). |
+| `frame` | `"field" \| "none"` | `"field"` | `none` is for a box whose parent is its frame, such as a bubble: the field shows no edge on focus, so the parent shows the focus. The box for a new comment on `CommentLayer` uses it. |
 
 #### Events
 

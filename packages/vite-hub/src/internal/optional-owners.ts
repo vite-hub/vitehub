@@ -151,7 +151,8 @@ function resolvesPackage(packageName: string): boolean {
     // file system root, and most owner packages are missing in a typical app.
     if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
   }
-  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
+  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry
+  // (drizzle-orm: https://github.com/drizzle-team/drizzle-orm/issues/6695).
   try {
     import.meta.resolve(packageName)
     return true

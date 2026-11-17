@@ -70,7 +70,7 @@ export default defineConfig({
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
 | `database.cli.reset` | `false` | enabled | Turns off `database reset`. |
-| `database.cli.seed` | `false` | enabled | Turns off `database seed`. |
+| `database.cli.seed` | `false` | enabled | Leaves the Database out of `vitehub seed`. |
 | `database.cli.sql` | `false` | enabled | Turns off `database sql`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
@@ -362,7 +362,13 @@ export default defineConfig({
 
 The build copies each migrations folder into the server output, so the output needs no folder. A Nitro plugin applies them, and Nitro loads it before the production server listens. Prerendering during the build skips migrations and does not need a database connection. The plugin reads Drizzle's `__drizzle_migrations` table, applies the pending migrations in one transaction per database, and logs each one. Only then does the server accept requests. It writes the same rows as `vitehub database migrate` and `drizzle-kit migrate`, so any of them can migrate next. A migrations table from Drizzle Kit 0.x gets the `name` column first, as Drizzle 1.0 adds it. If one of its rows matches no migration folder, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any change.
 
-When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it.
+When a migration fails, the database keeps none of the pending migrations of that start, and the server stops before it listens, with `DATABASE_MIGRATION_FAILED` for Postgres. A migration that loses data, by the `vitehub database migrate` rules, stops the server with `DATABASE_MIGRATION_DATA_LOSS` and no change. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply it. To accept the loss for one start of a built server, such as a Docker container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1` in its environment:
+
+```bash
+docker run -e VITEHUB_DATABASE_ALLOW_DATA_LOSS=1 my-app
+```
+
+Remove the variable after that start, so a later migration that loses data stops the server again.
 
 To apply the same migrations from a Nitro task, a test, or a build without the start plugin, call [`ensureMigrations()`](/docs/database/server-api#apply-migrations-from-server-code). It shares the run of the start plugin, so the process applies each migration once.
 
@@ -454,9 +460,10 @@ For a named database, write `DatabaseSeed<'analytics'>`. Then apply the migratio
 
 ```bash [commands/seed]
 pnpm vitehub database migrate
-pnpm vitehub database seed                       # each database that has a seed file
-pnpm vitehub database seed --database analytics
-pnpm vitehub database seed --remote --stage staging
+pnpm vitehub seed                       # each database that has a seed file, and the KV and Blob seed files
+pnpm vitehub seed database              # only the databases
+pnpm vitehub seed --database analytics
+pnpm vitehub seed --remote --stage staging
 ```
 
 Without `--remote`, the command writes only the local database that `vitehub database migrate` uses: the SQLite file, or the PGlite folder of a Postgres Database. A remote database needs `--remote`, so a seed never reaches production by accident. With `--remote`, it connects like `vitehub database export --remote`: Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres. `--stage <name>` loads the Vite env files of that mode.

@@ -22,7 +22,7 @@ export interface ForgeCommitFilesInput extends Omit<CommitFilesInput, "changes">
  * Without a `mode` or a GitHub author, the call goes to `commitFiles()`. Every write without a mode is `100644`.
  * Rejects with `BranchMovedError` when the branch no longer points at `expectedHead`, as `commitFiles()` does.
  * Gap: `FileChange` has no mode, so `commitFiles()` cannot write a symlink or an executable file.
- * Proposed upstream as `FileChange.mode`.
+ * Proposed upstream as `FileChange.mode` (https://github.com/danielroe/forges/issues/296).
  */
 export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, input: ForgeCommitFilesInput, options: BaseOptions = {}): Promise<string> {
   // GitHub's Contents API rejects an empty change set, but history commits must
