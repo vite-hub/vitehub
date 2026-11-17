@@ -534,12 +534,12 @@ export interface ViteHubOptions {
    * `{ auth: false }` takes calls without a signature, for development only.
    */
   console?: boolean | ConsoleOptions
-  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
    * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
    * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
    */
   bundle?: boolean
+  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
   email?: boolean | EmailOptions
   /**
@@ -572,7 +572,7 @@ export interface ViteHubOptions {
   observability?: boolean | ObservabilityOptions
   /**
    * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
-   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   * files. An object sets Queue options, such as `cache`, or selects the Node driver with `driver`.
    */
   queue?: boolean | QueueOptions
   /**

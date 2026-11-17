@@ -8,11 +8,11 @@ icon: i-lucide-cloud-cog
 
 ## Drivers
 
-| Host | Driver without `provider` |
+| Host | Driver without `driver` |
 | --- | --- |
 | Cloudflare | Cloudflare |
 | Vercel | Vercel |
-| Netlify | None. Set `provider`. |
+| Netlify | None. Set `driver`. |
 | Node and Docker, including `vite dev` with the Node host | OpenWorkflow, with an automatic worker |
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
