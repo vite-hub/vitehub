@@ -101,6 +101,37 @@ describe("the Comments overlay on a page", () => {
     await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledWith("comments", page.commentRoom("/v2"), expect.objectContaining({ params: { page: "/v2" } })))
   })
 
+  it("keeps the destination thread link when the previous page refresh finishes", async () => {
+    const server = await open({ content: false })
+    const [, thread] = await server.comments.create({ page: "/next", anchor, body: "Destination thread", author: ada })
+    const listHeld = deferred<void>()
+    const sessionHeld = deferred<void>()
+    const fetch = server.fetch.getMockImplementation()!
+    let listing = false
+    server.fetch.mockImplementation(async (input, init) => {
+      const url = new URL(String(input), location.href)
+      if (url.pathname.endsWith("/threads") && url.searchParams.get("subjectKind") === "page" && url.searchParams.get("subjectId") === "/") {
+        listing = true
+        await listHeld.promise
+      }
+      return await fetch(input, init)
+    })
+    const session = api.session
+    vi.spyOn(api, "session").mockImplementation(async (next) => {
+      if (next === "/next") await sessionHeld.promise
+      return await session(next)
+    })
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.waitFor(() => expect(listing).toBe(true))
+    history.pushState(null, "", `/next?comment=${thread!.n}`)
+    listHeld.resolve()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(location.search).toBe(`?comment=${thread!.n}`)
+    sessionHeld.resolve()
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-thread"]')?.textContent).toContain("Destination thread"))
+    await vi.waitFor(() => expect(location.search).toBe(""))
+  })
+
   it("shares changes only through the authorized page room and ignores cursor-only updates", async () => {
     const { comments, requests } = await open({ content: false })
     await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalled())

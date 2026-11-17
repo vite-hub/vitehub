@@ -11,10 +11,11 @@ export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export {
   createExecutionBudget,
-  ExecutionBudgetExceededError,
+  isExecutionBudgetExceededError,
   type ExecutionBudget,
   type ExecutionBudgetCounter,
   type ExecutionBudgetLimits,
+  type ExecutionBudgetExceededError,
   type ExecutionBudgetOptions,
   type ExecutionBudgetSnapshot,
   type ExecutionBudgetUsage,
@@ -69,6 +70,8 @@ export {
   toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
+  type ErrorCodes,
+  type ErrorHandle,
   type Result,
   type ResultError,
 } from "./result.ts"

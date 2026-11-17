@@ -1,14 +1,16 @@
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onMounted, ref, useId } from "vue"
 
-import { FormSubmitError, fieldErrors, formRoute, submitForm } from "./client.ts"
+import { fieldErrors, formSubmitError, formRoute, submitForm } from "./client.ts"
+import { formsDiagnostics } from "./errors.ts"
 import { checkForm, coerceFormFields, formFields, isLongText } from "./fields.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { PropType, Ref, VNode } from "vue"
-import type { FormAnchor, FormFieldErrors, SubmitFormOptions } from "./client.ts"
+import type { FormAnchor, FormFieldErrors, FormSubmitError, SubmitFormOptions } from "./client.ts"
 import type { SchemaNode } from "./schema.ts"
 
-export { FormSubmitError, fieldErrors, formRoute, submitForm } from "./client.ts"
+export { fieldErrors, formRoute, submitForm } from "./client.ts"
+export type { FormSubmitError } from "./client.ts"
 export type { FormAnchor, FormFieldErrors, FormIssue, SubmitFormOptions } from "./client.ts"
 
 /** The part of a Vue Router that `AutoForm` uses, so it needs no `vue-router` import. */
@@ -135,7 +137,7 @@ export interface AutoFormField {
  */
 export function describeFormFields(schema: unknown): AutoFormField[] {
   const root = schema as SchemaNode
-  if (root?.type !== "object" || !root.entries) throw new TypeError("[vitehub] AutoForm needs a Valibot object schema, such as v.object({ message: v.string() }).")
+  if (root?.type !== "object" || !root.entries) throw formsDiagnostics.FORMS_AUTOFORM_SCHEMA_INVALID()
   return formFields(schema as StandardSchemaV1).map((field) => {
     const { name: key, label, description, required, minLength, maxLength } = field
     const base: AutoFormField = { key, label, control: "input", required, ...(description ? { description } : {}), ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) }
@@ -332,7 +334,7 @@ export const AutoForm = defineComponent({
         if (key !== props.honeypot && typeof value === "string") input[key] = value
       }
       coerceFormFields(props.schema, input)
-      const [failure] = await checkForm(props.schema, input).catch((error: unknown) => [new FormSubmitError(error instanceof Error ? error.message : String(error), 0)] as const)
+      const [failure] = await checkForm(props.schema, input).catch((error: unknown) => [formSubmitError(error instanceof Error ? error.message : String(error), 0)] as const)
       return failure
     }
     function show(failure: FormSubmitError | undefined) {

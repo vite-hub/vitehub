@@ -5,6 +5,7 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
+import { useRelativeTime } from "../internal/relative-time.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -25,6 +26,9 @@ function placeDraft(point: AnchorPoint, page: boolean, width: number, viewport: 
   const left = Math.max(inset, Math.min(flipX ? x - inset - width : x + inset, viewport - inset - width));
   return { x, y: point.y, flipX, left: left - x };
 }
+
+/** A pin on an area or an image is round. Elsewhere it is a drop whose small corner points at the spot. */
+const pinShape = (kind: CommentThreadModel["anchor"]["kind"]) => (kind === "area" || kind === "image" ? "round" : "point");
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
@@ -110,6 +114,7 @@ export const CommentLayer = defineComponent({
       });
     }
     const layer = ref<HTMLElement | null>(null);
+    const time = useRelativeTime();
     // The comment UI may live in a shadow root. Composers are looked up there, not in the document.
     const uiRoot = () => {
       const node = layer.value?.getRootNode();
@@ -425,7 +430,7 @@ export const CommentLayer = defineComponent({
             style: { top: `${tops[index]}px` },
             type: "button",
           },
-          threadRow(thread),
+          threadRow(thread, time),
         )];
       });
       return { at, node: h("div", { "data-slot": "comment-margin" }, cards) };
@@ -470,6 +475,7 @@ export const CommentLayer = defineComponent({
               h(CommentPin, {
                 active: open,
                 author: thread.author,
+                "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
                 n: thread.n,
@@ -539,7 +545,7 @@ export const CommentLayer = defineComponent({
                 style: place(placement),
               },
               [
-                h(CommentPin, { author: user.value, draft: true }),
+                h(CommentPin, { author: user.value, "data-shape": pinShape(draft.anchor.kind), draft: true }),
                 h(
                   "div",
                   {

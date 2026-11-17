@@ -13,6 +13,7 @@ import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/i
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { CONNECTIONS_ROUTE } from "./route.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -42,8 +43,6 @@ interface ParsedArgs {
   url: string
 }
 
-class CliError extends Error {}
-
 const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
 
 const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
@@ -65,9 +64,9 @@ function parse(args: string[], context: CliContext): ParsedArgs {
       flags.set(flag === "-h" ? "--help" : flag, true)
       continue
     }
-    if (!valueFlags.has(flag)) throw new CliError(`Unknown option: ${flag}.`)
+    if (!valueFlags.has(flag)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Unknown option: ${flag}.` })
     const value = inline ?? args[index + 1]
-    if (!value || (inline === undefined && value.startsWith("-"))) throw new CliError(`Missing value for ${flag}.`)
+    if (!value || (inline === undefined && value.startsWith("-"))) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Missing value for ${flag}.` })
     if (inline === undefined) index += 1
     flags.set(flag, value)
   }
@@ -107,9 +106,9 @@ function appUrl(parsed: ParsedArgs): URL {
     url = new URL(parsed.url)
   }
   catch {
-    throw new CliError(`Invalid --url: ${parsed.url}.`)
+    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Invalid --url: ${parsed.url}.` })
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new CliError("--url must use http or https.")
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "--url must use http or https." })
   return url
 }
 
@@ -181,16 +180,16 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
   catch (error) {
     // A dev server that rebuilds can accept a request and never answer it.
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new CliError(`${endpoint.origin} did not answer in ${seconds} seconds. If the server is restarting, wait until it is ready, then run the command again.`)
+      throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.origin} did not answer in ${seconds} seconds. If the server is restarting, wait until it is ready, then run the command again.` })
     }
-    throw new CliError(`Could not reach ${endpoint.origin}. Start the development server, or pass --url.`)
+    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `Could not reach ${endpoint.origin}. Start the development server, or pass --url.` })
   }
   let value: unknown
   try {
     value = JSON.parse(text)
   }
   catch {
-    throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
+    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.` })
   }
   if (!response.ok) {
     const parsedError = v.safeParse(v.object({ error: errorBody }), value)
@@ -198,10 +197,10 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     const topLevel = v.safeParse(errorBody, value)
     const error = parsedError.success ? parsedError.output.error : topLevel.success ? topLevel.output : undefined
     const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts." : undefined)
-    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}`)
+    throw connectionsErrorDiagnostics.CONNECTIONS_CLI_REQUEST_FAILED({ problem: `${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${fix ? `\n${fix}` : ""}` })
   }
   const result = v.safeParse(schema, value)
-  if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
+  if (!result.success) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.href} returned an invalid Connections response.` })
   return result.output
 }
 
@@ -240,19 +239,19 @@ function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, 
 /** Read a piped key. A key in an argument would stay in the shell history. */
 async function readKey(options: ConnectionsCliOptions): Promise<string> {
   const stdin = options.stdin ?? process.stdin
-  if (stdin.isTTY) throw new CliError("Pipe the key on stdin, for example: printf %s \"$KEY\" | vitehub connections set-key <name>")
+  if (stdin.isTTY) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "Pipe the key on stdin, for example: printf %s \"$KEY\" | vitehub connections set-key <name>" })
   const decoder = new TextDecoder()
   let text = ""
   for await (const chunk of stdin) text += v.is(v.string(), chunk) ? chunk : decoder.decode(chunk, { stream: true })
   text += decoder.decode()
   const key = text.trim()
-  if (!key) throw new CliError("The key on stdin is empty.")
+  if (!key) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "The key on stdin is empty." })
   return key
 }
 
 function requireName(parsed: ParsedArgs, command: string): string {
   const name = parsed.positionals[0]
-  if (!name) throw new CliError(`${command} requires a Connection name.`)
+  if (!name) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `${command} requires a Connection name.` })
   return name
 }
 
@@ -260,7 +259,7 @@ function port(parsed: ParsedArgs): number {
   const value = flag(parsed, "--port")
   if (value === undefined) return 0
   const result = Number(value)
-  if (!Number.isSafeInteger(result) || result < 1 || result > 65_535) throw new CliError("--port requires a TCP port.")
+  if (!Number.isSafeInteger(result) || result < 1 || result > 65_535) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "--port requires a TCP port." })
   return result
 }
 
@@ -307,7 +306,7 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     const address = server.address()
-    if (!address || v.is(v.string(), address)) throw new CliError("Could not start the loopback callback server.")
+    if (!address || v.is(v.string(), address)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_CALLBACK_FAILED({ problem: "Could not start the loopback callback server." })
     const redirectUri = `http://127.0.0.1:${address.port}/callback`
     const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
@@ -315,7 +314,7 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     const expiresAt = new Date(authorization.expiresAt)
     const until = expiresAt.toTimeString().slice(0, 5)
     timeout = setTimeout(
-      () => rejectCallback(new CliError(`The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect ${name}\` again.`)),
+      () => rejectCallback(connectionsErrorDiagnostics.CONNECTIONS_CLI_CALLBACK_FAILED({ problem: `The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect ${name}\` again.` })),
       options.timeout === undefined ? Math.max(0, expiresAt.getTime() - Date.now()) : options.timeout * 1_000,
     )
     const minutes = Math.round((expiresAt.getTime() - Date.now()) / 60_000)
@@ -336,10 +335,10 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
 
 function transferFile(parsed: ParsedArgs): string {
   const path = flag(parsed, "--file")
-  if (!path) throw new CliError("Credential transfer requires --file <path>. Tokens are never printed.")
+  if (!path) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "Credential transfer requires --file <path>. Tokens are never printed." })
   const url = appUrl(parsed)
-  if (url.protocol !== "https:" && !isLoopback(url)) throw new CliError("Credential transfer requires HTTPS or a loopback host.")
-  if (process.platform === "win32") throw new CliError("Credential transfer requires owner-only POSIX file permissions.")
+  if (url.protocol !== "https:" && !isLoopback(url)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_TRANSPORT_INSECURE({ problem: "Credential transfer requires HTTPS or a loopback host." })
+  if (process.platform === "win32") throw connectionsErrorDiagnostics.CONNECTIONS_CLI_TRANSPORT_INSECURE({ problem: "Credential transfer requires owner-only POSIX file permissions." })
   return path
 }
 
@@ -415,10 +414,10 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       let credential: unknown
       try {
         const info = await file.stat()
-        if (!info.isFile() || info.size > 60 * 1024 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw new CliError("Use an owner-only credential file, at most 60 KiB. Run chmod 600 on the file.")
+        if (!info.isFile() || info.size > 60 * 1024 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID({ problem: "Use an owner-only credential file, at most 60 KiB. Run chmod 600 on the file." })
         try { credential = JSON.parse(await file.readFile("utf8")) }
-        catch { throw new CliError("Invalid ChatGPT credential file.") }
-        if (!v.is(chatgptTransferSchema, credential)) throw new CliError("Invalid ChatGPT credential file.")
+        catch { throw connectionsErrorDiagnostics.CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID({ problem: "Invalid ChatGPT credential file." }) }
+        if (!v.is(chatgptTransferSchema, credential)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_CREDENTIAL_FILE_INVALID({ problem: "Invalid ChatGPT credential file." })
       }
       finally { await file.close() }
       const { connection } = await request(parsed, options, { action: "chatgpt-import", name, credential }, connectionResponse, "error")
@@ -440,7 +439,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       const name = requireName(parsed, "set-key")
       const base = appUrl(parsed)
       if (base.protocol !== "https:" && !isLoopbackHost(base.hostname)) {
-        throw new CliError(`set-key sends the key only over HTTPS or to a loopback host. Refusing ${base.origin}.`)
+        throw connectionsErrorDiagnostics.CONNECTIONS_CLI_TRANSPORT_INSECURE({ problem: `set-key sends the key only over HTTPS or to a loopback host. Refusing ${base.origin}.` })
       }
       const key = await readKey(options)
       // A redirect would send the key to another URL.
@@ -469,7 +468,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     async run(parsed, context, options) {
       const [subcommand, id] = parsed.positionals
       if (subcommand === "approve" || subcommand === "deny") {
-        if (!id) throw new CliError(`approvals ${subcommand} requires an approval id.`)
+        if (!id) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `approvals ${subcommand} requires an approval id.` })
         if (subcommand === "approve") {
           const result = await request(parsed, options, { action: "approve", id }, approvalResponse)
           write(context, parsed, result, () => describeApproval(result.approval))
@@ -479,7 +478,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         write(context, parsed, result, () => describeApproval(result.approval))
         return
       }
-      if (subcommand) throw new CliError(`Unknown approvals command: ${subcommand}.`)
+      if (subcommand) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Unknown approvals command: ${subcommand}.` })
       const name = flag(parsed, "--name")
       const page = await request(parsed, options, {
         action: "approvals",
@@ -493,12 +492,20 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       ].join("\n"))
     },
   },
+  "rotate-key": {
+    description: "Re-encrypt stored tokens with the current key of VITEHUB_CONNECTIONS_KEYS.",
+    usage: "vitehub connections rotate-key [--url <app>] [--json]",
+    async run(parsed, context, options) {
+      const { rotation } = await request(parsed, options, { action: "rotate-key" }, v.object({ rotation: v.object({ rotated: v.number(), skipped: v.number() }) }))
+      write(context, parsed, rotation, () => `Re-encrypted ${rotation.rotated} stored ${rotation.rotated === 1 ? "value" : "values"} with the current key. ${rotation.skipped} already used it. When the deployed app runs without errors, remove the previous key from VITEHUB_CONNECTIONS_KEYS.`)
+    },
+  },
   revoke: {
     description: "Revoke the provider grant and delete the stored token.",
     usage: "vitehub connections revoke <name> --confirm <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const name = requireName(parsed, "revoke")
-      if (parsed.confirm !== name) throw new CliError(`Pass --confirm ${name} to revoke this Connection.`)
+      if (parsed.confirm !== name) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Pass --confirm ${name} to revoke this Connection.` })
       const { connection } = await request(parsed, options, { action: "revoke", name }, connectionResponse)
       write(context, parsed, connection, () => `Revoked. ${describeConnection(connection)}`)
     },
@@ -534,7 +541,8 @@ export async function runConnectionsCli(command: string, args: string[], context
     return (await entry.run(parsed, context, options)) ?? 0
   }
   catch (error) {
-    context.stderr.write(`${error instanceof CliError ? error.message : error instanceof Error ? error.message : String(error)}\n`)
+    const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
+    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
     return 1
   }
 }

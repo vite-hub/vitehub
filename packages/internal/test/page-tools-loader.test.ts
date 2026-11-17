@@ -1297,14 +1297,14 @@ describe("the account item", () => {
     page("/guide?vitehub&tab=2")
     const fetch = session({ tools: [comments], account: { ...ada, signOut: "/portal/api/auth/sign-out" } })
     await loadViteHubPageTools({ load: modules().load })
-    const replace = vi.fn()
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    const reload = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace: vi.fn(), reload })
     fetch.mockImplementation(async () => new Response("{}", { status: 200 }))
     const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
     item.click()
-    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(fetch).toHaveBeenLastCalledWith("/portal/api/auth/sign-out", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
-    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+    expect(location.href).toBe("http://localhost:3000/guide?tab=2")
   })
 
   it("keeps the session and says so when the sign-out fails", async () => {

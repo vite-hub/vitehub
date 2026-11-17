@@ -17,6 +17,7 @@ import { dirname, relative, resolve } from "pathe"
 import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
 import { blobSignedRoute } from "./internal/fs-sign.ts"
+import { blobDeploymentEnv } from "./deployment-env.ts"
 import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -27,6 +28,7 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
@@ -56,6 +58,8 @@ export { hasS3BlobEnv } from "./config.ts"
 export type { BlobViteRuntimeConfig } from "./vite-config.ts"
 
 export interface BlobVitePluginAPI {
+  /** The variables that the Blob stores read on the deployed host. See `blobDeploymentEnv()`. */
+  deploymentEnv: DeploymentEnvContribution
   getConfig: () => BlobViteRuntimeConfig
 }
 
@@ -201,7 +205,13 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  */
 function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
   const cloudflareGlobals = cloudflare && workersModule
-  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined, requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit"]
+  const setters = [
+    cloudflareGlobals ? "setActiveCloudflareEnv" : undefined,
+    "setBlobRuntimeConfig",
+    imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined,
+    imageModule === "photon" && cloudflareGlobals ? "loadWorkerPhoton" : undefined,
+    requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit",
+  ]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
@@ -209,13 +219,19 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
     `import { ${setters.filter(Boolean).join(", ")} } from ${JSON.stringify(runtimeStateModule)}`,
     "",
-    cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
+    // Contextual typing keeps driver literals and mutable arrays in the generated config.
+    cloudflare ? `const blobConfig: Parameters<typeof setBlobRuntimeConfig>[0] = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    // `Cloudflare.Env` has no index signature, so the generated middleware casts it the same way.
+    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)" : undefined,
     imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
-    imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
+    imageModule === "photon"
+      ? cloudflareGlobals
+        ? "  setBlobPhotonLoader(() => loadWorkerPhoton(import('@cf-wasm/photon/others'), import('@cf-wasm/photon/photon.wasm')))"
+        : "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))"
+      : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     requestBodyLimit === undefined ? undefined : `  setBlobRequestBodyLimit(${requestBodyLimit})`,
     "}",
@@ -516,7 +532,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
 
   return {
     name: BLOB_VITE_PLUGIN_NAME,
-    api: { getConfig },
+    api: { deploymentEnv: context => blobDeploymentEnv(getConfig().blob, context), getConfig },
     vitehub: {
       durability: () => {
         const config = getConfig().blob

@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 
+import { iconShapes } from "../internal/icon-shapes.ts";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, "..");
 const virtualIcons = "virtual:vitehub-ui-icons";
@@ -38,27 +40,6 @@ const icons: Record<string, string> = Object.fromEntries([
   "trash-2",
   "x",
 ].map(name => [`i-lucide-${name}`, name]));
-
-const elementPattern = /<(\w+)((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g;
-
-function attributesOf(source: string): Record<string, string> {
-  return Object.fromEntries([...source.matchAll(/([\w:-]+)="([^"]*)"/g)].map(([, key, value]) => [key!, value!]));
-}
-
-// The icons are drawn from elements, never from markup, so a flat list of shapes is all that they need. A Lucide icon
-// with several shapes wraps them in one `<g>` that holds the stroke, so each shape takes the attributes of the group.
-function shapes(name: string, body: string): Array<[string, Record<string, string>]> {
-  const group = /^<g((?:\s+[\w:-]+="[^"]*")*)>(.*)<\/g>$/s.exec(body);
-  const shared = group ? attributesOf(group[1]!) : {};
-  const content = group ? group[2]! : body;
-  const found: Array<[string, Record<string, string>]> = [];
-  for (const [, tag, attributes] of content.matchAll(elementPattern)) {
-    if (tag === "g" || tag === "svg") throw new TypeError(`The Lucide icon "${name}" nests elements, which the stand-in UIcon does not draw.`);
-    found.push([tag!, { ...shared, ...attributesOf(attributes!) }]);
-  }
-  if (!found.length || content.replaceAll(elementPattern, "").trim()) throw new TypeError(`The Lucide icon "${name}" has a body that the stand-in UIcon cannot draw: ${body}`);
-  return found;
-}
 
 /**
  * Lets the styled parts run without Nuxt UI, such as in an overlay that a page loads into a shadow root. It is the one
@@ -99,7 +80,7 @@ export function standaloneUI(): Plugin {
           // Lucide keeps renamed icons, such as `trash-2`, as aliases of the current name.
           const icon = set.icons[name] ?? set.icons[set.aliases?.[name]?.parent ?? ""];
           if (!icon) throw new TypeError(`The Lucide icon "${name}" does not exist.`);
-          return [className, shapes(name, icon.body)];
+          return [className, iconShapes(name, icon.body)];
         }));
         return `export const icons = ${JSON.stringify(bodies)};`;
       },

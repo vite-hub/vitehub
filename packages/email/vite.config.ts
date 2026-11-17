@@ -24,6 +24,7 @@ export default defineConfig({
       "src/index.ts",
       "src/cli.ts",
       "src/drivers/cloudflare-email.ts",
+      "src/drivers/log.ts",
       "src/drivers/resend.ts",
       "src/markdown.ts",
       "src/operations.ts",

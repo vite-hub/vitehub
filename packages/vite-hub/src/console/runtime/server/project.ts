@@ -1,8 +1,8 @@
 import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
-import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
-import { version } from "../../../version.ts"
+import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
@@ -10,6 +10,21 @@ import type { ConsoleSectionsResponse } from "./sections.get.ts"
 declare global {
   interface ImportMeta {
     viteHubConsoleOperationSections?: readonly string[]
+  }
+}
+
+/** What the production build of the app recorded about its source. A development server has none. */
+export interface ConsoleProjectBuild {
+  /** When the build ran, as an ISO time. */
+  time: string
+  /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
+  commit?: {
+    sha: string
+    /** The first line of the commit message. */
+    message?: string
+    /** The name of the commit author, without the email. */
+    author?: string
+    branch?: string
   }
 }
 
@@ -21,6 +36,8 @@ export interface ConsoleProject {
   name?: string
   /** The `vite-hub` version that the app runs. */
   vitehub: string
+  /** The production build that serves this answer. */
+  build?: ConsoleProjectBuild
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -48,6 +65,7 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
     .map(operation => operation.name)
   const name = getConsoleProjectName()
+  const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations, ...(navigation ? { navigation } : {}) }
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }

@@ -3,7 +3,7 @@ import { literal, object, parse, string } from "valibot"
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
-import { blobError, blobResult } from "./errors.ts"
+import { blobError, blobHttpError, blobResult } from "./errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
@@ -13,7 +13,7 @@ export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
@@ -79,9 +79,16 @@ function isReservedPath(pathname: string): boolean {
   return first === "_vitehub" && (second === undefined || reservedNamespaces.includes(second))
 }
 
+// No object lives under `.vitehub/`: writes there fail on every driver. `_vitehub/media/` holds crop replacements that
+// an app reads, so it is not in this check.
+function isInternalPath(pathname: string): boolean {
+  return resolvedParts(pathname)[0]?.toLowerCase() === ".vitehub"
+}
+
 function assertWritablePath(pathname: string) {
   if (isReservedPath(pathname)) {
-    throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." })
+    // An H3 `HTTPError`, so a route that writes a client pathname answers 403, like the Blob operations.
+    throw blobHttpError(403, blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace: .vitehub, _vitehub/derived, or _vitehub/media." }))
   }
 }
 
@@ -115,6 +122,9 @@ async function hashBlob(body: Blob): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", await body.arrayBuffer())
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("")
 }
+
+// One driver call deletes at most this many objects, so a large prefix does not open thousands of requests at once.
+const deleteBatchSize = 100
 
 async function derivedCachePrefix(pathname: string): Promise<string> {
   return `${vitehubOwnedPrefix}derived/${await hashCacheKey(pathname)}/`
@@ -199,6 +209,44 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       console.error("[vitehub/blob] Derived cache cleanup failed", error)
     }
   }
+  // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
+  async function deletePrefix(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>> {
+    // Check after decoding, so `/` or `%2F` cannot become the empty prefix that matches the whole store.
+    const normalizedPrefix = typeof options.prefix === "string" ? normalizePathname(options.prefix, { prefix: true }) : ""
+    if (!normalizedPrefix) {
+      throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: "Blob delete({ prefix }) needs a non-empty prefix. Use list() and delete() to empty a whole store." }))
+    }
+    // `_vitehub` alone is reserved as a pathname, but as a prefix it also matches app objects such as `_vitehub-notes.txt`.
+    const reservedPrefix = resolvedParts(normalizedPrefix).length > 1 && isReservedPath(normalizedPrefix)
+    return blobResult("delete", store, async () => {
+      const paths: string[] = []
+      let cursor: string | undefined
+      do {
+        const page = await driver.list({ prefix: normalizedPrefix, cursor })
+        for (const object of page.blobs) {
+          if (isInternalPath(object.pathname) || (!reservedPrefix && isReservedPath(object.pathname))) continue
+          paths.push(object.pathname)
+        }
+        cursor = page.hasMore ? page.cursor : undefined
+      } while (cursor)
+      for (let index = 0; index < paths.length; index += deleteBatchSize) {
+        const batch = paths.slice(index, index + deleteBatchSize)
+        await driver.delete(batch)
+        await Promise.all(batch.map(clearDerived))
+      }
+      return { deleted: paths.length }
+    })
+  }
+  function deleteObjects(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  function deleteObjects(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
+  async function deleteObjects(target: string | string[] | BlobDeletePrefixOptions): Promise<Result<void | BlobDeletePrefixResult, BlobErrorCode>> {
+    if (typeof target === "object" && !Array.isArray(target)) return deletePrefix(target)
+    const normalizedPathnames = toArray(target).map(value => normalizePathname(value))
+    return blobResult("delete", store, async () => {
+      await driver.delete(normalizedPathnames)
+      await Promise.all(normalizedPathnames.map(clearDerived))
+    })
+  }
   const media = createBlobMedia({
     clearDerived,
     derivedPrefix: derivedCachePrefix,
@@ -209,7 +257,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
     // Media writes go through the public operations, so they share path checks and derived-cache cleanup.
     storage: {
       copy: (from, to, copyOptions) => storage.copy(from, to, copyOptions),
-      delete: pathnames => storage.delete(pathnames),
+      delete: deleteObjects,
       list: listOptions => storage.list(listOptions),
       put: (pathname, body, putOptions) => storage.put(pathname, body, putOptions),
     },
@@ -266,19 +314,16 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         store,
       ))
     },
-    async delete(pathnames: string | string[]) {
-      const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
-      return blobResult("delete", store, async () => {
-        await driver.delete(normalizedPathnames)
-        await Promise.all(normalizedPathnames.map(clearDerived))
-      })
-    },
+    delete: deleteObjects,
+    // A `.vitehub/` pathname reads as a missing object, as in `serve()`, on every driver.
     async get(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("get", store, () => driver.get(normalizedPathname))
     },
     async head(pathname: string) {
       const normalizedPathname = normalizePathname(pathname)
+      if (isInternalPath(normalizedPathname)) return [undefined, null]
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
@@ -571,8 +616,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
-      // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-      throw new Error("Blob changed repeatedly while preparing its response.")
+      throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "response" })
     })
   }
   return storage

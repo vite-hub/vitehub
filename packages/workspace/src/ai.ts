@@ -99,7 +99,7 @@ interface ShellBoundary {
   }
 }
 
-interface ShellExecutionProvider {
+interface ShellDriver {
   analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
   boundary: ShellBoundary
   exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
@@ -147,7 +147,7 @@ export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations
   broadSearchPaths?: string[]
   cwd?: string
   executionBudget?: ExecutionBudget
-  executionProvider?: ShellExecutionProvider | (() => MaybePromise<ShellExecutionProvider | undefined>)
+  shellDriver?: ShellDriver | (() => MaybePromise<ShellDriver | undefined>)
   operations?: Operations
   sourceRequests?: SourceRequests
 }
@@ -265,7 +265,7 @@ function hasOwnMethod(value: Workspace | WorkspaceAssets, key: PropertyKey): boo
   return Object.hasOwn(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
-function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): ShellExecutionProvider {
+function createWorkspaceSessionShellDriver(starter: WorkspaceSessionStarter): ShellDriver {
   return {
     boundary: {
       cwd: true,
@@ -326,10 +326,10 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
   }
 }
 
-async function resolveExecutionProvider(
-  provider: WorkspaceToolOptions["executionProvider"],
-): Promise<ShellExecutionProvider | undefined> {
-  return typeof provider === "function" ? await provider() : provider
+async function resolveShellDriver(
+  driver: WorkspaceToolOptions["shellDriver"],
+): Promise<ShellDriver | undefined> {
+  return typeof driver === "function" ? await driver() : driver
 }
 
 function isUnavailableWorkspaceSession(error: unknown) {
@@ -423,7 +423,7 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], budget?: ExecutionBudget, budgetCharged?: boolean, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
+  options: { broadSearchPaths: string[], budget?: ExecutionBudget, budgetCharged?: boolean, commands: string[], cwd: string, shellDriver?: WorkspaceToolOptions["shellDriver"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
@@ -446,7 +446,7 @@ async function runShellCommand(
     try {
       const result = await runWorkspaceInspectionCommand(input, command, {
         ...inspectionOptions,
-        provider: createWorkspaceSessionShellProvider(starter),
+        driver: createWorkspaceSessionShellDriver(starter),
       })
       if (options.budget?.signal.aborted) throw options.budget.signal.reason
       return result
@@ -455,10 +455,10 @@ async function runShellCommand(
       if (!isUnavailableWorkspaceSession(error)) throw error
     }
   }
-  const provider = await resolveExecutionProvider(options.executionProvider)
+  const driver = await resolveShellDriver(options.shellDriver)
   const result = await runWorkspaceInspectionCommand(input, command, {
     ...inspectionOptions,
-    ...(provider ? { provider } : {}),
+    ...(driver ? { driver } : {}),
   })
   if (options.budget?.signal.aborted) throw options.budget.signal.reason
   return result
@@ -662,7 +662,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     broadSearchPaths: options.broadSearchPaths || [],
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
-    executionProvider: options.executionProvider,
+    shellDriver: options.shellDriver,
     budget: options.executionBudget,
     materialize: resolveReadOperations(options.operations).materialize,
     maxShellCalls: options.maxShellCalls,

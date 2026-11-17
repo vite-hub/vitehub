@@ -469,7 +469,7 @@ describe("workflow runtime", () => {
     expect(calls).toBe(1)
   })
 
-  it("preserves failure metadata for repeated inline runs", async () => {
+  it("preserves the failure of repeated inline runs", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     const failure = new Error("inline failure")
     const workflow = createWorkflow("inline-failure-idempotent", async () => {
@@ -477,13 +477,13 @@ describe("workflow runtime", () => {
     })
 
     const first = await workflow.start({ input: true }, { id: "failed-id" })
-    await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ status: "failed", metadata: failure }))
+    await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ error: { message: "inline failure" }, status: "failed" }))
     const repeated = await workflow.start({ input: true }, { id: "failed-id" })
 
     expect(first).toMatchObject({ payload: { input: true }, status: "queued" })
     expect(repeated).toMatchObject({
+      error: { message: "inline failure" },
       id: "failed-id",
-      metadata: failure,
       payload: { input: true },
       provider: "vercel",
       status: "failed",
@@ -854,6 +854,17 @@ describe("workflow runtime", () => {
     const { result } = await workflow.getRun(started.id)
     expect(result instanceof Response ? await result.text() : result).toBe("inline result")
     warn.mockRestore()
+  })
+
+  // An Agent turn on OpenWorkflow is durable or it fails. It never runs inline in the request process.
+  it("rejects a turn of an Agent Workflow that is not in the registry", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    const handler = vi.fn(async () => "turn")
+    const turn = createWorkflow("undiscovered-agent", handler, { internalAgentWorkflow: true, rootStep: false })
+
+    await expect(turn.start()).rejects.toMatchObject({ code: "WORKFLOW_AGENT_NOT_DISCOVERED" })
+    expect(openWorkflowMock.runOptions).toHaveLength(0)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it("cancels pending OpenWorkflow runs of the same Workflow through the OpenWorkflow client", async () => {
@@ -1241,8 +1252,8 @@ describe("workflow runtime", () => {
         default: {
           // A folder Workflow orchestrator: only it may sleep.
           options: { rootStep: false },
-          handler: async (payload, { step }) => {
-            await step?.sleep?.("settle", "1 second")
+          handler: async (payload, context) => {
+            await context.sleep("1 second")
             return { payload }
           },
         },
@@ -1270,7 +1281,7 @@ describe("workflow runtime", () => {
       })
       expect(completed?.result).toEqual({ payload: { message: "hello" } })
     })
-    expect(openWorkflowMock.sleepCalls).toEqual([["settle", "1 second"]])
+    expect(openWorkflowMock.sleepCalls).toEqual([["sleep-1", "1000ms"]])
   })
 
   it("shares one OpenWorkflow acquisition and closes its backend once", async () => {
@@ -2103,7 +2114,7 @@ describe("workflow runtime", () => {
     const run = await startWorkflow("welcome", {}, { id: "existing-run" })
 
     expect(run).toMatchObject({
-      ...(error ? { metadata: error } : { result: output }),
+      ...(error ? { error: { message: error.message } } : { result: output }),
       id: "existing-run",
       provider: "openworkflow",
       status,
@@ -2241,6 +2252,16 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  // OpenWorkflow runs one run at a time by default. An Agent turn holds two runs: the turn and its recovery run.
+  it("runs 10 runs at once by default", async () => {
+    setWorkflowRuntimeConfig({ postgres: { url: "postgres://localhost/vitehub" }, provider: "openworkflow" })
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 10 })
   })
 
   it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
@@ -3156,10 +3177,7 @@ describe("workflow runtime", () => {
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
-      cause: {
-        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
-      },
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare", reason: "Cloudflare Workflow provider returned an invalid workflow instance." },
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
   })
@@ -3181,10 +3199,7 @@ describe("workflow runtime", () => {
 
     expect(error).toMatchObject({
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare" },
-      cause: {
-        message: "Cloudflare Workflow provider returned an invalid workflow instance.",
-      },
+      details: { acknowledgement: "unknown", operation: "create", provider: "cloudflare", reason: "Cloudflare Workflow provider returned an invalid workflow instance." },
     })
     expect(createBatch).toHaveBeenCalledTimes(2)
     expect(createBatch).toHaveBeenCalledWith([{ id: "welcome-1", params: {} }])

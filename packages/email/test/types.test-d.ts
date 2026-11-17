@@ -12,6 +12,7 @@ import {
   type EmailDriverFactory,
   type EmailErrorCode,
   type EmailMessage,
+  type EmailSendMessage,
   type EmailSendResult,
 } from "../src/index.ts"
 import { renderEmailMarkdown } from "../src/markdown.ts"
@@ -59,15 +60,16 @@ it("exports the portable Email contract", () => {
   expectTypeOf<EmailAddress>().toEqualTypeOf<string | { email: string; name?: string }>()
   expectTypeOf(createEmail).parameters.toEqualTypeOf<[options: EmailDefinition]>()
   expectTypeOf(createEmail).returns.toEqualTypeOf<EmailClient>()
-  expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailMessage]>()
+  expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailSendMessage]>()
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<Result<EmailSendResult, EmailErrorCode>>>()
+  expectTypeOf(email.canSend).toEqualTypeOf<boolean>()
   expectTypeOf(message.to).toEqualTypeOf<EmailAddressList>()
   expectTypeOf(message.from).toEqualTypeOf<EmailAddress>()
 })
 
 it("types the codes that send returns", async () => {
   expectTypeOf<EmailErrorCode>().toEqualTypeOf<
-    "EMAIL_AUTHENTICATION" | "EMAIL_INVALID_MESSAGE" | "EMAIL_NETWORK" | "EMAIL_PROVIDER_FAILED" | "EMAIL_RATE_LIMITED" | "EMAIL_TIMEOUT"
+    "EMAIL_AUTHENTICATION" | "EMAIL_INVALID_MESSAGE" | "EMAIL_NETWORK" | "EMAIL_PROVIDER_FAILED" | "EMAIL_RATE_LIMITED" | "EMAIL_TEMPLATE_RENDER_FAILED" | "EMAIL_TIMEOUT"
   >()
 
   const [error, sent] = await email.send(message)

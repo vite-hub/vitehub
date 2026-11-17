@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
+import ts from "typescript"
 import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -793,6 +794,25 @@ describe("hubBlob", () => {
     }
   })
 
+  it("writes Cloudflare plugin and middleware files that typecheck with the cloudflare:workers declaration of vite-hub/nuxt", { timeout: 30_000 }, async () => {
+    const root = await temporaryDirectory("vitehub-blob-cloudflare-types-")
+    await writeFile(join(root, "package.json"), "{}\n")
+    const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets", images: { sizes: [320, 640] } })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, nitro: { preset: "cloudflare_module" }, root })
+    const files = [join(root, ".vitehub/nitro/blob/plugin.ts"), join(root, ".vitehub/nitro/blob/middleware.ts")]
+    for (const file of files) await expect(readFile(file, "utf8")).resolves.toContain("from 'cloudflare:workers'")
+    const program = ts.createProgram([...files, join(import.meta.dirname, "../../vite-hub/templates/cloudflare-workers.d.ts")], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ES2022,
+      types: [],
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  })
+
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-inferred-cloudflare-")
     const previousBucket = process.env.BLOB_BUCKET_NAME
@@ -815,7 +835,7 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0])")
@@ -1412,9 +1432,9 @@ describe("hubBlob", () => {
                 "export function betterAuth() {",
                 "  return { api: { getSession({ headers }) {",
                 "    const cookie = headers.get('cookie') || ''",
-                "    if (!cookie.startsWith('session=')) return null",
+                "    if (!cookie.startsWith('session=')) return { headers: new Headers(), response: null }",
                 "    const id = cookie.slice(8)",
-                "    return { user: { id }, session: { id: 'blob-session', userId: id } }",
+                "    return { headers: new Headers(), response: { user: { id }, session: { id: 'blob-session', userId: id } } }",
                 "  } } }",
                 "}",
               ].join("\n"),

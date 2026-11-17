@@ -1,4 +1,5 @@
 import { mountViteHubPageAccount } from "./page-account.ts"
+import { invariant } from "../invariant.ts"
 import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
 import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
@@ -472,7 +473,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
         try {
           bar.setAttribute("aria-busy", "true")
           const start = startOf(await preload())
-          if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
+          invariant(start, `the script of a page tool default-exports a function (${tool.script})`)
           if (signal.aborted) return false
           // Tools own their segment's shadow root; discard the loader's launch control before startup.
           launch.remove()

@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { isPortableAgentWorkflowCapability } from "./final-channel-output.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -37,8 +38,7 @@ export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedO
         return Array.from({ length: input.length }, (_, index) => {
           if (!Object.hasOwn(input, index)) throw agentDiagnostics.AGENT_R0599({ message: "Agent Workflow inputs must contain only JSON-compatible values." })
           const item = clone(input[index])
-          // Internal invariant: clone() returns omittedWorkflowValue only for an object property, never for an array item.
-          if (item === omittedWorkflowValue) throw new Error("Agent Workflow inputs must contain only JSON-compatible values.")
+          invariant(item !== omittedWorkflowValue, "clone() omits only object properties, never an array item")
           return item
         })
       }
@@ -58,7 +58,6 @@ export function cloneWorkflowJsonValue(value: unknown, options: { omitUndefinedO
     }
   }
   const cloned = clone(value)
-  // Internal invariant: clone() returns omittedWorkflowValue only for an object property, never for the root value.
-  if (cloned === omittedWorkflowValue) throw new Error("Agent Workflow inputs must contain only JSON-compatible values.")
+  invariant(cloned !== omittedWorkflowValue, "clone() omits only object properties, never the root value")
   return cloned
 }

@@ -27,8 +27,8 @@ import type { Rolldown } from "vite"
 
 const engines = {
   "reka-ui": "2.11.0",
-  "@ui-sdk/vue": "0.1.0-beta.2",
-  "@ui-sdk/core": "0.1.0-beta.2",
+  "@ui-sdk/vue": "0.1.0-beta.5",
+  "@ui-sdk/core": "0.1.0-beta.5",
   vue: "3.5.44",
 }
 const maxMedianRatio = 2

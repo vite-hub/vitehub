@@ -1,0 +1,269 @@
+diff --git a/dist/form-inputs.js b/dist/form-inputs.js
+index 3082c66a034197df3452cbe967d05f29d4a8c0b3..33a6cf67a222fc525c76bc8d0f52e218a78d7bfe 100644
+--- a/dist/form-inputs.js
++++ b/dist/form-inputs.js
+@@ -9,7 +9,7 @@ var FormInputs = defineComponent({
+     return () => {
+       const { handle } = props;
+       return [
+-        h("input", handle.slot("form-input")),
++        h("textarea", handle.slot("form-input")),
+         ...handle.state.multiple ? handle.api.internal.serialized().map(
+           (key) => h("input", {
+             key,
+diff --git a/dist/input.d.ts b/dist/input.d.ts
+index 78e2ac50c30462118f871895757e19b270d17a2f..37f0277d4d0604d1422f11433ecb9b685df647b4 100644
+--- a/dist/input.d.ts
++++ b/dist/input.d.ts
+@@ -5,11 +5,11 @@ import { type PartSlots } from "./use-primitive.js";
+  */
+ declare const Input: import("./create-parts.js").ElementPart<import("vue").DefineComponent<import("vue").ExtractPropTypes<{
+     value: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     modelValue: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     defaultValue: {
+@@ -45,11 +45,11 @@ declare const Input: import("./create-parts.js").ElementPart<import("vue").Defin
+     valueChange: (_value: string, _details: import("@ui-sdk/core").ChangeDetails<import("@ui-sdk/core/input").InputValueChangeReason>) => boolean;
+ }, string, import("vue").PublicProps, Readonly<import("vue").ExtractPropTypes<{
+     value: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     modelValue: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     defaultValue: {
+@@ -78,13 +78,13 @@ declare const Input: import("./create-parts.js").ElementPart<import("vue").Defin
+     "onUpdate:value"?: ((_value: string) => any) | undefined;
+     onValueChange?: ((_value: string, _details: import("@ui-sdk/core").ChangeDetails<import("@ui-sdk/core/input").InputValueChangeReason>) => any) | undefined;
+ }>, {
+-    value: string;
++    value: string | number;
+     disabled: boolean;
+     debug: boolean;
+     defaultValue: string;
+     required: boolean;
+     readOnly: boolean;
+-    modelValue: string;
++    modelValue: string | number;
+ }, PartSlots<import("@ui-sdk/core/input").InputPrimitive, "root">, {}, {}, string, import("vue").ComponentProvideOptions, true, {}, any>, "input">;
+ /**
+  * Holds an Input or Textarea with icons, text and buttons around it. Presses
+diff --git a/dist/text-control.d.ts b/dist/text-control.d.ts
+index 387e7195eca0fd3c0673588a9ee338680e5d3201..02fb6e4115bed508c9fb28cbe451cefee5a999ee 100644
+--- a/dist/text-control.d.ts
++++ b/dist/text-control.d.ts
+@@ -4,11 +4,11 @@ import type { PropType } from "vue";
+ import type { useFieldControl } from "./field-context.js";
+ declare const textProps: {
+     value: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     modelValue: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     defaultValue: {
+@@ -39,8 +39,8 @@ declare const textEmits: {
+     valueChange: (_value: string, _details: ChangeDetails<InputValueChangeReason>) => boolean;
+ };
+ type TextProps = {
+-    value?: string;
+-    modelValue?: string;
++    value?: string | number;
++    modelValue?: string | number;
+     defaultValue?: string;
+     disabled?: boolean;
+     readOnly?: boolean;
+diff --git a/dist/text-control.js b/dist/text-control.js
+index 54e538493995711230dae0626583bd5ff07bea4b..b68491dcb657867d0769b9ee88e38abbf1fb4fc0 100644
+--- a/dist/text-control.js
++++ b/dist/text-control.js
+@@ -1,37 +1,67 @@
+ // src/text-control.ts
++import { getCurrentInstance, nextTick } from "vue";
+ import { optionalBoolean, orModel } from "./use-primitive.js";
+ var textProps = {
+-  value: { type: String, default: void 0 },
+-  modelValue: { type: String, default: void 0 },
++  value: { type: [String, Number], default: void 0 },
++  modelValue: { type: [String, Number], default: void 0 },
+   defaultValue: { type: String, default: void 0 },
+   disabled: optionalBoolean,
+   readOnly: optionalBoolean,
+   required: optionalBoolean,
+   controller: Object,
+-  debug: optionalBoolean
++  debug: optionalBoolean,
++  modelModifiers: Object,
++  valueModifiers: Object
+ };
+ var textEmits = {
+   "update:value": (_value) => true,
+   "update:modelValue": (_value) => true,
+   valueChange: (_value, _details) => true
+ };
+-var textOptions = (props, emit) => () => ({
+-  value: orModel(props.value, props.modelValue),
+-  defaultValue: props.defaultValue,
+-  controller: props.controller,
+-  debug: props.debug,
+-  onValueChange: (value, details) => {
+-    emit("valueChange", value, details);
+-    if (details.canceled) {
+-      return;
+-    }
+-    emit("update:value", value);
+-    emit("update:modelValue", value);
++function received(value, modifiers) {
++  if (modifiers?.number) {
++    const number = parseFloat(value);
++    return Number.isNaN(number) ? value : number;
+   }
+-});
++  return modifiers?.trim ? value.trim() : value;
++}
++function controlledText(props) {
++  const value = orModel(props.value, props.modelValue);
++  return value === void 0 ? void 0 : String(value);
++}
++function textOptions(props, emit) {
++  const component = getCurrentInstance();
++  const keep = (value) => {
++    nextTick(() => {
++      const kept = orModel(props.value, props.modelValue);
++      const key = props.value === void 0 ? "modelModifiers" : "valueModifiers";
++      const modifiers = component?.vnode.props?.[key];
++      if (kept !== void 0 && kept !== received(value, modifiers)) {
++        component?.proxy?.$forceUpdate();
++      }
++    });
++  };
++  return () => ({
++    value: controlledText(props),
++    defaultValue: props.defaultValue,
++    controller: props.controller,
++    debug: props.debug,
++    onValueChange: (value, details) => {
++      emit("valueChange", value, details);
++      if (details.canceled) {
++        return;
++      }
++      emit("update:value", value);
++      emit("update:modelValue", value);
++      if (!details.event?.isComposing) {
++        keep(value);
++      }
++    }
++  });
++}
+ var readOnlyOf = (props, attrs) => props.readOnly ?? (attrs.readonly != null && attrs.readonly !== false);
+ function elementProps(props, field, attrs, tag) {
+-  const controlled = orModel(props.value, props.modelValue);
++  const controlled = controlledText(props);
+   const value = controlled !== void 0 ? { value: controlled } : tag === "input" ? { "^value": props.defaultValue } : {};
+   return {
+     name: field?.name(),
+diff --git a/dist/textarea.d.ts b/dist/textarea.d.ts
+index f26927ba53795f473da3aca8ba3542066410bb00..db457d14b0504ecacd29466e8fd0a2fec3029711 100644
+--- a/dist/textarea.d.ts
++++ b/dist/textarea.d.ts
+@@ -13,11 +13,11 @@ declare const Textarea: import("./create-parts.js").ElementPart<import("vue").De
+     submitShortcut: PropType<"enter" | "mod+enter">;
+     onSubmit: PropType<(value: string, details: TextareaSubmitDetails) => void>;
+     value: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     modelValue: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     defaultValue: {
+@@ -59,11 +59,11 @@ declare const Textarea: import("./create-parts.js").ElementPart<import("vue").De
+     submitShortcut: PropType<"enter" | "mod+enter">;
+     onSubmit: PropType<(value: string, details: TextareaSubmitDetails) => void>;
+     value: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     modelValue: {
+-        type: StringConstructor;
++        type: (StringConstructor | NumberConstructor)[];
+         default: undefined;
+     };
+     defaultValue: {
+@@ -92,13 +92,13 @@ declare const Textarea: import("./create-parts.js").ElementPart<import("vue").De
+     "onUpdate:value"?: ((_value: string) => any) | undefined;
+     onValueChange?: ((_value: string, _details: import("@ui-sdk/core").ChangeDetails<import("@ui-sdk/core/input").InputValueChangeReason>) => any) | undefined;
+ }>, {
+-    value: string;
++    value: string | number;
+     disabled: boolean;
+     debug: boolean;
+     defaultValue: string;
+     required: boolean;
+     readOnly: boolean;
+-    modelValue: string;
++    modelValue: string | number;
+     autoResize: boolean;
+ }, PartSlots<import("@ui-sdk/core/input").TextareaPrimitive, "root">, {}, {}, string, import("vue").ComponentProvideOptions, true, {}, any>, "textarea">;
+ export { createInputController } from "@ui-sdk/core/input";
+diff --git a/dist/use-primitive.js b/dist/use-primitive.js
+index 38c8af08d1384cc402cd5999ee759ced3d2612cd..b90985b8a2ab32b06875fa1df59e0a43a73fd27a 100644
+--- a/dist/use-primitive.js
++++ b/dist/use-primitive.js
+@@ -21,6 +21,7 @@ import {
+   defineComponent,
+   getCurrentInstance,
+   h,
++  hasInjectionContext,
+   inject,
+   normalizeClass,
+   normalizeStyle,
+@@ -38,6 +39,13 @@ import {
+ import { slotContent } from "./children.js";
+ import { useBindings } from "./lifecycle.js";
+ var optionalBoolean = { type: Boolean, default: void 0 };
++function refuseVapor(subject) {
++  if (!getCurrentInstance() && hasInjectionContext()) {
++    throw new Error(
++      `${subject} is set up as a Vapor component, but ui-sdk parts are VDOM components. In a Vapor app, install vaporInteropPlugin. Define your own parts with defineComponent.`
++    );
++  }
++}
+ var orModel = (value, model) => value === void 0 ? model : value;
+ var combined = /* @__PURE__ */ new WeakMap();
+ function bothRefs(a, b) {
+@@ -143,6 +151,7 @@ var memo = (compute) => {
+   return () => value.value;
+ };
+ function usePrimitive(primitive, options) {
++  refuseVapor("A ui-sdk root");
+   const id = `ui-sdk-${useId()}`;
+   const snapshot = createListSnapshots(primitive, memo);
+   const instance = unwatched(
+@@ -416,6 +425,7 @@ function renderElement(props, slots, state, element) {
+   return h(tag, props, content());
+ }
+ function usePart(handle, slot, slotProps = () => ({}), props, element = "div") {
++  refuseVapor(`The ${slot} part`);
+   const component = getCurrentInstance();
+   if (!component) {
+     throw new Error(`The ${slot} part must call usePart in its setup.`);

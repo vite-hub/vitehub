@@ -26,7 +26,7 @@ function isSameContainer(left: WranglerContainer, right: WranglerContainer) {
   return left.class_name === right.class_name
     && left.image === right.image
     && left.image_build_context === right.image_build_context
-    && left.instance_type === right.instance_type
+    && JSON.stringify(left.instance_type) === JSON.stringify(right.instance_type)
     && left.max_instances === right.max_instances
     && left.name === right.name
 }
