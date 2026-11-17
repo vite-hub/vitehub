@@ -5,6 +5,7 @@ import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
+import { logScheduleRun } from "./log.ts"
 import { getScheduleRunStore } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -221,16 +222,28 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 
   const attempt = await startAttempt(run, runStore)
   options.onExecution?.()
+  const runLog = {
+    name: run.target,
+    ...(run.scheduleId === run.target ? {} : { id: run.scheduleId }),
+    runId: run.id,
+    source: normalizeRunSource(options.source),
+    scheduledAt: run.scheduledAt,
+    attempt: run.attemptCount + 1,
+  }
+  const startedAt = performance.now()
   try {
     const value = await runInRunScopes(() => runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
       options.waitUntil,
     ))
     const response = await serializeResponse(toResponse(value))
-    return await completeRun(run, attempt, response, runStore)
+    const completed = await completeRun(run, attempt, response, runStore)
+    logScheduleRun(runLog, startedAt, "success")
+    return completed
   }
   catch (error) {
     const failed = await failRun(run, attempt, error, runStore)
+    logScheduleRun(runLog, startedAt, "failure", error)
     if (options.captureHandlerFailure) return failed
     throw error
   }

@@ -4,10 +4,13 @@ import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { isScheduleDue, latestCronMinute } from "./due.ts"
+import { isLoggedScheduleError, logScheduleRun } from "./log.ts"
+import { startedSchedulesTickName } from "./started-name.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -90,6 +93,15 @@ export function normalizeCron(cron: string): string {
   return cron.trim().split(/\s+/).join(" ")
 }
 
+/**
+ * Logs a failure that the Process Runtime reports: as an evlog event `{ schedule: { op: "runtime" } }`, else on the
+ * console. A failed run that has its run event is not logged again.
+ */
+export function logScheduleRuntimeError(error: unknown, runtimeError: Error): void {
+  if (isLoggedScheduleError(error)) return
+  logFailure({ field: "schedule", fields: { op: "runtime" }, level: "error", message: "Schedule runtime failed", error: runtimeError }, () => console.error("[vitehub:schedule]", runtimeError))
+}
+
 export function normalizeScheduleRuntimeError(error: unknown): Error {
   if (isScheduleRuntimeError(error)) return error
   let message: string | undefined
@@ -167,10 +179,24 @@ export function createStaticScheduleRun(
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
-  return await runInRunScopes(() => runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil })),
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
+  const execute = () => runInRunScopes(() => runWithScheduleWaitUntil(
+    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, scheduledAt, waitUntil })),
     options.waitUntil,
   ))
+  // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
+  if (options.name === startedSchedulesTickName) return await execute()
+  const run = { name: options.name, source: "static" as const, scheduledAt }
+  const startedAt = performance.now()
+  try {
+    const value = await execute()
+    logScheduleRun(run, startedAt, "success")
+    return value
+  }
+  catch (error) {
+    logScheduleRun(run, startedAt, "failure", error)
+    throw error
+  }
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
@@ -197,7 +223,7 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   results.forEach((result, index) => {
     if (result.status === "fulfilled") return
     failures.push(result.reason)
-    console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    if (!isLoggedScheduleError(result.reason)) console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (failures.length === 1) throw failures[0]
   if (failures.length) throw new AggregateError(failures, `[vitehub:schedule] ${failures.length} schedules failed for cron "${options.cron}".`)

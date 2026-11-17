@@ -379,7 +379,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
-          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
+          `import { logScheduleRuntimeError, normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
           `import { createKVScheduleRunStore } from ${JSON.stringify(scheduleRuntimeModule)}`,
           `import { scheduleKVStorage } from ${JSON.stringify(scheduleKVRuntimeModule)}`,
           `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
@@ -436,7 +436,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "      return",
           "    }",
           "    try {",
-          "      console.error('[vitehub:schedule]', runtimeError)",
+          "      logScheduleRuntimeError(error, runtimeError)",
           "    }",
           "    catch {}",
           "    try {",

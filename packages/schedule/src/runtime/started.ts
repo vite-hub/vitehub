@@ -6,6 +6,7 @@ import { getScheduleOccurrenceClaims, getStartedScheduleRuntime, setStartedSched
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -226,7 +227,9 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     }
     // A first tick can fail before checkedThrough is set. Keep that occurrence for the next tick as well.
     held.set(runId, { scheduleId: schedule.id, scheduledAt })
-    console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    logFailure({ field: "schedule", fields: { op: "started", name: schedule.name, id: schedule.id }, level: "error", message: "Started Schedule failed", error: result.reason }, () => {
+      console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    })
   })
   if (results.every(result => result.status === "fulfilled")) {
     runtime.checkedThrough = Math.max(runtime.checkedThrough ?? minute, minute)

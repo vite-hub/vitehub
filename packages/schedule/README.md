@@ -260,6 +260,10 @@ Discovery reads `manual` as a literal boolean from directly exported Definitions
 
 The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. When the server runs the Process Runtime, the cron and time zone come from the loaded Definitions on each request, so they are the values that the runtime uses. `vitehub inspect definitions` reads them from the source file and shows `Not a static string` for a value that it cannot read there. Use `vitehub schedule runs <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
 
+## Runs in logs
+
+With the evlog Nitro module registered, each run of a Schedule handler is its own evlog event, `schedule: { name, source, scheduledAt, ms, outcome }`, with the error when it fails. Without evlog, failures go to the console and runs go to the run history only. See [Server API](https://vitehub.dev/docs/schedule/server-api#see-schedule-runs-in-logs).
+
 ## Import runtime helpers
 
 The main `@vite-hub/schedule` entry exports `defineSchedule`, `runSchedule`, `startSchedule`, `getSchedule`, `listSchedules`, `cancelSchedule`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process`. Import `installOsSchedule`, `osScheduleStatus`, and `uninstallOsSchedule` from `@vite-hub/schedule/os`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
