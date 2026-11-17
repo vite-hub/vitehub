@@ -185,18 +185,31 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers
-`{ ok: true, commit }`, and with a Database it runs `SELECT 1` on each one and
-answers `503` when one fails. Point a container health check or a load
-balancer at it:
+Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+which commit and ViteHub version are live, and whether each Database, KV
+store, and Blob store of the app answers:
+
+```json
+{
+  "ok": true,
+  "commit": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f",
+  "vitehub": "0.1.0",
+  "checks": { "database": { "default": true }, "kv": { "default": true }, "blob": { "default": true } }
+}
+```
+
+A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
+has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+error goes to the server log, never to the response. Point a container health
+check or a load balancer at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
   CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
-A Docker build context often has no `.git`. Pass the commit as `COMMIT_REF`
-or `GITHUB_SHA` at build time, or `commit` is `null`. See
+A Docker build context often has no `.git`. Pass the commit as
+`VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See
 [`health` options](/docs/reference/config-options#vite-integration-options).
 
 ## Run the server with systemd
