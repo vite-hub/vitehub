@@ -287,6 +287,20 @@ The server does not verify a guest name or ID. They are display data, never proo
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
 
+Set `rateLimit` to stop one guest from flooding a page. Each new thread, reply, and upload of a guest counts against the address of the request. Signed-in people and Agents are not limited.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
+  // Each guest address may write 5 times a minute.
+  rateLimit: { limit: 5, window: '1m' },
+})
+```
+
+A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments/diagnostics/comments_guest_rate_limited), HTTP status 429, and a `retry-after` header. Each server process counts in its own memory. When Rate Limit counts in a shared KV store (`vitehub({ rateLimit: true, kv })` on Node), Comments counts there too, under the Rate Limit name `comments`, so all your Node instances share one budget. Behind a reverse proxy, the address is the proxy's, so all guests share one budget.
+
 ### Roles from Site access
 
 [Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
@@ -638,6 +652,8 @@ The Comments segment works like the one in Drop. **Comments** shows the number o
 
 With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -646,6 +662,37 @@ export default defineNuxtConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+  ],
+})
+```
+:::
+
+::
 
 | Key | Action |
 | --- | --- |

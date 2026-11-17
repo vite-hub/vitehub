@@ -3683,11 +3683,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
   })
 
-  it("adds generated and Cloudflare types to Nuxt and Nitro", async () => {
+  it("adds the global Workers types to Nitro only, so app code keeps DOM types", async () => {
     const { nuxt } = createNuxt()
 
     await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
+    const app = { include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-workers.d.ts")] }
     expect(nuxt.options).toMatchObject({
       nitro: {
         typescript: {
@@ -3696,14 +3697,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
           },
         },
       },
-      typescript: {
-        sharedTsConfig: {
-          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
-        },
-        tsConfig: {
-          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
-        },
-      },
+      typescript: { sharedTsConfig: app, tsConfig: app },
     })
   })
 
@@ -3733,16 +3727,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
     await viteHubNuxtModule({ host: "cloudflare", queue }, nuxt)
 
-    const typescript = {
-      tsConfig: {
-        include: [
-          "../.vitehub/types.d.ts",
-          ...(enabled ? ["../.vitehub/queue.d.ts"] : []),
-          expect.stringContaining("cloudflare-types.d.ts"),
-        ],
-      },
-    }
-    expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript })
+    const include = (cloudflare: string) => ({
+      tsConfig: { include: ["../.vitehub/types.d.ts", ...(enabled ? ["../.vitehub/queue.d.ts"] : []), expect.stringContaining(cloudflare)] },
+    })
+    expect(nuxt.options).toMatchObject({ nitro: { typescript: include("cloudflare-types.d.ts") }, typescript: include("cloudflare-workers.d.ts") })
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {

@@ -52,6 +52,7 @@ import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
+import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
@@ -1544,7 +1545,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1753,12 +1754,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
+    // Guest writes count in Rate Limit when its KV store is shared, as Forms messages do.
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "@vite-hub/database/runtime/registry",
+      rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },

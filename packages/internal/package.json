@@ -273,6 +273,11 @@
       "import": "./dist/runtime/page-tools-shared.js",
       "default": "./dist/runtime/page-tools-shared.js"
     },
+    "./runtime/client-rate-limit": {
+      "types": "./dist/runtime/client-rate-limit.d.ts",
+      "import": "./dist/runtime/client-rate-limit.js",
+      "default": "./dist/runtime/client-rate-limit.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
