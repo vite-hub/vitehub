@@ -585,6 +585,10 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+.vh-primitive-icon[data-icon="webhooks"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="workflow"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }
@@ -2186,6 +2190,47 @@
 
   [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating], [data-preview]):has(> [data-slot="comment-thread"][data-size="sm"]) {
     border-radius: var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem;
+  }
+
+  /* With CSS anchor positioning, the browser puts a thread's card and its preview on the side of the spot that has
+     room for their real size: under it to the right, then to the left, then above the pin, then under or above it,
+     moved inside the screen. Without it, `data-flip-x` and `data-flip-y` guess the side from the card's usual size.
+     The box of a new comment keeps its own placement, because its corners point at the pin. The `@position-try`
+     rules stay outside `@supports`, where Firefox ignores them. */
+  @position-try --vh-comment-above {
+    margin: 0 0 2.5rem 0.5rem;
+    position-area: top right;
+  }
+
+  @position-try --vh-comment-above-left {
+    margin: 0 0.5rem 2.5rem 0;
+    position-area: top left;
+  }
+
+  @position-try --vh-comment-below-inside {
+    margin: 0.5rem 0.5rem 0;
+    position-area: bottom span-all;
+  }
+
+  @position-try --vh-comment-above-inside {
+    margin: 0 0.5rem 2.5rem;
+    position-area: top span-all;
+  }
+
+  @supports (anchor-name: --a) {
+    [data-slot="comment-layer-item"] {
+      anchor-name: --vh-comment-spot;
+      anchor-scope: --vh-comment-spot;
+    }
+
+    [data-slot="comment-layer-item"]:not([data-draft]) > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating]) {
+      inset: auto;
+      margin: 0.5rem 0 0 0.5rem;
+      position: fixed;
+      position-anchor: --vh-comment-spot;
+      position-area: bottom right;
+      position-try-fallbacks: flip-inline, --vh-comment-above, --vh-comment-above-left, --vh-comment-below-inside, --vh-comment-above-inside;
+    }
   }
 
   [data-slot="comment-layer-popover"][data-preview="true"] {
@@ -3901,6 +3946,30 @@
     position: absolute;
     width: var(--vh-agent-details-width);
     z-index: 20;
+  }
+  /* On a narrow column the card is a native popover in the top layer. CSS anchor positioning puts it where the inline
+     card goes, over the top end corner of the body. Where that fails, AgentSession places it from the body's box. */
+  .vh-agent-session__details[popover] {
+    background: none;
+    border: 0;
+    color: inherit;
+    max-height: calc(100dvh - 2rem);
+    overflow: visible;
+    padding: 0;
+    position: fixed;
+    z-index: auto;
+  }
+  @supports (anchor-name: --a) {
+    .vh-agent-session { anchor-scope: --vh-agent-session-body; }
+    .vh-agent-session__body { anchor-name: --vh-agent-session-body; }
+    .vh-agent-session__details[popover] {
+      inset: auto;
+      inset-block-start: anchor(start);
+      inset-inline-end: calc(anchor(end) + 0.75rem);
+      margin: 0;
+      max-height: calc(anchor-size(block) - 0.75rem);
+      position-anchor: --vh-agent-session-body;
+    }
   }
   .vh-agent-session__details-card {
     background: var(--vh-bg-elevated);

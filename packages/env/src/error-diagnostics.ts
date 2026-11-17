@@ -47,6 +47,8 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_B0005: withFix("Add the provider to `vitehub({ env: { providers } })` or `hubEnv({ providers })`, or use a configured provider name in `env.provider()`."),
     ENV_B0006: withFix("Change the env-spec schema file at the file and line that the message names, so that it follows the env-spec format."),
     ENV_B0007: withFix("Stop other Vite processes of this project. If none runs, delete `.vitehub/env/secret.lock` and run the command again."),
+    ENV_JSON_SCHEMA_INVALID: withFix("In `env.server`, export the Standard Schema from a module and pass `env.json(env.schemaFrom('./server/env.schema.ts', 'settings'))`. With `mode: 'build'`, pass the schema object itself. Without a schema, call `env.json()` or `env.json({ default: {} })`."),
+    ENV_LIST_ITEM_INVALID: withFix("Pass the item parser without options, for example `env.list(env.number())` or `env.list(env.enum(['a', 'b']))`, and put `default`, `secret`, `source`, or `optional` on the list: `env.list(env.number(), { default: [1] })`."),
     ENV_NOT_GENERATED: {
       why: ({ accessor }: { accessor: string }) => `\`${accessor}()\` ran outside a Vite build, so ViteHub did not generate the Env registry that it reads.`,
       fix: "Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on. A test that calls it needs the Vite plugin too.",
