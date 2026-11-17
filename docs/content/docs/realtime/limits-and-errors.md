@@ -60,18 +60,18 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `status` | The HTTP status that the browser got. |
 | `code` | The diagnostic code of the cause, such as `AUTH_R0007` when the Auth origin check refused the request. |
 
-When `authorize()`, `identify()`, or the room throws during a connection, the wide event also gets the error. The fields do not include tokens, cookies, or user data.
+When `authorize()`, `identify()`, or the room throws during a connection, the wide event also gets the error, and the server prints it to the console. The fields do not include tokens, cookies, or user data.
 
 Failures after the WebSocket opens have no request. Realtime logs each one as its own evlog event, `{ action: "realtime", message, realtime }`:
 
 | `realtime` field | Event |
 | --- | --- |
-| `closed` | The server closed the connection with a close code from the table above, or `4403` for a write without access, or `1013` for updates that come too quickly. Level `warn`. |
+| `closed` | Once for each connection: the server closed the connection with a close code from the table above, or `4403` for a write without access, or `1013` for updates that come too quickly. Level `warn`. |
 | `failed: "peer"` | The connection failed. Level `error`, with the error. |
-| `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-record"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
+| `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
 | `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Level `warn`. |
 
-Realtime sends these events to evlog only when the app installs evlog and its requests have an evlog request logger. Without evlog, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
+Realtime sends these events to evlog only when the app installs evlog and its requests have an evlog request logger. Level `error` events also print to the console, because evlog can be off or `silent`, and an event outside a request does not reach Nitro's `evlog:drain` hooks. Without evlog, or when evlog is off, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
 
 ## Request errors
 

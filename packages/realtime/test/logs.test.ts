@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { resetRealtimeEvlog } from "../src/log.ts"
+import * as Y from "yjs"
+
+import { logRealtime, noteRealtimeRequest, resetRealtimeEvlog, useRealtimeEvlog } from "../src/log.ts"
 import { encodeWorkspaceChange } from "../src/protocol.ts"
 import { createRealtimeHandler } from "../src/server.ts"
-import { createMemoryAdapter, settle } from "./harness.ts"
+import { appendParagraph, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, settle } from "./harness.ts"
 
 import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
@@ -22,13 +24,14 @@ function requestLogger() {
 
 /** `import("evlog")`: each event's logger is kept, so a test can read what it logged. */
 function fakeEvlog() {
+  const enabled = { value: true }
   const events: Array<{ fields: Record<string, unknown>, error: ReturnType<typeof vi.fn>, warn: ReturnType<typeof vi.fn>, emit: ReturnType<typeof vi.fn> }> = []
   const createLogger = (fields: Record<string, unknown>) => {
     const logger = { fields, error: vi.fn(), warn: vi.fn(), emit: vi.fn() }
     events.push(logger)
     return logger
   }
-  return { events, load: async () => ({ createLogger }) }
+  return { enabled, events, load: async () => ({ createLogger, isEnabled: () => enabled.value }) }
 }
 
 type Hooks = {
@@ -79,7 +82,9 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     expect(log.error).not.toHaveBeenCalled()
   })
 
-  it("sets a refusal and logs the error when authorize() throws", async () => {
+  it("sets a refusal and logs the error when authorize() throws, also to the console", async () => {
+    // The console line also covers an app whose evlog excludes this path: its request logger never emits.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const log = requestLogger()
     const failure = new Error("The permissions table is not reachable.")
     const response = await server({ authorize: () => { throw failure } })("guides/welcome.md", { log })
@@ -87,6 +92,7 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     expect(response.status).toBe(500)
     expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 500 }])
     expect(log.error).toHaveBeenCalledWith(failure)
+    expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime refused a connection.", expect.objectContaining({ refused: "authorize", status: 500 }), failure)
   })
 
   it("logs a thrown authorize() to the console without evlog", async () => {
@@ -95,7 +101,7 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     const response = await server({ authorize: () => { throw failure } })("guides/welcome.md")
 
     expect(response.status).toBe(500)
-    expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime refused a connection.", failure)
+    expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime refused a connection.", { definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 500 }, failure)
   })
 
   it("hashes the room of a Definition without a document, whose id can be a token", async () => {
@@ -188,5 +194,71 @@ describe("Realtime log events after the upgrade", () => {
     await settle()
 
     expect(evlog.events).toHaveLength(0)
+  })
+})
+
+describe("Realtime log events: one per failure, and none lost", () => {
+  it("logs one close for a connection that keeps sending bad frames, and drops its frames", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(100)
+    const evlog = fakeEvlog()
+    const connect = server({ access: "public" }, { evlog: evlog.load })
+    const bad = (await connect("guides/welcome.md", { log: requestLogger() })).crossws!
+    const badPeer = peer()
+    bad.open(badPeer)
+    for (let index = 0; index < 50; index++) bad.message(badPeer, { uint8Array: () => new Uint8Array([0xFF]) })
+
+    const burst = (await connect("%40workspace?workspace=events", { log: requestLogger() })).crossws!
+    const burstPeer = peer()
+    burst.open(burstPeer)
+    for (let index = 0; index < 150; index++) {
+      burst.message(burstPeer, { uint8Array: () => encodeWorkspaceChange({ operation: "create", path: `${index}.md` }) })
+    }
+    await settle()
+
+    expect(badPeer.close).toHaveBeenCalledOnce()
+    expect(burstPeer.close).toHaveBeenCalledOnce()
+    expect(burstPeer.publish).toHaveBeenCalledTimes(100)
+    expect(evlog.events.map(event => (event.fields.realtime as { closed: number }).closed)).toEqual([4400, 4429])
+  })
+
+  it("prints an error to the console also when evlog has it, and a warning when evlog is off", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const evlog = fakeEvlog()
+    useRealtimeEvlog(evlog.load)
+    noteRealtimeRequest({ req: { context: { log: requestLogger() } } })
+    const failure = new Error("Redis is not reachable.")
+
+    logRealtime("error", "Realtime could not send a room message to the other instances.", { definition: "docs", failed: "bus-publish" }, failure)
+    await settle()
+    expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime could not send a room message to the other instances.", failure)
+    expect(evlog.events).toHaveLength(1)
+
+    evlog.enabled.value = false
+    logRealtime("warn", "Realtime could not save a room.", { definition: "docs", failed: "save" }, new Error("Store unavailable"))
+    await settle()
+    expect(consoleWarn).toHaveBeenCalledWith("[vitehub] Realtime could not save a room.", "Store unavailable")
+    expect(evlog.events).toHaveLength(1)
+  })
+
+  it("leaves a failed shared-record write of a request to the request's own log", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const evlog = fakeEvlog()
+    const network = createMemoryBusNetwork()
+    const bus = network.bus()
+    const { adapter } = createMemoryAdapter({ page: { body: "Start" } })
+    const app = createTestServer({ access: "public", document: adapter, editor: createStubEditor().editor, persistence: false }, { handler: { bus: () => bus, evlog: evlog.load } })
+    noteRealtimeRequest({ req: { context: { log: requestLogger() } } })
+    const client = await app.connect("page")
+    await settle()
+    vi.spyOn(bus, "writeRoom").mockRejectedValue(new Error("Record unavailable"))
+
+    appendParagraph(client.doc, "Saved")
+    await settle()
+    expect((await app.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })).status).toBe(500)
+    await settle()
+
+    expect(evlog.events).toEqual([])
+    expect(consoleError).not.toHaveBeenCalledWith("[vitehub] Realtime could not write the shared room record.", expect.anything())
   })
 })

@@ -820,6 +820,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
   const peerHeldUpdates = new WeakMap<WebSocketPeer, { bytes: number, timer: ReturnType<typeof setTimeout>, updates: Uint8Array[] }>()
   const terminalPeers = new WeakSet<WebSocketPeer>()
+  /** Peers that the server closed for a protocol error or a limit. Their later frames are dropped, and not logged again. */
+  const closingPeers = new WeakSet<WebSocketPeer>()
   function clearHeldUpdates(peer: WebSocketPeer): void {
     const held = peerHeldUpdates.get(peer)
     if (!held) return
@@ -1242,12 +1244,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (await bus.writeRoom(key, record, record.epoch)) return
-        // The loop retries it. After the last attempt, the room save reports it.
+        // The loop retries it. After the last attempt, the caller logs it: the request, or the save that runs on its own.
         throw realtimeErrorDiagnostics.REALTIME_ROOM_WRITE_CONFLICT()
       }
       catch (error) { failure = error }
     }
-    logRealtime("error", "Realtime could not write the shared room record.", { ...realtimeRoomFields(key, false), failed: "bus-record" }, failure)
     throw failure
   }
 
@@ -2121,8 +2122,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const log = requestLog(event)
     log?.set({ realtime: fields })
     if (!upgrade || status < 500) return
-    if (log) log.error(error instanceof Error ? error : String(error))
-    else logRealtime("error", "Realtime refused a connection.", fields, error)
+    log?.error(error instanceof Error ? error : String(error))
+    // Also without evlog, or when evlog excludes this path: its request logger then never emits.
+    console.error("[vitehub] Realtime refused a connection.", fields, error)
   }
 
   const httpHandler = defineEventHandler(async (event) => {
@@ -2176,6 +2178,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
     /** Closes a connection that broke the protocol or a limit, and logs it. */
     function closePeer(peer: WebSocketPeer, code: number, reason: string) {
+      if (closingPeers.has(peer)) return
+      closingPeers.add(peer)
       peer.close(code, reason)
       logRealtime("warn", reason, { ...fields, closed: code }, undefined, { console: false })
     }
@@ -2337,7 +2341,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           if (data.byteLength <= maxMessageBytes) settleRequest(peer, data)
           return
         }
-        if (!room.peers.has(peer)) return
+        // The peer stays in the room until its close event. Frames that arrive before it are dropped.
+        if (!room.peers.has(peer) || closingPeers.has(peer)) return
         // On Cloudflare the Durable Object answers the keepalive itself, so it reaches this hook only on other hosts.
         if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
           peer.send(realtimeKeepalivePong)

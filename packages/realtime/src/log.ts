@@ -7,6 +7,8 @@ export interface RealtimeEvlog {
     warn: (message: string) => void
     emit: () => unknown
   }
+  /** `false` when the app turned evlog off with `enabled: false`. */
+  isEnabled?: () => boolean
 }
 
 /** The `realtime` field of a log event or a wide event. A room of a `document: false` Definition is a hash. */
@@ -89,7 +91,9 @@ function errorText(error: unknown): string {
 
 /**
  * Logs one Realtime failure as its own evlog event, `{ action: "realtime", message, realtime: fields }`, when the app
- * registers evlog. Otherwise it prints to the console, unless `console` is false. It never throws: it also runs inside a
+ * registers evlog. Otherwise it prints to the console, unless `console` is false. An `error` also always prints to the
+ * console: evlog may be disabled or `silent`, and an evlog event made outside a request does not reach the
+ * `evlog:drain` hooks of Nitro. A `warn` prints when evlog is off. It never throws: it also runs inside a
  * Durable Object and in socket callbacks.
  */
 export function logRealtime(level: "warn" | "error", message: string, fields: RealtimeLogFields, error?: unknown, options: { console?: boolean } = {}): void {
@@ -103,14 +107,19 @@ export function logRealtime(level: "warn" | "error", message: string, fields: Re
     if (level === "error") console.error(text, ...error === undefined ? [] : [error])
     else console.warn(text, ...error === undefined ? [] : [errorText(error)])
   }
-  if (!evlogActive || !loadEvlog) return print()
+  if (level === "error") print()
+  if (!evlogActive || !loadEvlog) {
+    if (level === "warn") print()
+    return
+  }
+  const fallback = level === "warn" ? print : () => {}
   const load = loadEvlog
   evlog ??= load().catch(() => undefined)
   void evlog.then((module) => {
-    if (!module) return print()
+    if (!module || module.isEnabled?.() === false) return fallback()
     const log = module.createLogger({ action: "realtime", message, realtime: fields })
     if (level === "error") log.error(error instanceof Error ? error : error === undefined ? message : `${message} ${errorText(error)}`)
     else log.warn(error === undefined ? message : `${message} ${errorText(error)}`)
     log.emit()
-  }).catch(print)
+  }).catch(fallback)
 }
