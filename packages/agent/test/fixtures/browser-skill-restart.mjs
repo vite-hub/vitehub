@@ -4,7 +4,7 @@ import { browser } from "../../src/capabilities/browser.ts"
 
 const [root, skillContent] = process.argv.slice(2)
 const path = ".agents/skills/agent-browser/SKILL.md"
-const definition = { name: "browser-skill-restart", store: { provider: "local", root }, sources: {} }
+const definition = { name: "browser-skill-restart", store: { driver: "local", root }, sources: {} }
 const workspace = useWorkspace(definition.name, { definition, mode: "write" })
 const resolved = await resolveAgentCapabilities({
   capabilities: [browser({ runtime: "external", skillContent })],

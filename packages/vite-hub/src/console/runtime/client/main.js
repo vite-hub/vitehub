@@ -36,6 +36,7 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
+import { loadConsolePageTools } from "./page-tools";
 import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
 import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, isConsoleSectionRevoked, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
@@ -516,6 +517,9 @@ const app = createApp(App, { sectionsBase })
 // says that the Console is opening.
 if (openedAtOnce) await Promise.race([router.isReady().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 1_000))]);
 app.mount("#app");
+// The page tools, such as Comments on the Console's own pages, start after the mount, so their session check and code
+// do not delay the Console. The account page tells the server not to add them (hosted/account.html).
+if (account) void loadConsolePageTools(consoleBase, { search: window.location.search, cookie: document.cookie });
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
 if (window.parent !== window) {

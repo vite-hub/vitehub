@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
@@ -121,7 +120,10 @@ export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
 
 function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
   if (!pageTool) return "export default function viteHubConsolePlugin() {}"
-  const user = auth ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)` : ""
+  // Without Auth, Site access signs browsers in with its own cookie, which the page tools read too.
+  const user = auth
+    ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)`
+    : `, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request)`
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
@@ -143,8 +145,8 @@ function renderConsoleNitroPlugin(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  // With Auth, the page tools pill comes with Site access: the Console signs members and guests in to the app.
-  const sections = withConsoleDocumentEditorSections(pageTool && configuredSections.includes("auth") ? [...configuredSections, "site"] : configuredSections, catalog)
+  // The page tools pill comes with Site access: the Console signs members and guests in to the app.
+  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -233,15 +235,13 @@ function renderConsoleNitroPlugin(
   ].join("\n")
 }
 
-/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
-export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
-  const { file, projectRoot, active = () => true } = options
-  const identity = createConsoleInvocationsIdentity(projectRoot)
-  if (!active()) return identity
+/** Write the generated Console Nitro plugin. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
+  const { file, active = () => true } = options
+  if (!active()) return
   const contents = renderConsoleNitroPlugin(options)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
-  return identity
 }

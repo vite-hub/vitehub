@@ -23,7 +23,7 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
         materialize: "startup",
       }),
     },
-    store: store ?? { provider: "memory" },
+    store: store ?? { driver: "memory" },
   })
   return name
 }
@@ -258,7 +258,7 @@ describe("Workspace runtime preparation", () => {
           async getKeys() { return ["ready.md"] },
         }),
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     })
     setWorkspaceRegistry({
       [name]: async () => {
@@ -309,7 +309,7 @@ describe("Workspace runtime preparation", () => {
                 async getKeys() { return ["ready.md"] },
               }),
             },
-            store: { provider: "memory" },
+            store: { driver: "memory" },
           },
         }
       },
@@ -359,7 +359,7 @@ describe("Workspace runtime preparation", () => {
     })
     registerWorkspace(name, {
       loaders: [{ name: "shared-loader", load }],
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     const firstRead = useWorkspace(name).fs.readFile("ready.md", { encoding: "utf8" })
@@ -399,7 +399,7 @@ describe("Workspace runtime preparation", () => {
           materialize: "startup",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     const workspace = useWorkspace(name, { mode: "write" })
     const abort = new AbortController()
@@ -443,7 +443,7 @@ describe("Workspace runtime preparation", () => {
           async getKeys() { return ["ready.md"] },
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     const preparation = createWorkspacePreparation({ workspace: name })
 

@@ -73,6 +73,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
+      why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
+      fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
+    },
+    VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE: {
+      why: "`staleIfError` returns the stored value, but with `serialize` the stored value is the serialized form, and ocache would serialize it again.",
+      fix: "Remove `serialize`, or remove `staleIfError` and catch the error where you call the cached function.",
+    },
     VITE_HUB_CACHE_TAG_INVALID: {
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
@@ -151,7 +159,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0141: {
       ...dynamicError,
-      fix: "Remove `queue.provider` from `vitehub()`, or set `host: \"node\"`.",
+      fix: "Remove `queue.driver` from `vitehub()`, or set `host: \"node\"`.",
     },
     VITE_HUB_R0142: {
       ...dynamicError,
@@ -163,7 +171,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0144: {
       ...dynamicError,
-      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+      fix: "Remove `rateLimit.driver` to use the driver of the host, or use the `node` host to count in KV.",
     },
     VITE_HUB_R0116: {
       ...dynamicError,
@@ -299,7 +307,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0004: {
       ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel-runtime-cache\".",
+      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,
@@ -583,9 +591,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] --timeout must be a positive number of milliseconds.",
       fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
     },
-    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+    VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+      fix: "Use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
     VITE_HUB_SECURITY_HEADER_INVALID: {
       why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,
@@ -594,6 +602,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_SECURITY_MAX_BODY_SIZE_INVALID: {
       why: ({ value }: { value: string }) => `\`security.maxBodySize\` is ${value}, which is not a size.`,
       fix: "Set `security.maxBodySize` to a whole number of bytes greater than 0, or to a size such as `\"500kb\"`, `\"1mb\"`, or `\"2gb\"`.",
+    },
+    VITE_HUB_SETUP_BODY_TOO_LARGE: {
+      why: ({ limit }: { limit: number }) => `The request body is too large. The dev Setup endpoints accept at most ${limit} bytes.`,
+      fix: "Send one Setup plan or apply request at a time, with only the fields that `vitehub add` and `vitehub remove` take.",
     },
     VITE_HUB_TEST_MODULE_NOT_LOADED: {
       why: ({ id }: { id: string }) => `The Vite server of vite-hub/test resolved "${id}", but no plugin loads it.`,

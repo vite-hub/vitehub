@@ -17,7 +17,7 @@ Use a Workflow when the application needs a run id, durable state, retries, canc
 pnpm add @vite-hub/workflow
 ```
 
-Then install the dependency required by the selected provider:
+Then install the dependency required by the selected driver:
 
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -27,7 +27,7 @@ Then install the dependency required by the selected provider:
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
 
-On Node and Docker, ViteHub selects OpenWorkflow when `provider` is not set, also in `vite dev` with the `node` host. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` selects Postgres. Then, when the app has a Postgres Default Database, OpenWorkflow uses its connection URL (`getPostgresConnectionUrl()` from `@vite-hub/database`). A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. If it contains a `postgres://` or `postgresql://` URL and storage would otherwise fall back to SQLite, resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED`. Before upgrading, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to that same URL, or add a Postgres Default Database pointing to the existing database. Keep the same schema and namespace to retain queued and sleeping runs. Select `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH` to choose local storage intentionally. Other `DATABASE_URL` schemes do not trigger the error. `vite dev` keeps runs in the local SQLite file unless `workflow.remote` is `true`, so a dev server never runs the runs of a shared database. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`, and the server logs at boot that other instances do not see those runs.
+On Node and Docker, ViteHub selects OpenWorkflow when `driver` is not set, also in `vite dev` with the `node` host. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` selects Postgres. Then, when the app has a Postgres Default Database, OpenWorkflow uses its connection URL (`getPostgresConnectionUrl()` from `@vite-hub/database`). A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. If it contains a `postgres://` or `postgresql://` URL and storage would otherwise fall back to SQLite, resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED`. Before upgrading, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to that same URL, or add a Postgres Default Database pointing to the existing database. Keep the same schema and namespace to retain queued and sleeping runs. Select `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH` to choose local storage intentionally. Other `DATABASE_URL` schemes do not trigger the error. `vite dev` keeps runs in the local SQLite file unless `workflow.remote` is `true`, so a dev server never runs the runs of a shared database. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`, and the server logs at boot that other instances do not see those runs.
 
 The former `workflow.database` option was never connected to Named Databases. It now rejects instead of silently selecting fallback storage. Replace it with `workflow.sqlite.path` or `workflow.postgres.url`.
 
@@ -82,7 +82,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 
 The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
-## Configure the provider
+## Configure the driver
 
 ```ts fragment
 // server/workflow-runtime.ts
@@ -100,7 +100,7 @@ const postgresUrl = {
 } as const;
 
 export const workflowConfig = {
-  provider: "openworkflow",
+  driver: "openworkflow",
   postgres: { url: postgresUrl },
 } satisfies ResolvedWorkflowOptions;
 
@@ -139,9 +139,9 @@ export default defineConfig({
 });
 ```
 
-`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the provider config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
+`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the driver config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one driver config. The runtime installer also registers the same definitions in both processes. Set `driver` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit driver or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a driver.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 

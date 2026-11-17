@@ -69,7 +69,7 @@ Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your
 import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },

@@ -1,14 +1,14 @@
 import type { Result } from "@vite-hub/runtime"
 import type { GetItemType, GetItemTypeMap } from "unstorage"
 
-export type KVDriver = "cloudflare-kv-binding" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
+export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
 
 /**
  * The atomic operations of each driver. A store returns `KV_UNSUPPORTED_OPERATION` for an atomic operation that its
  * driver does not list. `get`, `set`, `del`, `has`, `keys`, `list`, and `clear` work on every driver.
  */
 export interface KVDriverAtomicOperations {
-  "cloudflare-kv-binding": never
+  "cloudflare": never
   "database": "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
   "deno-kv": "setIfAbsent"
   "fs-lite": "setIfAbsent"
@@ -25,7 +25,7 @@ export type KVDriversWith<TOperation extends KVAtomicOperation> = {
 export type KVAtomicOperation = "deleteIfEquals" | "getAndDelete" | "increment" | "setIfAbsent"
 
 export interface CloudflareKVStoreConfig {
-  driver: "cloudflare-kv-binding"
+  driver: "cloudflare"
   binding?: string
   /**
    * In `vite dev`, use the real namespace: ViteHub writes `remote: true` on the Wrangler binding and does not fall back

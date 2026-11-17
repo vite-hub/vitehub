@@ -120,7 +120,7 @@ export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult }
 export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
-export type { ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
+export type { ContentPreviewAppConfig, ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentPreviewRoutesPluginOptions, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
