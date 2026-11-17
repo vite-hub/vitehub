@@ -67,7 +67,6 @@ Resources: the Worker `vitehub-docs-demo`, the D1 databases `vitehub-docs-demo-u
 Workarounds in the app, with the finding behind each:
 
 - `console.authorize` is an absolute path in `nuxt.config.ts`: with an `app/` folder, ViteHub resolves a relative path from `app/`. Fixed by [vite-hub/vitehub#3292](https://github.com/vite-hub/vitehub/pull/3292); the absolute path keeps working after it.
-- `routeRules` with `swr: 60` cache text, not a `Response`, so the RSS routes return a string and set the content type.
 - `nitro.cloudflare.wrangler.assets.run_worker_first` for the docs pages and `/api/_docs/*`: without it the static prerendered pages answer first, so the Console preview pane stays blank and `Accept: text/markdown` gets HTML.
 - `linkChecker.excludeLinks`: the Worker renders `/blog`, `/changelog`, `/_vitehub`, and `/media/` at request time, so the build output has no file for them.
 - `h3` in `dependencies`: the Workflow Worker bundle of the Agent resolves `h3` from the generated `.nuxt` folder, where pnpm does not hoist it.

@@ -28,7 +28,7 @@ import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasR
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { assertDatabaseOptionsDriver, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
@@ -636,10 +636,12 @@ function resolveDatabaseNuxtOptions(
   if (options === false || inlineOptions === false) {
     return false
   }
-  return {
+  const resolved = {
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
+  assertDatabaseOptionsDriver(resolved)
+  return resolved
 }
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DatabaseOptions | undefined {

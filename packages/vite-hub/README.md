@@ -164,6 +164,8 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ security: { headers: true } })` adds `Strict-Transport-Security` (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each response that does not set them itself, and to static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. An object changes, adds, or removes (`false`) one header. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
 
+A tab that is open during a deploy asks for files of the old build when it loads a lazy page or component. `vitehub()` and `vite-hub/nuxt` reload the page once when such a file is missing, and not again within 10 seconds. Call `preventDefault()` on the `vite:preloadError` event to handle it yourself. See [Open tabs after a deploy](https://vitehub.dev/docs/frameworks-hosts/production#open-tabs-after-a-deploy).
+
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks

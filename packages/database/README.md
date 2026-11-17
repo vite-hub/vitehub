@@ -65,6 +65,13 @@ for (const chunk of chunkParameters(ids, { reserved: 1 })) {
 }
 ```
 
+`withIdempotency(key, fn, { ttl, timeout, database })` from `@vite-hub/database` runs `fn` once for each key, such as a webhook delivery id or a queue message id, on every instance of the app. A repeat gets the stored JSON result without running `fn`, and a repeat while the first call runs gets `DATABASE_IDEMPOTENCY_IN_PROGRESS` in the `[error, data]` tuple. When `fn` throws, the key is free again. The keys live in the table `vitehub_idempotency_keys` of the Database, which the first call creates.
+
+```ts fragment
+const [error] = await withIdempotency(`rsvp-confirmation:${rsvpId}`, () => sendConfirmation(rsvpId))
+if (error) return // Another delivery of this job is sending the mail.
+```
+
 ## Vite Integration
 
 Database instances expose Drizzle's `batch()` method on D1, D1 HTTP, and libSQL.
@@ -156,6 +163,8 @@ A self-hosted Node build applies migrations itself when the server starts. The b
 On Postgres, the transaction first takes the advisory lock `pg_advisory_xact_lock(hashtext('vitehub:migrations'))` and keeps it until the commit. Several instances can start together: one migrates, and the others wait, then find nothing pending. `vitehub database migrate` applies Postgres migrations with the same migrator and lock, not with Drizzle Kit. A Postgres Database on PGlite has no server to lock, so Drizzle Kit applies its migrations. Definitions on one Postgres database, as the server reports it (`current_database()` and the server start time in Unix seconds, the same for every session), share its ledger and migrate in one transaction.
 
 With `migrateOnStart: true`, another host, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a SQLite file or a Postgres database must not have one folder name with different SQL; otherwise startup refuses all changes with that error. SQLite has no lock across processes: run one server process per database file.
+
+The runtime opens a local `file:` database with a busy timeout of 5 seconds. When another process holds the SQLite lock, a statement waits for it and does not fail at once with `SQLITE_BUSY`. Without that wait, `@libsql/client` 0.18 can lose writes that it reported as done. The wait blocks the server thread, because the native client is synchronous, so keep writes on a shared file short.
 
 A Cloudflare Worker cannot migrate D1 when it starts. With `migrateOnDeploy: true`, a Cloudflare build puts `npx wrangler d1 migrations apply <binding> --remote --config <wrangler.json> && ` before the deploy command in `nitro.json`, once for each D1 binding whose migrations it copies into the server output. `nitro deploy --prebuilt`, Workers Builds, and `vitehub deploy` then apply the pending migrations with Wrangler's ledger before `wrangler deploy`, and a failed migration stops the deploy. `vitehub deploy --preview` and `--temporary` apply none. Another host, D1 over HTTP, and Postgres fail the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`.
 
@@ -305,7 +314,7 @@ export default defineNuxtConfig({
 })
 ```
 
-Run `vitehub provision run --host cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
+`driver` takes only `"cloudflare"`; any other value, such as the former `"d1"`, fails with `DATABASE_UNKNOWN_DRIVER`. Run `vitehub provision run --host cloudflare` once to create or resolve the database and write its non-secret id to `.vitehub/provision.json`. `vite-hub/nuxt` reads that state, configures Nuxt Content, merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`, and stages discovered migrations. Set `databaseId` explicitly when the build cannot access provision state; a complete matching binding already present in Nitro Wrangler config is also preserved.
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `vitehub.database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
 

@@ -143,6 +143,30 @@ For external effects, use the service's idempotency support. A welcome-email job
 
 Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/runtime/context#background-work-and-cleanup). A promise started after the response is not durable work.
 
+## Open tabs after a deploy
+
+A tab that is open during a deploy still runs the old build. When it loads a lazy page, a lazy component, or an `import()`, it asks for a file of the old build. The host no longer has that file, so the load fails.
+
+ViteHub reloads the page once when this happens, so the tab gets the new build. There is nothing to configure:
+
+- In Nuxt, the page reloads at its current address, like Nuxt's own reload when a page fails to load during a navigation. It also reloads for a missing stylesheet, which Nuxt otherwise skips. With `experimental.restoreState`, it keeps the `useState()` values.
+- In a Vite app, ViteHub adds a small inline script to the built `index.html`. A Content Security Policy without `'unsafe-inline'` blocks it.
+- When a file is also missing from the new build, the page does not reload again within 10 seconds, so it cannot loop.
+
+To handle the failure yourself, for example to keep a page with unsaved changes, call `preventDefault()` on Vite's `vite:preloadError` event:
+
+```ts [app/plugins/unsaved-changes.client.ts]
+import { defineNuxtPlugin } from 'nuxt/app'
+
+export default defineNuxtPlugin(() => {
+  window.addEventListener('vite:preloadError', (event) => {
+    if (document.querySelector('form[data-unsaved]')) event.preventDefault()
+  })
+})
+```
+
+In Nuxt, ViteHub does nothing when `experimental.emitRouteChunkError` is `'automatic-immediate'`, `'manual'`, or `false`: Nuxt reloads on each failure, or your app does.
+
 ## Exercise the deployed application
 
 Run your tests and production build, then deploy to a separate environment with the real provider configuration. The [verification guide](/docs/development/verification) checks generated output and provider execution.

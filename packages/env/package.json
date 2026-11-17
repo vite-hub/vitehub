@@ -136,9 +136,6 @@
     },
     "@vite-hub/agent": {
       "optional": true
-    },
-    "nitro": {
-      "optional": true
     }
   },
   "engines": {
