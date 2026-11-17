@@ -67,6 +67,11 @@
       "import": "./dist/internal/public-url.js",
       "default": "./dist/internal/public-url.js"
     },
+    "./internal/run-scope": {
+      "types": "./dist/internal/run-scope.d.ts",
+      "import": "./dist/internal/run-scope.js",
+      "default": "./dist/internal/run-scope.js"
+    },
     "./internal/runtime-type": {
       "types": "./dist/internal/runtime-type.d.ts",
       "import": "./dist/internal/runtime-type.js",
