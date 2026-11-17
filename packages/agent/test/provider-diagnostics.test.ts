@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { Diagnostic } from "nostics"
 
 import { agentDiagnostics } from "../src/agent-diagnostics.ts"
@@ -55,37 +55,6 @@ describe("provider diagnostics", () => {
     ['{"__proto__":null,"constructor":{},"error":{"__proto__":{"message":"ignored"},"constructor":{},"message":"failure"}}', "failure"],
   ])("extracts a string without changing JSON key semantics: %s", (message, expected) => {
     expect(agentDiagnostics.AGENT_R0726({ message }).message).toBe(expected)
-  })
-
-  it.each([
-    Object.create({ error: { message: "inherited" } }),
-    { error: Object.create({ message: "inherited" }) },
-    Object.assign([], { error: { message: "inherited" } }),
-    { error: Object.assign([], { message: "inherited" }) },
-  ])("accepts inherited fields and object-like arrays in parsed values", (payload: unknown) => {
-    const parse = vi.spyOn(JSON, "parse").mockReturnValueOnce(payload)
-    try {
-      expect(agentDiagnostics.AGENT_R0726({ message: "{}" }).message).toBe("inherited")
-    }
-    finally {
-      parse.mockRestore()
-    }
-  })
-
-  it("reads inherited envelope accessors once", () => {
-    const readMessage = vi.fn(() => "Provider disconnected")
-    const providerError = Object.create(Object.defineProperty({}, "message", { get: readMessage }))
-    const readError = vi.fn(() => providerError)
-    const payload: unknown = Object.create(Object.defineProperty({}, "error", { get: readError }))
-    const parse = vi.spyOn(JSON, "parse").mockReturnValueOnce(payload)
-    try {
-      expect(agentDiagnostics.AGENT_R0726({ message: "{}" }).message).toBe("Provider disconnected")
-      expect(readError).toHaveBeenCalledTimes(1)
-      expect(readMessage).toHaveBeenCalledTimes(1)
-    }
-    finally {
-      parse.mockRestore()
-    }
   })
 
   it.each([

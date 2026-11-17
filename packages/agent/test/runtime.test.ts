@@ -4617,6 +4617,7 @@ describe("agent message protocol", () => {
   it("runs delivery effects when outbound custody evidence cannot be written", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { channelAdapter } = await import("../src/channels.ts")
+    const { withAgentChannelDelivery } = await import("../src/internal/channel-delivery.ts")
     const delivered = vi.fn()
     const event = vi.fn(async (input: { type: string }) => {
       if (input.type === "outbound.started") throw new Error("journal unavailable")
@@ -4647,18 +4648,12 @@ describe("agent message protocol", () => {
       },
       driver: { run: () => "ok" },
     })
-    const runtime = {
-      [Symbol.for("vitehub.agent.channel-delivery")]: {
-        claimed: true,
-        delivery: { id: "delivery-1" },
-        duplicate: false,
-        event,
-      },
+    const runtime = withAgentChannelDelivery({
       memo: vi.fn(),
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       runtime: "unknown" as const,
       waitUntil: vi.fn(),
-    }
+    // SAFETY: This test fixture implements only the tracker members the delivery effect reads.
+    }, { claimed: true, delivery: { id: "delivery-1" }, duplicate: false, event } as never)
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(runAgentTrigger(agent, runtime as never, "portal.message", {})).resolves.toBe("ok")
