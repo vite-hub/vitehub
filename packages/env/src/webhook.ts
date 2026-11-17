@@ -80,11 +80,9 @@ function verifySignature(options: VerifyWebhookOptions, secret: string, header: 
 }
 
 // GitHub signs the raw form body and puts the JSON in its `payload` field when the webhook content type is form.
-function readJson(options: VerifyWebhookOptions, headers: Headers, text: string): string {
+function webhookJson(options: VerifyWebhookOptions, headers: Headers, text: string): string | null {
   if (options.provider !== "github" || !headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return text
-  const payload = new URLSearchParams(text).get("payload")
-  if (payload === null) throw new SyntaxError("The form body has no `payload` field.")
-  return payload
+  return new URLSearchParams(text).get("payload")
 }
 
 /**
@@ -119,8 +117,11 @@ export async function verifyWebhook<TBody = unknown>(event: RequestEvent, option
   let valid = false
   for (const secret of secrets) valid = await verifySignature(options, secret, header, body) || valid
   if (!valid) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]
+  const json = webhookJson(options, request.headers, new TextDecoder().decode(body))
+  if (json === null) return [webhookErrors.ENV_WEBHOOK_BODY_INVALID(), undefined]
   try {
-    return [undefined, JSON.parse(readJson(options, request.headers, new TextDecoder().decode(body))) as TBody]
+    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The signature proves the provider sent this body; the caller names its shape with TBody.
+    return [undefined, JSON.parse(json) as TBody]
   }
   catch (cause) {
     return [webhookErrors.ENV_WEBHOOK_BODY_INVALID({ cause }), undefined]
