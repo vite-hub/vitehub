@@ -206,7 +206,7 @@ export default defineConfig({
 :::
 ::
 
-The `deno` host does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
+On the `deno` host, the same `schedule: true` registers each Schedule with `Deno.cron`. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 
