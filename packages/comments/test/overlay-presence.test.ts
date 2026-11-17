@@ -6,13 +6,17 @@ import { commentsButton, pageTools, serveComments, startOverlay } from "./overla
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 
 /** The people in the page's presence room, one entry per tab, as `room.people()` lists them. */
-const room = vi.hoisted(() => ({ people: [] as { id: string, name: string, color: string, clientId: number }[], update: () => {} }))
+const room = vi.hoisted(() => ({ people: [] as { id: string, name: string, color: string, clientId: number }[], update: undefined as (() => void) | undefined }))
 
 vi.mock("@vite-hub/realtime/client", () => ({
   connectRealtimeRoom: vi.fn(() => ({
     states: () => new Map(),
     people: () => room.people,
-    onUpdate: (listener: () => void) => (room.update = listener),
+    onUpdate: (listener: () => void) => {
+      room.update = listener
+      // The room says who is there once it connects.
+      queueMicrotask(listener)
+    },
     onChange: vi.fn(),
     notify: vi.fn(),
     setLocal: vi.fn(),
@@ -23,6 +27,7 @@ vi.mock("@vite-hub/realtime/client", () => ({
 const ada = { id: "ada", name: "Ada Lovelace" }
 
 beforeEach(() => {
+  room.update = undefined
   localStorage.clear()
   history.replaceState(null, "", "/pricing")
   document.body.innerHTML = "<main><h1>Pricing</h1></main>"
@@ -47,7 +52,7 @@ async function signedIn(handler: Partial<Omit<CommentsHandlerOptions, "comments"
   const tools = pageTools()
   await startOverlay(tools)
   await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
-  room.update()
+  await vi.waitFor(() => expect(room.update).toBeDefined())
   return tools.bar
 }
 
@@ -70,7 +75,7 @@ describe("the toolbar's faces", () => {
 
   it("stay out of the toolbar with `presence: false`", async () => {
     const bar = await signedIn({ presence: false })
-    room.update()
+    room.update!()
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(faces(bar)).toBeNull()
   })
