@@ -1776,6 +1776,34 @@ describe("visibility", () => {
     expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: true }]);
   });
 
+  it("keeps the time stopped while the pin still has the pointer or the focus", async () => {
+    const { client, wrapper } = await hiddenLayer([]);
+    await drop(wrapper);
+    await textarea(wrapper).setValue("New one");
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    const shown = [{ label: expect.stringContaining(`Comment ${client.threads[0]!.n}`), leaving: false }];
+    const pin = () => wrapper.get("[data-slot=comment-pin]");
+
+    await pin().trigger("pointerenter");
+    await pin().trigger("focus");
+    await pin().trigger("pointerleave");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+
+    await pin().trigger("pointerenter");
+    await pin().trigger("blur");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+
+    await pin().trigger("pointerleave");
+    vi.advanceTimersByTime(2500);
+    await flushPromises();
+    expect(pins(wrapper).map(entry => entry.leaving)).toEqual([true]);
+  });
+
   it("shows only the open thread, such as one opened from the list, and pops it out when it closes", async () => {
     const { state, wrapper } = await hiddenLayer([thread(1), thread(2)]);
     state.open("thread-2");
