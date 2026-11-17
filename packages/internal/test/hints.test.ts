@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -34,6 +34,19 @@ describe("ViteHub hints", () => {
     startViteHubHints(resolved)
     expect(viteHubHintsPlugin().name).toBe("vite-hub/hints")
     expect(await read(resolved.root)).toMatchObject({ version: 1, command: "build", hints: [] })
+  })
+
+  it("writes the report at the project root when the Vite root is the app/ folder of a Nuxt app", async () => {
+    const project = await mkdtemp(join(tmpdir(), "vitehub-hints-"))
+    roots.push(project)
+    await mkdir(join(project, "app"))
+    await writeFile(join(project, "package.json"), "{}")
+    await writeFile(join(project, "nuxt.config.ts"), "export default {}\n")
+    const resolved = { root: join(project, "app"), command: "build" as const, logger: { warn: vi.fn() } }
+    startViteHubHints(resolved)
+    reportViteHubHint(resolved, diagnostics.DEMO_B0001())
+    expect((await read(project)).hints).toMatchObject([{ code: "DEMO_B0001" }])
+    await expect(access(join(project, "app/.vitehub"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("prints each hint once with its fix and docs, and lists it in the report", async () => {
